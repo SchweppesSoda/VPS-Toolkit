@@ -1,0 +1,32 @@
+# Runtime secrets and generated state
+*.token
+*.key
+*.pem
+*.p12
+*.pfx
+*.env
+*.log
+*.bak
+*.old
+*.tmp
+*.swp
+
+# Generated archives and databases
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.ipdb
+
+# Local configuration and exports
+targets.tsv
+stats.tsv
+resource-stats.tsv
+exports/
+backups/
+
+# Editors and operating systems
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

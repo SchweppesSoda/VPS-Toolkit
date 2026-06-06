@@ -1,0 +1,1043 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Argosbx Argo 节点批量替换器 · BestCF Edition v2</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel-2: #1c2128;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #ff7b00;
+    --accent-2: #58a6ff;
+    --green: #3fb950;
+    --red: #f85149;
+    --yellow: #d29922;
+    --mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+    --sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1000px 600px at 80% -10%, rgba(255,123,0,0.08), transparent 60%),
+      radial-gradient(800px 500px at -10% 100%, rgba(88,166,255,0.06), transparent 60%),
+      var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    padding: 32px 24px 80px;
+  }
+  .wrap { max-width: 1280px; margin: 0 auto; }
+  header {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 20px;
+    margin-bottom: 28px;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  h1 {
+    font-family: var(--mono);
+    font-size: 22px;
+    margin: 0;
+    letter-spacing: -0.02em;
+  }
+  h1 .accent { color: var(--accent); }
+  h1::before { content: '$ '; color: var(--muted); }
+  .sub { color: var(--muted); font-size: 13px; font-family: var(--mono); }
+  .sub a { color: var(--accent-2); text-decoration: none; }
+  .sub a:hover { text-decoration: underline; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 20px;
+  }
+  @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 18px;
+  }
+  .panel h2 {
+    font-family: var(--mono);
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin: 0 0 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .panel h2 .tag {
+    background: var(--accent);
+    color: #000;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-weight: 700;
+  }
+  .panel h2 .tag.tls { background: var(--green); }
+  .panel h2 .tag.plain { background: var(--accent-2); }
+
+  textarea, input, select {
+    width: 100%;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  textarea { min-height: 110px; line-height: 1.5; resize: vertical; }
+  textarea:focus, input:focus, select:focus { outline: none; border-color: var(--accent); }
+  select {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%238b949e' d='M6 8L0 0h12z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 32px;
+    cursor: pointer;
+  }
+
+  .row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .row .field label {
+    display: block;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  @media (max-width: 700px) { .row { grid-template-columns: 1fr; } }
+
+  .ports-help {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 6px;
+    line-height: 1.5;
+  }
+  .ports-help code {
+    color: var(--accent);
+    background: var(--panel-2);
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+
+  .source-panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 18px;
+    margin-bottom: 20px;
+  }
+  .source-row {
+    display: grid;
+    grid-template-columns: minmax(220px, 1fr) auto auto auto;
+    gap: 10px;
+    align-items: stretch;
+    margin-bottom: 10px;
+  }
+  @media (max-width: 700px) {
+    .source-row { grid-template-columns: 1fr 1fr; }
+  }
+
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+  .chip {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 3px 8px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.1s;
+  }
+  .chip:hover { border-color: var(--accent); color: var(--accent); }
+
+  .controls {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin: 24px 0;
+    flex-wrap: wrap;
+  }
+  button {
+    background: var(--accent);
+    color: #000;
+    border: none;
+    padding: 11px 22px;
+    border-radius: 6px;
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: transform 0.08s, background 0.15s;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+  }
+  button:hover { background: #ff9433; transform: translateY(-1px); }
+  button:active { transform: translateY(0); }
+  button:disabled { opacity: 0.5; cursor: wait; transform: none; }
+  button.secondary {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  button.secondary:hover {
+    background: var(--panel-2);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  button.small {
+    padding: 8px 14px;
+    font-size: 11px;
+  }
+
+  .stat {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    flex: 1;
+    min-width: 200px;
+  }
+  .stat strong { color: var(--green); font-weight: 600; }
+  .stat .err { color: var(--red); }
+  .stat .warn { color: var(--yellow); }
+  .stat .ok { color: var(--green); }
+
+  .output-panel { margin-top: 24px; }
+  .output-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+  .output-head h2 {
+    font-family: var(--mono);
+    font-size: 14px;
+    margin: 0;
+    color: var(--text);
+  }
+  .output-head h2::before { content: '> '; color: var(--accent); }
+
+  #output {
+    background: #010409;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px;
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 1.6;
+    color: #c9d1d9;
+    max-height: 500px;
+    overflow: auto;
+    white-space: pre;
+    word-break: break-all;
+  }
+  #output:empty::before {
+    content: '// output will appear here. press GENERATE.';
+    color: var(--muted);
+    font-style: italic;
+  }
+
+  details {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 20px;
+    font-size: 13px;
+  }
+  details summary {
+    font-family: var(--mono);
+    color: var(--accent-2);
+    cursor: pointer;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  details ul { padding-left: 20px; line-height: 1.7; color: var(--muted); }
+  details code {
+    background: var(--panel-2);
+    color: var(--accent);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 11px;
+  }
+
+  .spinner {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    vertical-align: middle;
+    margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .meta-line {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--border);
+  }
+  .meta-line .ok { color: var(--green); }
+  .meta-line .err { color: var(--red); }
+
+  /* === Port grid === */
+  .port-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-bottom: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px dashed var(--border);
+  }
+  .port-act {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 12px;
+    font-family: var(--mono);
+    font-size: 11px;
+    border-radius: 4px;
+    cursor: pointer;
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 500;
+    transition: all 0.1s;
+  }
+  .port-act:hover { border-color: var(--accent); color: var(--accent); background: var(--panel-2); transform: none; }
+  .rand-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding-left: 8px;
+    border-left: 1px solid var(--border);
+    margin-left: 4px;
+  }
+  .rand-input {
+    width: 56px;
+    padding: 6px 8px;
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 11px;
+  }
+  .rand-input::-webkit-inner-spin-button { opacity: 0.5; }
+  .rand-label { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .port-presets {
+    margin-left: auto;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  .port-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .port-cell {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 10px 6px;
+    font-family: var(--mono);
+    font-size: 13px;
+    text-align: center;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.12s;
+    user-select: none;
+    position: relative;
+  }
+  .port-cell:hover {
+    border-color: var(--border-hi, #484f58);
+    color: var(--text);
+  }
+  .port-cell.selected {
+    background: rgba(255, 123, 0, 0.12);
+    border-color: var(--accent);
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .port-cell.selected::after {
+    content: '✓';
+    position: absolute;
+    top: 2px;
+    right: 4px;
+    font-size: 9px;
+    opacity: 0.7;
+  }
+  .port-cell.custom {
+    border-style: dashed;
+  }
+  .port-cell.custom::before {
+    content: 'custom';
+    position: absolute;
+    top: -7px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 8px;
+    background: var(--panel);
+    color: var(--muted);
+    padding: 0 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .port-extra {
+    margin-top: 8px;
+  }
+  .port-extra input {
+    font-size: 11px;
+    padding: 8px 12px;
+  }
+  .port-count {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: normal;
+  }
+  .port-count.has-selection { color: var(--accent); }
+  /* flash on bulk action */
+  @keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.06); }
+    100% { transform: scale(1); }
+  }
+  .port-cell.pulse { animation: pulse 0.3s ease; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>argosbx_argo_batch<span class="accent">.html</span> <span style="font-size:13px;color:var(--muted)">v2</span></h1>
+    <div class="sub">
+      源：<a href="https://github.com/DustinWin/BestCF/releases/tag/bestcf" target="_blank">DustinWin/BestCF</a>
+      · 每 12h 更新
+    </div>
+  </header>
+
+  <details>
+    <summary>使用说明</summary>
+    <ul>
+      <li><b>第一步</b>：粘贴你的 443 模板和 80 模板（也可点 "Load demo" 看格式）。</li>
+      <li><b>第二步</b>：在「优选清单源」选要拉的文件 → 点 <code>FETCH</code>，自动从 GitHub 拉最新清单。如果代理拉不动，用 <code>UPLOAD .txt</code> 上传你下载好的文件，或直接粘贴。</li>
+      <li><b>第三步</b>：端口快速预设按钮一键填，或自己输。前缀决定节点名格式：<code>前缀-host-port</code>。</li>
+      <li><b>第四步</b>：<code>GENERATE</code> → Copy / Download。</li>
+      <li>替换逻辑：只动模板 <code>@host:port</code> 这一段和末尾 <code>#name</code>，UUID/encryption/host=/path=/sni= 等参数原样保留。</li>
+    </ul>
+  </details>
+
+  <div class="grid">
+    <div class="panel">
+      <h2 style="justify-content:space-between">
+        <span><span class="tag tls">443</span> Vless-ws-tls-argo 模板（TLS）</span>
+        <button class="secondary small" onclick="cleanTemplate('tpl443')" title="只保留 vless:// 开头的行，去掉标题/emoji/空行">🧹 清洗</button>
+      </h2>
+      <textarea id="tpl443" placeholder="vless://...@cdn.example.com:443?encryption=...&security=tls&...#vless-ws-tls-argo-..."></textarea>
+      <div class="ports-help" id="tpl443Status">&nbsp;</div>
+    </div>
+    <div class="panel">
+      <h2 style="justify-content:space-between">
+        <span><span class="tag plain">80</span> Vless-ws-argo 模板（明文）</span>
+        <button class="secondary small" onclick="cleanTemplate('tpl80')" title="只保留 vless:// 开头的行，去掉标题/emoji/空行">🧹 清洗</button>
+      </h2>
+      <textarea id="tpl80" placeholder="vless://...@cdn.example.com:80?encryption=...&security=none&...#vless-ws-argo-..."></textarea>
+      <div class="ports-help" id="tpl80Status">&nbsp;</div>
+    </div>
+  </div>
+
+  <div class="source-panel">
+    <h2 style="font-family:var(--mono);font-size:13px;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin:0 0 12px">
+      优选清单源
+    </h2>
+    <div class="source-row">
+      <select id="releaseFile">
+        <optgroup label="域名清单（CNAME）">
+          <option value="bestcf-domain.txt" selected>bestcf-domain.txt — CF 优选域名（CMLiu+VPS789+微测网）</option>
+        </optgroup>
+        <optgroup label="IP 清单">
+          <option value="bestcf-ip.txt">bestcf-ip.txt — CF 通用优选 IP</option>
+          <option value="cmcc-ip.txt">cmcc-ip.txt — 移动优选 IP</option>
+          <option value="cucc-ip.txt">cucc-ip.txt — 联通优选 IP</option>
+          <option value="ctcc-ip.txt">ctcc-ip.txt — 电信优选 IP</option>
+          <option value="proxy-ip.txt">proxy-ip.txt — 反代 IP</option>
+        </optgroup>
+      </select>
+      <button onclick="fetchList()" id="fetchBtn">⬇ Fetch from GitHub</button>
+      <button class="secondary" onclick="document.getElementById('upload').click()">📁 Upload .txt</button>
+      <button class="secondary" onclick="$('hosts').value='';updateHostCount();$('meta').innerHTML='<span style=&quot;color:var(--muted)&quot;>已清空</span>'">Clear</button>
+      <input type="file" id="upload" accept=".txt" style="display:none" onchange="handleUpload(event)">
+    </div>
+    <textarea id="hosts" rows="6" placeholder="点 Fetch 自动拉取，或粘贴主机清单（一行一个）&#10;支持 'host' 或 'host:port' 格式"></textarea>
+    <div class="meta-line">
+      <span id="hostCount">0 个主机</span>
+      <span id="meta" style="margin-left:12px"></span>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-bottom:20px">
+    <h2>主机过滤</h2>
+    <select id="hostFilter">
+      <option value="all" selected>全部主机（IPv4 + IPv6 + 域名）</option>
+      <option value="v4only">仅 IPv4 + 域名</option>
+      <option value="v6only">仅 IPv6</option>
+      <option value="domainonly">仅域名（含字母）</option>
+    </select>
+    <div class="ports-help">用 IP 清单时常用：v6 单独跑或排除掉</div>
+  </div>
+
+  <!-- 443 ports panel -->
+  <div class="panel" style="margin-bottom:20px">
+    <h2 style="justify-content:space-between">
+      <span><span class="tag tls">443</span> 系端口（TLS）</span>
+      <span class="port-count" id="count443">0 / 0 选中</span>
+    </h2>
+    <div class="port-actions">
+      <button class="port-act" onclick="portAction('p443','all')">全选</button>
+      <button class="port-act" onclick="portAction('p443','none')">全清</button>
+      <button class="port-act" onclick="portAction('p443','invert')">反选</button>
+      <span class="rand-group">
+        <button class="port-act" onclick="portAction('p443','random')">🎲 随机</button>
+        <input type="number" id="rand443" value="3" min="1" max="20" class="rand-input">
+        <span class="rand-label">个</span>
+      </span>
+      <span class="port-presets">
+        <span class="chip" onclick="portAction('p443','preset','443')">443 only</span>
+        <span class="chip" onclick="portAction('p443','preset','443,8443')">443+8443</span>
+        <span class="chip" onclick="portAction('p443','preset','443,2053,2083,2087,2096,8443')">CF 全 TLS</span>
+      </span>
+    </div>
+    <div class="port-grid" id="grid443"></div>
+    <div class="port-extra">
+      <input id="extra443" placeholder="自定义额外端口（逗号分隔，如 12345,23456）" oninput="rebuildPortGrid('p443')">
+    </div>
+    <input type="hidden" id="ports443">
+  </div>
+
+  <!-- 80 ports panel -->
+  <div class="panel" style="margin-bottom:20px">
+    <h2 style="justify-content:space-between">
+      <span><span class="tag plain">80</span> 系端口（明文）</span>
+      <span class="port-count" id="count80">0 / 0 选中</span>
+    </h2>
+    <div class="port-actions">
+      <button class="port-act" onclick="portAction('p80','all')">全选</button>
+      <button class="port-act" onclick="portAction('p80','none')">全清</button>
+      <button class="port-act" onclick="portAction('p80','invert')">反选</button>
+      <span class="rand-group">
+        <button class="port-act" onclick="portAction('p80','random')">🎲 随机</button>
+        <input type="number" id="rand80" value="3" min="1" max="20" class="rand-input">
+        <span class="rand-label">个</span>
+      </span>
+      <span class="port-presets">
+        <span class="chip" onclick="portAction('p80','preset','80')">80 only</span>
+        <span class="chip" onclick="portAction('p80','preset','80,8080')">80+8080</span>
+        <span class="chip" onclick="portAction('p80','preset','80,8080,8880,2052,2082,2086,2095')">CF 全明文</span>
+      </span>
+    </div>
+    <div class="port-grid" id="grid80"></div>
+    <div class="port-extra">
+      <input id="extra80" placeholder="自定义额外端口（逗号分隔，如 12345,23456）" oninput="rebuildPortGrid('p80')">
+    </div>
+    <input type="hidden" id="ports80">
+  </div>
+
+  <div class="row">
+    <div class="field" style="grid-column: 1 / -1">
+      <label>节点名前缀（443 / 80）</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <input id="prefix443" value="CF-TLS" placeholder="443 节点前缀">
+        <input id="prefix80" value="CF-HTTP" placeholder="80 节点前缀">
+      </div>
+      <div class="ports-help">最终：<code>前缀-主机-端口</code>（IPv6 自动加 <code>-v6</code> 标识）</div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button onclick="generate()">▶ Generate</button>
+    <button class="secondary" onclick="copyOut()">Copy</button>
+    <button class="secondary" onclick="downloadOut()">Download .txt</button>
+    <button class="secondary small" onclick="loadDemo()">Load demo</button>
+    <span class="stat" id="stat"></span>
+  </div>
+
+  <div class="output-panel">
+    <div class="output-head">
+      <h2>output</h2>
+    </div>
+    <div id="output"></div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+// === Port selector system ===
+// CF 标准端口集合，作为 grid 的"基础项"
+const PORT_PRESETS = {
+  p443: {
+    base: [443, 2053, 2083, 2087, 2096, 8443],
+    default: [443, 2053, 2083, 2087, 2096, 8443],  // 启动时选中
+    inputId: 'ports443',
+    gridId: 'grid443',
+    countId: 'count443',
+    extraId: 'extra443',
+    randId: 'rand443',
+  },
+  p80: {
+    base: [80, 8080, 8880, 2052, 2082, 2086, 2095],
+    default: [80, 8080, 8880, 2052, 2082, 2086, 2095],
+    inputId: 'ports80',
+    gridId: 'grid80',
+    countId: 'count80',
+    extraId: 'extra80',
+    randId: 'rand80',
+  },
+};
+
+// 当前每组的选中端口集合（Set，便于切换）
+const portState = {
+  p443: new Set(PORT_PRESETS.p443.default),
+  p80:  new Set(PORT_PRESETS.p80.default),
+};
+
+// 解析自定义额外端口输入框 -> 数字数组
+function getExtraPorts(group) {
+  const cfg = PORT_PRESETS[group];
+  const el = $(cfg.extraId);
+  if (!el) return [];
+  return el.value.split(/[,\s]+/).map(s=>s.trim()).filter(Boolean)
+    .map(Number).filter(n => Number.isInteger(n) && n > 0 && n <= 65535);
+}
+
+// 当前 grid 显示的全部端口（base + custom，去重并排序）
+function getGridPorts(group) {
+  const cfg = PORT_PRESETS[group];
+  const all = new Set([...cfg.base, ...getExtraPorts(group)]);
+  return [...all].sort((a, b) => a - b);
+}
+
+// 重建端口 grid（首次或 extra 改变时调用）
+function rebuildPortGrid(group) {
+  const cfg = PORT_PRESETS[group];
+  const grid = $(cfg.gridId);
+  if (!grid) return;
+  const ports = getGridPorts(group);
+  const customSet = new Set(getExtraPorts(group));
+  // 清掉已选但不再 grid 里的端口（删除 custom 时）
+  for (const p of [...portState[group]]) {
+    if (!ports.includes(p)) portState[group].delete(p);
+  }
+  grid.innerHTML = '';
+  for (const p of ports) {
+    const cell = document.createElement('div');
+    cell.className = 'port-cell' + (portState[group].has(p) ? ' selected' : '') + (customSet.has(p) && !cfg.base.includes(p) ? ' custom' : '');
+    cell.textContent = p;
+    cell.dataset.port = p;
+    cell.dataset.group = group;
+    cell.onclick = () => togglePort(group, p);
+    grid.appendChild(cell);
+  }
+  syncPortInput(group);
+}
+
+// 单个端口切换
+function togglePort(group, port) {
+  if (portState[group].has(port)) portState[group].delete(port);
+  else portState[group].add(port);
+  rebuildPortGrid(group);
+}
+
+// 操作动作：all/none/invert/random/preset
+function portAction(group, action, presetVal) {
+  const cfg = PORT_PRESETS[group];
+  const ports = getGridPorts(group);
+  if (action === 'all') {
+    portState[group] = new Set(ports);
+  } else if (action === 'none') {
+    portState[group].clear();
+  } else if (action === 'invert') {
+    const next = new Set();
+    for (const p of ports) if (!portState[group].has(p)) next.add(p);
+    portState[group] = next;
+  } else if (action === 'random') {
+    const n = Math.min(Math.max(parseInt($(cfg.randId).value) || 1, 1), ports.length);
+    const shuffled = [...ports].sort(() => Math.random() - 0.5);
+    portState[group] = new Set(shuffled.slice(0, n));
+  } else if (action === 'preset') {
+    portState[group] = new Set(presetVal.split(',').map(s => parseInt(s.trim())).filter(Boolean));
+  }
+  rebuildPortGrid(group);
+  // 给所有选中卡片做一个 pulse 动画
+  if (action !== 'none') {
+    requestAnimationFrame(() => {
+      $(cfg.gridId).querySelectorAll('.port-cell.selected').forEach(c => {
+        c.classList.add('pulse');
+        setTimeout(() => c.classList.remove('pulse'), 300);
+      });
+    });
+  }
+}
+
+// 把 portState 同步到隐藏的 input（让 parsePorts 继续工作）
+function syncPortInput(group) {
+  const cfg = PORT_PRESETS[group];
+  const sorted = [...portState[group]].sort((a, b) => a - b);
+  $(cfg.inputId).value = sorted.join(',');
+  // 更新计数
+  const total = getGridPorts(group).length;
+  const sel = sorted.length;
+  const countEl = $(cfg.countId);
+  if (countEl) {
+    countEl.textContent = `${sel} / ${total} 选中`;
+    countEl.classList.toggle('has-selection', sel > 0);
+  }
+}
+
+// 初始化
+document.addEventListener('DOMContentLoaded', () => {
+  rebuildPortGrid('p443');
+  rebuildPortGrid('p80');
+});
+
+// === Template cleaner ===
+// 接收任意混乱粘贴：标题、序号、emoji、空行 等
+// 只保留 vless:// 开头的内容；如果有多条节点，只保留第一条（模板框只放一条）
+function cleanTemplate(textareaId) {
+  const ta = $(textareaId);
+  const raw = ta.value;
+  if (!raw.trim()) {
+    setTplStatus(textareaId, '框是空的，无需清洗', 'warn');
+    return;
+  }
+
+  // 1. 先拿到所有 vless:// 段落（即便夹杂在某行中间）
+  // 一行中可能 "节点1: vless://xxx" 这种格式 —— 用正则找到所有 vless:// 开头到行尾或空白的片段
+  const matches = raw.match(/vless:\/\/[^\s\n\r]+/gi) || [];
+
+  if (matches.length === 0) {
+    setTplStatus(textareaId, '✗ 没找到 vless:// 节点', 'err');
+    return;
+  }
+
+  const before = raw.split('\n').filter(l => l.trim()).length;
+  const cleaned = matches[0]; // 模板只取一条
+  ta.value = cleaned;
+
+  let msg = `✓ 清洗完成：${before} 行 → 1 条节点`;
+  if (matches.length > 1) {
+    msg += `（检测到 ${matches.length} 条，已保留第 1 条）`;
+  }
+  setTplStatus(textareaId, msg, 'ok');
+}
+
+function setTplStatus(textareaId, msg, type='ok') {
+  const el = $(textareaId + 'Status');
+  if (!el) return;
+  const color = type === 'err' ? 'var(--red)' : type === 'warn' ? 'var(--yellow)' : 'var(--green)';
+  el.innerHTML = `<span style="color:${color}">${msg}</span>`;
+  // 5 秒后淡出
+  setTimeout(() => { if (el.innerHTML.includes(msg)) el.innerHTML = '&nbsp;'; }, 5000);
+}
+// 第 1 优先：GitHub raw 直连（无需代理，CORS 通常开放）
+// 第 2 优先：jsdelivr CDN（GitHub 镜像，国内速度更好）
+// 第 3 起：通用 CORS 代理兜底
+const RELEASE_BASE = 'https://github.com/DustinWin/BestCF/releases/download/bestcf/';
+const RAW_BASE     = 'https://raw.githubusercontent.com/DustinWin/BestCF/bestcf/';
+const JSDELIVR     = 'https://cdn.jsdelivr.net/gh/DustinWin/BestCF@bestcf/';
+
+const SOURCES = [
+  { name: 'GitHub raw (直连)',    build: f => RAW_BASE + f },
+  { name: 'jsDelivr (CDN)',       build: f => JSDELIVR + f },
+  { name: 'corsproxy.io',         build: f => `https://corsproxy.io/?${encodeURIComponent(RELEASE_BASE + f)}` },
+  { name: 'isomorphic-git',       build: f => `https://cors.isomorphic-git.org/${RELEASE_BASE + f}` },
+  { name: 'codetabs',             build: f => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(RELEASE_BASE + f)}` },
+  { name: 'allorigins',           build: f => `https://api.allorigins.win/raw?url=${encodeURIComponent(RELEASE_BASE + f)}` },
+  { name: 'thingproxy',           build: f => `https://thingproxy.freeboard.io/fetch/${RELEASE_BASE + f}` },
+];
+
+// 手写 timeout，绕过 AbortSignal.timeout 兼容性问题
+function fetchWithTimeout(url, ms = 20000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  return fetch(url, { signal: ctrl.signal, redirect: 'follow' })
+    .finally(() => clearTimeout(timer));
+}
+
+// 校验：清单内容必须看起来像 域名/IP 列表（不是 HTML 错误页）
+function looksLikeHostList(text) {
+  if (!text || text.length < 5) return { ok: false, reason: '空响应' };
+  const head = text.slice(0, 500).toLowerCase();
+  if (head.includes('<html') || head.includes('<!doctype') || head.includes('<head'))
+    return { ok: false, reason: '返回的是 HTML 页面（很可能是错误页）' };
+  if (head.startsWith('{') && head.includes('error'))
+    return { ok: false, reason: '返回的是 JSON 错误' };
+  const lines = text.split('\n').map(s=>s.trim()).filter(Boolean).filter(l => !l.startsWith('#'));
+  if (!lines.length) return { ok: false, reason: '没有有效内容行' };
+  const hostLike = /^[a-zA-Z0-9][\w.\-]*\.[a-zA-Z]{2,}|^\d{1,3}(\.\d{1,3}){3}/;
+  const matches = lines.slice(0, 20).filter(l => hostLike.test(l)).length;
+  if (matches < 1) return { ok: false, reason: `前 20 行无一像主机名（首行：${lines[0].slice(0,60)}）` };
+  return { ok: true, lines: lines.length };
+}
+
+async function fetchList() {
+  const file = $('releaseFile').value;
+  const btn = $('fetchBtn');
+  btn.disabled = true;
+
+  const errs = [];
+  for (let i = 0; i < SOURCES.length; i++) {
+    const s = SOURCES[i];
+    $('meta').innerHTML = `<span class="spinner"></span>[${i+1}/${SOURCES.length}] 通过 <code>${s.name}</code> 拉取 <code>${file}</code>...`;
+    try {
+      const res = await fetchWithTimeout(s.build(file));
+      if (!res.ok) {
+        errs.push(`${s.name}: HTTP ${res.status}`);
+        continue;
+      }
+      const text = await res.text();
+      const check = looksLikeHostList(text);
+      if (!check.ok) {
+        errs.push(`${s.name}: ${check.reason}`);
+        continue;
+      }
+      // 成功 —— 注意：先做可能抛错的事，最后才显示成功
+      try {
+        $('hosts').value = text.trim();
+        updateHostCount();
+      } catch (writeErr) {
+        errs.push(`${s.name}: 写入失败 ${writeErr.message}`);
+        continue;
+      }
+      $('meta').innerHTML = `<span class="ok">✓</span> 成功 · <code>${s.name}</code> · ${check.lines} 行 · ${new Date().toLocaleTimeString()}`;
+      btn.disabled = false;
+      return;
+    } catch (e) {
+      const msg = e.name === 'AbortError' ? '超时(20s)' : (e.message || String(e));
+      errs.push(`${s.name}: ${msg}`);
+    }
+  }
+  btn.disabled = false;
+  const errList = errs.map(e => `&nbsp;&nbsp;• ${e}`).join('<br>');
+  $('meta').innerHTML = `<span class="err">✗</span> 全部 ${SOURCES.length} 个源都失败：<br>${errList}<br><br>` +
+    `<b>下一步</b>：点 <code>📁 Upload .txt</code> 上传文件，或浏览器打开 <a href="${RELEASE_BASE + file}" target="_blank" style="color:var(--accent-2)">${file}</a> 复制粘贴。`;
+}
+
+function handleUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    $('hosts').value = ev.target.result.trim();
+    updateHostCount();
+    const n = $('hosts').value.split('\n').filter(s=>s.trim()).length;
+    $('meta').innerHTML = `<span class="ok">✓</span> 已上传 <code>${file.name}</code> · ${n} 行`;
+  };
+  reader.readAsText(file);
+}
+
+function updateHostCount() {
+  const el = $('hostCount');
+  if (!el) return;
+  const n = $('hosts').value.split('\n').map(s=>s.trim()).filter(Boolean).length;
+  el.textContent = `${n} 个主机`;
+}
+$('hosts').addEventListener('input', updateHostCount);
+
+function setPort(id, val) {
+  $(id).value = val;
+  $(id).style.borderColor = 'var(--accent)';
+  setTimeout(() => $(id).style.borderColor = '', 400);
+}
+
+function parsePorts(str) {
+  return str.split(/[,\s]+/).map(s=>s.trim()).filter(Boolean).filter(p=>/^\d+$/.test(p));
+}
+
+function parseHosts(str) {
+  return str.split('\n').map(s=>s.trim()).filter(Boolean)
+    // 整行注释跳过（# 或 // 开头）
+    .filter(l => !l.startsWith('#') && !l.startsWith('//'))
+    .map(line => {
+      // 先剥掉行尾 #备注（BestCF 清单常见 "IP#CF-IPv4_xxx"）
+      let s = line.split('#')[0].trim();
+      if (!s) return null;
+
+      // IPv6 带方括号: [2606:4700::1] 或 [2606:4700::1]:443
+      let m = s.match(/^\[([0-9a-fA-F:]+)\](?::\d+)?$/);
+      if (m) return m[1];
+
+      // 裸 IPv6（含至少 2 个冒号且无方括号）: 2606:4700::1
+      // 注意：IPv6 至少 2 个 ":"，IPv4:port 只有 1 个 ":"
+      if ((s.match(/:/g) || []).length >= 2 && !s.includes('.')) {
+        // 可能末尾带 :port 形式（罕见，无方括号），但 IPv6 + port 必须方括号
+        // 所以这里直接当裸 IPv6 返回
+        return s;
+      }
+
+      // IPv4 / 域名（可能带 :port）
+      m = s.match(/^([^\s:]+)(?::\d+)?$/);
+      return m ? m[1] : s;
+    })
+    .filter(Boolean);
+}
+
+// IPv6 输出时需要包方括号；IPv4/域名直接返回
+function formatHostForUrl(h) {
+  // 已经带方括号
+  if (h.startsWith('[') && h.includes(']')) return h;
+  // 裸 IPv6（≥2 个冒号且无点）
+  if ((h.match(/:/g) || []).length >= 2 && !h.includes('.')) return `[${h}]`;
+  return h;
+}
+
+// 节点名里 IPv6 的方括号去掉，冒号换为短横（避免 URL 编码后显示成 %3A）
+function cleanHostForName(h) {
+  return h.replace(/^\[|\]$/g, '').replace(/:/g, '-');
+}
+
+function rewrite(template, newHost, newPort, newName) {
+  // 模板原 host 可能是 域名/IPv4 或 [IPv6]
+  // 用宽容匹配：@ 后面到 ? 之间的整段 host:port
+  // 形式 1: @host:port?  ->  @cdn.example.com:443?
+  // 形式 2: @[ipv6]:port? ->  @[2606:4700::1]:443?
+  const formattedHost = formatHostForUrl(newHost);
+  let out = template.replace(
+    /@(?:\[[^\]]+\]|[^:?\s\/]+):\d+/,
+    `@${formattedHost}:${newPort}`
+  );
+  // 替换最后的 # 标签
+  if (out.includes('#')) {
+    out = out.replace(/#[^#\n]*$/, '#' + encodeURIComponent(newName));
+  } else {
+    out += '#' + encodeURIComponent(newName);
+  }
+  return out;
+}
+
+function generate() {
+  const tpl443 = $('tpl443').value.trim();
+  const tpl80  = $('tpl80').value.trim();
+  let hosts    = parseHosts($('hosts').value);
+  const p443   = parsePorts($('ports443').value);
+  const p80    = parsePorts($('ports80').value);
+  const pre443 = $('prefix443').value.trim() || 'CF-TLS';
+  const pre80  = $('prefix80').value.trim()  || 'CF-HTTP';
+  const filter = $('hostFilter').value;
+
+  const totalBefore = hosts.length;
+  const isV6 = h => (h.match(/:/g) || []).length >= 2 && !h.includes('.');
+  const isDomain = h => /[a-zA-Z]/.test(h) && !isV6(h);
+  if (filter === 'v4only')      hosts = hosts.filter(h => !isV6(h));
+  else if (filter === 'v6only') hosts = hosts.filter(isV6);
+  else if (filter === 'domainonly') hosts = hosts.filter(isDomain);
+
+  if (!hosts.length) {
+    showStat(`过滤后无主机（原 ${totalBefore} 个，过滤模式 "${filter}"）`, 'err');
+    return;
+  }
+  if (!tpl443 && !tpl80) { showStat('请至少填写一个模板', 'err'); return; }
+
+  const lines = [];
+  let n443 = 0, n80 = 0;
+
+  if (tpl443 && p443.length) {
+    lines.push(`# ===== ${pre443} (${hosts.length} hosts × ${p443.length} ports = ${hosts.length * p443.length} nodes) =====`);
+    for (const h of hosts) {
+      const isV6 = (h.match(/:/g) || []).length >= 2 && !h.includes('.');
+      const nameHost = cleanHostForName(h);
+      const tag = isV6 ? '-v6' : '';
+      for (const p of p443) {
+        const name = `${pre443}${tag}-${nameHost}-${p}`;
+        lines.push(rewrite(tpl443, h, p, name));
+        n443++;
+      }
+    }
+    lines.push('');
+  }
+
+  if (tpl80 && p80.length) {
+    lines.push(`# ===== ${pre80} (${hosts.length} hosts × ${p80.length} ports = ${hosts.length * p80.length} nodes) =====`);
+    for (const h of hosts) {
+      const isV6 = (h.match(/:/g) || []).length >= 2 && !h.includes('.');
+      const nameHost = cleanHostForName(h);
+      const tag = isV6 ? '-v6' : '';
+      for (const p of p80) {
+        const name = `${pre80}${tag}-${nameHost}-${p}`;
+        lines.push(rewrite(tpl80, h, p, name));
+        n80++;
+      }
+    }
+  }
+
+  $('output').textContent = lines.join('\n');
+  showStat(`✓ 生成 ${n443 + n80} 条（443: ${n443} / 80: ${n80}）`, 'ok');
+}
+
+function showStat(msg, type='ok') {
+  const cls = type === 'err' ? 'err' : type === 'warn' ? 'warn' : 'ok';
+  $('stat').innerHTML = `<span class="${cls}">${msg}</span>`;
+}
+
+function copyOut() {
+  const txt = $('output').textContent;
+  if (!txt) { showStat('没有内容可复制', 'err'); return; }
+  navigator.clipboard.writeText(txt).then(() => {
+    showStat(`✓ 已复制 ${txt.split('\n').filter(Boolean).length} 行到剪贴板`, 'ok');
+  });
+}
+
+function downloadOut() {
+  const txt = $('output').textContent;
+  if (!txt) { showStat('没有内容可下载', 'err'); return; }
+  const blob = new Blob([txt], {type: 'text/plain;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const ts = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+  a.download = `argosbx-argo-batch-${ts}.txt`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function loadDemo() {
+  $('tpl443').value = 'vless://00000000-0000-4000-8000-000000000000@cdn.example.com:443?encryption=mlkem768x25519plus.native.0rtt.YOUR_LONG_ENCRYPTION_PARAM&flow=xtls-rprx-vision&type=ws&host=tunnel.example.net&path=00000000-0000-4000-8000-000000000000-vw&security=tls&sni=tunnel.example.net&fp=chrome&insecure=0&allowInsecure=0#vless-ws-tls-argo-example';
+  $('tpl80').value  = 'vless://00000000-0000-4000-8000-000000000000@cdn.example.com:80?encryption=mlkem768x25519plus.native.0rtt.YOUR_LONG_ENCRYPTION_PARAM&flow=xtls-rprx-vision&type=ws&host=tunnel.example.net&path=00000000-0000-4000-8000-000000000000-vw&security=none#vless-ws-argo-example';
+  $('hosts').value = 'time.cloudflare.com\nwww.cloudflare.com\nwww.microsoft.com\nwww.apple.com\nwww.wikipedia.org';
+  updateHostCount();
+  showStat('✓ 已加载示例模板（注意 encryption 是占位，要替换成你真实的）', 'warn');
+}
+</script>
+</body>
+</html>
