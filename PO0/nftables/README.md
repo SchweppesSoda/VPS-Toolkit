@@ -98,8 +98,8 @@ PO0 端：
 
 iOS / Egern：
 
-- 模块文件：`Egern/PO0-DDNS-Report.yaml`
-- 脚本文件：`Egern/scripts/po0-ddns-report.js`
+- 模块文件：`clients/egern/PO0-DDNS-Report.yaml`
+- 脚本文件：`clients/egern/po0-ddns-report.js`
 - 工作方式：Egern 定时用 DoH 解析 `DDNS_DOMAIN` 的 A 记录，然后通过 SSH 调 PO0 的 `--ddns-report`。
 - 需要填写：`PO0_HOST`、`PO0_USER`、`PO0_PASSWORD` 或 `PO0_PRIVATE_KEY`、`DDNS_DOMAIN`、`DDNS_TOKEN`。`DDNS_NAME` 可空，默认直接用 `DDNS_DOMAIN` 上报。
 

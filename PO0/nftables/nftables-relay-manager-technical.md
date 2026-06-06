@@ -559,8 +559,8 @@ key|accepted_count|rejected_count|last_status|last_at|last_ips|last_error
 客户端实现：
 
 ```text
-Egern/PO0-DDNS-Report.yaml
-Egern/scripts/po0-ddns-report.js
+clients/egern/PO0-DDNS-Report.yaml
+clients/egern/po0-ddns-report.js
 PO0/nftables/tools/po0-lan-client.sh
 ```
 
