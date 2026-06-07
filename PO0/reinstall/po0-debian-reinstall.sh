@@ -4,6 +4,11 @@
 #  Auto Install Debian 12 (bookworm)
 #  via Tencent mirrors (无人值守 DD)
 #
+#  来源：
+#    - 基于 vpsbuy/po0 仓库的 po0dd.sh 修改
+#    - https://github.com/vpsbuy/po0
+#    - https://github.com/vpsbuy/po0/blob/main/po0dd.sh
+#
 #  特性：
 #    - 优先从当前 / 挂载点反推系统盘，失败再回退常见设备名
 #    - 腾讯镜像自动选择：mirrors.tencentyun.com -> mirrors.tencent.com
