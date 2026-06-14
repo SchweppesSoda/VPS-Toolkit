@@ -885,6 +885,7 @@
                 <div>
                   <label for="countrySelect">国家/地区</label>
                   <select id="countrySelect">
+                    <option value="__auto_country_summary__" data-auto-summary hidden>已识别国家/地区</option>
                     <option value="🇺🇸" selected>🇺🇸 United States</option>
                     <option value="🇯🇵">🇯🇵 Japan</option>
                     <option value="🇸🇬">🇸🇬 Singapore</option>
@@ -1338,7 +1339,10 @@
       $(id).addEventListener("input", renderOutput);
       $(id).addEventListener("change", renderOutput);
     });
-    $("countrySelect").addEventListener("change", () => refreshSuggestedNames(false));
+    $("countrySelect").addEventListener("change", () => {
+      clearCountrySelectSummary();
+      refreshSuggestedNames(false);
+    });
     $("countryEmoji").addEventListener("input", () => refreshSuggestedNames(false));
     $("autoDetectCountry").addEventListener("change", () => refreshSuggestedNames(false));
     $("nameCleanWords").addEventListener("input", () => refreshSuggestedNames(false));
@@ -2697,6 +2701,7 @@
     }
 
     function refreshSuggestedNames(forceApply, opts = {}) {
+      syncCountrySelectWithDetectedNodes();
       for (const group of state.groups) {
         const protocolTotals = group.nodes.reduce((acc, node) => {
           const key = node.protocolCode || node.protocolLabel || node.scheme.toUpperCase();
@@ -2742,7 +2747,64 @@
       const manualFlag = $("countryEmoji").value.trim();
       if (manualFlag) return manualFlag;
       if ($("autoDetectCountry").checked && node && node.detectedFlag) return node.detectedFlag;
+      if ($("countrySelect").value === "__mixed__") return "🌐";
       return ($("countrySelect").value || "🌐").trim();
+    }
+
+    function syncCountrySelectWithDetectedNodes() {
+      const select = $("countrySelect");
+      if (!select) return;
+      if ($("countryEmoji").value.trim() || !$("autoDetectCountry").checked) {
+        clearCountrySelectSummary();
+        return;
+      }
+
+      const flags = Array.from(new Set(state.nodes.map(node => node.detectedFlag).filter(Boolean)));
+      if (flags.length === 1) {
+        const flag = flags[0];
+        clearCountrySelectSummary();
+        if (hasCountryOption(flag)) {
+          select.value = flag;
+        } else {
+          setCountrySelectSummary(flag + " 已识别国家/地区", flag);
+          select.value = flag;
+        }
+        return;
+      }
+
+      if (flags.length > 1) {
+        setCountrySelectSummary("多个国家/地区（" + flags.join(" ") + "）", "__mixed__");
+        select.value = "__mixed__";
+        return;
+      }
+
+      clearCountrySelectSummary();
+    }
+
+    function hasCountryOption(value) {
+      return Array.from($("countrySelect").options).some(option => option.value === value && option.dataset.autoSummary === undefined);
+    }
+
+    function setCountrySelectSummary(label, value) {
+      const option = $("countrySelect").querySelector("[data-auto-summary]");
+      if (!option) return;
+      option.value = value;
+      option.textContent = label;
+      option.hidden = false;
+      option.disabled = false;
+    }
+
+    function clearCountrySelectSummary() {
+      const select = $("countrySelect");
+      const option = select.querySelector("[data-auto-summary]");
+      if (!option) return;
+      const summaryValue = option.value;
+      option.hidden = true;
+      option.disabled = true;
+      option.value = "__auto_country_summary__";
+      if (select.value === summaryValue) {
+        select.value = "🌐";
+      }
     }
 
     function detectCountryFlag(text) {
