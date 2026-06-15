@@ -1,6 +1,6 @@
 # Argosbx Argo 批量替换器技术文档
 
-对应文件：`web/tools/argosbx-argo-batch/argosbx_argo_batch.html`
+对应文件：`web/vps-toolkit/tools/argosbx-argo-batch/argosbx_argo_batch.html`
 
 ## 1. 定位
 

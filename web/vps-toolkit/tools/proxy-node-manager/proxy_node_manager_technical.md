@@ -2,10 +2,10 @@
 
 对应文件：
 
-- `web/tools/proxy-node-manager/proxy_node_manager.html`
-- `web/tools/proxy-node-manager/proxy_node_manager_themes.css`
-- `web/tools/proxy-node-manager/proxy_node_manager.css`
-- `web/tools/proxy-node-manager/proxy_node_manager.js`
+- `web/vps-toolkit/tools/proxy-node-manager/proxy_node_manager.html`
+- `web/vps-toolkit/tools/proxy-node-manager/proxy_node_manager_themes.css`
+- `web/vps-toolkit/tools/proxy-node-manager/proxy_node_manager.css`
+- `web/vps-toolkit/tools/proxy-node-manager/proxy_node_manager.js`
 
 ## 1. 定位
 

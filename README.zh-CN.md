@@ -18,19 +18,21 @@
   - `reality_dest_finder/`：REALITY 回落域名检测。
   - `docs/`：通用 VPS 运维笔记。
 - `web/`
-  - `index.html`：公开工具入口页。
-  - `tools/proxy-node-manager/`：浏览器版代理节点解析、清洗、分组和导出工具。
-  - `tools/argosbx-argo-batch/`：浏览器版 Argosbx Argo 批量处理工具。
+  - `index.html`：账号根主页项目索引。
+  - `vps-toolkit/`：VPS Toolkit 公开站点源码。
+  - `vps-toolkit/tools/proxy-node-manager/`：浏览器版代理节点解析、清洗、分组和导出工具。
+  - `vps-toolkit/tools/argosbx-argo-batch/`：浏览器版 Argosbx Argo 批量处理工具。
 
 ## 公开网站
 
 公开站点应由 `SchweppesSoda/SchweppesSoda.github.io` 仓库发布，不从本仓库根目录发布：
 
 - `https://schweppessoda.github.io/`
-- `https://schweppessoda.github.io/tools/proxy-node-manager/proxy_node_manager.html`
-- `https://schweppessoda.github.io/tools/argosbx-argo-batch/argosbx_argo_batch.html`
+- `https://schweppessoda.github.io/vps-toolkit/`
+- `https://schweppessoda.github.io/vps-toolkit/tools/proxy-node-manager/proxy_node_manager.html`
+- `https://schweppessoda.github.io/vps-toolkit/tools/argosbx-argo-batch/argosbx_argo_batch.html`
 
-GitHub Actions 会在 `main` 分支的 `web/**` 变化后，把 `web/` 同步到 Pages 仓库。源仓库需要把 deploy key 私钥保存为 `PAGES_DEPLOY_KEY`；目标 Pages 仓库需要添加对应公钥，并开启写权限。
+GitHub Actions 会在 `main` 分支的 `web/**` 变化后，把根主页索引和 `web/vps-toolkit/` 同步到 Pages 仓库。源仓库需要把 deploy key 私钥保存为 `PAGES_DEPLOY_KEY`；目标 Pages 仓库需要添加对应公钥，并开启写权限。
 
 不要从本仓库根目录启用 GitHub Pages，否则脚本和文档也会作为静态文件发布。
 
@@ -56,7 +58,7 @@ bash scripts/vps/forwardx/forwardx-nat-agent-adapter.sh install --public-port 54
 sudo bash scripts/vps/ssh-key-only/setup-ssh-key-only-full.sh
 ```
 
-开发时可以直接在本地浏览器打开 `web/index.html` 或 `web/tools/` 下的 HTML 文件，不需要部署服务器。
+开发时可以直接在本地浏览器打开 `web/index.html`、`web/vps-toolkit/index.html` 或 `web/vps-toolkit/tools/` 下的 HTML 文件，不需要部署服务器。
 
 ## 安全说明
 

@@ -41,13 +41,17 @@ jobs:
           EOF
           chmod 600 ~/.ssh/config
 
-      - name: Sync web directory
+      - name: Sync managed web paths
         run: |
           set -euo pipefail
           target_dir="$(mktemp -d)"
           git clone --depth 1 --branch main git@github.com:SchweppesSoda/SchweppesSoda.github.io.git "${target_dir}"
-          find "${target_dir}" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
-          cp -a web/. "${target_dir}/"
+          rm -rf "${target_dir}/vps-toolkit"
+          rm -rf "${target_dir}/tools/proxy-node-manager" "${target_dir}/tools/argosbx-argo-batch"
+          rmdir "${target_dir}/tools" 2>/dev/null || true
+          mkdir -p "${target_dir}/vps-toolkit"
+          cp -a web/vps-toolkit/. "${target_dir}/vps-toolkit/"
+          cp web/index.html "${target_dir}/index.html"
           touch "${target_dir}/.nojekyll"
           cd "${target_dir}"
           git config user.name "github-actions[bot]"

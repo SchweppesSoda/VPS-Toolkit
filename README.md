@@ -18,19 +18,21 @@ Source repository for VPS maintenance scripts, PO0 relay tooling, and static bro
   - `reality_dest_finder/`: REALITY fallback-domain discovery.
   - `docs/`: shared VPS operational notes.
 - `web/`
-  - `index.html`: public tool index.
-  - `tools/proxy-node-manager/`: browser-based proxy-node parser, cleaner, grouper, and exporter.
-  - `tools/argosbx-argo-batch/`: browser-based Argosbx Argo batch processor.
+  - `index.html`: account-level project index.
+  - `vps-toolkit/`: VPS Toolkit public site source.
+  - `vps-toolkit/tools/proxy-node-manager/`: browser-based proxy-node parser, cleaner, grouper, and exporter.
+  - `vps-toolkit/tools/argosbx-argo-batch/`: browser-based Argosbx Argo batch processor.
 
 ## Public Website
 
 The public site is intended to be served from `SchweppesSoda/SchweppesSoda.github.io`, not from this repository root:
 
 - `https://schweppessoda.github.io/`
-- `https://schweppessoda.github.io/tools/proxy-node-manager/proxy_node_manager.html`
-- `https://schweppessoda.github.io/tools/argosbx-argo-batch/argosbx_argo_batch.html`
+- `https://schweppessoda.github.io/vps-toolkit/`
+- `https://schweppessoda.github.io/vps-toolkit/tools/proxy-node-manager/proxy_node_manager.html`
+- `https://schweppessoda.github.io/vps-toolkit/tools/argosbx-argo-batch/argosbx_argo_batch.html`
 
-GitHub Actions syncs `web/` to the Pages repository when `web/**` changes on `main`. The source repository must store the private deploy key as `PAGES_DEPLOY_KEY`; the target Pages repository must have the matching public key added as a write-enabled deploy key.
+GitHub Actions syncs the root project index and `web/vps-toolkit/` to the Pages repository when `web/**` changes on `main`. The source repository must store the private deploy key as `PAGES_DEPLOY_KEY`; the target Pages repository must have the matching public key added as a write-enabled deploy key.
 
 Do not enable GitHub Pages from this repository root. That would publish scripts and documentation as static files.
 
@@ -56,7 +58,7 @@ bash scripts/vps/forwardx/forwardx-nat-agent-adapter.sh install --public-port 54
 sudo bash scripts/vps/ssh-key-only/setup-ssh-key-only-full.sh
 ```
 
-Open `web/index.html` or the files under `web/tools/` directly in a browser while developing. They do not require a server.
+Open `web/index.html`, `web/vps-toolkit/index.html`, or the files under `web/vps-toolkit/tools/` directly in a browser while developing. They do not require a server.
 
 ## Safety
 
