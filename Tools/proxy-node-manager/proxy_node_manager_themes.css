@@ -1,0 +1,181 @@
+:root {
+  --bg: #0f1216;
+  --surface: #171b21;
+  --surface-2: #20262f;
+  --surface-3: #11151b;
+  --panel-head: #1a2027;
+  --table-head: #151a20;
+  --detail-bg: #11161d;
+  --output-bg: #0b0e12;
+  --output-text: #d7dee8;
+  --button-hover: #27313b;
+  --primary: #2e6f52;
+  --primary-hover: #357f5f;
+  --primary-border: #3c8b68;
+  --active-tab: #2d473b;
+  --badge-protocol-text: #d8f2e2;
+  --line: #303846;
+  --line-strong: #425064;
+  --text: #e8edf3;
+  --muted: #98a2b3;
+  --soft: #c9d2dd;
+  --green: #5cc878;
+  --blue: #6ab2ff;
+  --amber: #e4b95c;
+  --red: #ff7373;
+  --focus: #8bd4b0;
+  --focus-ring: rgba(139, 212, 176, 0.12);
+  --shadow: 0 18px 50px rgba(0, 0, 0, 0.24);
+  --mono: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  --sans: Inter, "Segoe UI", "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
+}
+
+body[data-theme="light"] {
+  --bg: #f4f7fb;
+  --surface: #ffffff;
+  --surface-2: #edf2f7;
+  --surface-3: #f8fafc;
+  --panel-head: #eef3f8;
+  --table-head: #edf2f7;
+  --detail-bg: #f7f9fc;
+  --output-bg: #ffffff;
+  --output-text: #17202e;
+  --button-hover: #e3ebf4;
+  --primary: #247451;
+  --primary-hover: #2d865f;
+  --primary-border: #3b9870;
+  --active-tab: #d9eadf;
+  --badge-protocol-text: #145635;
+  --line: #d7dfeb;
+  --line-strong: #b7c3d3;
+  --text: #17202e;
+  --muted: #617084;
+  --soft: #344256;
+  --green: #16834a;
+  --blue: #226fbd;
+  --amber: #9a6a08;
+  --red: #c43a3a;
+  --focus: #28795d;
+  --focus-ring: rgba(40, 121, 93, 0.13);
+  --shadow: 0 14px 34px rgba(34, 48, 70, 0.12);
+}
+
+body[data-theme="nord"] {
+  --bg: #242933;
+  --surface: #2e3440;
+  --surface-2: #394150;
+  --surface-3: #252b35;
+  --panel-head: #323946;
+  --table-head: #28303b;
+  --detail-bg: #252b35;
+  --output-bg: #1f242d;
+  --output-text: #e5edf6;
+  --button-hover: #435064;
+  --primary: #5e81ac;
+  --primary-hover: #6f95c1;
+  --primary-border: #81a1c1;
+  --active-tab: #344659;
+  --badge-protocol-text: #d8f3ea;
+  --line: #495568;
+  --line-strong: #5b6980;
+  --text: #eceff4;
+  --muted: #b8c2d2;
+  --soft: #d8dee9;
+  --green: #a3be8c;
+  --blue: #88c0d0;
+  --amber: #ebcb8b;
+  --red: #bf616a;
+  --focus: #88c0d0;
+  --focus-ring: rgba(136, 192, 208, 0.16);
+  --shadow: 0 18px 44px rgba(8, 12, 18, 0.32);
+}
+
+body[data-theme="solarized"] {
+  --bg: #fdf6e3;
+  --surface: #fffaf0;
+  --surface-2: #eee8d5;
+  --surface-3: #f7f0dc;
+  --panel-head: #eee8d5;
+  --table-head: #e5ddc8;
+  --detail-bg: #f4ecd6;
+  --output-bg: #fffaf0;
+  --output-text: #073642;
+  --button-hover: #e2d8bd;
+  --primary: #2aa198;
+  --primary-hover: #258f89;
+  --primary-border: #268bd2;
+  --active-tab: #d7eee9;
+  --badge-protocol-text: #0a5f58;
+  --line: #d6cbb1;
+  --line-strong: #bfb393;
+  --text: #073642;
+  --muted: #657b83;
+  --soft: #34525a;
+  --green: #859900;
+  --blue: #268bd2;
+  --amber: #b58900;
+  --red: #dc322f;
+  --focus: #2aa198;
+  --focus-ring: rgba(42, 161, 152, 0.16);
+  --shadow: 0 14px 32px rgba(88, 72, 38, 0.16);
+}
+
+body[data-theme="dracula"] {
+  --bg: #1f1f2e;
+  --surface: #282a36;
+  --surface-2: #343746;
+  --surface-3: #21222c;
+  --panel-head: #303241;
+  --table-head: #262837;
+  --detail-bg: #222431;
+  --output-bg: #191a23;
+  --output-text: #f8f8f2;
+  --button-hover: #44475a;
+  --primary: #6272a4;
+  --primary-hover: #7082bb;
+  --primary-border: #8be9fd;
+  --active-tab: #3a405f;
+  --badge-protocol-text: #d6fff0;
+  --line: #44475a;
+  --line-strong: #5c6278;
+  --text: #f8f8f2;
+  --muted: #b7b8c9;
+  --soft: #e2e3f0;
+  --green: #50fa7b;
+  --blue: #8be9fd;
+  --amber: #f1fa8c;
+  --red: #ff5555;
+  --focus: #8be9fd;
+  --focus-ring: rgba(139, 233, 253, 0.14);
+  --shadow: 0 18px 48px rgba(9, 9, 18, 0.36);
+}
+
+body[data-theme="sepia"] {
+  --bg: #f2eadc;
+  --surface: #fff8ed;
+  --surface-2: #eadfcd;
+  --surface-3: #fbf2e4;
+  --panel-head: #efe3d0;
+  --table-head: #e7dac5;
+  --detail-bg: #f7eadb;
+  --output-bg: #fffaf2;
+  --output-text: #33281c;
+  --button-hover: #ded0bb;
+  --primary: #7b5e36;
+  --primary-hover: #8f6e40;
+  --primary-border: #9f7d4e;
+  --active-tab: #e7d8bd;
+  --badge-protocol-text: #4f3b1e;
+  --line: #d6c3aa;
+  --line-strong: #bba286;
+  --text: #33281c;
+  --muted: #766754;
+  --soft: #4b3d2d;
+  --green: #4f7d45;
+  --blue: #356f91;
+  --amber: #9b6b1d;
+  --red: #b04d42;
+  --focus: #8a6d3b;
+  --focus-ring: rgba(138, 109, 59, 0.16);
+  --shadow: 0 14px 34px rgba(87, 62, 30, 0.14);
+}

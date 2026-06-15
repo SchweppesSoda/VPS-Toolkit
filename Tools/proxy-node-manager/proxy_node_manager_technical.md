@@ -1,12 +1,17 @@
 # Proxy 节点管理器技术文档
 
-对应文件：`Tools/proxy-node-manager/proxy_node_manager.html`
+对应文件：
+
+- `Tools/proxy-node-manager/proxy_node_manager.html`
+- `Tools/proxy-node-manager/proxy_node_manager_themes.css`
+- `Tools/proxy-node-manager/proxy_node_manager.css`
+- `Tools/proxy-node-manager/proxy_node_manager.js`
 
 ## 1. 定位
 
 `proxy_node_manager.html` 是一个本地浏览器运行的代理节点清洗、解析、分组、命名和输出转换工具。它面向脚本输出、URL/URI 节点列表、Base64 订阅、Clash `proxies:` 片段等混杂输入，目标是把不可维护的原始节点文本整理为可编辑、可分组、可复制和可下载的标准输出。
 
-页面是零构建单页 HTML，CSS、DOM、JavaScript 全部内联，无后端依赖。
+页面是零构建静态单页工具，无后端依赖。HTML 保留页面结构，主题变量、基础样式和 JavaScript 拆分为同目录资源文件，便于 GitHub Pages 直接发布和日常维护。
 
 ## 2. 核心功能
 
@@ -32,7 +37,7 @@
 - 中部结果区：按 VPS 分组展示节点表格。
 - 底部输出区：选择输出内容和输出格式。
 
-主题通过 CSS 变量实现，`body[data-theme="light"]` 覆盖暗色默认变量；当前主题写入 `localStorage`，键名为 `proxy-node-manager-theme`。
+主题通过 CSS 变量实现，`body[data-theme]` 切换不同皮肤变量；当前主题写入 `localStorage`，键名为 `proxy-node-manager-theme`。内置皮肤包括暗黑、明亮、Nord、Solarized、Dracula 和 Sepia。
 
 ## 4. 状态模型
 
