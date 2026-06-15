@@ -1,0 +1,57 @@
+name: PO0 DDNS Report
+description: Resolve a DDNS domain on Egern/iOS and report the public IPv4 result to PO0 over SSH.
+author: SchweppesSoda
+icon: network
+
+env_schema:
+  PO0_HOST:
+    name: PO0 SSH host
+    description: PO0 server hostname or IP for SSH.
+  PO0_PORT:
+    name: PO0 SSH port
+    default_value: "22"
+  PO0_USER:
+    name: PO0 SSH user
+    default_value: root
+  PO0_PASSWORD:
+    name: PO0 SSH password
+    description: Use either password or private key.
+  PO0_PRIVATE_KEY:
+    name: PO0 SSH private key
+    description: Use \n for line breaks if pasted as one line.
+  PO0_PASSPHRASE:
+    name: PO0 SSH key passphrase
+    description: Optional. Only needed when the private key is encrypted.
+  PO0_SCRIPT:
+    name: PO0 manager script path
+    default_value: /root/nftables-relay-manager.sh
+  DDNS_NAME:
+    name: Optional report key
+    description: Optional. Leave blank to report by DDNS_DOMAIN; only set it when PO0 needs a custom source name.
+  DDNS_DOMAIN:
+    name: DDNS domain
+    description: Domain to resolve from iOS/Egern.
+  DDNS_TOKEN:
+    name: DDNS report token
+    description: Token shown in the PO0 DDNS menu. Optional when no token file exists on PO0.
+  DOH_URL:
+    name: DoH JSON endpoint
+    default_value: https://dns.alidns.com/resolve
+  POLICY:
+    name: Egern policy
+    default_value: DIRECT
+  NOTIFY:
+    name: Notify after report
+    default_value: "false"
+    options:
+      - "true"
+      - "false"
+
+scriptings:
+  - schedule:
+      name: PO0 DDNS Report
+      cron: "*/10 * * * *"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ddns-report.js"
+      update_interval: 86400
+      timeout: 30
+      debug: false

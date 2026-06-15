@@ -1,4 +1,6 @@
 # Runtime secrets and generated state
+.deploy/
+deploy-key*
 *.token
 *.key
 *.pem
