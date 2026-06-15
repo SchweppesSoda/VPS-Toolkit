@@ -11,6 +11,7 @@
   - `nftables/`：nftables 中转管理、白名单、DDNS 上报、内网资源任务和离线 IP 列表构建工具。
   - `proxy-services/`：PO0 代理服务增强脚本。
 - `VPS.sh/`
+  - `3x-ui/`：交互式 3x-ui 节点/订阅导出工具。
   - `fail2ban/`：Fail2ban 安装与管理。
   - `ssh-key-only/`：SSH 仅公钥登录加固。
   - `reality_dest_finder/`：REALITY 回落域名检测。
@@ -30,6 +31,9 @@ bash PO0/nftables/tools/po0-lan-client.sh
 
 # Fail2ban 管理
 sudo bash VPS.sh/fail2ban/fail2ban.sh
+
+# 3x-ui 节点导出
+bash <(curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/VPS.sh/3x-ui/3x-ui-node-exporter.sh)
 
 # SSH 仅公钥登录加固
 sudo bash VPS.sh/ssh-key-only/setup-ssh-key-only-full.sh

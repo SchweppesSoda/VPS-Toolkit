@@ -11,6 +11,7 @@ Public scripts and browser tools for VPS maintenance, PO0 relay hosts, nftables 
   - `nftables/`: nftables relay manager, allowlists, DDNS reporting, resource jobs, and offline IP-list builders.
   - `proxy-services/`: PO0 proxy-service enhancement scripts.
 - `VPS.sh/`
+  - `3x-ui/`: interactive 3x-ui node/subscription exporter.
   - `fail2ban/`: interactive Fail2ban installation and management.
   - `ssh-key-only/`: SSH public-key-only hardening.
   - `reality_dest_finder/`: REALITY fallback-domain discovery.
@@ -30,6 +31,9 @@ bash PO0/nftables/tools/po0-lan-client.sh
 
 # Fail2ban helper
 sudo bash VPS.sh/fail2ban/fail2ban.sh
+
+# 3x-ui node exporter
+bash <(curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/VPS.sh/3x-ui/3x-ui-node-exporter.sh)
 
 # SSH key-only hardening
 sudo bash VPS.sh/ssh-key-only/setup-ssh-key-only-full.sh
