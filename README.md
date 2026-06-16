@@ -73,8 +73,9 @@ bash <(curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/ma
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/vps/forwardx/forwardx-nat-agent-adapter.sh | sudo bash -s -- install --public-port 54999 --internal-port 81 --proto both
 
 # SSH key-only hardening
-# Add --add-key or --replace-key to control authorized_keys handling.
-curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/vps/ssh-key-only/setup-ssh-key-only-full.sh | sudo env SSH_CONNECTION="$SSH_CONNECTION" bash -s -- --port 55022
+# Menu-driven SSH hardening: status check, key-only update, or full port/key hardening.
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/vps/ssh-key-only/setup-ssh-key-only-full.sh | sudo env SSH_CONNECTION="$SSH_CONNECTION" bash
+# Advanced automation still supports --port, --add-key, and --replace-key.
 ```
 
 Windows self-report client:

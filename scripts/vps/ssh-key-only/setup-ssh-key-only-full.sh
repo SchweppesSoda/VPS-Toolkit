@@ -35,6 +35,7 @@ PORT_SELECTION_MODE="random"
 REQUESTED_NEW_PORT=""
 RANDOM_REQUESTED=0
 KEY_INSTALL_MODE="prompt"
+WIZARD_MODE=0
 
 info() {
   printf '%s\n' "$*"
@@ -209,11 +210,15 @@ can_check_listening_ports() {
 usage() {
   cat <<EOF
 Usage:
-  setup-ssh-key-only-full.sh [--random]
-  setup-ssh-key-only-full.sh --port <port>
+  setup-ssh-key-only-full.sh
   setup-ssh-key-only-full.sh --help
 
-Options:
+Recommended remote menu:
+  curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/vps/ssh-key-only/setup-ssh-key-only-full.sh | sudo env SSH_CONNECTION="\$SSH_CONNECTION" bash
+
+The menu lets you choose status check, key-only update, or full hardening.
+
+Advanced compatibility options:
   --random        Randomly choose a new SSH port from: ${SSH_PORT_RANGES[*]}
   -p, --port     Use a specific new SSH port from: ${SSH_PORT_RANGES[*]}
   --key-mode      Public-key install mode: add or replace.
@@ -221,7 +226,7 @@ Options:
   --replace-key   Back up authorized_keys, then keep only the pasted public key.
   -h, --help     Show this help.
 
-Remote pipe example:
+Advanced remote pipe example:
   curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/vps/ssh-key-only/setup-ssh-key-only-full.sh | sudo env SSH_CONNECTION="\$SSH_CONNECTION" bash -s -- --port 55022
 
 The current SSH session port may be outside this range, but the new SSH port
@@ -229,6 +234,32 @@ must follow scripts/vps/docs/vps-port-firewall-summary.md.
 The script installs SSH login public keys in authorized_keys. Keep the private
 key on your local machine; do not paste a private key here.
 EOF
+}
+
+trim() {
+  local value="$1"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf '%s' "${value}"
+}
+
+prompt_default() {
+  local prompt="$1"
+  local default="$2"
+  local value
+
+  if [[ -n "${default}" ]]; then
+    printf '%s [%s]: ' "${prompt}" "${default}" >&2
+    read -r value
+    value="$(trim "${value}")"
+    [[ -n "${value}" ]] || value="${default}"
+  else
+    printf '%s: ' "${prompt}" >&2
+    read -r value
+    value="$(trim "${value}")"
+  fi
+
+  printf '%s\n' "${value}"
 }
 
 normalize_key_install_mode() {
@@ -379,6 +410,59 @@ validate_new_port_candidate() {
   else
     warn "未找到 ss/lsof/netstat，无法检查 ${port}/tcp 是否被本机服务监听。"
   fi
+}
+
+prompt_port_selection() {
+  local current_port="$1"
+  local choice port
+
+  section "选择新的 SSH 端口"
+  info "当前 SSH 端口：${current_port}"
+  info "新端口允许范围：${SSH_PORT_RANGES[*]}"
+  info "排除端口：${EXCLUDED_PORTS[*]}"
+  info "1. 随机选择可用端口（推荐）"
+  info "2. 手动指定端口"
+
+  while true; do
+    printf '请选择 1 或 2，直接回车默认 1 随机：'
+    read -r choice
+    choice="$(trim "${choice}")"
+    case "${choice}" in
+      ""|1|random|RANDOM)
+        PORT_SELECTION_MODE="random"
+        REQUESTED_NEW_PORT=""
+        return 0
+        ;;
+      2|custom|CUSTOM|manual|MANUAL)
+        while true; do
+          port="$(prompt_default "请输入新的 SSH 端口" "")"
+          if ! is_allowed_new_ssh_port "${port}"; then
+            warn "端口 ${port} 不在允许范围内：${SSH_PORT_RANGES[*]}。"
+            continue
+          fi
+          if is_excluded_port "${port}"; then
+            warn "端口 ${port} 属于排除端口：${EXCLUDED_PORTS[*]}。"
+            continue
+          fi
+          if [[ "${port}" == "${current_port}" ]]; then
+            warn "新端口不能与当前 SSH 端口相同。"
+            continue
+          fi
+          if can_check_listening_ports && port_in_use "${port}"; then
+            warn "端口 ${port} 已被本机服务监听，当前占用信息如下："
+            show_port_owner "${port}"
+            continue
+          fi
+          PORT_SELECTION_MODE="custom"
+          REQUESTED_NEW_PORT="${port}"
+          return 0
+        done
+        ;;
+      *)
+        warn "无效选择。"
+        ;;
+    esac
+  done
 }
 
 detect_nft_input_chain() {
@@ -1036,10 +1120,14 @@ prompt_key_install_mode() {
   esac
 }
 
-need_root_and_ssh_session() {
+need_root() {
   if [[ "$(id -u)" -ne 0 ]]; then
     die "请使用 root 运行此脚本。"
   fi
+}
+
+need_root_and_ssh_session() {
+  need_root
 
   if [[ -z "${SSH_CONNECTION:-}" ]]; then
     die "请在现有 SSH 会话里运行，这样才能识别当前 SSH 端口。"
@@ -1047,8 +1135,12 @@ need_root_and_ssh_session() {
 }
 
 prompt_for_user_and_key() {
-  printf '请输入要允许 SSH 密钥登录的账户名，例如 root：'
-  read -r SSH_USER
+  local default_user="root"
+  if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+    default_user="${SUDO_USER}"
+  fi
+
+  SSH_USER="$(prompt_default "请输入要允许 SSH 密钥登录的账户名" "${default_user}")"
 
   [[ -n "${SSH_USER}" ]] || die "账户名不能为空。"
   id "${SSH_USER}" >/dev/null 2>&1 || die "账户不存在：${SSH_USER}"
@@ -1063,6 +1155,7 @@ prompt_for_user_and_key() {
   AUTH_KEYS="${SSH_DIR}/authorized_keys"
 
   show_account_state "${SSH_USER}"
+  prompt_key_install_mode
 
   info ""
   info "请粘贴 SSH 公钥，单行输入，然后回车："
@@ -1084,7 +1177,6 @@ prompt_for_user_and_key() {
       ;;
   esac
 
-  prompt_key_install_mode
 }
 
 install_public_key() {
@@ -1116,12 +1208,117 @@ install_public_key() {
   fi
 }
 
-main() {
+pause_before_menu() {
+  local _
+  printf '\n按回车返回菜单...'
+  read -r _ || true
+}
+
+confirm_key_install_only() {
+  local answer
+
+  printf '确认只修改 authorized_keys，不修改 sshd/nft？请输入 yes 继续：'
+  read -r answer
+  case "${answer}" in
+    yes|YES|Yes|y|Y) ;;
+    *) die "已取消，未修改 authorized_keys。" ;;
+  esac
+}
+
+run_status_report() {
+  local current_port sshd_bin
+
+  need_root_and_ssh_session
+  current_port="$(printf '%s\n' "${SSH_CONNECTION}" | awk '{print $4}')"
+  is_valid_port "${current_port}" || die "无法从 SSH_CONNECTION 识别当前 SSH 服务端端口。"
+  sshd_bin="$(find_sshd_bin)" || die "未找到 sshd。"
+  [[ -f "${SSHD_CONFIG}" ]] || die "未找到 ${SSHD_CONFIG}。"
+
+  setup_nft_context || true
+  show_existing_ssh_state "${current_port}" "${sshd_bin}"
+}
+
+run_key_install_only() {
+  need_root
+  section "只安装 / 更新 SSH 登录公钥"
+  info "此模式只修改目标账户 authorized_keys。"
+  info "不会修改 SSH 端口、sshd_config 或 nftables。"
+
+  prompt_for_user_and_key
+
+  section "即将执行的动作"
+  if [[ "${REPLACE_AUTH_KEYS}" -eq 1 ]]; then
+    info "1. 备份 ${AUTH_KEYS}，并只保留本次输入的 SSH 公钥。"
+  else
+    info "1. 为 ${SSH_USER} 新增/确认本次输入的 SSH 公钥，保留已有公钥。"
+  fi
+  info "2. 不修改 SSH 端口。"
+  info "3. 不修改 sshd_config / nftables。"
+  confirm_key_install_only
+  install_public_key
+  info "公钥处理完成。"
+}
+
+run_interactive_menu() {
+  local choice
+
+  need_root
+  while true; do
+    section "SSH 公钥登录加固菜单"
+    info "请选择本次要执行的任务："
+    info "1. 查看当前 SSH / nft 状态（只读）"
+    info "2. 只安装 / 更新登录公钥（不改端口）"
+    info "3. 完整加固：安装公钥 + 切换 SSH 端口 + 新端口强制公钥登录"
+    info "4. 显示高级兼容参数帮助"
+    info "0. 退出"
+    printf '请选择 [0-4]: '
+    read -r choice
+    choice="$(trim "${choice}")"
+
+    case "${choice}" in
+      1)
+        run_status_report
+        pause_before_menu
+        ;;
+      2)
+        run_key_install_only
+        pause_before_menu
+        ;;
+      3)
+        run_full_hardening_flow
+        return $?
+        ;;
+      4)
+        usage
+        pause_before_menu
+        ;;
+      0|"")
+        info "已退出。"
+        return 0
+        ;;
+      *)
+        warn "无效选择。"
+        ;;
+    esac
+  done
+}
+
+run_full_hardening_flow() {
   local current_port new_port sshd_bin backup_path tmp_file effective_ports
   local skip_nft=0
 
+  if [[ "$#" -eq 0 ]]; then
+    WIZARD_MODE=1
+  fi
+
   parse_args "$@"
   need_root_and_ssh_session
+
+  if [[ "${WIZARD_MODE}" -eq 1 ]]; then
+    section "完整 SSH 加固向导"
+    info "此流程会为指定账户安装 SSH 登录公钥，将 SSH 切换到高位端口，并在新端口强制公钥认证。"
+    info "请保持当前 SSH 窗口不要关闭；完成后再新开终端测试新端口。"
+  fi
 
   current_port="$(printf '%s\n' "${SSH_CONNECTION}" | awk '{print $4}')"
   is_valid_port "${current_port}" || die "无法从 SSH_CONNECTION 识别当前 SSH 服务端端口。"
@@ -1133,6 +1330,10 @@ main() {
   show_existing_ssh_state "${current_port}" "${sshd_bin}"
   if [[ "${NFT_AVAILABLE}" -eq 0 ]]; then
     skip_nft=1
+  fi
+
+  if [[ "${WIZARD_MODE}" -eq 1 ]]; then
+    prompt_port_selection "${current_port}"
   fi
 
   if [[ "${PORT_SELECTION_MODE}" == "custom" ]]; then
@@ -1275,6 +1476,16 @@ main() {
     info "提示：本脚本添加的 nft 规则是运行时规则；如需重启后保留，请按当前系统方式持久化 nftables。"
   fi
   info "=========================================="
+}
+
+main() {
+  if [[ "$#" -eq 0 ]]; then
+    run_interactive_menu
+    return $?
+  fi
+
+  WIZARD_MODE=0
+  run_full_hardening_flow "$@"
 }
 
 main "$@"

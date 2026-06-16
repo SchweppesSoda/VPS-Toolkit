@@ -73,8 +73,9 @@ bash <(curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/ma
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/vps/forwardx/forwardx-nat-agent-adapter.sh | sudo bash -s -- install --public-port 54999 --internal-port 81 --proto both
 
 # SSH 仅公钥登录加固
-# 可追加 --add-key 或 --replace-key 控制 authorized_keys 是新增还是替换
-curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/vps/ssh-key-only/setup-ssh-key-only-full.sh | sudo env SSH_CONNECTION="$SSH_CONNECTION" bash -s -- --port 55022
+# 菜单式 SSH 加固：查看状态、只更新公钥，或执行完整换端口加固
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/vps/ssh-key-only/setup-ssh-key-only-full.sh | sudo env SSH_CONNECTION="$SSH_CONNECTION" bash
+# 高级自动化仍支持 --port、--add-key、--replace-key
 ```
 
 Windows 自上报客户端：
