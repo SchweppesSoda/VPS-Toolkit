@@ -32,6 +32,7 @@ RESOURCE_INBOX_DIR="${CONF_DIR}/po0-relay-resource-inbox"
 RESOURCE_TASK_LOCK_FILE="${CONF_DIR}/po0-relay-resource-tasks.lock"
 RESOURCE_TASK_HISTORY_LIMIT=500
 DYNAMIC_ALLOWLIST_MAX_PER_SOURCE="${PO0_DYNAMIC_ALLOWLIST_MAX_PER_SOURCE:-5}"
+SSH_REPORT_ALLOWLIST_MAX_PER_SOURCE="${PO0_SSH_REPORT_ALLOWLIST_MAX_PER_SOURCE:-10}"
 ALLOWLIST_PROFILE_DIR="${CONF_DIR}/po0-relay-allowlist-profiles"
 ALLOWLIST_LAST_PROFILE_NAME="_last"
 ALLOWLIST_PROFILE_MAX_COUNT=10
@@ -1569,11 +1570,24 @@ dynamic_allowlist_source_type() {
 }
 
 dynamic_allowlist_max_per_source() {
-    local value="${DYNAMIC_ALLOWLIST_MAX_PER_SOURCE:-5}"
-    [[ "${value}" =~ ^[0-9]+$ ]] || value="5"
+    local source_type="${1:-}" normalized_type value fallback="5"
+    normalized_type="$(normalize_allowlist_entry_source_type "${source_type}" 2>/dev/null || true)"
+    if [[ "${normalized_type}" == "ssh_report" ]]; then
+        value="${SSH_REPORT_ALLOWLIST_MAX_PER_SOURCE:-10}"
+        fallback="10"
+    else
+        value="${DYNAMIC_ALLOWLIST_MAX_PER_SOURCE:-5}"
+    fi
+    [[ "${value}" =~ ^[0-9]+$ ]] || value="${fallback}"
     (( value >= 1 )) || value="1"
     (( value <= 50 )) || value="50"
     printf '%s\n' "${value}"
+}
+
+dynamic_allowlist_limits_label() {
+    printf 'ddns/client_ip/webauth 每个来源最多保留 %s 个有效 IP；ssh_report/Egern 每个来源最多保留 %s 个有效 IP' \
+        "$(dynamic_allowlist_max_per_source ddns)" \
+        "$(dynamic_allowlist_max_per_source ssh_report)"
 }
 
 write_auto_pending_header() {
@@ -1995,7 +2009,7 @@ replace_allowlist_entries_for_source_with_expiry() {
             existing_seen+="${cidr} "
             ((added++))
         done
-        max_keep="$(dynamic_allowlist_max_per_source)"
+        max_keep="$(dynamic_allowlist_max_per_source "${normalized_type}")"
         selected=" "
         selected_count=0
         while (( selected_count < max_keep )); do
@@ -2044,10 +2058,9 @@ replace_allowlist_entries_for_source() {
 }
 
 cleanup_dynamic_allowlist_entries() {
-    local line tmp dynamic_tmp sorted_tmp created key record count max_keep
+    local line tmp dynamic_tmp sorted_tmp created key record count max_keep source_type
     local removed_expired=0 trimmed=0 kept_dynamic=0 kept_static=0
     declare -A group_counts=()
-    max_keep="$(dynamic_allowlist_max_per_source)"
     ensure_allowlist_entries_file || return 1
     make_temp_file "${ALLOWLIST_ENTRIES_FILE}" || return 1
     tmp="${TEMP_FILE_RESULT}"
@@ -2078,6 +2091,8 @@ cleanup_dynamic_allowlist_entries() {
     sort -r "${dynamic_tmp}" > "${sorted_tmp}"
     while IFS=$'\t' read -r created key record || [[ -n "${record:-}" ]]; do
         [[ -n "${record:-}" ]] || continue
+        source_type="${key%%|*}"
+        max_keep="$(dynamic_allowlist_max_per_source "${source_type}")"
         count="${group_counts[$key]:-0}"
         if (( count < max_keep )); then
             printf '%s\n' "${record}" >> "${tmp}"
@@ -2088,8 +2103,8 @@ cleanup_dynamic_allowlist_entries() {
         fi
     done < "${sorted_tmp}"
     mv -f "${tmp}" "${ALLOWLIST_ENTRIES_FILE}"
-    printf '动态来源清理完成：保留动态 %s 条，保留静态 %s 条，删除过期 %s 条，裁剪超量 %s 条；每个来源最多保留 %s 个 IP。\n' \
-        "${kept_dynamic}" "${kept_static}" "${removed_expired}" "${trimmed}" "${max_keep}"
+    printf '动态来源清理完成：保留动态 %s 条，保留静态 %s 条，删除过期 %s 条，裁剪超量 %s 条；%s。\n' \
+        "${kept_dynamic}" "${kept_static}" "${removed_expired}" "${trimmed}" "$(dynamic_allowlist_limits_label)"
 }
 
 do_cleanup_dynamic_allowlist() {
@@ -5543,7 +5558,7 @@ print_src_allowlist_details() {
     printf '自动白名单 : %s\n' "$([[ "${AUTOMATION_MODE}" == "attack" ]] && printf 'attack（新自动 IP 进入待审核）' || printf 'regular')"
     printf '允许来源   : %s\n' "$(allowlist_sources_label "$(src_allowlist_mode_default_sources "${SRC_ALLOWLIST_MODE}")")"
     printf '来源条目   : %s 条（%s）\n' "$(allowlist_entries_count)" "${ALLOWLIST_ENTRIES_FILE}"
-    printf '动态缓存   : ddns/client_ip/ssh_report/webauth 每个来源最多保留 %s 个有效 IP，过期条目不进入最终缓存\n' "$(dynamic_allowlist_max_per_source)"
+    printf '动态缓存   : %s；过期条目不进入最终缓存\n' "$(dynamic_allowlist_limits_label)"
     printf '待审核 IP  : %s 条（%s）\n' "$(allowlist_pending_count)" "${AUTO_PENDING_FILE}"
     printf '地区数量   : %s\n' "$(src_allowlist_region_count)"
     printf '手动 CIDR  : %s 条（%s）\n' "${custom_count}" "${CUSTOM_SRC_ALLOWLIST_FILE}"
@@ -11035,9 +11050,9 @@ print_cli_usage() {
         "  --pending-auto-sources" \
         "                   查看自动来源待审核 IP。" \
         "  --cleanup-dynamic-allowlist" \
-        "                   清理 ddns/client_ip/ssh_report/webauth 的过期和超量 IP；每个来源默认最多保留 5 个。" \
+        "                   清理 ddns/client_ip/ssh_report/webauth 的过期和超量 IP；普通来源默认 5 个，ssh_report/Egern 默认 10 个。" \
         "  --install-dynamic-allowlist-cleanup-cron [hourly|daily|weekly|monthly|CRON_EXPR]" \
-        "                   安装/更新动态来源清理 cron，默认 daily。" \
+        "                   安装/更新动态来源清理 cron，默认 daily；普通动态来源默认保留 5 个，ssh_report/Egern 默认保留 10 个。" \
         "  --remove-dynamic-allowlist-cleanup-cron" \
         "                   删除动态来源清理 cron。" \
         "  --show-client-deploy-commands [lan-resource|lan-ddns|self-server|self-client|webauth|egern|all]" \

@@ -299,7 +299,7 @@ webauth      LAN Worker WebAuth 验证后上报的访问设备 IP
 region       旧地区白名单文件直接进入缓存，不逐条写 entries
 ```
 
-过期 entries 保留作审计，但生成有效白名单缓存时跳过。
+动态来源按 `source_type + source_value` 分组裁剪。`ddns`、`client_ip`、`webauth` 每组默认最多保留最近 5 个有效 IP；`ssh_report` / Egern 每组默认最多保留最近 10 个有效 IP。过期 entries 保留作审计，但生成有效白名单缓存时跳过。
 
 ### 3.5 白名单 sources 模型
 

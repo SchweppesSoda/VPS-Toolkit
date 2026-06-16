@@ -141,7 +141,7 @@ manual, ssh_temp, ddns, client_ip, ssh_report, webauth, learned, region
 
 动态来源缓存策略：
 - `ddns`、`client_ip`、`ssh_report`、`webauth` 按 `source_type + source_value` 分组。
-- 每个来源默认最多保留最近 5 个有效 IP。
+- `ddns`、`client_ip`、`webauth` 每个来源默认最多保留最近 5 个有效 IP；`ssh_report` / Egern 每个来源默认最多保留最近 10 个有效 IP。
 - 已存在 IP 再次上报会刷新时间和过期时间，不重复新增。
 - 过期条目不会进入最终 nftables 白名单缓存。
 
