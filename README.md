@@ -42,10 +42,18 @@ Do not enable GitHub Pages from this repository root. That would publish scripts
 # PO0 nftables relay manager: interactive, no persistence
 bash <(curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/nftables-relay-manager.sh)
 
+# PO0 nftables relay manager: GitHub raw acceleration for PO0 hosts that cannot reach GitHub
+PO0_RAW_BASE_URL='https://gh-proxy.com/https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main' bash -c 'curl -fsSL "$PO0_RAW_BASE_URL/scripts/po0/nftables/nftables-relay-manager.sh" | bash'
+
 # PO0 nftables relay manager: persist to the legacy-compatible path
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/nftables-relay-manager.sh -o /root/nftables-relay-manager.sh
 chmod +x /root/nftables-relay-manager.sh
 bash /root/nftables-relay-manager.sh
+
+# PO0 nftables relay manager: accelerated persist command
+PO0_RAW_BASE_URL='https://gh-proxy.com/https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main' bash -c 'curl -fsSL "$PO0_RAW_BASE_URL/scripts/po0/nftables/nftables-relay-manager.sh" -o /root/nftables-relay-manager.sh && chmod +x /root/nftables-relay-manager.sh && bash /root/nftables-relay-manager.sh'
+
+# If gh-proxy.com is unavailable, replace PO0_RAW_BASE_URL with another GitHub raw proxy base.
 
 # PO0 LAN Worker: DDNS resolver + iplist/ipdb resource polling
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --source-key <DDNS_SOURCE_KEY> --ddns-domain <DDNS_DOMAIN> --token <DDNS_TOKEN> --resource-token <RESOURCE_TOKEN> --install-cron 5

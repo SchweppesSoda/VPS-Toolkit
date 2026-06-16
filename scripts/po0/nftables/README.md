@@ -18,6 +18,12 @@ PO0 主控临时运行：
 bash <(curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/nftables-relay-manager.sh)
 ```
 
+PO0 无法访问 GitHub 时，可用 raw 加速地址启动：
+
+```bash
+PO0_RAW_BASE_URL='https://gh-proxy.com/https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main' bash -c 'curl -fsSL "$PO0_RAW_BASE_URL/scripts/po0/nftables/nftables-relay-manager.sh" | bash'
+```
+
 PO0 主控落盘到兼容旧配置的路径：
 
 ```bash
@@ -25,6 +31,14 @@ curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scri
 chmod +x /root/nftables-relay-manager.sh
 bash /root/nftables-relay-manager.sh
 ```
+
+加速落盘命令：
+
+```bash
+PO0_RAW_BASE_URL='https://gh-proxy.com/https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main' bash -c 'curl -fsSL "$PO0_RAW_BASE_URL/scripts/po0/nftables/nftables-relay-manager.sh" -o /root/nftables-relay-manager.sh && chmod +x /root/nftables-relay-manager.sh && bash /root/nftables-relay-manager.sh'
+```
+
+`gh-proxy.com` 只是示例；不可用时，把 `PO0_RAW_BASE_URL` 换成其它 GitHub raw 代理根地址。主控脚本落盘/自更新时还会按 `PO0_GITHUB_RAW_PROXY_PREFIXES` 继续尝试多个代理前缀。
 
 LAN Worker：DDNS 解析上报 + 资源任务轮询：
 

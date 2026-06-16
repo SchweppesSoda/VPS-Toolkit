@@ -42,10 +42,18 @@ GitHub Actions 会在 `main` 分支的 `web/**` 变化后，把根主页索引�
 # PO0 nftables 中转管理器：临时交互运行
 bash <(curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/nftables-relay-manager.sh)
 
+# PO0 nftables 中转管理器：PO0 无法访问 GitHub 时走 raw 加速
+PO0_RAW_BASE_URL='https://gh-proxy.com/https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main' bash -c 'curl -fsSL "$PO0_RAW_BASE_URL/scripts/po0/nftables/nftables-relay-manager.sh" | bash'
+
 # PO0 nftables 中转管理器：落盘到兼容旧配置的路径
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/nftables-relay-manager.sh -o /root/nftables-relay-manager.sh
 chmod +x /root/nftables-relay-manager.sh
 bash /root/nftables-relay-manager.sh
+
+# PO0 nftables 中转管理器：加速落盘命令
+PO0_RAW_BASE_URL='https://gh-proxy.com/https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main' bash -c 'curl -fsSL "$PO0_RAW_BASE_URL/scripts/po0/nftables/nftables-relay-manager.sh" -o /root/nftables-relay-manager.sh && chmod +x /root/nftables-relay-manager.sh && bash /root/nftables-relay-manager.sh'
+
+# 如果 gh-proxy.com 不可用，把 PO0_RAW_BASE_URL 换成其它 GitHub raw 代理根地址即可。
 
 # PO0 内网 Worker：DDNS 解析上报 + iplist/ipdb 资源轮询
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --source-key <DDNS_SOURCE_KEY> --ddns-domain <DDNS_DOMAIN> --token <DDNS_TOKEN> --resource-token <RESOURCE_TOKEN> --install-cron 5

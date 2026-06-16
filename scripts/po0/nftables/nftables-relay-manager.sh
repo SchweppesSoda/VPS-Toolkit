@@ -58,7 +58,12 @@ IPDB_VENV_PYTHON="${IPDB_VENV_DIR}/bin/python"
 IPDB_DEFAULT_PIP_INDEX_URL="https://mirrors.cloud.tencent.com/pypi/simple"
 IPDB_PIP_INDEX_URL=""
 IPDB_DOWNLOAD_URL="https://raw.githubusercontent.com/nmgliangwei/qqwry.ipdb/main/qqwry.ipdb"
-MANAGER_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/nftables-relay-manager.sh"
+GITHUB_RAW_BASE_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main"
+RAW_BASE_URL="${PO0_RAW_BASE_URL:-${VPS_TOOLKIT_RAW_BASE_URL:-${GITHUB_RAW_BASE_URL}}}"
+RAW_ACCEL_BASE_URL="${PO0_ACCEL_RAW_BASE_URL:-https://gh-proxy.com/${GITHUB_RAW_BASE_URL}}"
+GITHUB_RAW_PROXY_PREFIXES="${PO0_GITHUB_RAW_PROXY_PREFIXES:-${GITHUB_RAW_PROXY_PREFIXES:-https://gh-proxy.com/ https://gh.llkk.cc/ https://ghfast.top/}}"
+MANAGER_RAW_PATH="scripts/po0/nftables/nftables-relay-manager.sh"
+MANAGER_RAW_URL="${PO0_MANAGER_RAW_URL:-${RAW_BASE_URL%/}/${MANAGER_RAW_PATH}}"
 MANAGER_INSTALL_PATH="${PO0_MANAGER_INSTALL_PATH:-/root/nftables-relay-manager.sh}"
 LAN_WORKER_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh"
 OUTBOUND_IP_REPORTER_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-outbound-ip-report.sh"
@@ -3751,6 +3756,51 @@ shell_quote() {
     printf '%s' "${quoted}"
 }
 
+raw_url_from_canonical_path() {
+    local path="$1"
+    printf '%s/%s\n' "${GITHUB_RAW_BASE_URL%/}" "${path#/}"
+}
+
+raw_url_candidate_list() {
+    local primary="$1"
+    local canonical="${2:-}"
+    local prefix candidate seen=""
+    for candidate in "${primary}" "${canonical}"; do
+        [[ -n "${candidate}" ]] || continue
+        [[ "${seen}" == *"|${candidate}|"* ]] && continue
+        seen+="|${candidate}|"
+        printf '%s\n' "${candidate}"
+    done
+    if [[ -n "${canonical}" ]]; then
+        for prefix in ${GITHUB_RAW_PROXY_PREFIXES}; do
+            [[ -n "${prefix}" ]] || continue
+            candidate="${prefix%/}/${canonical}"
+            [[ "${seen}" == *"|${candidate}|"* ]] && continue
+            seen+="|${candidate}|"
+            printf '%s\n' "${candidate}"
+        done
+    fi
+}
+
+fetch_url_with_raw_fallback() {
+    local primary="$1"
+    local canonical="$2"
+    local output="$3"
+    local candidate
+    while IFS= read -r candidate || [[ -n "${candidate}" ]]; do
+        [[ -n "${candidate}" ]] || continue
+        if command -v curl >/dev/null 2>&1; then
+            curl -fsSL --connect-timeout 15 --max-time 180 "${candidate}" -o "${output}" && return 0
+        elif command -v wget >/dev/null 2>&1; then
+            wget -q --timeout=180 "${candidate}" -O "${output}" && return 0
+        else
+            err "系统缺少 curl/wget，无法下载。"
+            return 1
+        fi
+    done < <(raw_url_candidate_list "${primary}" "${canonical}")
+    return 1
+}
+
 is_transient_script_path() {
     local path="$1"
     [[ -n "${path}" ]] || return 0
@@ -3765,14 +3815,10 @@ is_transient_script_path() {
 
 fetch_manager_script() {
     local output="$1"
-    if command -v curl >/dev/null 2>&1; then
-        curl -fsSL "${MANAGER_RAW_URL}" -o "${output}"
-    elif command -v wget >/dev/null 2>&1; then
-        wget -qO "${output}" "${MANAGER_RAW_URL}"
-    else
-        err "系统缺少 curl/wget，无法从公开仓库下载主控脚本。"
+    fetch_url_with_raw_fallback "${MANAGER_RAW_URL}" "$(raw_url_from_canonical_path "${MANAGER_RAW_PATH}")" "${output}" || {
+        err "无法从公开仓库或 GitHub raw 加速地址下载主控脚本。可设置 PO0_RAW_BASE_URL 或 PO0_GITHUB_RAW_PROXY_PREFIXES 后重试。"
         return 1
-    fi
+    }
 }
 
 install_manager_self() {
@@ -8453,10 +8499,14 @@ do_show_client_deploy_commands() {
     printf 'PO0 主控路径 : %s\n' "${MANAGER_INSTALL_PATH}"
     printf 'Worker RAW   : %s\n' "${LAN_WORKER_RAW_URL}"
     printf 'Self-report Client RAW : %s\n' "${OUTBOUND_IP_REPORTER_RAW_URL}"
+    printf 'GitHub raw 加速 RAW_BASE 示例: %s\n' "${RAW_ACCEL_BASE_URL}"
     echo ""
     echo "PO0 主控脚本落盘到 /root："
     printf '  curl -fsSL %s -o %s && chmod +x %s && bash %s\n' \
         "${MANAGER_RAW_URL}" "${MANAGER_INSTALL_PATH}" "${MANAGER_INSTALL_PATH}" "${MANAGER_INSTALL_PATH}"
+    echo "PO0 访问 GitHub 不稳定时："
+    printf '  PO0_RAW_BASE_URL=%s bash -c '\''curl -fsSL "$PO0_RAW_BASE_URL/%s" -o %s && chmod +x %s && bash %s'\''\n' \
+        "$(shell_quote "${RAW_ACCEL_BASE_URL}")" "${MANAGER_RAW_PATH}" "${MANAGER_INSTALL_PATH}" "${MANAGER_INSTALL_PATH}" "${MANAGER_INSTALL_PATH}"
     echo ""
     echo "资源任务 Worker（只更新 iplist/ipdb）："
     printf '  curl -fsSL %s | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script %s --resource-token %s --install-cron 5\n' \
@@ -9910,6 +9960,12 @@ print_cli_usage() {
         "公开仓库快速启动:" \
         "  bash <(curl -fsSL ${MANAGER_RAW_URL})" \
         "  curl -fsSL ${MANAGER_RAW_URL} -o ${MANAGER_INSTALL_PATH} && chmod +x ${MANAGER_INSTALL_PATH} && bash ${MANAGER_INSTALL_PATH}" \
+        "" \
+        "GitHub raw 加速启动（PO0 访问 GitHub 不稳定时）:" \
+        "  PO0_RAW_BASE_URL='${RAW_ACCEL_BASE_URL}' bash -c 'curl -fsSL \"\$PO0_RAW_BASE_URL/${MANAGER_RAW_PATH}\" | bash'" \
+        "  PO0_RAW_BASE_URL='${RAW_ACCEL_BASE_URL}' bash -c 'curl -fsSL \"\$PO0_RAW_BASE_URL/${MANAGER_RAW_PATH}\" -o ${MANAGER_INSTALL_PATH} && chmod +x ${MANAGER_INSTALL_PATH} && bash ${MANAGER_INSTALL_PATH}'" \
+        "" \
+        "LAN Worker / 客户端快速启动:" \
         "  curl -fsSL ${LAN_WORKER_RAW_URL} | bash -s -- --bootstrap --po0-host <PO0_HOST> --source-key <DDNS_SOURCE_KEY> --ddns-domain <DDNS_DOMAIN> --token <DDNS_TOKEN> --resource-token <RESOURCE_TOKEN> --install-cron 5" \
         "  curl -fsSL ${LAN_WORKER_RAW_URL} | bash -s -- --install-self" \
         "  po0-lan-client --self-report-server --self-report-listen 127.0.0.1:8788 --po0-host <PO0_HOST> --client-ip-token <CLIENT_REPORT_TOKEN> --self-report-secret <SECRET>" \
