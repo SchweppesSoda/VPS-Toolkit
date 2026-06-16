@@ -37,7 +37,7 @@ https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nft
 
 ## 多 PO0
 
-多个 PO0 不要重复导入模块。只导入一份，然后填写 `SSH_REPORT_TARGETS`，一行一个目标：
+多个 PO0 不要重复导入模块。只导入一份，然后填写 `SSH_REPORT_TARGETS`。可以一行一个目标，也可以用逗号或分号分隔：
 
 ```text
 source_id|host|port|user|script|token|identity|ttl
@@ -48,6 +48,12 @@ source_id|host|port|user|script|token|identity|ttl
 ```text
 iphone-sg|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|egern-iphone|3600
 iphone-us|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|egern-iphone|3600
+```
+
+如果 Egern 输入框会把换行折叠成空格，建议直接用逗号：
+
+```text
+iphone-sg|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|egern-iphone|3600,iphone-us|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|egern-iphone|3600
 ```
 
 填写 `SSH_REPORT_TARGETS` 后，单目标字段 `PO0_HOST`、`SSH_REPORT_SOURCE`、`SSH_REPORT_TOKEN` 可以留空。多个 PO0 建议共用同一把 Egern 专用上报私钥，并在 PO0 端安装 scope=`egern` 的受限 key。

@@ -267,7 +267,7 @@ bash /root/nftables-relay-manager.sh --ssh-ip-report-check <source-id> <token>
 - `generic`：手动立即上报。
 - `widget`：查看最近成功 IP、时间、TTL、失败原因、网络类型、PO0 host。
 
-Egern 可以向多个 PO0 上报同一个当前出口 IPv4。模块环境变量 `SSH_REPORT_TARGETS` 一行一个目标：
+Egern 可以向多个 PO0 上报同一个当前出口 IPv4。模块环境变量 `SSH_REPORT_TARGETS` 可以一行一个目标，也可以用逗号或分号分隔多个目标：
 
 ```text
 source|host|port|user|script|token|identity|ttl
@@ -279,6 +279,8 @@ source|host|port|user|script|token|identity|ttl
 iphone-sg|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|egern-iphone|3600
 iphone-us|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|egern-iphone|3600
 ```
+
+如果 Egern 输入框会把换行折叠成空格，建议直接用逗号连接多个目标。
 
 不填 `SSH_REPORT_TARGETS` 时，模块按单目标 `PO0_HOST`、`SSH_REPORT_SOURCE`、`SSH_REPORT_TOKEN` 运行。旧 Egern Client IP 模块不再保留兼容。
 

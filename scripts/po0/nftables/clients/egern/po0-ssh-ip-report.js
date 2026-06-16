@@ -378,6 +378,22 @@ function parseTargetLine(env, line, index) {
   }, index);
 }
 
+function splitTargetLines(raw) {
+  return String(raw || '')
+    .split(/\r?\n|[;,，；]/)
+    .flatMap((line) => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) return [];
+
+      const chunks = trimmed.split(/\s+/).filter(Boolean);
+      if (chunks.length > 1 && chunks.every((chunk) => chunk.includes('|'))) {
+        return chunks;
+      }
+
+      return [trimmed];
+    });
+}
+
 function parseTargets(env) {
   const raw = String(env.SSH_REPORT_TARGETS || '').trim();
   if (!raw) {
@@ -392,10 +408,7 @@ function parseTargets(env) {
     return parsed.map((target, index) => normalizeTarget(env, target, index));
   }
 
-  const lines = raw
-    .split(/\r?\n|;/)
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith('#'));
+  const lines = splitTargetLines(raw);
   if (lines.length === 0) {
     throw new Error('SSH_REPORT_TARGETS is empty');
   }
