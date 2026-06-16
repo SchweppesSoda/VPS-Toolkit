@@ -629,7 +629,7 @@ PO0 菜单创建 pending 任务
 内网 Worker 通过 --resource-task-claim 领取任务
 Worker 构建 iplist.tar.gz 或下载 qqwry.ipdb
 Worker 计算 SHA-256 和文件大小
-Worker 通过 SCP 上传到 PO0 返回的固定收件路径
+Worker 通过 SSH 调用 --resource-task-upload，从 stdin 上传到 PO0 固定收件路径
 Worker 调用 --resource-task-complete
 PO0 校验、原子导入并把任务标记为 success/failed
 ```
@@ -643,12 +643,13 @@ bash nftables-relay-manager.sh --resource-task-create all
 bash nftables-relay-manager.sh --install-resource-task-cron all daily
 bash nftables-relay-manager.sh --remove-resource-task-cron
 bash nftables-relay-manager.sh --resource-task-claim WORKER_ID TOKEN
+bash nftables-relay-manager.sh --resource-task-upload TASK_ID WORKER_ID SHA256 SIZE TOKEN < ARTIFACT
 bash nftables-relay-manager.sh --resource-task-complete TASK_ID WORKER_ID SHA256 SIZE TOKEN
 bash nftables-relay-manager.sh --resource-task-fail TASK_ID WORKER_ID REASON TOKEN
 bash nftables-relay-manager.sh --resource-task-ping TOKEN
 ```
 
-`--resource-task-create` 和 `--install-resource-task-cron` 是 PO0 管理员入口，只创建等待领取的固定任务，不主动连接内网机器。`--resource-task-ping/claim/complete/fail` 主要供 Worker 调用。`--resource-task-ping` 只读检查 token；任务领取和状态修改使用 `flock`（系统提供时）串行化；上传路径由 PO0 生成，客户端不能指定生产文件路径。资源任务使用独立 Token，不复用 DDNS 上报 Token。使用 PO0 专用受限 SSH 上报 key 时，`scope=worker` 允许 `--resource-task-ping/claim/complete/fail`，但不允许 `--resource-task-create` 或安装 PO0 端定时任务；旧 wrapper 需要用新版脚本重新安装/刷新。
+`--resource-task-create` 和 `--install-resource-task-cron` 是 PO0 管理员入口，只创建等待领取的固定任务，不主动连接内网机器。`--resource-task-ping/claim/upload/complete/fail` 主要供 Worker 调用。`--resource-task-ping` 只读检查 token；任务领取、上传和状态修改使用 `flock`（系统提供时）串行化；上传路径由 PO0 生成，客户端不能指定生产文件路径。资源任务使用独立 Token，不复用 DDNS 上报 Token。使用 PO0 专用受限 SSH 上报 key 时，`scope=worker` 允许 `--resource-task-ping/claim/upload/complete/fail`，但不允许 `--resource-task-create` 或安装 PO0 端定时任务；旧 wrapper 需要用新版脚本重新安装/刷新。资源产物通过受限 manager 命令的 stdin 上传，不依赖 SCP。
 
 `qqwry.ipdb` 默认下载源：
 

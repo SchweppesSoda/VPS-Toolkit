@@ -204,14 +204,14 @@ bash /root/nftables-relay-manager.sh --resource-task-create all
 bash /root/nftables-relay-manager.sh --install-resource-task-cron all daily
 ```
 
-LAN Worker 端定时领取任务、下载/构建文件，再用 SCP 回传 PO0。固定任务白名单只有：
+LAN Worker 端定时领取任务、下载/构建文件，再通过 SSH 调 PO0 manager 上传回 PO0。固定任务白名单只有：
 
 ```text
 iplist
 ipdb
 ```
 
-如果 LAN Worker 使用 PO0 端“专用受限 SSH 上报 key”，请使用 `scope=worker` 并确保 PO0 端 wrapper 已由新版脚本重新安装/刷新。`worker` scope 只允许上报和资源任务 Worker 动作：`--resource-task-ping/claim/complete/fail`，不允许创建资源任务或安装 PO0 端 cron。
+如果 LAN Worker 使用 PO0 端“专用受限 SSH 上报 key”，请使用 `scope=worker` 并确保 PO0 端 wrapper 已由新版脚本重新安装/刷新。`worker` scope 只允许上报和资源任务 Worker 动作：`--resource-task-ping/claim/upload/complete/fail`，不允许创建资源任务或安装 PO0 端 cron。资源产物通过 manager stdin 上传，不需要 SCP 权限。
 
 Worker 交互向导、管道运行且需要 cron 或服务时，会自动落盘到：
 

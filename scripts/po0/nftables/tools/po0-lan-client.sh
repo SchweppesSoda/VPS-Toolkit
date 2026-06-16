@@ -97,7 +97,7 @@ usage() {
         "WebAuth server 只运行在 LAN Worker 上，推荐经 cloudflared tunnel + Cloudflare Access 暴露。" \
         "DDNS resolver 模式解析 --ddns-domain；--source-key 只用于匹配 PO0 端来源，不在本机解析。" \
         "Self-report 模式接收访问设备上报/请求里的公网 IP，再通过 PO0 的 client_ip 来源写白名单。" \
-        "资源任务由 PO0 创建，本机主动领取固定白名单任务（iplist/ipdb），构建/下载后通过 SCP 回传；不需要来源 key 也可以只做资源任务。" \
+        "资源任务由 PO0 创建，本机主动领取固定白名单任务（iplist/ipdb），构建/下载后通过 SSH 调 PO0 manager 上传；不需要来源 key 也可以只做资源任务。" \
         "配置文件会明文保存 Token，请放在可信内网机器上，并注意文件权限。"
 }
 
@@ -1845,7 +1845,6 @@ probe_client_dependencies() {
     local failed=0
     have_cmd ssh || { probe_fail "缺少 ssh，无法连接 PO0。"; failed=1; }
     if [[ -n "${RESOURCE_TOKEN}" ]]; then
-        have_cmd scp || { probe_fail "缺少 scp，无法回传资源文件。"; failed=1; }
         have_cmd tar || { probe_fail "缺少 tar，无法构建/解包 iplist 资源。"; failed=1; }
         have_cmd grep || { probe_fail "缺少 grep，无法解析 iplist 清单。"; failed=1; }
         have_cmd sort || { probe_fail "缺少 sort，无法整理 iplist 清单。"; failed=1; }
@@ -2101,9 +2100,8 @@ report_resource_failure() {
 
 run_resource_endpoint() {
     local host="$1" port="$2" user="$3" script="$4" token="$5" extra="$6"
-    local worker_id endpoint_id remote_cmd response protocol task_id task_type upload_path work output sha size complete_response reason=""
+    local worker_id endpoint_id remote_cmd response protocol task_id task_type upload_path work output sha size upload_response complete_response reason=""
     local -a ssh_args=(-p "${port}")
-    local -a scp_args=(-P "${port}")
     local -a extra_args=()
     worker_id="$(sanitize_field "${WORKER_ID}")"
     worker_id="${worker_id// /_}"
@@ -2111,7 +2109,6 @@ run_resource_endpoint() {
     if [[ -n "${extra}" ]]; then
         read -r -a extra_args <<< "${extra}"
         ssh_args+=("${extra_args[@]}")
-        scp_args+=("${extra_args[@]}")
     fi
     remote_cmd="bash $(sh_quote "${script}") --resource-task-claim $(sh_quote "${worker_id}") $(sh_quote "${token}")"
     if ! response="$(ssh "${ssh_args[@]}" "${user}@${host}" "${remote_cmd}" 2>&1)"; then
@@ -2174,11 +2171,21 @@ run_resource_endpoint() {
         rm -rf -- "${work}"
         return 1
     fi
-    if ! scp "${scp_args[@]}" "${output}" "${user}@${host}:${upload_path}"; then
-        reason="SCP 回传文件失败"
+    remote_cmd="bash $(sh_quote "${script}") --resource-task-upload $(sh_quote "${task_id}") $(sh_quote "${worker_id}") $(sh_quote "${sha}") $(sh_quote "${size}") $(sh_quote "${token}")"
+    if ! upload_response="$(ssh "${ssh_args[@]}" "${user}@${host}" "${remote_cmd}" < "${output}" 2>&1)"; then
+        reason="PO0 上传资源文件失败：${upload_response}"
         report_resource_failure "${task_id}" "${worker_id}" "${reason}" "${host}" "${port}" "${user}" "${script}" "${token}" "${extra}"
         update_resource_stats "${endpoint_id}" "${task_id}" "${task_type}" "失败" "${reason}" || true
         rm -rf -- "${work}"
+        printf '%s\n' "${reason}" >&2
+        return 1
+    fi
+    if [[ "${upload_response}" != *"OK|"* ]]; then
+        reason="PO0 返回了无法识别的上传响应：${upload_response}"
+        report_resource_failure "${task_id}" "${worker_id}" "${reason}" "${host}" "${port}" "${user}" "${script}" "${token}" "${extra}"
+        update_resource_stats "${endpoint_id}" "${task_id}" "${task_type}" "失败" "${reason}" || true
+        rm -rf -- "${work}"
+        printf '%s\n' "${reason}" >&2
         return 1
     fi
     remote_cmd="bash $(sh_quote "${script}") --resource-task-complete $(sh_quote "${task_id}") $(sh_quote "${worker_id}") $(sh_quote "${sha}") $(sh_quote "${size}") $(sh_quote "${token}")"

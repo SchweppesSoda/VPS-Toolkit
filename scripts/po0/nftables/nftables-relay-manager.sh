@@ -4634,9 +4634,9 @@ create_resource_task() {
     success "已创建任务 ${id}：$(resource_task_type_label "${type}")。"
 }
 
-delete_pending_resource_tasks() {
+delete_unfinished_resource_tasks() {
     local type="${1:-all}" line id task_type status created claimed finished worker artifact sha size message
-    local tmp removed=0
+    local tmp removed=0 inbox_path artifact_name
     type="$(normalize_resource_task_create_type "${type}")" || return 1
     resource_task_lock || return 1
     make_temp_file "${RESOURCE_TASKS_FILE}" || {
@@ -4647,8 +4647,13 @@ delete_pending_resource_tasks() {
     while IFS= read -r line || [[ -n "${line}" ]]; do
         if [[ -n "${line}" && "${line}" != \#* ]]; then
             IFS='|' read -r id task_type status created claimed finished worker artifact sha size message <<< "${line}"
-            if [[ "${status}" == "pending" && ( "${type}" == "all" || "${task_type}" == "${type}" ) ]]; then
+            if [[ ( "${status}" == "pending" || "${status}" == "running" ) && ( "${type}" == "all" || "${task_type}" == "${type}" ) ]]; then
                 ((removed++))
+                artifact_name="$(resource_task_artifact_name "${task_type}" 2>/dev/null || true)"
+                if [[ -n "${artifact_name}" ]]; then
+                    inbox_path="${RESOURCE_INBOX_DIR}/${id}.${artifact_name}"
+                    [[ -e "${inbox_path}" ]] && rm -f -- "${inbox_path}" 2>/dev/null || true
+                fi
                 continue
             fi
         fi
@@ -4657,9 +4662,9 @@ delete_pending_resource_tasks() {
     mv -f "${tmp}" "${RESOURCE_TASKS_FILE}"
     resource_task_unlock
     if [[ "${removed}" -gt 0 ]]; then
-        success "已删除等待领取的资源任务：${removed} 个。"
+        success "已取消未完成的资源任务：${removed} 个。"
     else
-        warn "没有匹配的等待领取资源任务。"
+        warn "没有匹配的未完成资源任务。"
     fi
 }
 
@@ -5109,6 +5114,70 @@ activate_received_iplist() {
         write_nft_conf || return 1
         apply_or_save_notice "iplist 已刷新并应用。" "iplist 已刷新，托管配置已更新。" || return 1
     fi
+}
+
+upload_resource_task_artifact() {
+    local task_id="$1"
+    local worker="$2"
+    local reported_sha="$3"
+    local reported_size="$4"
+    local token="$5"
+    local line id type status created claimed finished task_worker artifact sha size message
+    local expected_path tmp actual_sha actual_size found=0
+    [[ "${task_id}" =~ ^[A-Za-z0-9._-]+$ ]] || { printf 'ERROR|任务 ID 无效\n'; return 1; }
+    [[ "${worker}" =~ ^[A-Za-z0-9._:-]{1,80}$ ]] || { printf 'ERROR|worker_id 无效\n'; return 1; }
+    [[ "${reported_sha}" =~ ^[A-Fa-f0-9]{64}$ ]] || { printf 'ERROR|SHA256 无效\n'; return 1; }
+    [[ "${reported_size}" =~ ^[0-9]+$ ]] || { printf 'ERROR|文件大小无效\n'; return 1; }
+    resource_task_token_matches "${token}" || { printf 'ERROR|Token 错误\n'; return 1; }
+    command -v sha256sum >/dev/null 2>&1 || { printf 'ERROR|PO0 缺少 sha256sum\n'; return 1; }
+    resource_task_lock || return 1
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        [[ -n "${line}" && "${line}" != \#* ]] || continue
+        IFS='|' read -r id type status created claimed finished task_worker artifact sha size message <<< "${line}"
+        if [[ "${id}" == "${task_id}" ]]; then
+            found=1
+            [[ "${status}" == "running" && "${task_worker}" == "${worker}" ]] || {
+                resource_task_unlock
+                printf 'ERROR|任务状态或领取机器不匹配\n'
+                return 1
+            }
+            break
+        fi
+    done < "${RESOURCE_TASKS_FILE}"
+    [[ "${found}" == "1" ]] || {
+        resource_task_unlock
+        printf 'ERROR|任务不存在\n'
+        return 1
+    }
+    expected_path="${RESOURCE_INBOX_DIR}/${task_id}.$(resource_task_artifact_name "${type}")"
+    make_temp_file "${expected_path}" || {
+        resource_task_unlock
+        return 1
+    }
+    tmp="${TEMP_FILE_RESULT}"
+    if ! cat > "${tmp}"; then
+        rm -f -- "${tmp}" 2>/dev/null || true
+        resource_task_unlock
+        printf 'ERROR|接收任务文件失败\n'
+        return 1
+    fi
+    actual_sha="$(sha256sum "${tmp}" | awk '{print $1}')"
+    actual_size="$(wc -c < "${tmp}" | tr -d '[:space:]')"
+    if [[ "${actual_sha}" != "${reported_sha}" || "${actual_size}" != "${reported_size}" ]]; then
+        rm -f -- "${tmp}" 2>/dev/null || true
+        resource_task_unlock
+        printf 'ERROR|SHA256 或文件大小不匹配\n'
+        return 1
+    fi
+    mv -f "${tmp}" "${expected_path}" || {
+        rm -f -- "${tmp}" 2>/dev/null || true
+        resource_task_unlock
+        printf 'ERROR|保存任务文件失败\n'
+        return 1
+    }
+    chmod 600 "${expected_path}" 2>/dev/null || true
+    resource_task_unlock
+    printf 'OK|资源任务文件已上传\n'
 }
 
 finish_resource_task() {
@@ -8846,8 +8915,8 @@ normalize_report_key_scope() {
 report_key_scope_allows() {
     case "$(normalize_report_key_scope "${1:-}")" in
         egern) printf '%s\n' '--ssh-ip-report --ssh-ip-report-check' ;;
-        worker) printf '%s\n' '--ddns-report --ddns-report-check --client-ip-report --client-ip-report-check --webauth-report --webauth-report-check --resource-task-ping --resource-task-claim --resource-task-complete --resource-task-fail' ;;
-        *) printf '%s\n' '--ssh-ip-report --ssh-ip-report-check --ddns-report --ddns-report-check --client-ip-report --client-ip-report-check --webauth-report --webauth-report-check --resource-task-ping --resource-task-claim --resource-task-complete --resource-task-fail' ;;
+        worker) printf '%s\n' '--ddns-report --ddns-report-check --client-ip-report --client-ip-report-check --webauth-report --webauth-report-check --resource-task-ping --resource-task-claim --resource-task-upload --resource-task-complete --resource-task-fail' ;;
+        *) printf '%s\n' '--ssh-ip-report --ssh-ip-report-check --ddns-report --ddns-report-check --client-ip-report --client-ip-report-check --webauth-report --webauth-report-check --resource-task-ping --resource-task-claim --resource-task-upload --resource-task-complete --resource-task-fail' ;;
     esac
 }
 
@@ -8931,13 +9000,13 @@ allow_action() {
         egern) [[ "${action}" == "--ssh-ip-report" || "${action}" == "--ssh-ip-report-check" ]] ;;
         worker)
             case "${action}" in
-                --ddns-report|--ddns-report-check|--client-ip-report|--client-ip-report-check|--webauth-report|--webauth-report-check|--resource-task-ping|--resource-task-claim|--resource-task-complete|--resource-task-fail) return 0 ;;
+                --ddns-report|--ddns-report-check|--client-ip-report|--client-ip-report-check|--webauth-report|--webauth-report-check|--resource-task-ping|--resource-task-claim|--resource-task-upload|--resource-task-complete|--resource-task-fail) return 0 ;;
                 *) return 1 ;;
             esac
             ;;
         all)
             case "${action}" in
-                --ssh-ip-report|--ssh-ip-report-check|--ddns-report|--ddns-report-check|--client-ip-report|--client-ip-report-check|--webauth-report|--webauth-report-check|--resource-task-ping|--resource-task-claim|--resource-task-complete|--resource-task-fail) return 0 ;;
+                --ssh-ip-report|--ssh-ip-report-check|--ddns-report|--ddns-report-check|--client-ip-report|--client-ip-report-check|--webauth-report|--webauth-report-check|--resource-task-ping|--resource-task-claim|--resource-task-upload|--resource-task-complete|--resource-task-fail) return 0 ;;
                 *) return 1 ;;
             esac
             ;;
@@ -8982,6 +9051,13 @@ case "${action}" in
         [[ "${args[0]}" =~ ^[A-Za-z0-9._:-]{1,80}$ ]] || deny "invalid worker_id"
         ;;
     --resource-task-complete)
+        [[ "${#args[@]}" -ge 5 ]] || deny "${action} needs task worker sha size token"
+        [[ "${args[0]}" =~ ^[A-Za-z0-9._-]+$ ]] || deny "invalid task_id"
+        [[ "${args[1]}" =~ ^[A-Za-z0-9._:-]{1,80}$ ]] || deny "invalid worker_id"
+        [[ "${args[2]}" =~ ^[A-Fa-f0-9]{64}$ ]] || deny "invalid sha256"
+        [[ "${args[3]}" =~ ^[0-9]+$ ]] || deny "invalid size"
+        ;;
+    --resource-task-upload)
         [[ "${#args[@]}" -ge 5 ]] || deny "${action} needs task worker sha size token"
         [[ "${args[0]}" =~ ^[A-Za-z0-9._-]+$ ]] || deny "invalid task_id"
         [[ "${args[1]}" =~ ^[A-Za-z0-9._:-]{1,80}$ ]] || deny "invalid worker_id"
@@ -10335,14 +10411,14 @@ do_manage_ipdb_tools() {
     done
 }
 
-do_delete_pending_resource_tasks_interactive() {
+do_cancel_unfinished_resource_tasks_interactive() {
     local choice type
-    echo "删除等待领取的资源任务："
+    echo "取消未完成的资源任务（等待领取 / 执行中）："
     echo "  1) iplist 地区库"
     echo "  2) qqwry.ipdb"
-    echo "  3) 全部等待领取任务"
+    echo "  3) 全部未完成任务"
     echo "  0) 取消"
-    read -r -p "请选择删除范围 [0-3]: " choice
+    read -r -p "请选择取消范围 [0-3]: " choice
     case "${choice}" in
         1) type="iplist" ;;
         2) type="ipdb" ;;
@@ -10350,8 +10426,8 @@ do_delete_pending_resource_tasks_interactive() {
         0) return 0 ;;
         *) err "无效选择。"; return 1 ;;
     esac
-    confirm_yes "确认删除 ${type} 的等待领取资源任务" || return 1
-    delete_pending_resource_tasks "${type}"
+    confirm_yes "确认取消 ${type} 的未完成资源任务" || return 1
+    delete_unfinished_resource_tasks "${type}"
 }
 
 print_resource_data_overview() {
@@ -10391,7 +10467,7 @@ do_manage_resource_tasks() {
         echo "  3) 创建 qqwry.ipdb 更新任务"
         echo "  4) 创建全部更新任务"
         echo "  5) 重新排队失败 / 执行中任务"
-        echo "  6) 删除等待领取任务"
+        echo "  6) 取消未完成任务"
         echo "  7) 生成 / 重置任务 Token"
         echo "  8) 安装 / 更新定时创建任务"
         echo "  9) 删除定时创建任务"
@@ -10420,7 +10496,7 @@ do_manage_resource_tasks() {
                 pause_before_return
                 ;;
             6)
-                do_delete_pending_resource_tasks_interactive
+                do_cancel_unfinished_resource_tasks_interactive
                 pause_before_return
                 ;;
             7)
@@ -10945,6 +11021,8 @@ print_cli_usage() {
         "                   只读检查资源任务 token，供内网 Worker probe 使用。" \
         "  --resource-task-claim <worker_id> <token>" \
         "                   内网机器领取一个等待中的 iplist/IPDB 更新任务。" \
+        "  --resource-task-upload <task_id> <worker_id> <sha256> <size> <token>" \
+        "                   从标准输入接收 Worker 产物，写入 PO0 资源任务收件目录。" \
         "  --resource-task-complete <task_id> <worker_id> <sha256> <size> <token>" \
         "                   校验已回传文件，导入资源并记录任务结果。" \
         "  --resource-task-fail <task_id> <worker_id> <reason> <token>" \
@@ -11132,6 +11210,10 @@ case "${1:-}" in
         ;;
     --resource-task-claim)
         claim_resource_task "${2:-}" "${3:-}"
+        exit $?
+        ;;
+    --resource-task-upload)
+        upload_resource_task_artifact "${2:-}" "${3:-}" "${4:-}" "${5:-}" "${6:-}"
         exit $?
         ;;
     --resource-task-complete)
