@@ -1,0 +1,5 @@
+# Keep shell scripts runnable on Linux after Windows checkouts.
+*.sh text eol=lf
+*.bash text eol=lf
+*.zsh text eol=lf
+*.ksh text eol=lf
