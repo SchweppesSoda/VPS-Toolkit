@@ -9034,14 +9034,7 @@ allow_action() {
 [[ -n "${orig}" ]] || deny "empty command"
 clean="${orig//\'/}"
 clean="${clean//\"/}"
-while true; do
-    read -r first second third rest <<< "${clean}"
-    if [[ ( "${first}" == "bash" || "${first}" == "/bin/bash" || "${first}" == "/usr/bin/bash" || "${first}" == "sh" || "${first}" == "/bin/sh" || "${first}" == "/usr/bin/sh" ) && ( "${second}" == "-c" || "${second}" == "-lc" ) ]]; then
-        clean="${third:-} ${rest:-}"
-        continue
-    fi
-    break
-done
+read -r first second third rest <<< "${clean}"
 if [[ "${first}" == "bash" || "${first}" == "/bin/bash" || "${first}" == "/usr/bin/bash" ]]; then
     [[ "${second}" == "${manager}" ]] || deny "unexpected manager path"
     action="${third}"
@@ -9192,7 +9185,7 @@ do_manage_report_keys() {
         echo "  1) 显示已有 key 分类"
         echo "  2) 新增 / 转换 public key 为受限上报 key"
         echo "  3) 查看受限 key 拒绝日志"
-        echo "  4) 刷新受限 key wrapper"
+        echo "  4) 刷新受限 key wrapper（不改 authorized_keys）"
         echo "  0) 返回"
         read -r -p "请选择操作 [0-4]: " choice
         case "${choice}" in
