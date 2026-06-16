@@ -8,7 +8,7 @@ Source repository for VPS maintenance scripts, PO0 relay tooling, and static bro
 
 - `scripts/po0/`
   - `reinstall/`: Debian unattended reinstall tooling.
-  - `nftables/`: nftables relay manager, allowlists, DDNS reporting, resource jobs, and offline IP-list builders.
+  - `nftables/`: nftables relay manager, allowlists, outbound IPv4 reporting, resource jobs, and offline IP-list builders.
   - `proxy-services/`: PO0 proxy-service enhancement scripts.
 - `scripts/vps/`
   - `3x-ui/`: interactive 3x-ui node/subscription exporter.
@@ -39,11 +39,26 @@ Do not enable GitHub Pages from this repository root. That would publish scripts
 ## Quick Start
 
 ```bash
-# PO0 nftables relay manager
-bash scripts/po0/nftables/nftables-relay-manager.sh
+# PO0 nftables relay manager: interactive, no persistence
+bash <(curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/nftables-relay-manager.sh)
 
-# PO0 LAN collaboration client
-bash scripts/po0/nftables/tools/po0-lan-client.sh
+# PO0 nftables relay manager: persist to the legacy-compatible path
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/nftables-relay-manager.sh -o /root/nftables-relay-manager.sh
+chmod +x /root/nftables-relay-manager.sh
+bash /root/nftables-relay-manager.sh
+
+# PO0 LAN Worker: DDNS resolver + iplist/ipdb resource polling
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --source-key <DDNS_SOURCE_KEY> --ddns-domain <DDNS_DOMAIN> --token <DDNS_TOKEN> --resource-token <RESOURCE_TOKEN> --install-cron 5
+
+# PO0 LAN Worker: resource polling only
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --resource-token <RESOURCE_TOKEN> --install-cron 5
+
+# PO0 LAN Worker: self-report receiver, HTTP runs only on the LAN Worker
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh | bash -s -- --install-self
+po0-lan-client --self-report-server --self-report-listen 127.0.0.1:8788 --po0-host <PO0_HOST> --client-ip-token <CLIENT_REPORT_TOKEN> --self-report-secret <SELF_REPORT_SECRET>
+
+# Linux/OpenWrt self-report client: report current outbound IPv4 to LAN Worker
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-outbound-ip-report.sh | bash -s -- --worker-url <LAN_WORKER_REPORT_URL> --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --install-cron 5
 
 # Fail2ban helper
 sudo bash scripts/vps/fail2ban/fail2ban.sh
@@ -57,6 +72,14 @@ bash scripts/vps/forwardx/forwardx-nat-agent-adapter.sh install --public-port 54
 # SSH key-only hardening
 sudo bash scripts/vps/ssh-key-only/setup-ssh-key-only-full.sh
 ```
+
+Windows self-report client:
+
+```powershell
+$env:PO0_LAN_WORKER_URL='<LAN_WORKER_REPORT_URL>'; $env:PO0_SELF_REPORT_SOURCE='<CLIENT_ID>'; $env:PO0_SELF_REPORT_SECRET='<SELF_REPORT_SECRET>'; $env:INSTALL_TASK='1'; $env:MINUTES='5'; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-outbound-ip-report.ps1' | iex
+```
+
+For local development, run the same scripts from the checked-out `scripts/` tree.
 
 Open `web/index.html`, `web/vps-toolkit/index.html`, or the files under `web/vps-toolkit/tools/` directly in a browser while developing. They do not require a server.
 

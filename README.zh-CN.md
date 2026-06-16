@@ -8,7 +8,7 @@
 
 - `scripts/po0/`
   - `reinstall/`：Debian 无人值守重装工具。
-  - `nftables/`：nftables 中转管理、白名单、DDNS 上报、内网资源任务和离线 IP 列表构建工具。
+  - `nftables/`：nftables 中转管理、白名单、出口 IPv4 上报、内网资源任务和离线 IP 列表构建工具。
   - `proxy-services/`：PO0 代理服务增强脚本。
 - `scripts/vps/`
   - `3x-ui/`：交互式 3x-ui 节点/订阅导出工具。
@@ -39,11 +39,26 @@ GitHub Actions 会在 `main` 分支的 `web/**` 变化后，把根主页索引�
 ## 快速使用
 
 ```bash
-# PO0 nftables 中转管理器
-bash scripts/po0/nftables/nftables-relay-manager.sh
+# PO0 nftables 中转管理器：临时交互运行
+bash <(curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/nftables-relay-manager.sh)
 
-# PO0 内网协作客户端
-bash scripts/po0/nftables/tools/po0-lan-client.sh
+# PO0 nftables 中转管理器：落盘到兼容旧配置的路径
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/nftables-relay-manager.sh -o /root/nftables-relay-manager.sh
+chmod +x /root/nftables-relay-manager.sh
+bash /root/nftables-relay-manager.sh
+
+# PO0 内网 Worker：DDNS 解析上报 + iplist/ipdb 资源轮询
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --source-key <DDNS_SOURCE_KEY> --ddns-domain <DDNS_DOMAIN> --token <DDNS_TOKEN> --resource-token <RESOURCE_TOKEN> --install-cron 5
+
+# PO0 内网 Worker：只做资源轮询
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --resource-token <RESOURCE_TOKEN> --install-cron 5
+
+# PO0 内网 Worker：自上报接收端，HTTP 只跑在 LAN Worker
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh | bash -s -- --install-self
+po0-lan-client --self-report-server --self-report-listen 127.0.0.1:8788 --po0-host <PO0_HOST> --client-ip-token <CLIENT_REPORT_TOKEN> --self-report-secret <SELF_REPORT_SECRET>
+
+# Linux/OpenWrt 自上报客户端：检测自身出口 IPv4 后报给 LAN Worker
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-outbound-ip-report.sh | bash -s -- --worker-url <LAN_WORKER_REPORT_URL> --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --install-cron 5
 
 # Fail2ban 管理
 sudo bash scripts/vps/fail2ban/fail2ban.sh
@@ -57,6 +72,14 @@ bash scripts/vps/forwardx/forwardx-nat-agent-adapter.sh install --public-port 54
 # SSH 仅公钥登录加固
 sudo bash scripts/vps/ssh-key-only/setup-ssh-key-only-full.sh
 ```
+
+Windows 自上报客户端：
+
+```powershell
+$env:PO0_LAN_WORKER_URL='<LAN_WORKER_REPORT_URL>'; $env:PO0_SELF_REPORT_SOURCE='<CLIENT_ID>'; $env:PO0_SELF_REPORT_SECRET='<SELF_REPORT_SECRET>'; $env:INSTALL_TASK='1'; $env:MINUTES='5'; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-outbound-ip-report.ps1' | iex
+```
+
+本地开发时，可以继续从已 checkout 的 `scripts/` 目录直接运行脚本。
 
 开发时可以直接在本地浏览器打开 `web/index.html`、`web/vps-toolkit/index.html` 或 `web/vps-toolkit/tools/` 下的 HTML 文件，不需要部署服务器。
 

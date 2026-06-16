@@ -1,166 +1,299 @@
-# nftables Relay Scripts
+# PO0 nftables Relay / LAN Worker
 
-- `nftables-relay-manager.sh`: current maintained nftables relay manager for PO0 or other dedicated relay hosts, with global relay modes, cached IP detection, source allowlists, and optional conntrack-based source IP learning.
-- `tools/po0-lan-client.sh`: 内网协作客户端，负责 DDNS 上报、资源任务领取、文件回传和本机统计。
-- `nftables-legacy.sh`: original legacy script preserved for compatibility and reference.
-- `nftables-relay-manager-technical.md`: overall technical documentation for the current manager implementation, IPDB integration, and future roadmap.
-- `tools/build-iplist-package-technical.md`: technical documentation for the offline iplist package builders and region allowlist data source.
+这里是 PO0 nftables 中转管理器、LAN Worker、Egern 当前出口 IP 上报和 self-report client 的文档。
 
-The manager now initializes `/etc/nftables.d/po0-relay-allowlist-sets.tsv` as the forward-compatible source allowlist set schema. The current legacy allowlist behavior maps to the `default` public set, rendered as nft set `po0_src_default`; per-port sets are represented by the schema but are not enabled by default.
+核心边界：
 
-Source entries are normalized in `/etc/nftables.d/po0-relay-allowlist-entries.tsv` using `set_id|cidr|source_type|source_value|note|created_at|expires_at`. Existing custom CIDR entries are still supported during migration and are mirrored into `default|...|manual` entries when edited through the manager.
+- PO0 不开放 HTTP / WebAuth / Secret URL。
+- PO0 默认不做本地 DDNS 解析；`--refresh-ddns` 只保留为高级兜底。
+- LAN Worker 负责 DDNS 解析上报、`iplist/ipdb` 资源任务、WebAuth Client、Self-report 接收端。
+- Egern 负责移动设备当前出口 IPv4 上报，不再解析 DDNS。
+- 资源任务只允许 `iplist`、`ipdb`，不支持任意远程 shell。
 
-SSH temporary allowlist entries are stored as `default|<client-ip>/32|ssh_temp|SSH_CONNECTION|...|created_at|expires_at`. Expired entries remain in the TSV for audit context but are skipped when rebuilding the effective nftables source allowlist cache.
+## 公开 raw 命令
 
-DDNS 来源定义在 `/etc/nftables.d/po0-relay-allowlist-sources.tsv`，格式为 `set_id|source_type|name|value|enabled|ttl_seconds|last_resolved_at|last_result`。目前 `source_type` 支持 `ddns`，`value` 是域名。推荐模式是让 iOS/Egern、内网机器或路由器先解析域名，再通过 SSH 调 PO0 的 `--ddns-report` 上报公网 IPv4；PO0 本机 DNS 解析只作为兜底。`last_result=report:<ip_csv>` 表示外部上报结果，`last_result=local:<ip_csv>` 表示 PO0 本机兜底解析结果。
-
-Suggested usage:
+PO0 主控临时运行：
 
 ```bash
-bash nftables-relay-manager.sh
+bash <(curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/nftables-relay-manager.sh)
 ```
 
-预览 / 试运行：
+PO0 主控落盘到兼容旧配置的路径：
 
 ```bash
-# 生成临时配置、打印中文摘要；如果系统有 nft，会执行 nft -c 预检。
-bash nftables-relay-manager.sh --preview
-
-# 将计划生成的 nftables 配置输出到 stdout，方便重定向或 diff。
-bash nftables-relay-manager.sh --render > /tmp/po0-relay.conf
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/nftables-relay-manager.sh -o /root/nftables-relay-manager.sh
+chmod +x /root/nftables-relay-manager.sh
+bash /root/nftables-relay-manager.sh
 ```
 
-DDNS 来源：
+LAN Worker：DDNS 解析上报 + 资源任务轮询：
 
 ```bash
-# 交互菜单：
-# 12) 管理源 IP 白名单
-# 10) 管理 DDNS 来源
-#
-# 可在菜单里查看、添加、编辑、删除、启用/停用、测试解析、刷新并应用 DDNS 来源。
-# 查看时会显示 PO0 端接受外部上报的统计；选项 8 可以显示 / 生成外部上报 Token。
-
-# 非交互刷新：优先使用 TTL 内的外部上报结果，过期或没有上报时才用 PO0 本机 DNS 兜底。
-bash nftables-relay-manager.sh --refresh-ddns
-
-# 外部机器已解析好公网 IPv4 后，上报给 PO0 并立即应用白名单：
-bash nftables-relay-manager.sh --ddns-report home.example.com 1.2.3.4 TOKEN
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script /root/nftables-relay-manager.sh --source-key <DDNS_SOURCE_KEY> --ddns-domain <DDNS_DOMAIN> --token <DDNS_TOKEN> --resource-token <RESOURCE_TOKEN> --install-cron 5
 ```
 
-DDNS 外部解析上报（推荐）：
+LAN Worker：只做 `iplist/ipdb` 资源任务：
 
 ```bash
-# 1. 先在 PO0 菜单里添加 DDNS 来源，例如 domain=home.example.com。
-# 2. 在 PO0 菜单选项 6 生成 token。
-# 3. 在负责解析 DNS 的内网 Linux/macOS/OpenWrt 机器上打开交互菜单：
-bash tools/po0-lan-client.sh
-
-# 也可以直接 SSH 调 PO0：
-ssh root@10.0.0.2 'bash /root/nftables-relay-manager.sh --ddns-report home.example.com 1.2.3.4 TOKEN'
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script /root/nftables-relay-manager.sh --resource-token <RESOURCE_TOKEN> --install-cron 5
 ```
 
-`tools/po0-lan-client.sh` 是内网协作客户端，打开后就是中文菜单。它可以管理目标、执行 DDNS 上报、领取资源任务、查看统计和管理 cron。一个配置文件可以放多台 PO0/VPS。
-
-## 内网资源更新任务
-
-PO0 可以要求内网 Linux/macOS/OpenWrt 机器构建 `iplist.tar.gz` 或下载 `qqwry.ipdb`。PO0 不会主动连接内网机器，也不会下发任意 Shell 命令；内网客户端定时通过现有 SSH 连接领取固定类型任务，完成后使用 SCP 回传文件。
-
-PO0 端：
-
-```text
-主菜单
-  12) 管理源 IP 白名单
-  15) 管理内网资源更新任务
-```
-
-首次使用：
-
-1. 在 PO0 的资源任务菜单生成任务 Token。
-2. 创建 `iplist`、`qqwry.ipdb` 或“全部更新”任务。
-3. 在内网机器运行 `bash tools/po0-lan-client.sh`。
-4. 编辑已有 PO0 目标，把任务 Token 填入“资源任务 Token”。
-5. 选择“立即领取并执行资源任务”测试。
-6. 确认成功后安装/更新定时任务。
-
-定时任务每轮会先执行 DDNS 上报，再对每台唯一 PO0 领取最多一个资源任务。一个内网客户端可以服务多台 PO0；同一台 PO0 即使配置了多个 DDNS 域名，也只会轮询一次资源队列。
-
-资源文件：
-
-- PO0 任务队列：`/etc/nftables.d/po0-relay-resource-tasks.tsv`
-- PO0 任务 Token：`/etc/nftables.d/po0-relay-resource-task.token`
-- PO0 临时收件目录：`/etc/nftables.d/po0-relay-resource-inbox`
-- 内网客户端统计：配置目录下的 `resource-stats.tsv`
-- IPDB 下载源：`https://raw.githubusercontent.com/nmgliangwei/qqwry.ipdb/main/qqwry.ipdb`
-
-回传文件会校验大小和 SHA-256。`iplist.tar.gz` 还会校验目录结构、地区清单和 CIDR 文件；`qqwry.ipdb` 会校验 IPDB 元数据结构。校验或导入失败时，PO0 保留旧数据。
-
-任务文件保留全部等待中/执行中任务和最近 500 条已完成/失败记录，不会无限增长。
-
-iOS / Egern：
-
-- 模块文件：`clients/egern/PO0-DDNS-Report.yaml`
-- 脚本文件：`clients/egern/po0-ddns-report.js`
-- 工作方式：Egern 定时用 DoH 解析 `DDNS_DOMAIN` 的 A 记录，然后通过 SSH 调 PO0 的 `--ddns-report`。
-- 需要填写：`PO0_HOST`、`PO0_USER`、`PO0_PASSWORD` 或 `PO0_PRIVATE_KEY`、`DDNS_DOMAIN`、`DDNS_TOKEN`。`DDNS_NAME` 可空，默认直接用 `DDNS_DOMAIN` 上报。
-
-传统 DDNS 更新仍然可以保留：路由器 / OpenWrt 的 `ddns-scripts`、`ddns-go`，或各 DNS 服务商 API 负责更新域名；本脚本负责把解析结果同步进 PO0 白名单。
-
-PO0 端会在 `/etc/nftables.d/po0-relay-ddns-report-stats.tsv` 为每个 DDNS 来源保留一条外部上报统计，记录接受/拒绝次数、最近上报时间、最近 IP 和最近错误；这不是逐次追加日志。
-
-被阻挡访问日志：
+Linux/OpenWrt Self-report client：
 
 ```bash
-# 白名单外来源访问托管转发端口时，会以 "po0-block" 前缀限速写入内核日志。
-# 采集最近的内核日志到 /etc/nftables.d/po0-relay-blocked.tsv：
-bash nftables-relay-manager.sh --collect-blocked
-
-# 自定义 journalctl --since 时间范围：
-bash nftables-relay-manager.sh --collect-blocked "24 hours ago"
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-outbound-ip-report.sh | bash -s -- --worker-url <LAN_WORKER_REPORT_URL> --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --install-cron 5
 ```
 
-被阻挡访问日志超过 10 MiB 或 100,000 条后会自动压缩，并重新生成 `/etc/nftables.d/po0-relay-blocked-summary.tsv`。统计按来源 IP、协议、目标端口和 set id 汇总；菜单里的“查看被阻挡访问统计”会复用 IPDB 显示归属地/运营商。日志文件本身只保存 IP、协议、端口、时间和原始内核日志。
-
-Offline iplist package:
+Windows Self-report client：
 
 ```powershell
-# Windows PowerShell / PowerShell 7
-.\tools\build-iplist-package.ps1
-
-# or specify output path
-.\tools\build-iplist-package.ps1 -OutFile D:\Temp\iplist.tar.gz
-
-# or increase parallel downloads
-.\tools\build-iplist-package.ps1 -ThrottleLimit 16
+$env:PO0_LAN_WORKER_URL='<LAN_WORKER_REPORT_URL>'; $env:PO0_SELF_REPORT_SOURCE='<CLIENT_ID>'; $env:PO0_SELF_REPORT_SECRET='<SELF_REPORT_SECRET>'; $env:INSTALL_TASK='1'; $env:MINUTES='5'; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-outbound-ip-report.ps1' | iex
 ```
+
+Egern 模块 raw URL：
+
+```text
+https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/PO0-Client-IP-Report.yaml
+```
+
+## PO0 主控菜单
+
+主菜单按功能分组：
+
+- 基础操作：安装、刷新中转机 IP、查看 Dashboard。
+- 规则管理：新增、编辑、排序、启停、删除、导入、导出转发规则。
+- 系统维护：中转参数、源 IP 白名单、自检、BBR、预览、客户端部署命令。
+
+客户端部署命令可由主控自动生成：
 
 ```bash
-# macOS / Linux
-bash tools/build-iplist-package.sh
-
-# or specify output path
-bash tools/build-iplist-package.sh /tmp/iplist.tar.gz
-
-# or increase parallel downloads
-bash tools/build-iplist-package.sh /tmp/iplist.tar.gz 16
-# alternative when using the default Desktop output
-IPLIST_JOBS=16 bash tools/build-iplist-package.sh
+bash /root/nftables-relay-manager.sh --show-client-deploy-commands
 ```
 
-By default both scripts write `iplist.tar.gz` to the current user's Desktop and use 8 parallel downloads. The package includes `docs/cncity.md` plus `data/cncity/*.txt`; `data/country/*` links from the markdown are ignored. Upload `iplist.tar.gz` to the VPS, then use the manager menu:
+这个命令会输出资源 Worker、DDNS resolver Worker、Self-report server/client、WebAuth Worker、Egern 模块 URL 和对应 token 示例。
 
-- `12) 管理源 IP 白名单`
-- `6) 导入 / 刷新 iplist 离线包`
+## 源 IP 白名单模式
 
-Source allowlists support three modes:
+新安装默认模式是 `trusted_dynamic`。旧配置会自动映射：
 
-- Region allowlist from the offline iplist package.
-- Custom allowlist from manually approved IPv4/CIDR entries.
-- Region plus custom allowlist.
+```text
+region        -> region_only
+custom        -> trusted_dynamic
+region_custom -> region_plus_trusted
+```
 
-The optional learning service uses `conntrack` events to record public source IPs that completed bidirectional forwarded connections. Learned IPs are only candidates; the manager requires manual confirmation before adding a learned IP, `/24` candidate, or high-risk `/16` candidate to the custom allowlist. Promotion menus apply extra thresholds based on hit count and observation span, so a single successful connection is not enough to become a promoted candidate.
+可选模式：
 
-Default promotion thresholds:
+```text
+manual_only           手动 CIDR + 当前 SSH 临时来源
+trusted_dynamic       手动 + SSH 临时 + DDNS + Client IP + WebAuth + learned
+region_plus_trusted   地区库 + trusted_dynamic
+region_only           仅地区库
+custom_sources        高级自选来源组合
+```
 
-- `/32`: at least 3 hits, or at least 2 hits observed across 10 minutes.
-- `/24`: at least 2 distinct IPs in the `/24`, or at least 3 hits.
-- `/16`: at least 2 distinct `/24` networks in the `/16`, or at least 3 hits; adding it requires typing `YES`.
+如果不想把所有动态来源都打开，选择 `custom_sources`，或在菜单里进入：
+
+```text
+管理源 IP 白名单 -> 管理动态来源开关（高级自选来源）
+```
+
+可组合的来源：
+
+```text
+manual, ssh_temp, ddns, client_ip, webauth, learned, region, url_report
+```
+
+`url_report` 只保留为旧格式兼容，不作为当前推荐路径。
+
+## DDNS Resolver 上报
+
+推荐流程：
+
+1. PO0 端在“管理源 IP 白名单 -> 管理 DDNS 来源”里添加域名并生成 DDNS token。
+2. LAN Worker、路由器、OpenWrt、NAS 或 Windows/Linux 小脚本解析这个 DDNS 域名的公网 A 记录。
+3. 解析结果通过 SSH 调 PO0：
+
+```bash
+bash /root/nftables-relay-manager.sh --ddns-report <source-key> <ipv4[,ipv4...]> <token>
+```
+
+只读检查：
+
+```bash
+bash /root/nftables-relay-manager.sh --ddns-report-check <source-key> <token>
+```
+
+LAN Worker 里 `--source-key` 只是 PO0 DDNS 来源 key/名称，用来匹配 PO0 来源表；`--ddns-domain` 才是真正要解析的 DDNS 域名。旧参数 `--domain` 仍作为兼容别名：没有 `--ddns-domain` 时，同时作为 source key 和 DDNS 域名。PO0 本机兜底刷新仍可手动执行，但默认不推荐，也不会默认安装 cron：
+
+```bash
+bash /root/nftables-relay-manager.sh --refresh-ddns
+```
+
+## LAN Worker 资源任务
+
+PO0 端创建资源任务：
+
+```bash
+bash /root/nftables-relay-manager.sh --resource-task-create all
+bash /root/nftables-relay-manager.sh --install-resource-task-cron all daily
+```
+
+LAN Worker 端定时领取任务、下载/构建文件，再用 SCP 回传 PO0。固定任务白名单只有：
+
+```text
+iplist
+ipdb
+```
+
+Worker 管道运行且需要 cron 或服务时，会自动落盘到：
+
+```text
+root:     /usr/local/sbin/po0-lan-client
+non-root: ~/.local/bin/po0-lan-client
+```
+
+配置里旧的 `PO0_SCRIPT=/root/nftables-relay-manager.sh` 继续兼容。
+
+## LAN Worker Self-report
+
+Self-report 用于“访问设备自己检测当前出口 IPv4，然后报给 LAN Worker”。PO0 仍然不开放 HTTP，LAN Worker 通过 SSH 调 PO0 的 `--client-ip-report`：
+
+```text
+访问设备 self-report client -> LAN Worker HTTP -> SSH -> PO0 --client-ip-report
+```
+
+LAN Worker 启动接收端：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh | bash -s -- --install-self
+po0-lan-client --self-report-server --self-report-listen 127.0.0.1:8788 --po0-host <PO0_HOST> --po0-script /root/nftables-relay-manager.sh --self-report-source self-report --client-ip-token <CLIENT_REPORT_TOKEN> --self-report-secret <SELF_REPORT_SECRET>
+```
+
+访问设备定时自上报：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-outbound-ip-report.sh | bash -s -- --worker-url <LAN_WORKER_REPORT_URL> --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --install-cron 5
+```
+
+Windows：
+
+```powershell
+$env:PO0_LAN_WORKER_URL='<LAN_WORKER_REPORT_URL>'; $env:PO0_SELF_REPORT_SOURCE='<CLIENT_ID>'; $env:PO0_SELF_REPORT_SECRET='<SELF_REPORT_SECRET>'; $env:INSTALL_TASK='1'; $env:MINUTES='5'; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-outbound-ip-report.ps1' | iex
+```
+
+self-report client 查询公网 IPv4 的默认顺序是 `https://ip9.com.cn/get`、`https://myip.ipip.net/json`、`http://ip-api.com/json/?lang=zh-CN`，再 fallback 到 `api.ipify.org`、`ipv4.icanhazip.com`、`ifconfig.co`。
+
+## Egern 当前出口 IP 上报
+
+Egern 模块不是 DDNS 模块。它的逻辑是：
+
+1. 用 `DIRECT` 请求 `IP_CHECK_URL` 获取手机当前出口 IPv4，默认接口是 `https://myip.ipip.net/json`。
+2. 通过一次性 SSH 调 PO0：
+
+```bash
+bash /root/nftables-relay-manager.sh --client-ip-report <source-id> <ipv4> <token> <identity> <ttl>
+```
+
+只读检查：
+
+```bash
+bash /root/nftables-relay-manager.sh --client-ip-report-check <source-id> <token>
+```
+
+模块提供：
+
+- `schedule`：默认每 10 分钟上报。
+- `network`：网络变化时上报。
+- `generic`：手动立即上报。
+- `widget`：查看最近成功 IP、时间、TTL、失败原因、网络类型、PO0 host。
+
+Egern 可以向多个 PO0 上报同一个当前出口 IPv4。模块环境变量 `PO0_TARGETS` 一行一个目标：
+
+```text
+source|host|port|user|script|token|identity|ttl
+```
+
+示例：
+
+```text
+iphone-sg|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|egern-iphone|3600
+iphone-us|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|egern-iphone|3600
+```
+
+不填 `PO0_TARGETS` 时，模块继续按单目标 `PO0_HOST`、`REPORT_NAME`、`REPORT_TOKEN` 运行，兼容旧配置。
+
+不要为两个 PO0 重复导入两份 Egern 模块。正确做法是只导入一份模块，把两个 PO0 生成的目标行合并到同一个 `PO0_TARGETS`，这样只查一次当前出口 IPv4，Widget 也能显示同一轮上报里每个 PO0 的成功/失败。
+
+## LAN Worker WebAuth
+
+WebAuth 只运行在 LAN Worker 上，PO0 不开放 HTTP。推荐结构：
+
+```text
+Browser -> Cloudflare Access -> cloudflared tunnel -> LAN Worker 127.0.0.1:8787 -> SSH -> PO0
+```
+
+LAN Worker 启动 WebAuth 本地服务：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh | bash -s -- --install-self
+po0-lan-client --webauth-server --listen 127.0.0.1:8787 --po0-host <PO0_HOST> --po0-script /root/nftables-relay-manager.sh --webauth-source cf-access --webauth-token <WEBAUTH_TOKEN>
+```
+
+PO0 接收的仍是 SSH 命令：
+
+```bash
+bash /root/nftables-relay-manager.sh --webauth-report <source-id> <ipv4> <identity> <expires-at> <token> [note]
+```
+
+## attack mode
+
+`attack mode` 用于白名单被异常访问冲击时冻结自动新增：
+
+```bash
+bash /root/nftables-relay-manager.sh --automation-mode attack
+bash /root/nftables-relay-manager.sh --pending-auto-sources
+```
+
+效果：
+
+- 新的 DDNS / Client IP / WebAuth 自动 IP 进入 pending，不直接放行。
+- 已有有效 IP 如果仍被同一来源上报，可以续期。
+- 手动白名单和 SSH 临时白名单继续按菜单操作生效。
+
+恢复常规模式：
+
+```bash
+bash /root/nftables-relay-manager.sh --automation-mode regular
+```
+
+## IP 数据源
+
+当前有两类 IP 数据：
+
+- 地区白名单 CIDR：来自 `metowolf/iplist` 的 `docs/cncity.md` 和 `data/cncity/*.txt`，用于 nftables 实际放行地区网段。
+- IPDB 归属查询：默认下载 `nmgliangwei/qqwry.ipdb`，用于学习记录、阻挡记录、Client IP/WebAuth/DDNS 记录的当时归属快照。
+
+学习/阻挡/动态来源记录写入时会保存当时 IPDB 快照；旧记录没有快照时会按 legacy/no snapshot 处理，不会重写历史归属。
+
+## 兼容与清理
+
+只读兼容检查：
+
+```bash
+bash /root/nftables-relay-manager.sh --compat-check
+```
+
+旧文件清理预览：
+
+```bash
+bash /root/nftables-relay-manager.sh --cleanup-legacy --dry-run
+```
+
+应用清理：
+
+```bash
+bash /root/nftables-relay-manager.sh --cleanup-legacy --apply
+```
+
+清理会先备份，不删除规则、白名单、token、任务状态等 live state。

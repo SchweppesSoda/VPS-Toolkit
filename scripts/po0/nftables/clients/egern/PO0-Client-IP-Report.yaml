@@ -1,0 +1,94 @@
+name: PO0 Client IP Report
+description: Report the current Egern/mobile outbound IPv4 to PO0 over SSH. PO0 does not expose HTTP.
+author: SchweppesSoda
+icon: network
+
+env_schema:
+  PO0_HOST:
+    name: PO0 SSH host
+    description: Single-target PO0 server hostname or IP for SSH. Leave it empty when PO0_TARGETS is used.
+  PO0_PORT:
+    name: PO0 SSH port
+    default_value: "22"
+  PO0_USER:
+    name: PO0 SSH user
+    default_value: root
+  PO0_PASSWORD:
+    name: PO0 SSH password
+    description: Use either password or private key.
+  PO0_PRIVATE_KEY:
+    name: PO0 SSH private key
+    description: Use \n for line breaks if pasted as one line.
+  PO0_PASSPHRASE:
+    name: PO0 SSH key passphrase
+    description: Optional. Only needed when the private key is encrypted.
+  PO0_SCRIPT:
+    name: PO0 manager script path
+    default_value: /root/nftables-relay-manager.sh
+  REPORT_NAME:
+    name: Report source ID
+    default_value: egern
+    description: Source ID shown on PO0, for example iphone or ipad-cellular.
+  REPORT_TOKEN:
+    name: Client IP report token
+    description: Single-target token shown by PO0 --show-client-deploy-commands or the source allowlist menu. Leave it empty when each PO0_TARGETS line has its own token.
+  REPORT_IDENTITY:
+    name: Optional identity
+    default_value: egern
+  TTL_SECONDS:
+    name: Allowlist TTL seconds
+    default_value: "3600"
+  PO0_TARGETS:
+    name: Multiple PO0 targets
+    description: Optional. One target per line: source|host|port|user|script|token|identity|ttl. When set, the module reports the same current IPv4 to every target.
+  IP_CHECK_URL:
+    name: IPv4 check URL
+    default_value: https://ip9.com.cn/get
+    description: First IPv4 check URL. The script falls back to myip.ipip.net, ip-api, ipify, icanhazip, and ifconfig.co.
+  IP_CHECK_URLS:
+    name: IPv4 check URL list
+    description: Optional comma-separated override for the full fallback list.
+  POLICY:
+    name: Egern policy
+    default_value: DIRECT
+  NOTIFY_SUCCESS:
+    name: Notify automatic success
+    default_value: "false"
+    options:
+      - "true"
+      - "false"
+  NOTIFY_FAILURE:
+    name: Notify failure
+    default_value: "true"
+    options:
+      - "true"
+      - "false"
+
+scriptings:
+  - schedule:
+      name: PO0 Client IP Report
+      cron: "*/10 * * * *"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-client-ip-report.js"
+      update_interval: 86400
+      timeout: 30
+      debug: false
+  - network:
+      name: PO0 Client IP Network Change
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-client-ip-report.js"
+      update_interval: 86400
+      timeout: 30
+      debug: false
+  - generic:
+      name: PO0 Client IP Report Now
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-client-ip-report.js"
+      update_interval: 86400
+      timeout: 30
+      debug: false
+
+widgets:
+  - script:
+      name: PO0 Client IP Status
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-client-ip-widget.js"
+      update_interval: 60
+      timeout: 10
+      debug: false

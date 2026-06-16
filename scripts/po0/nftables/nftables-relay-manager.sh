@@ -19,6 +19,11 @@ ALLOWLIST_ENTRIES_FILE="${CONF_DIR}/po0-relay-allowlist-entries.tsv"
 ALLOWLIST_SOURCES_FILE="${CONF_DIR}/po0-relay-allowlist-sources.tsv"
 DDNS_REPORT_TOKEN_FILE="${CONF_DIR}/po0-relay-ddns-report.token"
 DDNS_REPORT_STATS_FILE="${CONF_DIR}/po0-relay-ddns-report-stats.tsv"
+CLIENT_IP_REPORT_TOKEN_FILE="${CONF_DIR}/po0-relay-client-ip-report.token"
+CLIENT_IP_REPORT_STATS_FILE="${CONF_DIR}/po0-relay-client-ip-report-stats.tsv"
+WEBAUTH_REPORT_TOKEN_FILE="${CONF_DIR}/po0-relay-webauth-report.token"
+WEBAUTH_REPORT_STATS_FILE="${CONF_DIR}/po0-relay-webauth-report-stats.tsv"
+AUTO_PENDING_FILE="${CONF_DIR}/po0-relay-auto-pending.tsv"
 RESOURCE_TASKS_FILE="${CONF_DIR}/po0-relay-resource-tasks.tsv"
 RESOURCE_TASK_TOKEN_FILE="${CONF_DIR}/po0-relay-resource-task.token"
 RESOURCE_INBOX_DIR="${CONF_DIR}/po0-relay-resource-inbox"
@@ -53,6 +58,12 @@ IPDB_VENV_PYTHON="${IPDB_VENV_DIR}/bin/python"
 IPDB_DEFAULT_PIP_INDEX_URL="https://mirrors.cloud.tencent.com/pypi/simple"
 IPDB_PIP_INDEX_URL=""
 IPDB_DOWNLOAD_URL="https://raw.githubusercontent.com/nmgliangwei/qqwry.ipdb/main/qqwry.ipdb"
+MANAGER_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/nftables-relay-manager.sh"
+MANAGER_INSTALL_PATH="${PO0_MANAGER_INSTALL_PATH:-/root/nftables-relay-manager.sh}"
+LAN_WORKER_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh"
+OUTBOUND_IP_REPORTER_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-outbound-ip-report.sh"
+OUTBOUND_IP_REPORTER_PS_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-outbound-ip-report.ps1"
+EGERN_CLIENT_IP_MODULE_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/PO0-Client-IP-Report.yaml"
 
 NAT_TABLE="po0_relay_nat"
 MANGLE_TABLE="po0_relay_mangle"
@@ -68,8 +79,9 @@ MSS_VALUE="1452"
 MANAGE_INPUT_FIREWALL="1"
 SSH_PORTS=""
 ENABLE_SRC_ALLOWLIST="0"
-SRC_ALLOWLIST_MODE="region"
+SRC_ALLOWLIST_MODE="trusted_dynamic"
 SRC_ALLOWLIST_REGION_IDS=""
+AUTOMATION_MODE="regular"
 declare -a RULES=()
 declare -a IMPORTED_RULES=()
 declare -a DISCOVERED_RULES=()
@@ -135,6 +147,20 @@ ALLOWLIST_SOURCE_TTL_SECONDS=""
 ALLOWLIST_SOURCE_LAST_RESOLVED_AT=""
 ALLOWLIST_SOURCE_LAST_RESULT=""
 PARSED_ALLOWLIST_SOURCE=""
+CLIENT_IP_REPORT_SOURCE=""
+CLIENT_IP_REPORT_IP=""
+CLIENT_IP_REPORT_IDENTITY=""
+CLIENT_IP_REPORT_TTL=""
+WEBAUTH_REPORT_SOURCE=""
+WEBAUTH_REPORT_IP=""
+WEBAUTH_REPORT_IDENTITY=""
+WEBAUTH_REPORT_EXPIRES_AT=""
+REPORT_STAT_ACCEPTED="0"
+REPORT_STAT_REJECTED="0"
+REPORT_STAT_LAST_STATUS=""
+REPORT_STAT_LAST_AT=""
+REPORT_STAT_LAST_IPS=""
+REPORT_STAT_LAST_ERROR=""
 PROFILE_ENABLE_SRC_ALLOWLIST=""
 PROFILE_SRC_ALLOWLIST_MODE=""
 PROFILE_SRC_ALLOWLIST_REGION_IDS=""
@@ -890,19 +916,69 @@ normalize_src_allowlist_mode() {
     value="$(trim "${1:-}")"
     value="${value,,}"
     case "${value}" in
-        ""|region|regions|iplist|geo)
-            printf 'region\n'
+        ""|trusted_dynamic|trusted-dynamic|dynamic|trusted|custom|manual|device|devices)
+            printf 'trusted_dynamic\n'
             ;;
-        custom|manual|device|devices)
-            printf 'custom\n'
+        manual_only|manual-only|manualonly|static|static_only|static-only)
+            printf 'manual_only\n'
             ;;
-        region_custom|custom_region|both|mixed|region+custom|custom+region)
-            printf 'region_custom\n'
+        region_plus_trusted|region-plus-trusted|region_trusted|region+trusted|region_custom|custom_region|both|mixed|region+custom|custom+region)
+            printf 'region_plus_trusted\n'
+            ;;
+        region_only|region-only|region|regions|iplist|geo)
+            printf 'region_only\n'
+            ;;
+        custom_sources|custom-sources|sources|advanced)
+            printf 'custom_sources\n'
             ;;
         *)
             return 1
             ;;
     esac
+}
+
+src_allowlist_mode_default_sources() {
+    case "${1:-${SRC_ALLOWLIST_MODE}}" in
+        manual_only)
+            printf 'manual,ssh_temp\n'
+            ;;
+        trusted_dynamic)
+            printf 'manual,ssh_temp,ddns,client_ip,webauth,learned\n'
+            ;;
+        region_plus_trusted)
+            printf 'region,manual,ssh_temp,ddns,client_ip,webauth,learned\n'
+            ;;
+        region_only)
+            printf 'region\n'
+            ;;
+        custom_sources)
+            load_allowlist_sets 2>/dev/null || true
+            local set
+            for set in "${ALLOWLIST_SETS[@]}"; do
+                parse_allowlist_set_line "${set}" || continue
+                if [[ "${ALLOWLIST_SET_ID}" == "default" ]]; then
+                    printf '%s\n' "${ALLOWLIST_SET_SOURCES}"
+                    return 0
+                fi
+            done
+            printf 'manual,ssh_temp,ddns,client_ip,webauth,learned\n'
+            ;;
+        *)
+            printf 'manual,ssh_temp,ddns,client_ip,webauth,learned\n'
+            ;;
+    esac
+}
+
+source_type_allowed_by_mode() {
+    local source_type="$1"
+    local mode="${2:-${SRC_ALLOWLIST_MODE}}"
+    local sources source
+    source_type="$(normalize_allowlist_entry_source_type "${source_type}")" || return 1
+    sources="$(src_allowlist_mode_default_sources "${mode}")"
+    for source in ${sources//,/ }; do
+        [[ "${source}" == "${source_type}" ]] && return 0
+    done
+    return 1
 }
 
 sanitize_allowlist_set_text() {
@@ -1001,6 +1077,12 @@ normalize_allowlist_set_sources() {
             ddns|domain)
                 normalized="ddns"
                 ;;
+            client_ip|client-ip|mobile|egern|device_ip|device-ip)
+                normalized="client_ip"
+                ;;
+            webauth|web_auth|web-auth|cf_access|cf-access|cloudflare_access|cloudflare-access)
+                normalized="webauth"
+                ;;
             url|url_report|url-report|report|device_report|device-report)
                 normalized="url_report"
                 ;;
@@ -1016,7 +1098,7 @@ normalize_allowlist_set_sources() {
             out+=",${normalized}"
         fi
     done
-    [[ -n "${out}" ]] || out="region,manual,learned"
+    [[ -n "${out}" ]] || out="manual,ssh_temp,ddns,client_ip,webauth,learned"
     printf '%s\n' "${out}"
 }
 
@@ -1027,7 +1109,7 @@ default_allowlist_set_record() {
         "1" \
         "public" \
         "*" \
-        "region,manual,learned" \
+        "manual,ssh_temp,ddns,client_ip,webauth,learned" \
         "Legacy global source allowlist mapped to the public set"
 }
 
@@ -1114,7 +1196,7 @@ write_allowlist_sets_file() {
 #   public scope: *
 #   ports scope : tcp/30001,udp/30002,both/30003
 # sources:
-#   region,manual,learned,ssh_temp,ddns,url_report
+#   region,manual,learned,ssh_temp,ddns,client_ip,webauth,url_report
 EOF
     for set in "${ALLOWLIST_SETS[@]}"; do
         parse_allowlist_set_line "${set}" || continue
@@ -1227,6 +1309,12 @@ normalize_allowlist_entry_source_type() {
         ddns|domain)
             printf 'ddns\n'
             ;;
+        client_ip|client-ip|mobile|egern|device_ip|device-ip)
+            printf 'client_ip\n'
+            ;;
+        webauth|web_auth|web-auth|cf_access|cf-access|cloudflare_access|cloudflare-access)
+            printf 'webauth\n'
+            ;;
         url|url_report|url-report|report|device_report|device-report)
             printf 'url_report\n'
             ;;
@@ -1310,7 +1398,7 @@ write_allowlist_entries_header() {
     cat > "${path}" <<'EOF'
 # Managed by nftables relay manager
 # format: set_id|cidr|source_type|source_value|note|created_at|expires_at
-# source_type: region,manual,learned,ssh_temp,ddns,url_report
+# source_type: region,manual,learned,ssh_temp,ddns,client_ip,webauth,url_report
 EOF
 }
 
@@ -1389,6 +1477,74 @@ allowlist_entry_is_expired() {
     [[ "${expires_at}" < "${now}" || "${expires_at}" == "${now}" ]]
 }
 
+utc_after_seconds_iso() {
+    local seconds="${1:-3600}"
+    [[ "${seconds}" =~ ^[0-9]+$ ]] || seconds="3600"
+    if date -u -d "+${seconds} seconds" '+%Y-%m-%dT%H:%M:%SZ' >/dev/null 2>&1; then
+        date -u -d "+${seconds} seconds" '+%Y-%m-%dT%H:%M:%SZ'
+    else
+        utc_now_iso
+    fi
+}
+
+automation_mode_is_attack() {
+    [[ "${AUTOMATION_MODE}" == "attack" ]]
+}
+
+auto_source_type_is_freezable() {
+    case "$(normalize_allowlist_entry_source_type "${1:-}" 2>/dev/null || true)" in
+        ddns|client_ip|webauth|url_report)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+write_auto_pending_header() {
+    local path="$1"
+    cat > "${path}" <<'EOF'
+# Managed by nftables relay manager
+# format: id|created_at|source_type|source_value|cidr|note|status
+EOF
+}
+
+ensure_auto_pending_file() {
+    mkdir -p "${CONF_DIR}" || return 1
+    if [[ ! -f "${AUTO_PENDING_FILE}" ]]; then
+        write_auto_pending_header "${AUTO_PENDING_FILE}"
+    fi
+}
+
+queue_pending_auto_source() {
+    local source_type="$1"
+    local source_value="$2"
+    local cidr="$3"
+    local note="${4:-}"
+    local id now
+    source_type="$(normalize_allowlist_entry_source_type "${source_type}")" || return 1
+    source_value="$(sanitize_allowlist_entry_text "${source_value}")"
+    cidr="$(normalize_ipv4_cidr_or_host "${cidr}")" || return 1
+    note="$(sanitize_allowlist_entry_text "${note}")"
+    ensure_auto_pending_file || return 1
+    if grep -Fq "|${source_type}|${source_value}|${cidr}|" "${AUTO_PENDING_FILE}" 2>/dev/null; then
+        return 0
+    fi
+    now="$(utc_now_iso)"
+    id="pending-$(date '+%s')-${RANDOM}"
+    printf '%s|%s|%s|%s|%s|%s|pending\n' \
+        "${id}" "${now}" "${source_type}" "${source_value}" "${cidr}" "${note}" >> "${AUTO_PENDING_FILE}"
+}
+
+list_pending_auto_sources() {
+    ensure_auto_pending_file || return 1
+    awk -F '|' 'NF >= 7 && $1 !~ /^#/ && $7 == "pending" {
+        printf "  - %s  %s  %s  %s  %s\n", $1, $3, $4, $5, $2
+        if ($6 != "") printf "    note: %s\n", $6
+    }' "${AUTO_PENDING_FILE}"
+}
+
 append_allowlist_entry() {
     local set_id="$1"
     local cidr="$2"
@@ -1457,8 +1613,26 @@ append_allowlist_entries_to_cache() {
     while IFS= read -r line || [[ -n "${line}" ]]; do
         parse_allowlist_entry_line "${line}" || continue
         [[ "${ALLOWLIST_ENTRY_SET_ID}" == "${set_id}" ]] || continue
+        source_type_allowed_by_mode "${ALLOWLIST_ENTRY_SOURCE_TYPE}" "${SRC_ALLOWLIST_MODE}" || continue
         allowlist_entry_is_expired "${ALLOWLIST_ENTRY_EXPIRES_AT}" && continue
         printf '%s\n' "${ALLOWLIST_ENTRY_CIDR}" >> "${tmp}"
+        ((count++))
+    done < "${ALLOWLIST_ENTRIES_FILE}"
+    printf '%s\n' "${count}"
+}
+
+allowlist_active_entries_count_for_mode() {
+    local set_id="${1:-default}"
+    local line count=0
+    [[ -f "${ALLOWLIST_ENTRIES_FILE}" ]] || {
+        printf '0\n'
+        return 0
+    }
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        parse_allowlist_entry_line "${line}" || continue
+        [[ "${ALLOWLIST_ENTRY_SET_ID}" == "${set_id}" ]] || continue
+        source_type_allowed_by_mode "${ALLOWLIST_ENTRY_SOURCE_TYPE}" "${SRC_ALLOWLIST_MODE}" || continue
+        allowlist_entry_is_expired "${ALLOWLIST_ENTRY_EXPIRES_AT}" && continue
         ((count++))
     done < "${ALLOWLIST_ENTRIES_FILE}"
     printf '%s\n' "${count}"
@@ -1699,17 +1873,19 @@ reported_ddns_ipv4_records() {
     print_ipv4_csv_lines "${csv}"
 }
 
-replace_allowlist_entries_for_source() {
+replace_allowlist_entries_for_source_with_expiry() {
     local set_id="$1"
     local source_type="$2"
     local source_value="$3"
     local note="$4"
-    shift 4
-    local cidr line tmp created_at normalized_type normalized_value normalized_note
+    local expires_at="${5:-}"
+    shift 5
+    local cidr line tmp created_at normalized_type normalized_value normalized_note existing_seen=" " skipped=0 added=0
     validate_allowlist_set_id "${set_id}" || return 1
     normalized_type="$(normalize_allowlist_entry_source_type "${source_type}")" || return 1
     normalized_value="$(sanitize_allowlist_entry_text "${source_value}")"
     normalized_note="$(sanitize_allowlist_entry_text "${note}")"
+    expires_at="$(sanitize_allowlist_entry_text "${expires_at}")"
     ensure_allowlist_entries_file || return 1
     make_temp_file "${ALLOWLIST_ENTRIES_FILE}" || return 1
     tmp="${TEMP_FILE_RESULT}"
@@ -1719,6 +1895,7 @@ replace_allowlist_entries_for_source() {
             if [[ "${ALLOWLIST_ENTRY_SET_ID}" == "${set_id}" \
                 && "${ALLOWLIST_ENTRY_SOURCE_TYPE}" == "${normalized_type}" \
                 && "${ALLOWLIST_ENTRY_SOURCE_VALUE}" == "${normalized_value}" ]]; then
+                existing_seen+="${ALLOWLIST_ENTRY_CIDR} "
                 continue
             fi
             printf '%s\n' "${PARSED_ALLOWLIST_ENTRY}" >> "${tmp}"
@@ -1729,10 +1906,27 @@ replace_allowlist_entries_for_source() {
     created_at="$(utc_now_iso)"
     for cidr in "$@"; do
         cidr="$(normalize_ipv4_cidr_or_host "${cidr}")" || return 1
-        serialize_allowlist_entry "${set_id}" "${cidr}" "${normalized_type}" "${normalized_value}" "${normalized_note}" "${created_at}" "" \
+        if automation_mode_is_attack && auto_source_type_is_freezable "${normalized_type}" && [[ "${existing_seen}" != *" ${cidr} "* ]]; then
+            queue_pending_auto_source "${normalized_type}" "${normalized_value}" "${cidr}" "${normalized_note}" || true
+            ((skipped++))
+            continue
+        fi
+        serialize_allowlist_entry "${set_id}" "${cidr}" "${normalized_type}" "${normalized_value}" "${normalized_note}" "${created_at}" "${expires_at}" \
             >> "${tmp}"
+        ((added++))
     done
     mv -f "${tmp}" "${ALLOWLIST_ENTRIES_FILE}"
+    DYNAMIC_REPORT_ADDED_COUNT="${added}"
+    DYNAMIC_REPORT_PENDING_COUNT="${skipped}"
+}
+
+replace_allowlist_entries_for_source() {
+    local set_id="$1"
+    local source_type="$2"
+    local source_value="$3"
+    local note="$4"
+    shift 4
+    replace_allowlist_entries_for_source_with_expiry "${set_id}" "${source_type}" "${source_value}" "${note}" "" "$@"
 }
 
 remove_allowlist_entries_for_source() {
@@ -1800,12 +1994,167 @@ validate_ddns_report_token() {
     [[ -n "${expected}" && "${provided}" == "${expected}" ]]
 }
 
+validate_ddns_report_token_readonly() {
+    local provided="${1:-}"
+    local expected
+    [[ -s "${DDNS_REPORT_TOKEN_FILE}" ]] || return 0
+    expected="$(tr -d '[:space:]' < "${DDNS_REPORT_TOKEN_FILE}")" || return 1
+    [[ -n "${expected}" && "${provided}" == "${expected}" ]]
+}
+
+ensure_token_file() {
+    local path="$1"
+    local token=""
+    mkdir -p "${CONF_DIR}" || return 1
+    if [[ ! -s "${path}" ]]; then
+        if command -v openssl &>/dev/null; then
+            token="$(openssl rand -hex 24 2>/dev/null || true)"
+        fi
+        if [[ -z "${token}" ]]; then
+            token="$(date '+%s')-$RANDOM-$RANDOM-$RANDOM"
+        fi
+        printf '%s\n' "${token}" > "${path}" || return 1
+        chmod 600 "${path}" 2>/dev/null || true
+    fi
+}
+
+token_file_value() {
+    local path="$1"
+    ensure_token_file "${path}" || return 1
+    tr -d '[:space:]' < "${path}"
+}
+
+token_file_matches() {
+    local path="$1"
+    local provided="${2:-}"
+    local expected
+    [[ -s "${path}" ]] || return 0
+    expected="$(tr -d '[:space:]' < "${path}")" || return 1
+    [[ -n "${expected}" && "${provided}" == "${expected}" ]]
+}
+
+client_ip_report_token_value() {
+    token_file_value "${CLIENT_IP_REPORT_TOKEN_FILE}"
+}
+
+validate_client_ip_report_token() {
+    token_file_matches "${CLIENT_IP_REPORT_TOKEN_FILE}" "${1:-}"
+}
+
+webauth_report_token_value() {
+    token_file_value "${WEBAUTH_REPORT_TOKEN_FILE}"
+}
+
+validate_webauth_report_token() {
+    token_file_matches "${WEBAUTH_REPORT_TOKEN_FILE}" "${1:-}"
+}
+
 write_ddns_report_stats_header() {
     local path="$1"
     cat > "${path}" <<'EOF'
 # Managed by nftables relay manager
 # format: key|accepted_count|rejected_count|last_status|last_at|last_ips|last_error
 EOF
+}
+
+write_generic_report_stats_header() {
+    local path="$1"
+    cat > "${path}" <<'EOF'
+# Managed by nftables relay manager
+# format: key|accepted_count|rejected_count|last_status|last_at|last_ips|last_error
+EOF
+}
+
+ensure_generic_report_stats_file() {
+    local path="$1"
+    mkdir -p "${CONF_DIR}" || return 1
+    if [[ ! -f "${path}" ]]; then
+        write_generic_report_stats_header "${path}"
+    fi
+}
+
+update_generic_report_stats() {
+    local path="$1"
+    local key="$2"
+    local status="$3"
+    local ips="${4:-}"
+    local error="${5:-}"
+    local line tmp stat_key accepted rejected last_status last_at last_ips last_error found=0 now
+    key="$(sanitize_allowlist_source_text "${key}")"
+    [[ -n "${key}" ]] || key="unknown"
+    ips="$(sanitize_allowlist_source_text "${ips:-无}")"
+    error="$(sanitize_allowlist_source_text "${error:-无}")"
+    [[ -n "${ips}" ]] || ips="无"
+    [[ -n "${error}" ]] || error="无"
+    now="$(utc_now_iso)"
+    ensure_generic_report_stats_file "${path}" || return 1
+    make_temp_file "${path}" || return 1
+    tmp="${TEMP_FILE_RESULT}"
+    write_generic_report_stats_header "${tmp}"
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        line="${line%$'\r'}"
+        line="$(trim "${line}")"
+        [[ -n "${line}" && ! "${line}" =~ ^# ]] || continue
+        IFS='|' read -r stat_key accepted rejected last_status last_at last_ips last_error <<< "${line}"
+        stat_key="$(sanitize_allowlist_source_text "${stat_key}")"
+        [[ -n "${stat_key}" ]] || continue
+        [[ "${accepted}" =~ ^[0-9]+$ ]] || accepted=0
+        [[ "${rejected}" =~ ^[0-9]+$ ]] || rejected=0
+        if [[ "${stat_key}" == "${key}" ]]; then
+            found=1
+            if [[ "${status}" == "accepted" ]]; then
+                accepted=$((accepted + 1))
+            else
+                rejected=$((rejected + 1))
+            fi
+            printf '%s|%s|%s|%s|%s|%s|%s\n' \
+                "${key}" "${accepted}" "${rejected}" "${status}" "${now}" "${ips}" "${error}" >> "${tmp}"
+            continue
+        fi
+        printf '%s\n' "${line}" >> "${tmp}"
+    done < "${path}"
+    if [[ "${found}" != "1" ]]; then
+        accepted=0
+        rejected=0
+        if [[ "${status}" == "accepted" ]]; then
+            accepted=1
+        else
+            rejected=1
+        fi
+        printf '%s|%s|%s|%s|%s|%s|%s\n' \
+            "${key}" "${accepted}" "${rejected}" "${status}" "${now}" "${ips}" "${error}" >> "${tmp}"
+    fi
+    mv -f "${tmp}" "${path}"
+}
+
+load_generic_report_stats() {
+    local path="$1"
+    local key="$2"
+    local line stat_key accepted rejected last_status last_at last_ips last_error
+    REPORT_STAT_ACCEPTED="0"
+    REPORT_STAT_REJECTED="0"
+    REPORT_STAT_LAST_STATUS=""
+    REPORT_STAT_LAST_AT=""
+    REPORT_STAT_LAST_IPS=""
+    REPORT_STAT_LAST_ERROR=""
+    key="$(sanitize_allowlist_source_text "${key}")"
+    [[ -f "${path}" ]] || return 0
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        line="${line%$'\r'}"
+        line="$(trim "${line}")"
+        [[ -n "${line}" && ! "${line}" =~ ^# ]] || continue
+        IFS='|' read -r stat_key accepted rejected last_status last_at last_ips last_error <<< "${line}"
+        stat_key="$(sanitize_allowlist_source_text "${stat_key}")"
+        if [[ "${stat_key}" == "${key}" ]]; then
+            REPORT_STAT_ACCEPTED="${accepted:-0}"
+            REPORT_STAT_REJECTED="${rejected:-0}"
+            REPORT_STAT_LAST_STATUS="${last_status:-}"
+            REPORT_STAT_LAST_AT="${last_at:-}"
+            REPORT_STAT_LAST_IPS="${last_ips:-}"
+            REPORT_STAT_LAST_ERROR="${last_error:-}"
+            return 0
+        fi
+    done < "${path}"
 }
 
 ensure_ddns_report_stats_file() {
@@ -1944,6 +2293,104 @@ remove_ddns_report_stats() {
     mv -f "${tmp}" "${DDNS_REPORT_STATS_FILE}"
 }
 
+normalize_client_ttl_seconds() {
+    local ttl="${1:-3600}"
+    [[ "${ttl}" =~ ^[0-9]+$ ]] || ttl="3600"
+    (( ttl >= 60 )) || ttl=60
+    (( ttl <= 604800 )) || ttl=604800
+    printf '%s\n' "${ttl}"
+}
+
+normalize_report_expires_at() {
+    local value="${1:-}"
+    value="$(sanitize_allowlist_entry_text "${value}")"
+    if [[ "${value}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]; then
+        printf '%s\n' "${value}"
+        return 0
+    fi
+    if [[ "${value}" =~ ^[0-9]+$ ]]; then
+        date -u -d "@${value}" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null && return 0
+    fi
+    utc_after_seconds_iso 3600
+}
+
+report_client_ip_source() {
+    local source_id="$1"
+    local ip="$2"
+    local token="$3"
+    local identity="${4:-}"
+    local ttl="${5:-3600}"
+    local expires_at note cidr
+    source_id="$(sanitize_allowlist_source_text "${source_id}")"
+    identity="$(sanitize_allowlist_source_text "${identity}")"
+    [[ -n "${source_id}" ]] || {
+        update_generic_report_stats "${CLIENT_IP_REPORT_STATS_FILE}" "unknown" "rejected" "${ip}" "missing_source_id" || true
+        err "缺少客户端来源 ID。"
+        return 1
+    }
+    is_public_ipv4 "${ip}" || {
+        update_generic_report_stats "${CLIENT_IP_REPORT_STATS_FILE}" "${source_id}" "rejected" "${ip}" "invalid_public_ipv4" || true
+        err "客户端上报 IP 无效：${ip}"
+        return 1
+    }
+    validate_client_ip_report_token "${token}" || {
+        update_generic_report_stats "${CLIENT_IP_REPORT_STATS_FILE}" "${source_id}" "rejected" "${ip}" "invalid_token" || true
+        err "客户端 IP 上报 token 无效。"
+        return 1
+    }
+    ttl="$(normalize_client_ttl_seconds "${ttl}")"
+    expires_at="$(utc_after_seconds_iso "${ttl}")"
+    cidr="${ip}/32"
+    note="client_ip ${source_id}"
+    [[ -n "${identity}" ]] && note="${note} identity=${identity}"
+    note="${note} ttl=${ttl} $(ipdb_snapshot_for_ip "${ip}")"
+    replace_allowlist_entries_for_source_with_expiry "default" "client_ip" "${source_id}" "${note}" "${expires_at}" "${cidr}" || return 1
+    update_generic_report_stats "${CLIENT_IP_REPORT_STATS_FILE}" "${source_id}" "accepted" "${ip}" "pending=${DYNAMIC_REPORT_PENDING_COUNT:-0}" || true
+    CLIENT_IP_REPORT_SOURCE="${source_id}"
+    CLIENT_IP_REPORT_IP="${ip}"
+    CLIENT_IP_REPORT_IDENTITY="${identity}"
+    CLIENT_IP_REPORT_TTL="${ttl}"
+}
+
+report_webauth_source() {
+    local source_id="$1"
+    local ip="$2"
+    local identity="$3"
+    local expires_at="$4"
+    local token="$5"
+    local note_extra="${6:-}"
+    local note cidr
+    source_id="$(sanitize_allowlist_source_text "${source_id}")"
+    identity="$(sanitize_allowlist_source_text "${identity}")"
+    note_extra="$(sanitize_allowlist_source_text "${note_extra}")"
+    [[ -n "${source_id}" && -n "${identity}" ]] || {
+        update_generic_report_stats "${WEBAUTH_REPORT_STATS_FILE}" "${source_id:-unknown}" "rejected" "${ip}" "missing_source_or_identity" || true
+        err "缺少 WebAuth 来源 ID 或身份。"
+        return 1
+    }
+    is_public_ipv4 "${ip}" || {
+        update_generic_report_stats "${WEBAUTH_REPORT_STATS_FILE}" "${source_id}" "rejected" "${ip}" "invalid_public_ipv4" || true
+        err "WebAuth 上报 IP 无效：${ip}"
+        return 1
+    }
+    validate_webauth_report_token "${token}" || {
+        update_generic_report_stats "${WEBAUTH_REPORT_STATS_FILE}" "${source_id}" "rejected" "${ip}" "invalid_token" || true
+        err "WebAuth 上报 token 无效。"
+        return 1
+    }
+    expires_at="$(normalize_report_expires_at "${expires_at}")"
+    cidr="${ip}/32"
+    note="webauth ${source_id} identity=${identity}"
+    [[ -n "${note_extra}" ]] && note="${note} ${note_extra}"
+    note="${note} $(ipdb_snapshot_for_ip "${ip}")"
+    replace_allowlist_entries_for_source_with_expiry "default" "webauth" "${source_id}" "${note}" "${expires_at}" "${cidr}" || return 1
+    update_generic_report_stats "${WEBAUTH_REPORT_STATS_FILE}" "${source_id}" "accepted" "${ip}" "pending=${DYNAMIC_REPORT_PENDING_COUNT:-0}" || true
+    WEBAUTH_REPORT_SOURCE="${source_id}"
+    WEBAUTH_REPORT_IP="${ip}"
+    WEBAUTH_REPORT_IDENTITY="${identity}"
+    WEBAUTH_REPORT_EXPIRES_AT="${expires_at}"
+}
+
 report_ddns_allowlist_source() {
     local key="$1"
     local raw_ips="$2"
@@ -1983,7 +2430,7 @@ report_ddns_allowlist_source() {
                 while IFS= read -r cidr; do
                     cidrs+=("${cidr}/32")
                 done < <(print_ipv4_csv_lines "${csv}")
-                note="ddns report ${ALLOWLIST_SOURCE_NAME} ${ALLOWLIST_SOURCE_VALUE}"
+                note="ddns report ${ALLOWLIST_SOURCE_NAME} ${ALLOWLIST_SOURCE_VALUE} $(ipdb_snapshot_for_ip "${cidrs[0]%/32}")"
                 replace_allowlist_entries_for_source \
                     "${ALLOWLIST_SOURCE_SET_ID}" \
                     "ddns" \
@@ -2066,7 +2513,7 @@ refresh_ddns_allowlist_sources() {
             for cidr in "${ips[@]}"; do
                 cidrs+=("${cidr}/32")
             done
-            note="ddns ${mode} ${ALLOWLIST_SOURCE_NAME} ${ALLOWLIST_SOURCE_VALUE}"
+            note="ddns ${mode} ${ALLOWLIST_SOURCE_NAME} ${ALLOWLIST_SOURCE_VALUE} $(ipdb_snapshot_for_ip "${cidrs[0]%/32}")"
             replace_allowlist_entries_for_source \
                 "${ALLOWLIST_SOURCE_SET_ID}" \
                 "ddns" \
@@ -2108,37 +2555,49 @@ refresh_ddns_allowlist_sources() {
 
 src_allowlist_mode_to_label() {
     case "$1" in
-        custom)
-            printf '自定义白名单'
+        manual_only)
+            printf '仅手动来源'
             ;;
-        region_custom)
-            printf '地区 + 自定义白名单'
+        trusted_dynamic)
+            printf '可信动态来源'
+            ;;
+        region_plus_trusted)
+            printf '地区 + 可信动态来源'
+            ;;
+        region_only)
+            printf '仅地区库'
+            ;;
+        custom_sources)
+            printf '高级自选来源'
             ;;
         *)
-            printf '地区白名单'
+            printf '可信动态来源'
             ;;
     esac
 }
 
 src_allowlist_mode_uses_region() {
-    [[ "${SRC_ALLOWLIST_MODE}" == "region" || "${SRC_ALLOWLIST_MODE}" == "region_custom" ]]
+    [[ "${SRC_ALLOWLIST_MODE}" == "region_only" || "${SRC_ALLOWLIST_MODE}" == "region_plus_trusted" ]]
 }
 
 src_allowlist_mode_uses_custom() {
-    [[ "${SRC_ALLOWLIST_MODE}" == "custom" || "${SRC_ALLOWLIST_MODE}" == "region_custom" ]]
+    [[ "${SRC_ALLOWLIST_MODE}" != "region_only" ]]
 }
 
 src_allowlist_enabled() {
     [[ "${ENABLE_SRC_ALLOWLIST}" == "1" ]] || return 1
     case "${SRC_ALLOWLIST_MODE}" in
-        custom)
+        manual_only|trusted_dynamic|custom_sources)
             custom_allowlist_has_entries
             ;;
-        region_custom)
+        region_plus_trusted)
             [[ -n "${SRC_ALLOWLIST_REGION_IDS}" ]] || custom_allowlist_has_entries
             ;;
-        *)
+        region_only)
             [[ -n "${SRC_ALLOWLIST_REGION_IDS}" ]]
+            ;;
+        *)
+            custom_allowlist_has_entries
             ;;
     esac
 }
@@ -2146,21 +2605,27 @@ src_allowlist_enabled() {
 validate_src_allowlist_ready() {
     [[ "${ENABLE_SRC_ALLOWLIST}" == "1" ]] || return 0
     case "${SRC_ALLOWLIST_MODE}" in
-        custom)
+        manual_only|trusted_dynamic|custom_sources)
             custom_allowlist_has_entries || {
-                err "自定义白名单模式未添加任何 CIDR。"
+                err "$(src_allowlist_mode_to_label "${SRC_ALLOWLIST_MODE}") 没有任何可用 CIDR。"
                 return 1
             }
             ;;
-        region_custom)
+        region_plus_trusted)
             [[ -n "${SRC_ALLOWLIST_REGION_IDS}" ]] || custom_allowlist_has_entries || {
-                err "地区 + 自定义白名单模式没有任何地区或自定义 CIDR。"
+                err "地区 + 可信动态来源模式没有任何地区或可信来源 CIDR。"
+                return 1
+            }
+            ;;
+        region_only)
+            [[ -n "${SRC_ALLOWLIST_REGION_IDS}" ]] || {
+                err "仅地区库模式未选择任何地区。"
                 return 1
             }
             ;;
         *)
-            [[ -n "${SRC_ALLOWLIST_REGION_IDS}" ]] || {
-                err "地区白名单模式未选择任何地区。"
+            custom_allowlist_has_entries || {
+                err "白名单没有任何可用 CIDR。"
                 return 1
             }
             ;;
@@ -2240,7 +2705,7 @@ custom_allowlist_count_for_file() {
 }
 
 custom_allowlist_has_entries() {
-    [[ "$(custom_allowlist_count)" -gt 0 || "$(allowlist_active_entries_count_for_set default)" -gt 0 ]]
+    [[ "$(custom_allowlist_count)" -gt 0 || "$(allowlist_active_entries_count_for_mode default)" -gt 0 ]]
 }
 
 custom_allowlist_contains_cidr() {
@@ -2427,7 +2892,7 @@ save_allowlist_profile_state() {
     saved_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
     label="$(sanitize_profile_label "${label}")"
     ENABLE_SRC_ALLOWLIST="$([[ "${ENABLE_SRC_ALLOWLIST}" == "1" ]] && printf '1' || printf '0')"
-    SRC_ALLOWLIST_MODE="$(normalize_src_allowlist_mode "${SRC_ALLOWLIST_MODE}" 2>/dev/null || printf 'region')"
+    SRC_ALLOWLIST_MODE="$(normalize_src_allowlist_mode "${SRC_ALLOWLIST_MODE}" 2>/dev/null || printf 'trusted_dynamic')"
     SRC_ALLOWLIST_REGION_IDS="$(normalize_region_ids "${SRC_ALLOWLIST_REGION_IDS}")"
     load_allowlist_sets
 
@@ -2528,7 +2993,7 @@ read_allowlist_profile_metadata() {
         PROFILE_LABEL="$(sanitize_profile_label "${line}")"
     fi
     [[ "${PROFILE_ENABLE_SRC_ALLOWLIST}" == "0" || "${PROFILE_ENABLE_SRC_ALLOWLIST}" == "1" ]] || PROFILE_ENABLE_SRC_ALLOWLIST="0"
-    PROFILE_SRC_ALLOWLIST_MODE="$(normalize_src_allowlist_mode "${PROFILE_SRC_ALLOWLIST_MODE}" 2>/dev/null || printf 'region')"
+    PROFILE_SRC_ALLOWLIST_MODE="$(normalize_src_allowlist_mode "${PROFILE_SRC_ALLOWLIST_MODE}" 2>/dev/null || printf 'trusted_dynamic')"
     PROFILE_SRC_ALLOWLIST_REGION_IDS="$(normalize_region_ids "${PROFILE_SRC_ALLOWLIST_REGION_IDS}")"
 }
 
@@ -2882,6 +3347,42 @@ PY
     printf '%s' "${info}"
 }
 
+file_sha256_short() {
+    local path="$1"
+    [[ -f "${path}" ]] || {
+        printf '-'
+        return 0
+    }
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "${path}" 2>/dev/null | awk '{ print substr($1, 1, 16) }'
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "${path}" 2>/dev/null | awk '{ print substr($1, 1, 16) }'
+    else
+        printf '-'
+    fi
+}
+
+file_mtime_epoch() {
+    local path="$1"
+    [[ -f "${path}" ]] || {
+        printf '-'
+        return 0
+    }
+    stat -c '%Y' "${path}" 2>/dev/null || stat -f '%m' "${path}" 2>/dev/null || printf '-'
+}
+
+ipdb_snapshot_for_ip() {
+    local ip="$1"
+    local ready=0 info sha mtime lookup_at
+    ipdb_lookup_ready && ready=1
+    info="$(ipdb_lookup_ip "${ip}" "${ready}")"
+    info="$(sanitize_allowlist_entry_text "${info}")"
+    sha="$(file_sha256_short "${IPDB_FILE}")"
+    mtime="$(file_mtime_epoch "${IPDB_FILE}")"
+    lookup_at="$(utc_now_iso)"
+    printf 'ipdb_sha=%s;ipdb_mtime=%s;lookup_at=%s;geo=%s\n' "${sha}" "${mtime}" "${lookup_at}" "${info:-legacy/no snapshot}"
+}
+
 reload_learning_rules_if_needed() {
     local now
     now="$(date '+%s')"
@@ -2919,12 +3420,13 @@ append_learning_event() {
     local proto="$2"
     local listen_port="$3"
     local source_port="$4"
-    local ts iso current_day
+    local ts iso current_day snapshot
     ts="$(date '+%s')"
     iso="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
     current_day="${iso:0:10}"
+    snapshot="$(ipdb_snapshot_for_ip "${src_ip}")"
     mkdir -p "${CONF_DIR}" || return 1
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
         "${ts}" \
         "${iso}" \
         "${src_ip}" \
@@ -2934,7 +3436,8 @@ append_learning_event() {
         "$(tsv_safe "${RULE_ID}")" \
         "$(tsv_safe "${RULE_NAME}")" \
         "${RULE_DIP}" \
-        "${RULE_DPORT}" >> "${LEARN_LOG_FILE}"
+        "${RULE_DPORT}" \
+        "$(tsv_safe "${snapshot}")" >> "${LEARN_LOG_FILE}"
     ((LEARN_APPEND_COUNT++))
     if [[ -n "${LEARN_LAST_COMPACT_DAY}" && "${current_day}" != "${LEARN_LAST_COMPACT_DAY}" ]]; then
         LEARN_LAST_COMPACT_DAY="${current_day}"
@@ -3240,6 +3743,74 @@ current_script_path() {
         realpath "$0" 2>/dev/null && return 0
     fi
     printf '%s\n' "$0"
+}
+
+shell_quote() {
+    local quoted
+    printf -v quoted '%q' "$1"
+    printf '%s' "${quoted}"
+}
+
+is_transient_script_path() {
+    local path="$1"
+    [[ -n "${path}" ]] || return 0
+    [[ -f "${path}" ]] || return 0
+    case "${path}" in
+        /dev/fd/*|/proc/*/fd/*|/tmp/*|/var/tmp/*)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+fetch_manager_script() {
+    local output="$1"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL "${MANAGER_RAW_URL}" -o "${output}"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -qO "${output}" "${MANAGER_RAW_URL}"
+    else
+        err "系统缺少 curl/wget，无法从公开仓库下载主控脚本。"
+        return 1
+    fi
+}
+
+install_manager_self() {
+    local target="${1:-${MANAGER_INSTALL_PATH}}"
+    local source tmp
+    source="$(current_script_path 2>/dev/null || true)"
+    if [[ -n "${source}" && "${source}" == "${target}" && -f "${target}" ]]; then
+        chmod 0755 "${target}" 2>/dev/null || true
+        printf '%s\n' "${target}"
+        return 0
+    fi
+    mkdir -p "$(dirname "${target}")" || return 1
+    tmp="${target}.tmp.$$"
+    if [[ -n "${source}" ]] && ! is_transient_script_path "${source}"; then
+        cp -- "${source}" "${tmp}" || return 1
+    else
+        fetch_manager_script "${tmp}" || {
+            rm -f -- "${tmp}" 2>/dev/null || true
+            return 1
+        }
+    fi
+    chmod 0755 "${tmp}" || {
+        rm -f -- "${tmp}" 2>/dev/null || true
+        return 1
+    }
+    mv -f -- "${tmp}" "${target}" || return 1
+    printf '%s\n' "${target}"
+}
+
+ensure_persistent_manager_script() {
+    local source
+    source="$(current_script_path 2>/dev/null || true)"
+    if [[ -n "${source}" ]] && ! is_transient_script_path "${source}"; then
+        printf '%s\n' "${source}"
+        return 0
+    fi
+    warn "当前主控脚本来自临时路径，安装 cron 前需要先落盘。" >&2
+    install_manager_self "${MANAGER_INSTALL_PATH}"
 }
 
 write_learning_runner() {
@@ -3731,6 +4302,24 @@ resource_task_token_matches() {
     [[ -n "${expected}" && -n "${supplied}" && "${supplied}" == "${expected}" ]]
 }
 
+resource_task_token_matches_readonly() {
+    local supplied="$1"
+    local expected
+    [[ -s "${RESOURCE_TASK_TOKEN_FILE}" ]] || return 1
+    expected="$(tr -d '[:space:]' < "${RESOURCE_TASK_TOKEN_FILE}")" || return 1
+    [[ -n "${expected}" && -n "${supplied}" && "${supplied}" == "${expected}" ]]
+}
+
+do_resource_task_ping() {
+    local token="${1:-}"
+    if resource_task_token_matches_readonly "${token}"; then
+        printf 'OK|资源任务 Token 可用\n'
+        return 0
+    fi
+    printf 'ERROR|资源任务 Token 错误或尚未生成\n'
+    return 1
+}
+
 generate_resource_task_token() {
     local token
     ensure_resource_task_layout || return 1
@@ -3828,6 +4417,203 @@ create_resource_task() {
     }
     resource_task_unlock
     success "已创建任务 ${id}：$(resource_task_type_label "${type}")。"
+}
+
+normalize_resource_task_create_type() {
+    local type
+    type="$(trim "${1:-all}")"
+    case "${type}" in
+        iplist|ipdb)
+            printf '%s\n' "${type}"
+            ;;
+        all|both)
+            printf 'all\n'
+            ;;
+        *)
+            err "资源任务类型无效：${type:-空}。可用值：iplist、ipdb、all。"
+            return 1
+            ;;
+    esac
+}
+
+create_resource_tasks_for_type() {
+    local type failed=0
+    type="$(normalize_resource_task_create_type "${1:-all}")" || return 1
+    ensure_resource_task_layout || return 1
+    case "${type}" in
+        iplist|ipdb)
+            create_resource_task "${type}"
+            ;;
+        all)
+            create_resource_task "iplist" || failed=1
+            create_resource_task "ipdb" || failed=1
+            return "${failed}"
+            ;;
+    esac
+}
+
+resource_task_cron_begin_marker() {
+    printf '# BEGIN PO0 nftables resource task scheduler\n'
+}
+
+resource_task_cron_end_marker() {
+    printf '# END PO0 nftables resource task scheduler\n'
+}
+
+write_resource_task_cron_without_managed_block() {
+    local begin end line in_block=0
+    begin="$(resource_task_cron_begin_marker)"
+    end="$(resource_task_cron_end_marker)"
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        if [[ "${line}" == "${begin}" ]]; then
+            in_block=1
+            continue
+        fi
+        if [[ "${line}" == "${end}" ]]; then
+            in_block=0
+            continue
+        fi
+        [[ "${in_block}" == "1" ]] && continue
+        printf '%s\n' "${line}"
+    done
+}
+
+normalize_resource_task_cron_schedule() {
+    local raw field
+    local -a fields=()
+    raw="$(trim "$*")"
+    [[ -n "${raw}" ]] || raw="daily"
+    case "${raw}" in
+        hourly)
+            printf '17 * * * *\n'
+            return 0
+            ;;
+        daily)
+            printf '17 4 * * *\n'
+            return 0
+            ;;
+        weekly)
+            printf '17 4 * * 0\n'
+            return 0
+            ;;
+        monthly)
+            printf '17 4 1 * *\n'
+            return 0
+            ;;
+        @hourly|@daily|@weekly|@monthly)
+            printf '%s\n' "${raw}"
+            return 0
+            ;;
+    esac
+    read -r -a fields <<< "${raw}"
+    if [[ "${#fields[@]}" -ne 5 ]]; then
+        err "cron 表达式无效：请使用 hourly/daily/weekly/monthly，或 5 字段 cron 表达式。"
+        return 1
+    fi
+    for field in "${fields[@]}"; do
+        [[ "${field}" =~ ^[-A-Za-z0-9*/,]+$ ]] || {
+            err "cron 字段包含不支持的字符：${field}"
+            return 1
+        }
+    done
+    printf '%s %s %s %s %s\n' "${fields[0]}" "${fields[1]}" "${fields[2]}" "${fields[3]}" "${fields[4]}"
+}
+
+print_resource_task_cron_summary() {
+    local begin end line in_block=0 found=0
+    command -v crontab >/dev/null 2>&1 || {
+        printf '系统未安装 crontab\n'
+        return 0
+    }
+    begin="$(resource_task_cron_begin_marker)"
+    end="$(resource_task_cron_end_marker)"
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        if [[ "${line}" == "${begin}" ]]; then
+            in_block=1
+            continue
+        fi
+        if [[ "${line}" == "${end}" ]]; then
+            in_block=0
+            continue
+        fi
+        [[ "${in_block}" == "1" ]] || continue
+        [[ -n "${line}" ]] || continue
+        printf '%s\n' "${line}"
+        found=1
+    done < <(crontab -l 2>/dev/null || true)
+    [[ "${found}" == "1" ]] || printf '未安装\n'
+}
+
+install_resource_task_cron() {
+    local type schedule script_path escaped_script escaped_type job tmp
+    type="$(normalize_resource_task_create_type "${1:-all}")" || return 1
+    shift || true
+    schedule="$(normalize_resource_task_cron_schedule "$@")" || return 1
+    ensure_resource_task_layout || return 1
+    command -v crontab >/dev/null 2>&1 || {
+        err "当前系统没有 crontab 命令。请先安装 cron，或改用 systemd timer 调用 --resource-task-create。"
+        return 1
+    }
+    script_path="$(ensure_persistent_manager_script)" || return 1
+    chmod 0755 "${script_path}" 2>/dev/null || true
+    escaped_script="$(shell_quote "${script_path}")"
+    escaped_type="$(shell_quote "${type}")"
+    job="${schedule} bash ${escaped_script} --resource-task-create ${escaped_type} >/tmp/po0-resource-task-cron.log 2>&1"
+    tmp="${CONF_DIR}/po0-resource-task-cron.$$"
+    {
+        crontab -l 2>/dev/null | write_resource_task_cron_without_managed_block || true
+        printf '%s\n' "$(resource_task_cron_begin_marker)"
+        printf '%s\n' "${job}"
+        printf '%s\n' "$(resource_task_cron_end_marker)"
+    } > "${tmp}" || return 1
+    crontab "${tmp}" || {
+        rm -f -- "${tmp}" 2>/dev/null || true
+        return 1
+    }
+    rm -f -- "${tmp}" 2>/dev/null || true
+    success "已安装/更新资源任务定时创建：${type}，计划：${schedule}"
+    info "Worker 会在自己的轮询周期内领取这些任务并回传资源文件。"
+}
+
+remove_resource_task_cron() {
+    local tmp
+    mkdir -p "${CONF_DIR}" || return 1
+    command -v crontab >/dev/null 2>&1 || {
+        err "当前系统没有 crontab 命令。"
+        return 1
+    }
+    tmp="${CONF_DIR}/po0-resource-task-cron.rm.$$"
+    {
+        crontab -l 2>/dev/null | write_resource_task_cron_without_managed_block || true
+    } > "${tmp}" || return 1
+    crontab "${tmp}" || {
+        rm -f -- "${tmp}" 2>/dev/null || true
+        return 1
+    }
+    rm -f -- "${tmp}" 2>/dev/null || true
+    success "已删除资源任务定时创建 cron。"
+}
+
+do_install_resource_task_cron_interactive() {
+    local choice type schedule
+    print_title "安装资源任务定时创建"
+    echo "  1) iplist 地区库"
+    echo "  2) qqwry.ipdb"
+    echo "  3) 全部更新"
+    read -r -p "请选择要定时创建的任务 [1-3，默认 3]: " choice
+    case "${choice:-3}" in
+        1) type="iplist" ;;
+        2) type="ipdb" ;;
+        3) type="all" ;;
+        *)
+            err "无效选择。"
+            return 1
+            ;;
+    esac
+    echo ""
+    echo "计划可填：hourly、daily、weekly、monthly，或标准 5 字段 cron 表达式。"
+    schedule="$(prompt_with_default "请输入计划" "daily")"
+    install_resource_task_cron "${type}" "${schedule}"
 }
 
 list_resource_tasks() {
@@ -4218,6 +5004,13 @@ print_src_allowlist_details() {
     else
         printf '白名单状态 : 关闭\n'
     fi
+    printf '自动来源   : %s\n' "$([[ "${AUTOMATION_MODE}" == "attack" ]] && printf 'attack（新自动 IP 进入 pending）' || printf 'regular')"
+    printf '允许来源   : %s\n' "$(src_allowlist_mode_default_sources "${SRC_ALLOWLIST_MODE}")"
+    if [[ -s "${AUTO_PENDING_FILE}" ]]; then
+        printf 'Pending    : %s 条（%s）\n' "$(awk -F '|' 'NF >= 7 && $1 !~ /^#/ && $7 == "pending" { c++ } END { print c + 0 }' "${AUTO_PENDING_FILE}" 2>/dev/null)" "${AUTO_PENDING_FILE}"
+    else
+        printf 'Pending    : 0 条\n'
+    fi
     printf '地区数量   : %s\n' "$(src_allowlist_region_count)"
     printf '自定义 CIDR: %s 条（%s）\n' "${custom_count}" "${CUSTOM_SRC_ALLOWLIST_FILE}"
     printf '阻挡日志   : %s 条，%s；summary %s 行\n' \
@@ -4265,8 +5058,8 @@ build_src_allowlist_cache() {
                     ((count++))
                 done < "${IPLIST_DIR}/${rel}"
             done
-        elif [[ "${SRC_ALLOWLIST_MODE}" == "region" ]]; then
-            err "地区白名单模式未选择任何地区。"
+        elif [[ "${SRC_ALLOWLIST_MODE}" == "region_only" ]]; then
+            err "仅地区库模式未选择任何地区。"
             return 1
         fi
     fi
@@ -4289,8 +5082,8 @@ build_src_allowlist_cache() {
                 custom_added=1
             done < "${CUSTOM_SRC_ALLOWLIST_FILE}"
         fi
-        if [[ "${SRC_ALLOWLIST_MODE}" == "custom" && "${custom_added}" != "1" ]]; then
-            err "自定义白名单模式未添加任何 CIDR。"
+        if [[ "${SRC_ALLOWLIST_MODE}" != "region_plus_trusted" && "${SRC_ALLOWLIST_MODE}" != "region_only" && "${custom_added}" != "1" ]]; then
+            err "$(src_allowlist_mode_to_label "${SRC_ALLOWLIST_MODE}") 没有任何可用 CIDR。"
             return 1
         fi
     fi
@@ -5163,6 +5956,9 @@ ensure_layout() {
     [[ -f "${ALLOWLIST_SOURCES_FILE}" ]] || ensure_allowlist_sources_file
     [[ -f "${BLOCK_LOG_FILE}" ]] || ensure_block_log_file
     [[ -f "${BLOCK_SUMMARY_FILE}" ]] || regenerate_block_summary
+    [[ -f "${AUTO_PENDING_FILE}" ]] || ensure_auto_pending_file
+    [[ -f "${CLIENT_IP_REPORT_STATS_FILE}" ]] || ensure_generic_report_stats_file "${CLIENT_IP_REPORT_STATS_FILE}"
+    [[ -f "${WEBAUTH_REPORT_STATS_FILE}" ]] || ensure_generic_report_stats_file "${WEBAUTH_REPORT_STATS_FILE}"
     [[ -f "${RESOURCE_TASKS_FILE}" ]] || resource_task_write_header "${RESOURCE_TASKS_FILE}"
 }
 
@@ -5197,7 +5993,7 @@ backup_takeover_files() {
 backup_managed_files() {
     local ts file
     ts="$(date '+%Y%m%d_%H%M%S')"
-    for file in "${NFT_CONF}" "${SETTINGS_FILE}" "${RULES_FILE}" "${SRC_ALLOWLIST_CACHE}" "${CUSTOM_SRC_ALLOWLIST_FILE}" "${ALLOWLIST_SETS_FILE}" "${ALLOWLIST_ENTRIES_FILE}" "${ALLOWLIST_SOURCES_FILE}" "${DDNS_REPORT_STATS_FILE}" "${BLOCK_LOG_FILE}" "${BLOCK_SUMMARY_FILE}"; do
+    for file in "${NFT_CONF}" "${SETTINGS_FILE}" "${RULES_FILE}" "${SRC_ALLOWLIST_CACHE}" "${CUSTOM_SRC_ALLOWLIST_FILE}" "${ALLOWLIST_SETS_FILE}" "${ALLOWLIST_ENTRIES_FILE}" "${ALLOWLIST_SOURCES_FILE}" "${DDNS_REPORT_STATS_FILE}" "${CLIENT_IP_REPORT_STATS_FILE}" "${WEBAUTH_REPORT_STATS_FILE}" "${AUTO_PENDING_FILE}" "${BLOCK_LOG_FILE}" "${BLOCK_SUMMARY_FILE}"; do
         [[ -f "${file}" ]] && cp "${file}" "${BACKUP_DIR}/$(basename "${file}").${ts}" 2>/dev/null || true
     done
 }
@@ -5259,6 +6055,9 @@ read_settings_file() {
             SRC_ALLOWLIST_REGION_IDS)
                 SRC_ALLOWLIST_REGION_IDS="${value}"
                 ;;
+            AUTOMATION_MODE)
+                AUTOMATION_MODE="${value}"
+                ;;
         esac
     done < "${SETTINGS_FILE}"
 }
@@ -5278,8 +6077,9 @@ load_settings() {
     MANAGE_INPUT_FIREWALL="1"
     SSH_PORTS=""
     ENABLE_SRC_ALLOWLIST="0"
-    SRC_ALLOWLIST_MODE="region"
+    SRC_ALLOWLIST_MODE="trusted_dynamic"
     SRC_ALLOWLIST_REGION_IDS=""
+    AUTOMATION_MODE="regular"
     RELAY_LAN_IP_SOURCE="none"
     PUBLIC_IP_SOURCE="none"
     read_settings_file
@@ -5310,8 +6110,12 @@ load_settings() {
     fi
     SSH_PORTS="$(normalize_port_list "${SSH_PORTS}")"
     [[ "${ENABLE_SRC_ALLOWLIST}" == "0" || "${ENABLE_SRC_ALLOWLIST}" == "1" ]] || ENABLE_SRC_ALLOWLIST="0"
-    SRC_ALLOWLIST_MODE="$(normalize_src_allowlist_mode "${SRC_ALLOWLIST_MODE}" 2>/dev/null || printf 'region')"
+    SRC_ALLOWLIST_MODE="$(normalize_src_allowlist_mode "${SRC_ALLOWLIST_MODE}" 2>/dev/null || printf 'trusted_dynamic')"
     SRC_ALLOWLIST_REGION_IDS="$(normalize_region_ids "${SRC_ALLOWLIST_REGION_IDS}")"
+    case "${AUTOMATION_MODE}" in
+        regular|attack) ;;
+        *) AUTOMATION_MODE="regular" ;;
+    esac
     SETTINGS_CACHE_READY="1"
 }
 
@@ -5330,7 +6134,11 @@ save_settings() {
         PUBLIC_IP=""
         PUBLIC_IP_SOURCE="none"
     fi
-    SRC_ALLOWLIST_MODE="$(normalize_src_allowlist_mode "${SRC_ALLOWLIST_MODE}" 2>/dev/null || printf 'region')"
+    SRC_ALLOWLIST_MODE="$(normalize_src_allowlist_mode "${SRC_ALLOWLIST_MODE}" 2>/dev/null || printf 'trusted_dynamic')"
+    case "${AUTOMATION_MODE}" in
+        regular|attack) ;;
+        *) AUTOMATION_MODE="regular" ;;
+    esac
     cat > "${tmp}" <<EOF
 RELAY_MODE="${RELAY_MODE}"
 RELAY_LAN_IP="${RELAY_LAN_IP}"
@@ -5343,6 +6151,7 @@ SSH_PORTS="${SSH_PORTS}"
 ENABLE_SRC_ALLOWLIST="${ENABLE_SRC_ALLOWLIST}"
 SRC_ALLOWLIST_MODE="${SRC_ALLOWLIST_MODE}"
 SRC_ALLOWLIST_REGION_IDS="${SRC_ALLOWLIST_REGION_IDS}"
+AUTOMATION_MODE="${AUTOMATION_MODE}"
 EOF
     mv -f "${tmp}" "${SETTINGS_FILE}"
     SETTINGS_CACHE_READY="1"
@@ -7202,10 +8011,12 @@ prompt_src_allowlist_mode() {
     while true; do
         echo "选择源 IP 限制方式："
         echo "  0) 关闭：不限制访问转发端口的来源 IP"
-        echo "  1) 地区白名单：只使用 iplist 地区/城市库"
-        echo "  2) 自定义白名单：只允许你手工加入的 IP/CIDR"
-        echo "  3) 地区 + 自定义白名单：两者任一命中即可访问"
-        read -r -p "请选择 [0-3，当前: $([[ "${ENABLE_SRC_ALLOWLIST}" == "1" ]] && src_allowlist_mode_to_label "${SRC_ALLOWLIST_MODE}" || printf '关闭')]: " choice
+        echo "  1) 仅手动来源：手动 CIDR + 当前 SSH 临时来源"
+        echo "  2) 可信动态来源：手动 + SSH 临时 + DDNS + Egern/Client IP + WebAuth + learned"
+        echo "  3) 地区 + 可信动态来源"
+        echo "  4) 仅地区库"
+        echo "  5) 高级自选来源组合"
+        read -r -p "请选择 [0-5，当前: $([[ "${ENABLE_SRC_ALLOWLIST}" == "1" ]] && src_allowlist_mode_to_label "${SRC_ALLOWLIST_MODE}" || printf '关闭')]: " choice
         case "${choice}" in
             0)
                 ENABLE_SRC_ALLOWLIST="0"
@@ -7213,17 +8024,28 @@ prompt_src_allowlist_mode() {
                 ;;
             1)
                 ENABLE_SRC_ALLOWLIST="1"
-                SRC_ALLOWLIST_MODE="region"
+                SRC_ALLOWLIST_MODE="manual_only"
                 return 0
                 ;;
             2)
                 ENABLE_SRC_ALLOWLIST="1"
-                SRC_ALLOWLIST_MODE="custom"
+                SRC_ALLOWLIST_MODE="trusted_dynamic"
                 return 0
                 ;;
             3)
                 ENABLE_SRC_ALLOWLIST="1"
-                SRC_ALLOWLIST_MODE="region_custom"
+                SRC_ALLOWLIST_MODE="region_plus_trusted"
+                return 0
+                ;;
+            4)
+                ENABLE_SRC_ALLOWLIST="1"
+                SRC_ALLOWLIST_MODE="region_only"
+                return 0
+                ;;
+            5)
+                ENABLE_SRC_ALLOWLIST="1"
+                SRC_ALLOWLIST_MODE="custom_sources"
+                configure_default_allowlist_sources_interactive || return 1
                 return 0
                 ;;
             "")
@@ -7234,6 +8056,58 @@ prompt_src_allowlist_mode() {
                 ;;
         esac
     done
+}
+
+configure_default_allowlist_sources_interactive() {
+    local raw normalized
+    load_allowlist_sets
+    raw="$(src_allowlist_mode_default_sources custom_sources)"
+    echo ""
+    echo "可选来源：region, manual, ssh_temp, ddns, client_ip, webauth, learned, url_report"
+    raw="$(prompt_with_default "请输入允许的来源，逗号分隔" "${raw}")"
+    normalized="$(normalize_allowlist_set_sources "${raw}")" || {
+        err "来源组合无效。"
+        return 1
+    }
+    set_default_allowlist_sources "${normalized}" || return 1
+    success "高级来源组合已更新：${normalized}"
+}
+
+set_default_allowlist_sources() {
+    local sources="$1"
+    local set replaced=0
+    local -a next=()
+    sources="$(normalize_allowlist_set_sources "${sources}")" || return 1
+    load_allowlist_sets
+    for set in "${ALLOWLIST_SETS[@]}"; do
+        parse_allowlist_set_line "${set}" || continue
+        if [[ "${ALLOWLIST_SET_ID}" == "default" ]]; then
+            next+=("$(serialize_allowlist_set \
+                "${ALLOWLIST_SET_ID}" \
+                "${ALLOWLIST_SET_LABEL}" \
+                "${ALLOWLIST_SET_ENABLED}" \
+                "${ALLOWLIST_SET_SCOPE}" \
+                "${ALLOWLIST_SET_PORTS}" \
+                "${sources}" \
+                "${ALLOWLIST_SET_NOTE}")")
+            replaced=1
+        else
+            next+=("${PARSED_ALLOWLIST_SET}")
+        fi
+    done
+    if [[ "${replaced}" != "1" ]]; then
+        next+=("$(serialize_allowlist_set "default" "Default public allowlist" "1" "public" "*" "${sources}" "Custom source-type allowlist")")
+    fi
+    ALLOWLIST_SETS=("${next[@]}")
+    save_allowlist_sets
+}
+
+do_manage_allowlist_source_switches() {
+    save_allowlist_last_snapshot || return 1
+    ENABLE_SRC_ALLOWLIST="1"
+    SRC_ALLOWLIST_MODE="custom_sources"
+    configure_default_allowlist_sources_interactive || return 1
+    apply_src_allowlist_changes
 }
 
 select_custom_allowlist_entry() {
@@ -7270,13 +8144,13 @@ select_custom_allowlist_entry() {
 enable_allowlist_for_region_add() {
     ENABLE_SRC_ALLOWLIST="1"
     case "${SRC_ALLOWLIST_MODE}" in
-        custom)
-            SRC_ALLOWLIST_MODE="region_custom"
+        manual_only|trusted_dynamic)
+            SRC_ALLOWLIST_MODE="region_plus_trusted"
             ;;
-        region|region_custom)
+        region_only|region_plus_trusted|custom_sources)
             ;;
         *)
-            SRC_ALLOWLIST_MODE="region"
+            SRC_ALLOWLIST_MODE="region_only"
             ;;
     esac
 }
@@ -7284,13 +8158,13 @@ enable_allowlist_for_region_add() {
 enable_allowlist_for_custom_add() {
     ENABLE_SRC_ALLOWLIST="1"
     case "${SRC_ALLOWLIST_MODE}" in
-        region)
-            SRC_ALLOWLIST_MODE="region_custom"
+        region_only)
+            SRC_ALLOWLIST_MODE="region_plus_trusted"
             ;;
-        custom|region_custom)
+        manual_only|trusted_dynamic|region_plus_trusted|custom_sources)
             ;;
         *)
-            SRC_ALLOWLIST_MODE="custom"
+            SRC_ALLOWLIST_MODE="trusted_dynamic"
             ;;
     esac
 }
@@ -7304,6 +8178,8 @@ apply_src_allowlist_changes() {
 
 do_refresh_ddns_allowlist_sources() {
     ensure_layout || return 1
+    load_settings 1
+    warn "PO0 本地 DDNS 解析仅作为高级兜底，不是默认推荐路径；优先使用 LAN Worker/路由器解析后 SSH 上报。"
     backup_managed_files
     refresh_ddns_allowlist_sources || return 1
     printf 'DDNS 来源刷新：外部上报 %s 个，本机解析 %s 个，失败 %s 个，停用 %s 个\n' \
@@ -7329,7 +8205,7 @@ do_report_ddns_allowlist_source() {
     local ips="${2:-}"
     local token="${3:-}"
     [[ -n "${key}" && -n "${ips}" ]] || {
-        err "用法：--ddns-report <名称或域名> <公网IPv4[,公网IPv4...]> [token]"
+        err "用法：--ddns-report <source-key> <公网IPv4[,公网IPv4...]> [token]"
         return 1
     }
     ensure_layout || return 1
@@ -7337,8 +8213,313 @@ do_report_ddns_allowlist_source() {
     report_ddns_allowlist_source "${key}" "${ips}" "${token}" || return 1
     enable_allowlist_for_custom_add
     apply_src_allowlist_changes || return 1
-    printf 'DDNS 外部上报已接收：%s (%s) -> %s\n' \
+    printf 'DDNS 上报已接收：%s (%s) -> %s\n' \
         "${DDNS_REPORT_NAME:-${key}}" "${DDNS_REPORT_DOMAIN:-${key}}" "${DDNS_REPORT_IPS:-${ips}}"
+}
+
+do_report_client_ip_source() {
+    local source_id="${1:-}"
+    local ip="${2:-}"
+    local token="${3:-}"
+    local identity="${4:-}"
+    local ttl="${5:-3600}"
+    [[ -n "${source_id}" && -n "${ip}" ]] || {
+        err "用法：--client-ip-report <source-id> <ipv4> <token> [identity] [ttl]"
+        return 1
+    }
+    ensure_layout || return 1
+    load_settings 1
+    report_client_ip_source "${source_id}" "${ip}" "${token}" "${identity}" "${ttl}" || return 1
+    enable_allowlist_for_custom_add
+    apply_src_allowlist_changes || return 1
+    if [[ "${DYNAMIC_REPORT_PENDING_COUNT:-0}" -gt 0 ]]; then
+        printf '客户端 IP 已记录为 pending（attack mode）：%s -> %s\n' "${CLIENT_IP_REPORT_SOURCE:-${source_id}}" "${CLIENT_IP_REPORT_IP:-${ip}}"
+    else
+        printf '客户端 IP 上报已接收：%s -> %s，TTL %ss\n' "${CLIENT_IP_REPORT_SOURCE:-${source_id}}" "${CLIENT_IP_REPORT_IP:-${ip}}" "${CLIENT_IP_REPORT_TTL:-${ttl}}"
+    fi
+}
+
+do_check_client_ip_report_source() {
+    local source_id="${1:-}"
+    local token="${2:-}"
+    source_id="$(sanitize_allowlist_source_text "$(trim "${source_id}")")"
+    [[ -n "${source_id}" ]] || {
+        printf 'ERROR|缺少客户端来源 ID\n'
+        return 1
+    }
+    validate_client_ip_report_token "${token}" || {
+        printf 'ERROR|客户端 IP 上报 token 无效\n'
+        return 1
+    }
+    printf 'OK|客户端 IP 来源可上报：%s\n' "${source_id}"
+}
+
+do_report_webauth_source() {
+    local source_id="${1:-}"
+    local ip="${2:-}"
+    local identity="${3:-}"
+    local expires_at="${4:-}"
+    local token="${5:-}"
+    local note="${6:-}"
+    [[ -n "${source_id}" && -n "${ip}" && -n "${identity}" && -n "${expires_at}" ]] || {
+        err "用法：--webauth-report <source-id> <ipv4> <identity> <expires-at> <token> [note]"
+        return 1
+    }
+    ensure_layout || return 1
+    load_settings 1
+    report_webauth_source "${source_id}" "${ip}" "${identity}" "${expires_at}" "${token}" "${note}" || return 1
+    enable_allowlist_for_custom_add
+    apply_src_allowlist_changes || return 1
+    if [[ "${DYNAMIC_REPORT_PENDING_COUNT:-0}" -gt 0 ]]; then
+        printf 'WebAuth IP 已记录为 pending（attack mode）：%s -> %s identity=%s\n' "${WEBAUTH_REPORT_SOURCE:-${source_id}}" "${WEBAUTH_REPORT_IP:-${ip}}" "${WEBAUTH_REPORT_IDENTITY:-${identity}}"
+    else
+        printf 'WebAuth 上报已接收：%s -> %s identity=%s expires=%s\n' "${WEBAUTH_REPORT_SOURCE:-${source_id}}" "${WEBAUTH_REPORT_IP:-${ip}}" "${WEBAUTH_REPORT_IDENTITY:-${identity}}" "${WEBAUTH_REPORT_EXPIRES_AT:-${expires_at}}"
+    fi
+}
+
+do_check_webauth_report_source() {
+    local source_id="${1:-}"
+    local token="${2:-}"
+    source_id="$(sanitize_allowlist_source_text "$(trim "${source_id}")")"
+    [[ -n "${source_id}" ]] || {
+        printf 'ERROR|缺少 WebAuth 来源 ID\n'
+        return 1
+    }
+    validate_webauth_report_token "${token}" || {
+        printf 'ERROR|WebAuth 上报 token 无效\n'
+        return 1
+    }
+    printf 'OK|WebAuth 来源可上报：%s\n' "${source_id}"
+}
+
+do_show_client_ip_report_token() {
+    local token
+    ensure_layout || return 1
+    token="$(client_ip_report_token_value)" || return 1
+    print_title "客户端当前出口 IP 上报 Token"
+    printf 'Token 文件 : %s\n' "${CLIENT_IP_REPORT_TOKEN_FILE}"
+    printf 'Token      : %s\n' "${token}"
+    echo ""
+    echo "Egern / 移动客户端上报示例："
+    printf '  bash %s --client-ip-report iphone 1.2.3.4 %s egern 3600\n' "$(basename "$0")" "${token}"
+    echo ""
+    echo "Egern 模块 URL："
+    printf '  %s\n' "${EGERN_CLIENT_IP_MODULE_RAW_URL}"
+}
+
+do_show_webauth_report_token() {
+    local token
+    ensure_layout || return 1
+    token="$(webauth_report_token_value)" || return 1
+    print_title "LAN Worker WebAuth 上报 Token"
+    printf 'Token 文件 : %s\n' "${WEBAUTH_REPORT_TOKEN_FILE}"
+    printf 'Token      : %s\n' "${token}"
+    echo ""
+    echo "WebAuth 上报示例（由 LAN Worker 通过 SSH 调用）："
+    printf '  bash %s --webauth-report cf-access 1.2.3.4 user@example.com %s %s\n' \
+        "$(basename "$0")" "$(utc_after_seconds_iso 3600)" "${token}"
+}
+
+set_automation_mode() {
+    local mode="${1:-}"
+    case "${mode}" in
+        regular|normal|off)
+            AUTOMATION_MODE="regular"
+            ;;
+        attack|on|freeze)
+            AUTOMATION_MODE="attack"
+            ;;
+        *)
+            err "自动来源模式无效：${mode:-空}。可用值：regular、attack。"
+            return 1
+            ;;
+    esac
+    ensure_layout || return 1
+    load_settings 1
+    case "${mode}" in
+        regular|normal|off) AUTOMATION_MODE="regular" ;;
+        attack|on|freeze) AUTOMATION_MODE="attack" ;;
+    esac
+    save_settings || return 1
+    success "自动来源模式已切换为：${AUTOMATION_MODE}"
+}
+
+do_list_pending_auto_sources() {
+    ensure_layout || return 1
+    print_title "Pending 自动来源"
+    if [[ ! -s "${AUTO_PENDING_FILE}" ]]; then
+        echo "  (暂无 pending 自动来源)"
+        return 0
+    fi
+    list_pending_auto_sources
+}
+
+do_compat_check() {
+    print_title "兼容性检查"
+    load_settings 1
+    load_rules 1
+    load_allowlist_sets 1
+    printf '设置文件     : %s\n' "$([[ -f "${SETTINGS_FILE}" ]] && printf 'OK' || printf 'missing')"
+    printf '规则文件     : %s 条\n' "${#RULES[@]}"
+    printf '白名单模式   : %s (%s)\n' "${SRC_ALLOWLIST_MODE}" "$(src_allowlist_mode_to_label "${SRC_ALLOWLIST_MODE}")"
+    printf '允许来源     : %s\n' "$(src_allowlist_mode_default_sources "${SRC_ALLOWLIST_MODE}")"
+    printf '旧 custom 文件: %s 条\n' "$(custom_allowlist_count)"
+    printf 'entries      : %s 条\n' "$(allowlist_entries_count)"
+    printf 'DDNS sources : %s 个\n' "$(allowlist_sources_count)"
+    printf '自动来源模式 : %s\n' "${AUTOMATION_MODE}"
+    success "兼容性检查完成；未修改任何文件。"
+}
+
+do_cleanup_legacy() {
+    local mode="${1:---dry-run}"
+    local ts
+    print_title "清理旧文件"
+    case "${mode}" in
+        --dry-run|"")
+            echo "dry-run：只列出候选，不删除文件。"
+            ;;
+        --apply)
+            ts="$(date '+%Y%m%d_%H%M%S')"
+            mkdir -p "${BACKUP_DIR}/legacy-cleanup-${ts}" || return 1
+            echo "apply：本版本只执行安全备份和说明，不删除 live state。"
+            ;;
+        *)
+            err "用法：--cleanup-legacy --dry-run|--apply"
+            return 1
+            ;;
+    esac
+    echo "保留 live state：规则、白名单、token、DDNS sources、资源任务、日志。"
+    echo "可人工检查的旧路径候选："
+    printf '  - %s\n' "/usr/local/sbin/nftables-relay-manager"
+    printf '  - %s\n' "${CUSTOM_SRC_ALLOWLIST_FILE}（旧 custom 兼容文件，仍参与迁移，不建议删除）"
+    success "清理检查完成。"
+}
+
+do_check_ddns_report_source() {
+    local key="${1:-}"
+    local token="${2:-}"
+    local line found=0 disabled=0
+    key="$(sanitize_allowlist_source_text "$(trim "${key}")")"
+    [[ -n "${key}" ]] || {
+        printf 'ERROR|缺少 DDNS 来源名称或域名\n'
+        return 1
+    }
+    validate_ddns_report_token_readonly "${token}" || {
+        printf 'ERROR|DDNS 外部上报 token 无效\n'
+        return 1
+    }
+    [[ -f "${ALLOWLIST_SOURCES_FILE}" ]] || {
+        printf 'ERROR|尚未配置 DDNS 来源\n'
+        return 1
+    }
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        parse_allowlist_source_line "${line}" || continue
+        [[ "${ALLOWLIST_SOURCE_TYPE}" == "ddns" ]] || continue
+        if [[ "${ALLOWLIST_SOURCE_NAME}" == "${key}" || "${ALLOWLIST_SOURCE_VALUE}" == "${key}" ]]; then
+            found=1
+            if [[ "${ALLOWLIST_SOURCE_ENABLED}" != "1" ]]; then
+                disabled=1
+            fi
+            break
+        fi
+    done < "${ALLOWLIST_SOURCES_FILE}"
+    [[ "${found}" == "1" ]] || {
+        printf 'ERROR|未找到 DDNS 来源：%s\n' "${key}"
+        return 1
+    }
+    [[ "${disabled}" != "1" ]] || {
+        printf 'ERROR|DDNS 来源已停用：%s\n' "${key}"
+        return 1
+    }
+    printf 'OK|DDNS 来源可上报：%s -> %s\n' "${ALLOWLIST_SOURCE_NAME}" "${ALLOWLIST_SOURCE_VALUE}"
+}
+
+print_lan_worker_bootstrap_example() {
+    local ddns_token="${1:-<SOURCE_TOKEN>}"
+    local resource_token="${2:-<RESOURCE_TOKEN>}"
+    echo "内网 Worker 一键部署示例："
+    printf '  curl -fsSL %s | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script %s --source-key <DDNS_SOURCE_KEY> --ddns-domain <DDNS_DOMAIN> --token %s --resource-token %s --install-cron 5\n' \
+        "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "${ddns_token}" "${resource_token}"
+}
+
+do_show_client_deploy_commands() {
+    local ddns_token resource_token client_token webauth_token
+    ensure_layout || return 1
+    ddns_token="$(ddns_report_token_value 2>/dev/null || printf '<DDNS_TOKEN>')"
+    resource_token="$(resource_task_token_value 2>/dev/null || printf '<RESOURCE_TOKEN>')"
+    client_token="$(client_ip_report_token_value 2>/dev/null || printf '<CLIENT_REPORT_TOKEN>')"
+    webauth_token="$(webauth_report_token_value 2>/dev/null || printf '<WEBAUTH_TOKEN>')"
+    print_title "LAN Worker / 客户端部署命令"
+    printf 'PO0 主控路径 : %s\n' "${MANAGER_INSTALL_PATH}"
+    printf 'Worker RAW   : %s\n' "${LAN_WORKER_RAW_URL}"
+    printf 'Self-report Client RAW : %s\n' "${OUTBOUND_IP_REPORTER_RAW_URL}"
+    echo ""
+    echo "PO0 主控脚本落盘到 /root："
+    printf '  curl -fsSL %s -o %s && chmod +x %s && bash %s\n' \
+        "${MANAGER_RAW_URL}" "${MANAGER_INSTALL_PATH}" "${MANAGER_INSTALL_PATH}" "${MANAGER_INSTALL_PATH}"
+    echo ""
+    echo "资源任务 Worker（只更新 iplist/ipdb）："
+    printf '  curl -fsSL %s | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script %s --resource-token %s --install-cron 5\n' \
+        "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${resource_token}")"
+    echo ""
+    echo "DDNS Resolver + 资源任务 Worker（LAN Worker 解析 DDNS 域名后 SSH 上报）："
+    printf '  curl -fsSL %s | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script %s --source-key <DDNS_SOURCE_KEY> --ddns-domain <DDNS_DOMAIN> --token %s --resource-token %s --install-cron 5\n' \
+        "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${ddns_token}")" "$(shell_quote "${resource_token}")"
+    echo ""
+    echo "Self-report Server（跑在 LAN Worker；访问设备先报 LAN Worker，LAN Worker 再 SSH 上报 PO0）："
+    printf '  curl -fsSL %s | bash -s -- --install-self\n' "${LAN_WORKER_RAW_URL}"
+    printf '  po0-lan-client --self-report-server --self-report-listen 127.0.0.1:8788 --po0-host <PO0_HOST> --po0-script %s --self-report-source self-report --client-ip-token %s --self-report-secret <SELF_REPORT_SECRET>\n' \
+        "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${client_token}")"
+    echo ""
+    echo "Self-report Client（Linux/OpenWrt/访问设备，检测自身出口 IPv4 后上报 LAN Worker）："
+    printf '  curl -fsSL %s | bash -s -- --worker-url <LAN_WORKER_REPORT_URL> --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --install-cron 5\n' \
+        "${OUTBOUND_IP_REPORTER_RAW_URL}"
+    echo ""
+    echo "Self-report Client（Windows PowerShell，检测自身出口 IPv4 后安装计划任务）："
+    printf "  \$env:PO0_LAN_WORKER_URL='<LAN_WORKER_REPORT_URL>'; \$env:PO0_SELF_REPORT_SOURCE='<CLIENT_ID>'; \$env:PO0_SELF_REPORT_SECRET='<SELF_REPORT_SECRET>'; \$env:INSTALL_TASK='1'; \$env:MINUTES='5'; irm -UseBasicParsing '%s' | iex\n" \
+        "${OUTBOUND_IP_REPORTER_PS_RAW_URL}"
+    echo ""
+    echo "Worker probe（不写配置、不安装 cron）："
+    printf '  curl -fsSL %s | bash -s -- --probe --po0-host <PO0_HOST> --po0-script %s --resource-token %s\n' \
+        "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${resource_token}")"
+    echo ""
+    echo "WebAuth Worker（PO0 不开 HTTP；LAN Worker 本地监听，建议前置 Cloudflare Access/Tunnel）："
+    printf '  curl -fsSL %s | bash -s -- --install-self\n' "${LAN_WORKER_RAW_URL}"
+    printf '  po0-lan-client --webauth-server --listen 127.0.0.1:8787 --po0-host <PO0_HOST> --po0-script %s --webauth-source cf-access --webauth-token %s\n' \
+        "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${webauth_token}")"
+    echo ""
+    echo "Egern 当前出口 IPv4 上报："
+    printf '  模块 URL: %s\n' "${EGERN_CLIENT_IP_MODULE_RAW_URL}"
+    printf '  REPORT_TOKEN=%s\n' "${client_token}"
+    printf '  PO0_SCRIPT=%s\n' "${MANAGER_INSTALL_PATH}"
+    printf '  多 PO0: 不要重复导入模块，把每个 PO0 输出的目标行合并到同一个 PO0_TARGETS。\n'
+    printf '  PO0_TARGETS 每行: source|host|port|user|script|token|identity|ttl\n'
+    printf '    egern-po0|<PO0_HOST>|22|root|%s|%s|egern|3600\n' "${MANAGER_INSTALL_PATH}" "${client_token}"
+    echo ""
+    echo "说明：PO0 默认不本地解析 DDNS；DDNS 推荐由 LAN Worker/路由器/NAS 解析 DDNS 后 SSH 上报。自上报 HTTP 入口只跑在 LAN Worker。"
+}
+
+do_manage_automation_mode() {
+    local choice
+    ensure_layout || return
+    load_settings 1
+    while true; do
+        print_title "自动来源模式"
+        printf '当前模式 : %s\n' "${AUTOMATION_MODE}"
+        echo "  1) regular：自动来源新 IP 可直接进入白名单"
+        echo "  2) attack：新自动 IP 只进入 pending，不直接放行"
+        echo "  3) 查看 pending 自动来源"
+        echo "  0) 返回"
+        read -r -p "请选择操作 [0-3]: " choice
+        case "${choice}" in
+            1) set_automation_mode regular; pause_before_return ;;
+            2) set_automation_mode attack; pause_before_return ;;
+            3) do_list_pending_auto_sources; pause_before_return ;;
+            0) return ;;
+            *) err "无效选择。" ;;
+        esac
+        load_settings 1
+    done
 }
 
 do_show_ddns_report_token() {
@@ -7351,6 +8532,8 @@ do_show_ddns_report_token() {
     echo ""
     echo "SSH 上报示例："
     printf '  bash %s --ddns-report home 1.2.3.4 %s\n' "$(basename "$0")" "${token}"
+    echo ""
+    print_lan_worker_bootstrap_example "${token}" "<RESOURCE_TOKEN>"
     echo ""
     echo "说明：如果通过 SSH 只允许可信用户执行，也可以不创建/不使用 token；一旦 token 文件存在，上报命令必须携带正确 token。"
 }
@@ -7448,12 +8631,17 @@ rewrite_selected_ddns_source() {
 }
 
 disable_src_allowlist_if_no_custom_entries() {
-    if [[ "${SRC_ALLOWLIST_MODE}" == "custom" ]] && ! custom_allowlist_has_entries; then
-        ENABLE_SRC_ALLOWLIST="0"
-    fi
-    if [[ "${SRC_ALLOWLIST_MODE}" == "region_custom" && -z "${SRC_ALLOWLIST_REGION_IDS}" ]] && ! custom_allowlist_has_entries; then
-        ENABLE_SRC_ALLOWLIST="0"
-    fi
+    case "${SRC_ALLOWLIST_MODE}" in
+        manual_only|trusted_dynamic|custom_sources)
+            custom_allowlist_has_entries || ENABLE_SRC_ALLOWLIST="0"
+            ;;
+        region_plus_trusted)
+            [[ -n "${SRC_ALLOWLIST_REGION_IDS}" ]] || custom_allowlist_has_entries || ENABLE_SRC_ALLOWLIST="0"
+            ;;
+        region_only)
+            [[ -n "${SRC_ALLOWLIST_REGION_IDS}" ]] || ENABLE_SRC_ALLOWLIST="0"
+            ;;
+    esac
 }
 
 print_ddns_resolve_result() {
@@ -7663,7 +8851,7 @@ do_manage_ddns_allowlist_sources() {
         echo "  3) 编辑 DDNS 来源"
         echo "  4) 删除 DDNS 来源"
         echo "  5) 启用 / 停用 DDNS 来源"
-        echo "  6) 测试解析 DDNS 来源"
+        echo "  6) 测试 DDNS 来源本机解析兜底"
         echo "  7) 刷新并应用已启用 DDNS 来源"
         echo "  8) 显示 / 生成外部上报 Token"
         echo "  0) 返回"
@@ -7903,12 +9091,7 @@ do_delete_custom_allowlist_entry() {
         err "删除自定义 CIDR 失败。"
         return 1
     }
-    if [[ "${SRC_ALLOWLIST_MODE}" == "custom" ]] && ! custom_allowlist_has_entries; then
-        ENABLE_SRC_ALLOWLIST="0"
-    fi
-    if [[ "${SRC_ALLOWLIST_MODE}" == "region_custom" && -z "${SRC_ALLOWLIST_REGION_IDS}" ]] && ! custom_allowlist_has_entries; then
-        ENABLE_SRC_ALLOWLIST="0"
-    fi
+    disable_src_allowlist_if_no_custom_entries
     apply_src_allowlist_changes
 }
 
@@ -8032,12 +9215,7 @@ do_manage_region_allowlist() {
                     continue
                 }
                 remove_allowlist_region_id "${id}"
-                if [[ "${SRC_ALLOWLIST_MODE}" == "region" && -z "${SRC_ALLOWLIST_REGION_IDS}" ]]; then
-                    ENABLE_SRC_ALLOWLIST="0"
-                fi
-                if [[ "${SRC_ALLOWLIST_MODE}" == "region_custom" && -z "${SRC_ALLOWLIST_REGION_IDS}" ]] && ! custom_allowlist_has_entries; then
-                    ENABLE_SRC_ALLOWLIST="0"
-                fi
+                disable_src_allowlist_if_no_custom_entries
                 apply_src_allowlist_changes || pause_before_return
                 ;;
             0)
@@ -8165,9 +9343,12 @@ do_manage_resource_tasks() {
         printf 'IPDB 下载源: %s\n' "${IPDB_DOWNLOAD_URL}"
         if token="$(resource_task_token_value 2>/dev/null)"; then
             printf '任务 Token : %s\n' "${token}"
+    print_lan_worker_bootstrap_example "<SOURCE_TOKEN>" "${token}"
         else
             printf '任务 Token : 未生成\n'
         fi
+        printf '定时创建 : '
+        print_resource_task_cron_summary
         echo ""
         echo "  1) 查看任务和结果"
         echo "  2) 创建 iplist 更新任务"
@@ -8175,8 +9356,10 @@ do_manage_resource_tasks() {
         echo "  4) 创建全部更新任务"
         echo "  5) 重新排队失败 / 执行中任务"
         echo "  6) 生成 / 重置任务 Token"
+        echo "  7) 安装 / 更新定时创建任务"
+        echo "  8) 删除定时创建任务"
         echo "  0) 返回"
-        read -r -p "请选择操作 [0-6]: " choice
+        read -r -p "请选择操作 [0-8]: " choice
         case "${choice}" in
             1)
                 list_resource_tasks
@@ -8206,7 +9389,16 @@ do_manage_resource_tasks() {
                         continue
                     }
                     success "新任务 Token：${token}"
+                    print_lan_worker_bootstrap_example "<DDNS_TOKEN>" "${token}"
                 }
+                pause_before_return
+                ;;
+            7)
+                do_install_resource_task_cron_interactive
+                pause_before_return
+                ;;
+            8)
+                confirm_yes "确认删除资源任务定时创建 cron" && remove_resource_task_cron
                 pause_before_return
                 ;;
             0)
@@ -8268,8 +9460,12 @@ do_manage_src_allowlist() {
         echo " 13) 压缩被阻挡访问日志"
         echo " 14) 清空被阻挡访问日志"
         echo " 15) 管理内网资源更新任务"
+        echo " 16) 管理自动来源模式 / pending"
+        echo " 17) 显示客户端当前 IP 上报 Token"
+        echo " 18) 显示 WebAuth 上报 Token"
+        echo " 19) 管理动态来源开关（高级自选来源）"
         echo "  0) 返回"
-        read -r -p "请选择操作 [0-15]: " choice
+        read -r -p "请选择操作 [0-19]: " choice
         case "${choice}" in
             1)
                 save_allowlist_last_snapshot || {
@@ -8329,6 +9525,20 @@ do_manage_src_allowlist() {
             15)
                 do_manage_resource_tasks
                 ;;
+            16)
+                do_manage_automation_mode
+                ;;
+            17)
+                do_show_client_ip_report_token
+                pause_before_return
+                ;;
+            18)
+                do_show_webauth_report_token
+                pause_before_return
+                ;;
+            19)
+                do_manage_allowlist_source_switches || pause_before_return
+                ;;
             0)
                 return
                 ;;
@@ -8351,9 +9561,9 @@ do_enable_bbr() {
 
 print_recommended_operations() {
     printf '%b推荐操作%b\n' "${C_BOLD}" "${C_RESET}"
-    printf '  首次部署: 1 -> 10 -> 12 -> 3 -> 13\n'
-    printf '  日常维护: 3 查看状态，4/5 管理规则，12 管理白名单\n'
-    printf '  白名单收紧: 12 -> 启动学习服务 -> 观察候选 IP -> 手动加入自定义白名单\n'
+    printf '  首次部署: 安装/初始化 -> 新增或导入转发规则 -> 管理源 IP 白名单 -> 预览/诊断\n'
+    printf '  日常维护: 查看概览与规则列表；按需新增/编辑规则；管理源 IP 白名单\n'
+    printf '  白名单收紧: 管理源 IP 白名单 -> 学习服务与候选提升 -> 手动加入自定义白名单\n'
     printf '  安全基线: 保持入站防火墙接管开启；SSH 端口会自动例外放行\n'
     echo ""
 }
@@ -8371,7 +9581,7 @@ write_block_log_header() {
     local path="$1"
     cat > "${path}" <<'EOF'
 # Managed by nftables relay manager
-# format: observed_at|src_ip|proto|dport|set_id|raw
+# format: observed_at|src_ip|proto|dport|set_id|raw|ipdb_snapshot
 EOF
 }
 
@@ -8440,7 +9650,7 @@ read_block_log_lines() {
 
 collect_blocked_ip_logs() {
     local since="${1:-1 hour ago}"
-    local line observed_at added=0 skipped=0
+    local line observed_at snapshot added=0 skipped=0
     ensure_block_log_file || return 1
     while IFS= read -r line || [[ -n "${line}" ]]; do
         parse_block_log_line "${line}" || {
@@ -8452,13 +9662,16 @@ collect_blocked_ip_logs() {
             continue
         fi
         observed_at="$(utc_now_iso)"
-        printf '%s|%s|%s|%s|%s|%s\n' \
+        snapshot="$(ipdb_snapshot_for_ip "${BLOCK_LOG_SRC_IP}")"
+        snapshot="$(sanitize_block_log_text "${snapshot}")"
+        printf '%s|%s|%s|%s|%s|%s|%s\n' \
             "${observed_at}" \
             "${BLOCK_LOG_SRC_IP}" \
             "${BLOCK_LOG_PROTO}" \
             "${BLOCK_LOG_DPORT}" \
             "${BLOCK_LOG_SET_ID}" \
-            "${BLOCK_LOG_RAW}" >> "${BLOCK_LOG_FILE}"
+            "${BLOCK_LOG_RAW}" \
+            "${snapshot}" >> "${BLOCK_LOG_FILE}"
         ((added++))
     done < <(read_block_log_lines "${since}")
     BLOCK_LOG_ADDED_COUNT="${added}"
@@ -8561,7 +9774,7 @@ compact_block_log_if_needed() {
 
 print_preview_entry_summary() {
     local line total=0 active=0 expired=0
-    local manual=0 region=0 learned=0 ssh_temp=0 ddns=0 url_report=0 other=0
+    local manual=0 region=0 learned=0 ssh_temp=0 ddns=0 client_ip=0 webauth=0 url_report=0 other=0
     [[ -f "${ALLOWLIST_ENTRIES_FILE}" ]] || {
         echo "白名单条目 : 总计 0 条，生效 0 条，过期 0 条"
         return 0
@@ -8580,12 +9793,14 @@ print_preview_entry_summary() {
             learned) ((learned++)) ;;
             ssh_temp) ((ssh_temp++)) ;;
             ddns) ((ddns++)) ;;
+            client_ip) ((client_ip++)) ;;
+            webauth) ((webauth++)) ;;
             url_report) ((url_report++)) ;;
             *) ((other++)) ;;
         esac
     done < "${ALLOWLIST_ENTRIES_FILE}"
-    printf '白名单条目 : 总计 %s 条，生效 %s 条，过期 %s 条；手动 %s，地区 %s，学习 %s，SSH 临时 %s，DDNS %s，URL 上报 %s，其它 %s\n' \
-        "${total}" "${active}" "${expired}" "${manual}" "${region}" "${learned}" "${ssh_temp}" "${ddns}" "${url_report}" "${other}"
+    printf '白名单条目 : 总计 %s 条，生效 %s 条，过期 %s 条；手动 %s，地区 %s，学习 %s，SSH 临时 %s，DDNS %s，Client IP %s，WebAuth %s，URL 上报 %s，其它 %s\n' \
+        "${total}" "${active}" "${expired}" "${manual}" "${region}" "${learned}" "${ssh_temp}" "${ddns}" "${client_ip}" "${webauth}" "${url_report}" "${other}"
 }
 
 print_preview_source_summary() {
@@ -8649,6 +9864,7 @@ do_preview() {
         "$([[ "${ENABLE_SRC_ALLOWLIST}" == "1" ]] && printf '开启' || printf '关闭')" \
         "$(src_allowlist_mode_to_label "${SRC_ALLOWLIST_MODE}")" \
         "${SRC_ALLOWLIST_REGION_IDS:-未选择}"
+    printf '自动来源   : %s；允许来源: %s\n' "${AUTOMATION_MODE}" "$(src_allowlist_mode_default_sources "${SRC_ALLOWLIST_MODE}")"
     echo "白名单集合 :"
     show_allowlist_sets_summary
     print_preview_source_summary
@@ -8691,20 +9907,67 @@ print_cli_usage() {
     printf '%s\n' \
         "用法: nftables-relay-manager.sh [命令]" \
         "" \
-        "命令:" \
+        "公开仓库快速启动:" \
+        "  bash <(curl -fsSL ${MANAGER_RAW_URL})" \
+        "  curl -fsSL ${MANAGER_RAW_URL} -o ${MANAGER_INSTALL_PATH} && chmod +x ${MANAGER_INSTALL_PATH} && bash ${MANAGER_INSTALL_PATH}" \
+        "  curl -fsSL ${LAN_WORKER_RAW_URL} | bash -s -- --bootstrap --po0-host <PO0_HOST> --source-key <DDNS_SOURCE_KEY> --ddns-domain <DDNS_DOMAIN> --token <DDNS_TOKEN> --resource-token <RESOURCE_TOKEN> --install-cron 5" \
+        "  curl -fsSL ${LAN_WORKER_RAW_URL} | bash -s -- --install-self" \
+        "  po0-lan-client --self-report-server --self-report-listen 127.0.0.1:8788 --po0-host <PO0_HOST> --client-ip-token <CLIENT_REPORT_TOKEN> --self-report-secret <SECRET>" \
+        "  curl -fsSL ${OUTBOUND_IP_REPORTER_RAW_URL} | bash -s -- --worker-url <LAN_WORKER_REPORT_URL> --source-id <CLIENT_ID> --secret <SECRET> --install-cron 5" \
+        "" \
+        "常用命令:" \
         "  --preview        生成临时配置并打印中文摘要；如果系统有 nft，会执行 nft -c 预检。" \
         "  --render         将计划生成的 nftables 配置输出到标准输出。" \
-        "  --refresh-ddns   解析已启用的 DDNS 来源，更新 DDNS 白名单条目，并应用托管规则。" \
-        "  --ddns-report <名称或域名> <公网IPv4[,公网IPv4...]> [token]" \
-        "                   接收外部机器已解析好的 DDNS 结果，优先写入白名单；本机 DNS 仅作兜底。" \
+        "  --refresh-ddns   高级兜底：由 PO0 本机解析已启用 DDNS 来源。默认不推荐，不安装 cron。" \
+        "  --collect-blocked [since]" \
+        "                   采集 po0-block 内核日志到被阻挡访问 TSV。默认范围: 1 hour ago。" \
+        "  白名单模式      manual_only / trusted_dynamic / region_plus_trusted / region_only / custom_sources。" \
+        "                   custom_sources 可在菜单中手动组合 manual、ssh_temp、ddns、client_ip、webauth、learned、region。" \
+        "" \
+        "DDNS / Worker 上报接口（SSH only，PO0 不开放 HTTP）:" \
+        "  --ddns-report <source-key> <公网IPv4[,公网IPv4...]> [token]" \
+        "                   接收 LAN Worker/路由器解析好的 DDNS A 记录，写入 PO0 DDNS 来源白名单。" \
+        "  --ddns-report-check <source-key> [token]" \
+        "                   只读检查 PO0 DDNS 来源 key 和上报 token，供 LAN Worker probe 使用。" \
+        "  --outbound-ip-report / --outbound-ip-report-check" \
+        "                   旧脚本兼容别名；新自上报应先报 LAN Worker，再由 LAN Worker 调 --client-ip-report。" \
+        "  --client-ip-report <source-id> <ipv4> <token> [identity] [ttl]" \
+        "                   接收 Egern/移动客户端当前出口 IPv4 上报。" \
+        "  --client-ip-report-check <source-id> [token]" \
+        "                   只读检查客户端 IP 上报 token。" \
+        "  --webauth-report <source-id> <ipv4> <identity> <expires-at> <token> [note]" \
+        "                   接收 LAN Worker WebAuth 上报；PO0 不开放 HTTP。" \
+        "  --webauth-report-check <source-id> [token]" \
+        "                   只读检查 WebAuth 上报 token。" \
+        "  --automation-mode <regular|attack>" \
+        "                   attack 模式冻结自动新增白名单，新自动 IP 进入 pending。" \
+        "  --pending-auto-sources" \
+        "                   查看 pending 自动来源。" \
+        "  --show-client-deploy-commands" \
+        "                   输出 LAN Worker、WebAuth、Egern 的可复制部署命令。" \
+        "  --compat-check   只读检查旧配置/旧白名单/旧日志兼容状态。" \
+        "  --cleanup-legacy --dry-run|--apply" \
+        "                   清理旧文件候选；默认不删除 live state。" \
+        "" \
+        "内网资源任务管理（PO0 管理员）:" \
+        "  --resource-task-create <iplist|ipdb|all>" \
+        "                   创建一次资源更新任务，等待内网 Worker 领取。" \
+        "  --install-resource-task-cron <iplist|ipdb|all> [hourly|daily|weekly|monthly|CRON_EXPR]" \
+        "                   安装/更新 PO0 端定时创建任务。默认 daily；CRON_EXPR 需整体加引号；管道运行时会自动落盘。" \
+        "  --remove-resource-task-cron" \
+        "                   删除 PO0 端资源任务定时创建 cron。" \
+        "" \
+        "内网资源任务接口（供 Worker 调用）:" \
+        "  --resource-task-ping <token>" \
+        "                   只读检查资源任务 token，供内网 Worker probe 使用。" \
         "  --resource-task-claim <worker_id> <token>" \
         "                   内网机器领取一个等待中的 iplist/IPDB 更新任务。" \
         "  --resource-task-complete <task_id> <worker_id> <sha256> <size> <token>" \
         "                   校验已回传文件，导入资源并记录任务结果。" \
         "  --resource-task-fail <task_id> <worker_id> <reason> <token>" \
         "                   记录内网机器执行失败。" \
-        "  --collect-blocked [since]" \
-        "                   采集 po0-block 内核日志到被阻挡访问 TSV。默认范围: 1 hour ago。" \
+        "" \
+        "后台服务:" \
         "  --learn-service  运行后台来源 IP 学习服务。" \
         "  --help           显示本帮助。" \
         "" \
@@ -8739,9 +10002,10 @@ main_menu() {
         echo " 13) 诊断 / 自检"
         echo " 14) 可选开启 BBR + fq"
         echo " 15) 预览 / 试运行"
+        echo " 16) LAN Worker / 客户端部署命令"
         echo "  0) 退出"
         print_divider
-        read -r -p "请选择操作 [0-15]: " choice
+        read -r -p "请选择操作 [0-16]: " choice
         case "${choice}" in
             1) do_install ;;
             2) do_refresh_public_ip ;;
@@ -8758,12 +10022,13 @@ main_menu() {
             13) do_diagnose ;;
             14) do_enable_bbr ;;
             15) do_preview; pause_before_return ;;
+            16) do_show_client_deploy_commands; pause_before_return ;;
             0)
                 info "再见。"
                 exit 0
                 ;;
             *)
-                err "无效选择，请输入 0-15。"
+                err "无效选择，请输入 0-16。"
                 ;;
         esac
     done
@@ -8792,8 +10057,64 @@ case "${1:-}" in
         do_refresh_ddns_allowlist_sources
         exit $?
         ;;
-    --ddns-report)
+    --outbound-ip-report|--ddns-report)
         do_report_ddns_allowlist_source "${2:-}" "${3:-}" "${4:-}"
+        exit $?
+        ;;
+    --outbound-ip-report-check|--ddns-report-check)
+        do_check_ddns_report_source "${2:-}" "${3:-}"
+        exit $?
+        ;;
+    --client-ip-report)
+        do_report_client_ip_source "${2:-}" "${3:-}" "${4:-}" "${5:-}" "${6:-}"
+        exit $?
+        ;;
+    --client-ip-report-check)
+        do_check_client_ip_report_source "${2:-}" "${3:-}"
+        exit $?
+        ;;
+    --webauth-report)
+        do_report_webauth_source "${2:-}" "${3:-}" "${4:-}" "${5:-}" "${6:-}" "${7:-}"
+        exit $?
+        ;;
+    --webauth-report-check)
+        do_check_webauth_report_source "${2:-}" "${3:-}"
+        exit $?
+        ;;
+    --automation-mode)
+        set_automation_mode "${2:-}"
+        exit $?
+        ;;
+    --pending-auto-sources)
+        do_list_pending_auto_sources
+        exit $?
+        ;;
+    --show-client-deploy-commands)
+        do_show_client_deploy_commands
+        exit $?
+        ;;
+    --compat-check)
+        do_compat_check
+        exit $?
+        ;;
+    --cleanup-legacy)
+        do_cleanup_legacy "${2:---dry-run}"
+        exit $?
+        ;;
+    --resource-task-create)
+        create_resource_tasks_for_type "${2:-all}"
+        exit $?
+        ;;
+    --install-resource-task-cron)
+        install_resource_task_cron "${2:-all}" "${@:3}"
+        exit $?
+        ;;
+    --remove-resource-task-cron)
+        remove_resource_task_cron
+        exit $?
+        ;;
+    --resource-task-ping)
+        do_resource_task_ping "${2:-}"
         exit $?
         ;;
     --resource-task-claim)
