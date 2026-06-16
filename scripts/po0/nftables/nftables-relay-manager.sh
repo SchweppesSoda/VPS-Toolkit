@@ -9181,81 +9181,263 @@ do_check_ddns_report_source() {
     printf 'OK|DDNS 来源可上报：%s -> %s\n' "${ALLOWLIST_SOURCE_NAME}" "${ALLOWLIST_SOURCE_VALUE}"
 }
 
-print_lan_worker_bootstrap_example() {
+print_lan_worker_ddns_bootstrap_example() {
     local ddns_token="${1:-<SOURCE_TOKEN>}"
-    local resource_token="${2:-<RESOURCE_TOKEN>}"
-    echo "内网 Worker 一键部署示例："
-    printf '  curl -fsSL %s | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script %s --source-key <DDNS_SOURCE_KEY> --ddns-domain <DDNS_DOMAIN> --token %s --resource-token %s --install-cron 5\n' \
-        "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "${ddns_token}" "${resource_token}"
+    echo "LAN Worker DDNS 解析部署示例："
+    printf '  curl -fsSL %s | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script %s --source-key <DDNS_SOURCE_KEY> --ddns-domain <DDNS_DOMAIN> --token %s --install-cron 5\n' \
+        "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "${ddns_token}"
 }
 
-do_show_client_deploy_commands() {
-    local ddns_token resource_token client_token ssh_token webauth_token
+print_lan_worker_resource_bootstrap_example() {
+    local resource_token="${1:-<RESOURCE_TOKEN>}"
+    echo "LAN Worker 资源任务部署示例："
+    printf '  curl -fsSL %s | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script %s --resource-token %s --install-cron 5\n' \
+        "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "${resource_token}"
+    echo "只探测资源任务 token，不写配置、不安装 cron："
+    printf '  curl -fsSL %s | bash -s -- --probe --po0-host <PO0_HOST> --po0-script %s --resource-token %s\n' \
+        "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "${resource_token}"
+}
+
+deploy_token_values() {
+    DEPLOY_DDNS_TOKEN="$(ddns_report_token_value 2>/dev/null || printf '<DDNS_TOKEN>')"
+    DEPLOY_RESOURCE_TOKEN="$(resource_task_token_value 2>/dev/null || printf '<RESOURCE_TOKEN>')"
+    DEPLOY_CLIENT_TOKEN="$(client_ip_report_token_value 2>/dev/null || printf '<CLIENT_REPORT_TOKEN>')"
+    DEPLOY_SSH_TOKEN="$(ssh_report_token_value 2>/dev/null || printf '<SSH_REPORT_TOKEN>')"
+    DEPLOY_WEBAUTH_TOKEN="$(webauth_report_token_value 2>/dev/null || printf '<WEBAUTH_TOKEN>')"
+}
+
+deploy_ensure_resource_token() {
+    DEPLOY_RESOURCE_TOKEN="$(resource_task_token_value 2>/dev/null || generate_resource_task_token 2>/dev/null || printf '<RESOURCE_TOKEN>')"
+}
+
+do_show_client_deploy_index() {
     ensure_layout || return 1
-    ddns_token="$(ddns_report_token_value 2>/dev/null || printf '<DDNS_TOKEN>')"
-    resource_token="$(resource_task_token_value 2>/dev/null || printf '<RESOURCE_TOKEN>')"
-    client_token="$(client_ip_report_token_value 2>/dev/null || printf '<CLIENT_REPORT_TOKEN>')"
-    ssh_token="$(ssh_report_token_value 2>/dev/null || printf '<SSH_REPORT_TOKEN>')"
-    webauth_token="$(webauth_report_token_value 2>/dev/null || printf '<WEBAUTH_TOKEN>')"
-    print_title "LAN Worker / 客户端 / Egern 部署命令"
+    print_title "LAN Worker / 客户端 / Egern 分场景部署"
     printf 'PO0 主控路径 : %s\n' "${MANAGER_INSTALL_PATH}"
+    printf 'LAN Worker RAW   : %s\n' "${LAN_WORKER_RAW_URL}"
+    printf '自上报 Client RAW: %s\n' "${OUTBOUND_IP_REPORTER_RAW_URL}"
     echo ""
-    echo "PO0 主控脚本部署方式（PO0 不依赖 HTTPS 拉取）："
+    echo "进入具体菜单后，只显示对应场景的命令："
+    echo "  1) PO0 主控脚本上传命令"
+    echo "  2) LAN Worker 专用 token"
+    echo "  3) LAN Worker 资源任务 Worker"
+    echo "  4) LAN Worker DDNS 解析 Worker"
+    echo "  5) LAN Worker self-report server"
+    echo "  6) Self-report client"
+    echo "  7) LAN Worker WebAuth worker"
+    echo "  8) Egern SSH report"
+    echo "  9) 专用受限 SSH 上报 key"
+    echo ""
+    echo "CLI 示例："
+    echo "  bash nftables-relay-manager.sh --show-client-deploy-commands tokens"
+    echo "  bash nftables-relay-manager.sh --show-client-deploy-commands lan-ddns"
+    echo "  bash nftables-relay-manager.sh --show-client-deploy-commands egern"
+}
+
+do_show_po0_manager_deploy_commands() {
+    ensure_layout || return 1
+    print_title "PO0 主控脚本上传"
+    printf '安装路径 : %s\n' "${MANAGER_INSTALL_PATH}"
+    echo ""
+    echo "在本地机器执行上传，然后登录 PO0 启动主控脚本："
     printf '  scp scripts/po0/nftables/nftables-relay-manager.sh root@<PO0_HOST>:%s\n' "${MANAGER_INSTALL_PATH}"
     printf '  ssh root@<PO0_HOST> "chmod +x %s && bash %s"\n' "${MANAGER_INSTALL_PATH}" "${MANAGER_INSTALL_PATH}"
+}
+
+do_show_lan_worker_tokens() {
+    ensure_layout || return 1
+    deploy_token_values
+    deploy_ensure_resource_token
+    print_title "LAN Worker 专用 token"
+    printf 'DDNS_TOKEN        : %s\n' "${DEPLOY_DDNS_TOKEN}"
+    printf 'RESOURCE_TOKEN    : %s\n' "${DEPLOY_RESOURCE_TOKEN}"
+    printf 'CLIENT_IP_TOKEN   : %s\n' "${DEPLOY_CLIENT_TOKEN}"
+    printf 'WEBAUTH_TOKEN     : %s\n' "${DEPLOY_WEBAUTH_TOKEN}"
+    printf 'SSH_REPORT_TOKEN  : %s\n' "${DEPLOY_SSH_TOKEN}"
+    printf 'PO0_SCRIPT        : %s\n' "${MANAGER_INSTALL_PATH}"
     echo ""
-    printf 'Worker RAW（在 LAN Worker 上使用，不在 PO0 上执行）: %s\n' "${LAN_WORKER_RAW_URL}"
-    printf 'Self-report Client RAW（访问设备上使用）        : %s\n' "${OUTBOUND_IP_REPORTER_RAW_URL}"
+    echo "可直接复制的 LAN Worker token bundle："
+    printf 'DDNS_TOKEN=%s\n' "${DEPLOY_DDNS_TOKEN}"
+    printf 'RESOURCE_TOKEN=%s\n' "${DEPLOY_RESOURCE_TOKEN}"
+    printf 'CLIENT_IP_TOKEN=%s\n' "${DEPLOY_CLIENT_TOKEN}"
+    printf 'WEBAUTH_TOKEN=%s\n' "${DEPLOY_WEBAUTH_TOKEN}"
+    printf 'PO0_SCRIPT=%s\n' "${MANAGER_INSTALL_PATH}"
     echo ""
-    echo "资源任务 Worker（只更新 iplist/ipdb）："
+    printf 'Token 文件：\n'
+    printf '  DDNS       : %s\n' "${DDNS_REPORT_TOKEN_FILE}"
+    printf '  Resource   : %s\n' "${RESOURCE_TASK_TOKEN_FILE}"
+    printf '  Client IP  : %s\n' "${CLIENT_IP_REPORT_TOKEN_FILE}"
+    printf '  WebAuth    : %s\n' "${WEBAUTH_REPORT_TOKEN_FILE}"
+    printf '  SSH report : %s\n' "${SSH_REPORT_TOKEN_FILE}"
+}
+
+do_show_lan_resource_worker_commands() {
+    ensure_layout || return 1
+    deploy_token_values
+    deploy_ensure_resource_token
+    print_title "LAN Worker 资源任务 Worker"
+    echo "在 LAN Worker 机器上执行；只负责轮询和上传 iplist/ipdb 资源任务。"
+    echo ""
     printf '  curl -fsSL %s | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script %s --resource-token %s --install-cron 5\n' \
-        "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${resource_token}")"
+        "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${DEPLOY_RESOURCE_TOKEN}")"
     echo ""
-    echo "DDNS Resolver + 资源任务 Worker（LAN Worker 解析 DDNS 后 SSH 上报 PO0）："
-    printf '  curl -fsSL %s | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script %s --source-key <DDNS_SOURCE_KEY> --ddns-domain <DDNS_DOMAIN> --token %s --resource-token %s --install-cron 5\n' \
-        "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${ddns_token}")" "$(shell_quote "${resource_token}")"
-    printf '  DDNS 上报目标行: source_key|ddns_domain|host|port|user|script|token|ssh_args\n'
-    printf '    <DDNS_SOURCE_KEY>|<DDNS_DOMAIN>|<PO0_HOST>|22|root|%s|%s|\n' "${MANAGER_INSTALL_PATH}" "${ddns_token}"
-    printf '  临时合并多个目标: po0-lan-client --run --ddns-targets "<目标1;目标2>"\n'
+    echo "只探测，不写配置、不安装 cron："
+    printf '  curl -fsSL %s | bash -s -- --probe --po0-host <PO0_HOST> --po0-script %s --resource-token %s\n' \
+        "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${DEPLOY_RESOURCE_TOKEN}")"
+}
+
+do_show_lan_ddns_worker_commands() {
+    ensure_layout || return 1
+    deploy_token_values
+    print_title "LAN Worker DDNS 解析"
+    echo "在 LAN Worker 机器上执行；LAN Worker 解析 DDNS 后通过 SSH 上报 PO0。"
     echo ""
-    echo "Self-report Server（跑在 LAN Worker；访问设备先报 LAN Worker，再由 LAN Worker SSH 上报 PO0）："
+    printf '  curl -fsSL %s | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script %s --source-key <DDNS_SOURCE_KEY> --ddns-domain <DDNS_DOMAIN> --token %s --install-cron 5\n' \
+        "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${DEPLOY_DDNS_TOKEN}")"
+    echo ""
+    printf 'DDNS 目标行: source_key|ddns_domain|host|port|user|script|token|ssh_args\n'
+    printf '  <DDNS_SOURCE_KEY>|<DDNS_DOMAIN>|<PO0_HOST>|22|root|%s|%s|\n' "${MANAGER_INSTALL_PATH}" "${DEPLOY_DDNS_TOKEN}"
+    echo ""
+    printf '临时合并多个目标：\n'
+    printf '  po0-lan-client --run --ddns-targets "<TARGET1;TARGET2>"\n'
+}
+
+do_show_self_report_server_commands() {
+    ensure_layout || return 1
+    deploy_token_values
+    print_title "LAN Worker self-report server"
+    echo "HTTP 只监听在 LAN Worker；访问设备先报 LAN Worker，再由 LAN Worker 通过 SSH 上报 PO0。"
+    echo ""
     printf '  curl -fsSL %s | bash -s -- --install-self\n' "${LAN_WORKER_RAW_URL}"
     printf '  po0-lan-client --self-report-server --self-report-listen 127.0.0.1:8788 --po0-host <PO0_HOST> --po0-script %s --self-report-source self-report --client-ip-token %s --self-report-secret <SELF_REPORT_SECRET>\n' \
-        "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${client_token}")"
-    printf '  设备自上报目标行: source|host|port|user|script|token|ttl|ssh_args\n'
-    printf '    self-report|<PO0_HOST>|22|root|%s|%s|3600|\n' "${MANAGER_INSTALL_PATH}" "${client_token}"
-    printf '  合并多个目标行后使用: po0-lan-client --self-report-server --self-report-targets "<目标1;目标2>" --self-report-secret <SELF_REPORT_SECRET>\n'
+        "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${DEPLOY_CLIENT_TOKEN}")"
     echo ""
-    echo "Self-report Client（Linux/OpenWrt/访问设备，检测自身出口 IPv4 后上报 LAN Worker）："
+    printf 'Self-report PO0 目标行: source|host|port|user|script|token|ttl|ssh_args\n'
+    printf '  self-report|<PO0_HOST>|22|root|%s|%s|3600|\n' "${MANAGER_INSTALL_PATH}" "${DEPLOY_CLIENT_TOKEN}"
+    echo ""
+    printf '合并多个目标行：\n'
+    printf '  po0-lan-client --self-report-server --self-report-targets "<TARGET1;TARGET2>" --self-report-secret <SELF_REPORT_SECRET>\n'
+}
+
+do_show_self_report_client_commands() {
+    ensure_layout || return 1
+    print_title "Self-report client"
+    echo "在访问设备上执行；检测设备当前出口 IPv4 后上报 LAN Worker，不直连 PO0。"
+    echo ""
+    echo "Linux / OpenWrt:"
     printf '  curl -fsSL %s | bash -s -- --worker-url <LAN_WORKER_REPORT_URL> --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --install-cron 5\n' \
         "${OUTBOUND_IP_REPORTER_RAW_URL}"
     echo ""
-    echo "Self-report Client（Windows PowerShell，检测自身出口 IPv4 后安装计划任务）："
+    echo "Windows PowerShell:"
     printf "  \$env:PO0_LAN_WORKER_URL='<LAN_WORKER_REPORT_URL>'; \$env:PO0_SELF_REPORT_SOURCE='<CLIENT_ID>'; \$env:PO0_SELF_REPORT_SECRET='<SELF_REPORT_SECRET>'; \$env:INSTALL_TASK='1'; \$env:MINUTES='5'; irm -UseBasicParsing '%s' | iex\n" \
         "${OUTBOUND_IP_REPORTER_PS_RAW_URL}"
+}
+
+do_show_webauth_worker_commands() {
+    ensure_layout || return 1
+    deploy_token_values
+    print_title "LAN Worker WebAuth worker"
+    echo "PO0 不开放 HTTP；建议在 LAN Worker 监听前面接 Cloudflare Access/Tunnel。"
     echo ""
-    echo "Worker probe（不写配置、不安装 cron）："
-    printf '  curl -fsSL %s | bash -s -- --probe --po0-host <PO0_HOST> --po0-script %s --resource-token %s\n' \
-        "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${resource_token}")"
-    echo ""
-    echo "WebAuth Worker（PO0 不开 HTTP；LAN Worker 本地监听，建议前置 Cloudflare Access/Tunnel）："
     printf '  curl -fsSL %s | bash -s -- --install-self\n' "${LAN_WORKER_RAW_URL}"
     printf '  po0-lan-client --webauth-server --listen 127.0.0.1:8787 --po0-host <PO0_HOST> --po0-script %s --webauth-source cf-access --webauth-token %s\n' \
-        "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${webauth_token}")"
-    printf '  WebAuth 放行目标行: source|host|port|user|script|token|ttl|ssh_args\n'
-    printf '    cf-access|<PO0_HOST>|22|root|%s|%s|3600|\n' "${MANAGER_INSTALL_PATH}" "${webauth_token}"
-    printf '  合并多个目标行后使用: po0-lan-client --webauth-server --webauth-targets "<目标1;目标2>" --listen 127.0.0.1:8787\n'
+        "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${DEPLOY_WEBAUTH_TOKEN}")"
     echo ""
-    echo "Egern 当前出口 IPv4 上报（直接 SSH 到 PO0，归 ssh_report）："
-    printf '  模块 URL: %s\n' "${EGERN_SSH_REPORT_MODULE_RAW_URL}"
-    printf '  SSH_REPORT_TOKEN=%s\n' "${ssh_token}"
-    printf '  PO0_SCRIPT=%s\n' "${MANAGER_INSTALL_PATH}"
-    printf '  SSH_REPORT_TARGETS 每行: source_id|host|port|user|script|token|identity|ttl\n'
-    printf '    egern-po0|<PO0_HOST>|22|root|%s|%s|egern|3600\n' "${MANAGER_INSTALL_PATH}" "${ssh_token}"
+    printf 'WebAuth PO0 目标行: source|host|port|user|script|token|ttl|ssh_args\n'
+    printf '  cf-access|<PO0_HOST>|22|root|%s|%s|3600|\n' "${MANAGER_INSTALL_PATH}" "${DEPLOY_WEBAUTH_TOKEN}"
     echo ""
-    echo "专用受限 key：在白名单菜单中执行“安装 / 显示专用受限上报 key”，Egern 建议 scope=egern，LAN Worker 建议 scope=worker。"
-    echo "说明：PO0 默认不本地解析 DDNS；HTTP/Self-report/WebAuth 入口只跑在 LAN Worker。"
+    printf '合并多个目标行：\n'
+    printf '  po0-lan-client --webauth-server --webauth-targets "<TARGET1;TARGET2>" --listen 127.0.0.1:8787\n'
 }
+
+do_show_egern_deploy_commands() {
+    ensure_layout || return 1
+    deploy_token_values
+    print_title "Egern SSH report"
+    echo "Egern 通过 SSH 直接向 PO0 上报当前出口 IPv4，归类为 ssh_report。"
+    echo ""
+    printf 'Module URL        : %s\n' "${EGERN_SSH_REPORT_MODULE_RAW_URL}"
+    printf 'SSH_REPORT_TOKEN  : %s\n' "${DEPLOY_SSH_TOKEN}"
+    printf 'PO0_SCRIPT        : %s\n' "${MANAGER_INSTALL_PATH}"
+    echo ""
+    printf 'SSH_REPORT_TARGETS row: source_id|host|port|user|script|token|identity|ttl\n'
+    printf '  egern-po0|<PO0_HOST>|22|root|%s|%s|egern|3600\n' "${MANAGER_INSTALL_PATH}" "${DEPLOY_SSH_TOKEN}"
+}
+
+do_show_restricted_report_key_commands() {
+    ensure_layout || return 1
+    print_title "专用受限 SSH 上报 key"
+    echo "在白名单菜单里安装专用受限 public key："
+    echo "  管理源 IP 白名单 -> 安装 / 显示专用受限上报 key"
+    echo ""
+    echo "推荐 scope："
+    echo "  Egern      : egern"
+    echo "  LAN Worker : worker"
+    echo ""
+    echo "CLI:"
+    printf '  bash %s --install-report-key worker "<PUBLIC_KEY_LINE>" root\n' "$(basename "$0")"
+    printf '  bash %s --install-report-key egern "<PUBLIC_KEY_LINE>" root\n' "$(basename "$0")"
+}
+
+do_show_client_deploy_topic() {
+    case "${1:-index}" in
+        index|menu|"") do_show_client_deploy_index ;;
+        po0|manager) do_show_po0_manager_deploy_commands ;;
+        token|tokens|bundle|worker-token|worker-tokens) do_show_lan_worker_tokens ;;
+        lan-resource|resource|worker-resource) do_show_lan_resource_worker_commands ;;
+        lan-ddns|ddns|worker-ddns) do_show_lan_ddns_worker_commands ;;
+        self-server|self-report-server|self-report) do_show_self_report_server_commands ;;
+        self-client|client) do_show_self_report_client_commands ;;
+        webauth|webauth-worker) do_show_webauth_worker_commands ;;
+        egern|ssh-report) do_show_egern_deploy_commands ;;
+        key|keys|restricted-key) do_show_restricted_report_key_commands ;;
+        all|legacy) do_show_client_deploy_index ;;
+        *)
+            err "未知部署主题：${1}"
+            do_show_client_deploy_index
+            return 1
+            ;;
+    esac
+}
+
+do_manage_client_deploy_commands() {
+    local choice
+    while true; do
+        print_title "LAN Worker / 客户端 / Egern 分场景部署"
+        echo "  1) PO0 主控脚本上传命令"
+        echo "  2) LAN Worker 专用 token"
+        echo "  3) LAN Worker 资源任务 Worker"
+        echo "  4) LAN Worker DDNS 解析 Worker"
+        echo "  5) LAN Worker self-report server"
+        echo "  6) Self-report client"
+        echo "  7) LAN Worker WebAuth worker"
+        echo "  8) Egern SSH report"
+        echo "  9) 专用受限 SSH 上报 key"
+        echo " 10) 显示简短索引"
+        echo "  0) 返回"
+        read -r -p "请选择操作 [0-10]: " choice
+        case "${choice}" in
+            1) do_show_po0_manager_deploy_commands; pause_before_return ;;
+            2) do_show_lan_worker_tokens; pause_before_return ;;
+            3) do_show_lan_resource_worker_commands; pause_before_return ;;
+            4) do_show_lan_ddns_worker_commands; pause_before_return ;;
+            5) do_show_self_report_server_commands; pause_before_return ;;
+            6) do_show_self_report_client_commands; pause_before_return ;;
+            7) do_show_webauth_worker_commands; pause_before_return ;;
+            8) do_show_egern_deploy_commands; pause_before_return ;;
+            9) do_show_restricted_report_key_commands; pause_before_return ;;
+            10) do_show_client_deploy_index; pause_before_return ;;
+            0) return ;;
+            *) err "无效选择。" ;;
+        esac
+    done
+}
+
+do_show_client_deploy_commands() {
+    do_show_client_deploy_topic "${1:-index}"
+    return $?
+}
+
 
 do_worker_token_bundle() {
     local ensure_resource="${1:-}"
@@ -9312,7 +9494,7 @@ do_show_ddns_report_token() {
     echo "SSH 上报示例："
     printf '  bash %s --ddns-report home 1.2.3.4 %s\n' "$(basename "$0")" "${token}"
     echo ""
-    print_lan_worker_bootstrap_example "${token}" "<RESOURCE_TOKEN>"
+    print_lan_worker_ddns_bootstrap_example "${token}" "<RESOURCE_TOKEN>"
     echo ""
     echo "说明：如果通过 SSH 只允许可信用户执行，也可以不创建/不使用 token；一旦 token 文件存在，上报命令必须携带正确 token。"
 }
@@ -10093,7 +10275,7 @@ do_manage_resource_tasks() {
         printf 'IPDB 下载源: %s\n' "${IPDB_DOWNLOAD_URL}"
         if token="$(resource_task_token_value 2>/dev/null)"; then
             printf '任务 Token : %s\n' "${token}"
-    print_lan_worker_bootstrap_example "<SOURCE_TOKEN>" "${token}"
+            print_lan_worker_resource_bootstrap_example "${token}"
         else
             printf '任务 Token : 未生成\n'
         fi
@@ -10139,7 +10321,7 @@ do_manage_resource_tasks() {
                         continue
                     }
                     success "新任务 Token：${token}"
-                    print_lan_worker_bootstrap_example "<DDNS_TOKEN>" "${token}"
+                    print_lan_worker_resource_bootstrap_example "${token}"
                 }
                 pause_before_return
                 ;;
@@ -10586,10 +10768,11 @@ print_cli_usage() {
         "  ssh root@<PO0_HOST> \"chmod +x ${MANAGER_INSTALL_PATH} && bash ${MANAGER_INSTALL_PATH}\"" \
         "" \
         "LAN Worker / 客户端快速启动（在 LAN Worker/客户端上执行，不在 PO0 上执行）:" \
-        "  curl -fsSL ${LAN_WORKER_RAW_URL} | bash -s -- --bootstrap --po0-host <PO0_HOST> --source-key <DDNS_SOURCE_KEY> --ddns-domain <DDNS_DOMAIN> --token <DDNS_TOKEN> --resource-token <RESOURCE_TOKEN> --install-cron 5" \
-        "  curl -fsSL ${LAN_WORKER_RAW_URL} | bash -s -- --install-self" \
-        "  po0-lan-client --self-report-server --self-report-listen 127.0.0.1:8788 --po0-host <PO0_HOST> --client-ip-token <CLIENT_REPORT_TOKEN> --self-report-secret <SECRET>" \
-        "  curl -fsSL ${OUTBOUND_IP_REPORTER_RAW_URL} | bash -s -- --worker-url <LAN_WORKER_REPORT_URL> --source-id <CLIENT_ID> --secret <SECRET> --install-cron 5" \
+        "  bash ${MANAGER_INSTALL_PATH} --show-client-deploy-commands tokens" \
+        "  bash ${MANAGER_INSTALL_PATH} --show-client-deploy-commands lan-resource" \
+        "  bash ${MANAGER_INSTALL_PATH} --show-client-deploy-commands lan-ddns" \
+        "  bash ${MANAGER_INSTALL_PATH} --show-client-deploy-commands self-server" \
+        "  bash ${MANAGER_INSTALL_PATH} --show-client-deploy-commands egern" \
         "" \
         "常用命令:" \
         "  --render         将计划生成的 nftables 配置输出到标准输出。" \
@@ -10628,8 +10811,8 @@ print_cli_usage() {
         "                   安装/更新动态来源清理 cron，默认 daily。" \
         "  --remove-dynamic-allowlist-cleanup-cron" \
         "                   删除动态来源清理 cron。" \
-        "  --show-client-deploy-commands" \
-        "                   输出 LAN Worker、WebAuth、Egern 的可复制部署命令。" \
+        "  --show-client-deploy-commands [tokens|lan-resource|lan-ddns|self-server|self-client|webauth|egern|key|all]" \
+        "                   按主题输出 LAN Worker、Self-report、WebAuth、Egern 的部署命令；all 为旧版全量输出。" \
         "  --worker-token-bundle [--ensure-resource-token]" \
         "                   输出 LAN Worker 向导使用的 KEY=value token bundle（SSH only）。" \
         "  --show-report-keys [user]" \
@@ -10711,7 +10894,7 @@ main_menu() {
             9) do_import_rules ;;
             10) do_export_rules ;;
             11) do_manage_src_allowlist ;;
-            12) do_show_client_deploy_commands; pause_before_return ;;
+            12) do_manage_client_deploy_commands ;;
             13) do_manage_resource_tasks ;;
             14) do_edit_settings ;;
             15) do_diagnose ;;
@@ -10799,7 +10982,7 @@ case "${1:-}" in
         exit $?
         ;;
     --show-client-deploy-commands)
-        do_show_client_deploy_commands
+        do_show_client_deploy_commands "${2:-index}"
         exit $?
         ;;
     --worker-token-bundle)
