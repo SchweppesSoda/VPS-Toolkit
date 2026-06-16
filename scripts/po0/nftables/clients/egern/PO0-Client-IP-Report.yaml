@@ -43,7 +43,7 @@ env_schema:
     description: "Optional. One target per line: source|host|port|user|script|token|identity|ttl. When set, the module reports the same current IPv4 to every target."
   IP_CHECK_URL:
     name: IPv4 check URL
-    default_value: https://ip9.com.cn/get
+    default_value: "https://ip9.com.cn/get"
     description: First IPv4 check URL. The script rotates through IP9, domestic APIs, and myip.ipip.net by default.
   IP_CHECK_URLS:
     name: IPv4 check URL list
@@ -84,11 +84,13 @@ scriptings:
       update_interval: 86400
       timeout: 30
       debug: false
-
-widgets:
-  - script:
+  - generic:
       name: PO0 Client IP Status
       script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-client-ip-widget.js"
-      update_interval: 60
+      update_interval: 86400
       timeout: 10
       debug: false
+
+widgets:
+  - name: PO0 Client IP Status
+    script_name: PO0 Client IP Status

@@ -38,12 +38,48 @@ function ttlRemaining(expiresAt) {
   return `${hours}h ${rest}m`;
 }
 
-function panel(title, content, ok) {
+function textNode(text, size = 'caption1', weight = 'regular', color = '#E6EAF0') {
   return {
-    title,
-    content,
-    icon: ok ? 'checkmark.shield' : 'exclamationmark.triangle',
-    'icon-color': ok ? '#2aa876' : '#d46a6a',
+    type: 'text',
+    text: String(text),
+    font: { size, weight },
+    textColor: color,
+    maxLines: 1,
+    minScale: 0.55,
+  };
+}
+
+function panel(title, content, ok, ctx) {
+  const lines = Array.isArray(content) ? content : String(content || '').split('\n').filter(Boolean);
+  const family = String(ctx?.widgetFamily || '');
+  const maxLines = family.includes('Large') ? 8 : 5;
+  const shownLines = lines.slice(0, maxLines);
+  const accent = ok ? '#34C759' : '#FF453A';
+
+  return {
+    type: 'widget',
+    padding: 14,
+    gap: 7,
+    backgroundColor: '#111318',
+    children: [
+      {
+        type: 'stack',
+        direction: 'row',
+        alignItems: 'center',
+        gap: 6,
+        children: [
+          {
+            type: 'image',
+            src: ok ? 'sf-symbol:checkmark.shield.fill' : 'sf-symbol:exclamationmark.triangle.fill',
+            width: 18,
+            height: 18,
+            color: accent,
+          },
+          textNode(title, 'headline', 'semibold', '#FFFFFF'),
+        ],
+      },
+      ...shownLines.map((line) => textNode(line)),
+    ],
   };
 }
 
@@ -63,7 +99,7 @@ function targetSummaryLines(state) {
 export default async function(ctx) {
   const state = parseState(await storageGet(ctx, STORAGE_KEY));
   if (!state) {
-    return panel('PO0 Client IP', 'No report state yet.\nRun "PO0 Client IP Report Now" once.', false);
+    return panel('PO0 Client IP', ['No report state yet.', 'Run Report Now once.'], false, ctx);
   }
 
   if (!state.ok) {
@@ -78,8 +114,9 @@ export default async function(ctx) {
         `Targets: ${successCount}/${targetCount || 1} OK`,
         `Network: ${state.network || 'unknown'}`,
         ...(targetSummaryLines(state).length ? targetSummaryLines(state) : [`Reason: ${state.error || 'unknown'}`]),
-      ].join('\n'),
+      ],
       false,
+      ctx,
     );
   }
 
@@ -91,7 +128,8 @@ export default async function(ctx) {
       `Last success: ${formatTime(state.at)}`,
       `Network: ${state.network || 'unknown'}`,
       ...targetSummaryLines(state),
-    ].join('\n'),
+    ],
     true,
+    ctx,
   );
 }
