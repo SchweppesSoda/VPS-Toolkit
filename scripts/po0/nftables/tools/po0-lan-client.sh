@@ -622,7 +622,34 @@ build_batchmode_ssh_extra_args() {
             out="${out:+${out} }-o BatchMode=yes"
             ;;
     esac
+    case " ${out} " in
+        *" StrictHostKeyChecking="*|*" StrictHostKeyChecking "*)
+            ;;
+        *)
+            out="${out:+${out} }-o StrictHostKeyChecking=accept-new"
+            ;;
+    esac
     printf '%s\n' "${out}"
+}
+
+print_host_key_failure_help() {
+    local host="$1"
+    local port="$2"
+    local user="$3"
+    local extra="$4"
+    local key_path
+    [[ "${extra}" == *"Host key verification failed"* ]] || return 0
+    key_path="$(ssh_extra_identity_path "${SSH_EXTRA_ARGS}" 2>/dev/null || true)"
+    printf '\n[提示] SSH 主机指纹校验失败。\n' >&2
+    printf '如果这是第一次连接该 PO0，重新运行新版向导会自动使用 StrictHostKeyChecking=accept-new。\n' >&2
+    printf '你也可以先手动确认并写入 known_hosts：\n' >&2
+    if [[ -n "${key_path}" ]]; then
+        printf '  ssh -i %s -p %s %s@%s true\n' "${key_path}" "${port:-22}" "${user:-root}" "${host}" >&2
+    else
+        printf '  ssh -p %s %s@%s true\n' "${port:-22}" "${user:-root}" "${host}" >&2
+    fi
+    printf '如果提示 REMOTE HOST IDENTIFICATION HAS CHANGED，先确认 PO0 主机确实是你的机器，再清理旧指纹：\n' >&2
+    printf '  ssh-keygen -R "[%s]:%s"\n' "${host}" "${port:-22}" >&2
 }
 
 parse_target_line() {
@@ -1659,6 +1686,7 @@ po0_lan_wizard() {
         printf '[OK] SSH 可用：%s@%s:%s\n' "${PO0_USER}" "${PO0_HOST}" "${PO0_PORT}"
     else
         printf '[WARN] 密钥 SSH 检查失败：%s\n' "${ssh_response}" >&2
+        print_host_key_failure_help "${PO0_HOST}" "${PO0_PORT}" "${PO0_USER}" "${ssh_response}"
         printf '可以继续手动粘贴 token 并保存配置，但不要安装 cron/service，直到免密 SSH 可用。\n' >&2
     fi
 
