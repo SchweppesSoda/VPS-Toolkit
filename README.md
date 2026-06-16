@@ -43,6 +43,10 @@ Do not enable GitHub Pages from this repository root. That would publish scripts
 scp scripts/po0/nftables/nftables-relay-manager.sh root@<PO0_HOST>:/root/nftables-relay-manager.sh
 ssh root@<PO0_HOST> 'chmod +x /root/nftables-relay-manager.sh && bash /root/nftables-relay-manager.sh'
 
+# PO0 LAN Worker, recommended interactive setup on the LAN Worker host.
+# The wizard can fetch tokens over key-based SSH to PO0, then write local config and install cron/services.
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh | bash
+
 # PO0 LAN Worker, run on the LAN Worker host: DDNS resolver + iplist/ipdb resource polling
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --source-key <DDNS_SOURCE_KEY> --ddns-domain <DDNS_DOMAIN> --token <DDNS_TOKEN> --resource-token <RESOURCE_TOKEN> --install-cron 5
 

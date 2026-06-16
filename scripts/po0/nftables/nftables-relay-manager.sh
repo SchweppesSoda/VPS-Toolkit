@@ -9256,6 +9256,28 @@ do_show_client_deploy_commands() {
     echo "专用受限 key：在白名单菜单中执行“安装 / 显示专用受限上报 key”，Egern 建议 scope=egern，LAN Worker 建议 scope=worker。"
     echo "说明：PO0 默认不本地解析 DDNS；HTTP/Self-report/WebAuth 入口只跑在 LAN Worker。"
 }
+
+do_worker_token_bundle() {
+    local ensure_resource="${1:-}"
+    local ddns_token resource_token client_token ssh_token webauth_token
+    ensure_layout || return 1
+    ddns_token="$(ddns_report_token_value)" || return 1
+    client_token="$(client_ip_report_token_value)" || return 1
+    ssh_token="$(ssh_report_token_value)" || return 1
+    webauth_token="$(webauth_report_token_value)" || return 1
+    if [[ "${ensure_resource}" == "--ensure-resource-token" ]]; then
+        resource_token="$(resource_task_token_value 2>/dev/null || generate_resource_task_token)" || return 1
+    else
+        resource_token="$(resource_task_token_value 2>/dev/null || true)"
+    fi
+    printf 'DDNS_TOKEN=%s\n' "${ddns_token}"
+    printf 'RESOURCE_TOKEN=%s\n' "${resource_token}"
+    printf 'CLIENT_IP_TOKEN=%s\n' "${client_token}"
+    printf 'SSH_REPORT_TOKEN=%s\n' "${ssh_token}"
+    printf 'WEBAUTH_TOKEN=%s\n' "${webauth_token}"
+    printf 'PO0_SCRIPT=%s\n' "${MANAGER_INSTALL_PATH}"
+}
+
 do_manage_automation_mode() {
     local choice
     ensure_layout || return
@@ -10608,6 +10630,8 @@ print_cli_usage() {
         "                   删除动态来源清理 cron。" \
         "  --show-client-deploy-commands" \
         "                   输出 LAN Worker、WebAuth、Egern 的可复制部署命令。" \
+        "  --worker-token-bundle [--ensure-resource-token]" \
+        "                   输出 LAN Worker 向导使用的 KEY=value token bundle（SSH only）。" \
         "  --show-report-keys [user]" \
         "                   显示普通登录 key、PO0 受限上报 key、其它 restricted key 分类。" \
         "  --install-report-key <egern|worker|all> '<public-key-line>' [user]" \
@@ -10776,6 +10800,10 @@ case "${1:-}" in
         ;;
     --show-client-deploy-commands)
         do_show_client_deploy_commands
+        exit $?
+        ;;
+    --worker-token-bundle)
+        do_worker_token_bundle "${2:-}"
         exit $?
         ;;
     --show-report-keys)

@@ -26,6 +26,8 @@ bash nftables-relay-manager.sh
 
 详细功能和客户端使用方式见 [`nftables/README.md`](./nftables/README.md)。
 
+LAN Worker 首次部署推荐在内网机器上运行 `po0-lan-client --wizard`，或直接使用 raw 脚本管道进入交互向导。
+
 ### 管理代理服务增强
 
 ```bash

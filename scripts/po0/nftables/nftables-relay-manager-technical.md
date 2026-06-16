@@ -569,7 +569,14 @@ scripts/po0/nftables/tools/po0-outbound-ip-report.sh
 scripts/po0/nftables/tools/po0-outbound-ip-report.ps1
 ```
 
-`po0-lan-client.sh` 适合 Linux/macOS/OpenWrt 内网机器。它可以同时做 DDNS resolver 上报和资源任务轮询，也可以只做资源任务。公开仓库一键部署命令：
+`po0-lan-client.sh` 适合 Linux/macOS/OpenWrt 内网机器。它可以同时做 DDNS resolver 上报和资源任务轮询，也可以只做资源任务。推荐先用交互向导；向导会通过 `ssh -o BatchMode=yes` 检查到 PO0 的密钥 SSH，密钥 SSH 可用时自动读取所需 token，写入本机目标配置，并按选择安装 cron / systemd 服务：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh | bash
+po0-lan-client --wizard
+```
+
+自动化场景仍可使用公开仓库一键部署命令：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script /root/nftables-relay-manager.sh --source-key home --ddns-domain home.example.com --token <DDNS_TOKEN> --resource-token <RESOURCE_TOKEN> --install-cron 5
@@ -587,7 +594,16 @@ Windows PowerShell 版本检测本机当前出口公网 IPv4 并上报 LAN Worke
 $env:PO0_LAN_WORKER_URL='<LAN_WORKER_REPORT_URL>'; $env:PO0_SELF_REPORT_SOURCE='<CLIENT_ID>'; $env:PO0_SELF_REPORT_SECRET='<SELF_REPORT_SECRET>'; $env:INSTALL_TASK='1'; $env:MINUTES='5'; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-outbound-ip-report.ps1' | iex
 ```
 
-`--bootstrap` 会先 probe，再写入本机目标配置；如果要求安装 cron，管道运行时会自动落盘到固定路径。Worker 默认调用 PO0 上的 `/root/nftables-relay-manager.sh`，也可以通过 `--po0-script` 覆盖。菜单仍可管理本机 Worker 的 PO0 目标：查看、添加、编辑、删除、启用/停用，执行 DDNS 解析上报和资源任务轮询，并管理 cron。一个配置文件可以放多台 PO0/VPS。
+`--bootstrap` 会先 probe，再写入本机目标配置；如果要求安装 cron，管道运行时会自动落盘到固定路径。Worker 默认调用 PO0 上的 `/root/nftables-relay-manager.sh`，也可以通过 `--po0-script` 覆盖。首次部署推荐 `--wizard`，高级维护菜单仍可管理本机 Worker 的 PO0 目标：查看、添加、编辑、删除、启用/停用，执行 DDNS 解析上报和资源任务轮询，并管理 cron。一个配置文件可以放多台 PO0/VPS。
+
+向导自动取 token 使用 PO0 端机器可读接口：
+
+```bash
+bash nftables-relay-manager.sh --worker-token-bundle
+bash nftables-relay-manager.sh --worker-token-bundle --ensure-resource-token
+```
+
+该接口输出 `KEY=value`，包括 DDNS、资源任务、client-ip、SSH report、WebAuth 等 token。资源任务 token 只有在传 `--ensure-resource-token` 且文件不存在时才会生成；已有 token 不会被重置。
 
 该 Worker 同时承担资源更新任务。目标配置末尾新增 `resource_token` 字段，旧配置没有该字段时按“未启用资源任务”处理。菜单可以直接编辑已有目标并补填 Token。
 

@@ -61,6 +61,8 @@ usage() {
         "PO0 内网 Worker" \
         "" \
         "用法:" \
+        "  bash po0-lan-client.sh" \
+        "  bash po0-lan-client.sh --wizard" \
         "  bash po0-lan-client.sh --menu" \
         "  bash po0-lan-client.sh --probe --po0-host HOST --source-key home --ddns-domain home.example.com --token TOKEN --resource-token TOKEN" \
         "  bash po0-lan-client.sh --bootstrap --po0-host HOST --source-key home --ddns-domain home.example.com --token TOKEN --resource-token TOKEN --install-cron 5" \
@@ -88,6 +90,7 @@ usage() {
         "  --self-report-server 在 LAN Worker 本地运行自上报接收服务；访问设备先报 LAN Worker，再由 LAN Worker SSH 上报 PO0。" \
         "  --self-report-targets STR 设备自上报目标；格式 source|host|port|user|script|token|ttl|ssh_args，多目标用分号或换行分隔。" \
         "  --self-report-probe  检查自上报接收端依赖和 PO0 client-ip token。" \
+        "  --wizard             进入交互式安装向导。" \
         "  --menu               进入高级菜单。" \
         "" \
         "默认 PO0_SCRIPT=${DEFAULT_PO0_SCRIPT}；可用 --po0-script 覆盖，兼容旧配置。" \
@@ -319,6 +322,82 @@ prompt_default() {
         value="$(trim "${value}")"
     fi
     printf '%s\n' "${value}"
+}
+
+prompt_yes_no() {
+    local prompt="$1"
+    local default="${2:-n}"
+    local suffix value
+    case "${default,,}" in
+        y|yes|1|true)
+            suffix="Y/n"
+            default="y"
+            ;;
+        *)
+            suffix="y/N"
+            default="n"
+            ;;
+    esac
+    while true; do
+        read -r -p "${prompt} [${suffix}]: " value
+        value="$(trim "${value}")"
+        [[ -n "${value}" ]] || value="${default}"
+        case "${value,,}" in
+            y|yes) return 0 ;;
+            n|no) return 1 ;;
+            *) printf '请输入 y 或 n。\n' >&2 ;;
+        esac
+    done
+}
+
+random_secret() {
+    local token=""
+    if command -v openssl >/dev/null 2>&1; then
+        token="$(openssl rand -hex 24 2>/dev/null || true)"
+    fi
+    if [[ -z "${token}" ]] && [[ -r /dev/urandom ]]; then
+        token="$(od -An -N24 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')"
+    fi
+    [[ -n "${token}" ]] || token="$(date '+%s')-$RANDOM-$RANDOM-$RANDOM"
+    printf '%s\n' "${token}"
+}
+
+mask_secret() {
+    local value="$1"
+    local len
+    [[ -n "${value}" ]] || { printf '<empty>\n'; return; }
+    len="${#value}"
+    if (( len <= 10 )); then
+        printf '***\n'
+    else
+        printf '%s...%s\n' "${value:0:6}" "${value: -4}"
+    fi
+}
+
+build_batchmode_ssh_extra_args() {
+    local key_path="$1"
+    local extra="$2"
+    local out=""
+    key_path="$(trim "${key_path}")"
+    extra="$(trim "${extra}")"
+    if [[ -n "${key_path}" ]]; then
+        case "${key_path}" in
+            *" "*)
+                printf '当前 ssh extra args 解析不支持带空格的私钥路径，请改用不含空格的路径或手动填写 --ssh-extra-args。\n' >&2
+                return 1
+                ;;
+        esac
+        out="-i ${key_path}"
+    fi
+    [[ -n "${extra}" ]] && out="${out:+${out} }${extra}"
+    case " ${out} " in
+        *" BatchMode=yes "*|*" BatchMode yes "*)
+            ;;
+        *)
+            out="${out:+${out} }-o BatchMode=yes"
+            ;;
+    esac
+    printf '%s\n' "${out}"
 }
 
 parse_target_line() {
@@ -1140,6 +1219,173 @@ remote_manager_call() {
         remote_cmd+=" $(sh_quote "${arg}")"
     done
     ssh "${ssh_args[@]}" "${user}@${host}" "${remote_cmd}"
+}
+
+fetch_worker_token_bundle() {
+    local ensure_resource="${1:-0}"
+    local response line key value
+    if [[ "${ensure_resource}" == "1" ]]; then
+        response="$(remote_manager_call "${PO0_HOST}" "${PO0_PORT}" "${PO0_USER}" "${PO0_SCRIPT}" "${SSH_EXTRA_ARGS}" --worker-token-bundle --ensure-resource-token)" || return 1
+    else
+        response="$(remote_manager_call "${PO0_HOST}" "${PO0_PORT}" "${PO0_USER}" "${PO0_SCRIPT}" "${SSH_EXTRA_ARGS}" --worker-token-bundle)" || return 1
+    fi
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        [[ "${line}" == *=* ]] || continue
+        key="${line%%=*}"
+        value="${line#*=}"
+        case "${key}" in
+            DDNS_TOKEN) DDNS_TOKEN="${value}" ;;
+            RESOURCE_TOKEN) RESOURCE_TOKEN="${value}" ;;
+            CLIENT_IP_TOKEN) CLIENT_IP_TOKEN="${value}" ;;
+            WEBAUTH_TOKEN) WEBAUTH_TOKEN="${value}" ;;
+        esac
+    done <<< "${response}"
+}
+
+po0_lan_wizard() {
+    local key_path extra ssh_response ssh_ok=0
+    local use_resource=0 use_ddns=0 use_self_report=0 use_webauth=0
+    local label install_periodic=0 cron_minutes run_now=0 script_path
+    local generated_secret
+
+    printf '\nPO0 LAN Client 交互式安装向导\n'
+    printf '此向导会把 token 明文保存到本机配置文件：%s\n' "${CONFIG_FILE}"
+    printf 'PO0 自动取 token 需要当前机器已经可以通过密钥 SSH 登录 PO0。\n\n'
+
+    PO0_HOST="$(prompt_default "PO0 SSH 地址" "${PO0_HOST}")"
+    [[ -n "${PO0_HOST}" ]] || { printf 'PO0 SSH 地址不能为空。\n' >&2; return 1; }
+    PO0_PORT="$(prompt_default "PO0 SSH 端口" "${PO0_PORT:-22}")"
+    PO0_USER="$(prompt_default "PO0 SSH 用户" "${PO0_USER:-root}")"
+    PO0_SCRIPT="$(prompt_default "PO0 管理脚本路径" "${PO0_SCRIPT:-${DEFAULT_PO0_SCRIPT}}")"
+    key_path="$(prompt_default "SSH 私钥路径，可空（路径不要含空格）" "")"
+    extra="$(prompt_default "额外 SSH 参数，可空" "${SSH_EXTRA_ARGS}")"
+    SSH_EXTRA_ARGS="$(build_batchmode_ssh_extra_args "${key_path}" "${extra}")" || return 1
+
+    printf '\n检查密钥 SSH 和 PO0 管理脚本...\n'
+    if ssh_response="$(remote_manager_call "${PO0_HOST}" "${PO0_PORT}" "${PO0_USER}" "${PO0_SCRIPT}" "${SSH_EXTRA_ARGS}" --help 2>&1)"; then
+        ssh_ok=1
+        printf '[OK] SSH 可用：%s@%s:%s\n' "${PO0_USER}" "${PO0_HOST}" "${PO0_PORT}"
+    else
+        printf '[WARN] 密钥 SSH 检查失败：%s\n' "${ssh_response}" >&2
+        printf '可以继续手动粘贴 token 并保存配置，但不要安装 cron/service，直到免密 SSH 可用。\n' >&2
+    fi
+
+    printf '\n选择本机要承担的角色。\n'
+    prompt_yes_no "启用资源任务 Worker（领取 PO0 的 iplist/ipdb 更新任务）" "y" && use_resource=1
+    prompt_yes_no "启用 DDNS resolver（本机解析 DDNS 后 SSH 上报 PO0）" "y" && use_ddns=1
+    prompt_yes_no "启用 Self-report server 目标配置（访问设备先报本机，再由本机报 PO0）" "n" && use_self_report=1
+    prompt_yes_no "启用 WebAuth server 目标配置（本机接收认证入口，再由本机报 PO0）" "n" && use_webauth=1
+
+    if (( use_resource == 0 && use_ddns == 0 && use_self_report == 0 && use_webauth == 0 )); then
+        printf '至少需要选择一个角色。\n' >&2
+        return 1
+    fi
+
+    if (( ssh_ok == 1 )); then
+        if fetch_worker_token_bundle "${use_resource}" 2>/dev/null; then
+            printf '[OK] 已从 PO0 自动读取所需 token。\n'
+        else
+            printf '[WARN] SSH 可用，但未能自动读取 token；稍后请手动粘贴需要的 token。\n' >&2
+        fi
+    fi
+
+    if (( use_ddns == 1 )); then
+        REPORT_MODE="ddns"
+        DDNS_RESOLVE_DOMAIN="$(prompt_default "LAN Worker 要解析的 DDNS 域名" "${DDNS_RESOLVE_DOMAIN:-${DDNS_DOMAIN}}")"
+        [[ -n "${DDNS_RESOLVE_DOMAIN}" ]] || { printf 'DDNS resolver 必须填写 DDNS 域名。\n' >&2; return 1; }
+        DDNS_DOMAIN="$(prompt_default "PO0 来源 key（默认同 DDNS 域名）" "${DDNS_DOMAIN:-${DDNS_RESOLVE_DOMAIN}}")"
+        REPORT_KEY="$(prompt_default "PO0 匹配 key（默认同来源 key）" "${REPORT_KEY:-${DDNS_DOMAIN}}")"
+        DDNS_TOKEN="$(prompt_default "DDNS 来源上报 token" "${DDNS_TOKEN}")"
+        [[ -n "${DDNS_TOKEN}" ]] || { printf 'DDNS resolver 需要 DDNS token。\n' >&2; return 1; }
+    else
+        REPORT_MODE="none"
+        DDNS_DOMAIN=""
+        REPORT_KEY=""
+        DDNS_RESOLVE_DOMAIN=""
+    fi
+
+    if (( use_resource == 1 )); then
+        RESOURCE_TOKEN="$(prompt_default "资源任务 Token" "${RESOURCE_TOKEN}")"
+        [[ -n "${RESOURCE_TOKEN}" ]] || { printf '资源任务 Worker 需要 resource token。\n' >&2; return 1; }
+    else
+        RESOURCE_TOKEN=""
+    fi
+
+    if (( use_self_report == 1 )); then
+        CLIENT_IP_TOKEN="$(prompt_default "Client IP 上报 token" "${CLIENT_IP_TOKEN}")"
+        [[ -n "${CLIENT_IP_TOKEN}" ]] || { printf 'Self-report 需要 client-ip token。\n' >&2; return 1; }
+        SELF_REPORT_SOURCE="$(prompt_default "Self-report source id" "${SELF_REPORT_SOURCE:-self-report}")"
+        SELF_REPORT_LISTEN="$(prompt_default "Self-report 本地监听地址" "${SELF_REPORT_LISTEN:-127.0.0.1:8788}")"
+        generated_secret="$(random_secret)"
+        SELF_REPORT_SECRET="$(prompt_default "Self-report secret（访问设备上报 LAN Worker 用）" "${SELF_REPORT_SECRET:-${generated_secret}}")"
+        SELF_REPORT_TTL_SECONDS="$(prompt_default "Self-report 放行 TTL 秒数" "${SELF_REPORT_TTL_SECONDS:-3600}")"
+    else
+        CLIENT_IP_TOKEN=""
+    fi
+
+    if (( use_webauth == 1 )); then
+        WEBAUTH_TOKEN="$(prompt_default "WebAuth 上报 token" "${WEBAUTH_TOKEN}")"
+        [[ -n "${WEBAUTH_TOKEN}" ]] || { printf 'WebAuth 需要 webauth token。\n' >&2; return 1; }
+        WEBAUTH_SOURCE="$(prompt_default "WebAuth source id" "${WEBAUTH_SOURCE:-cf-access}")"
+        WEBAUTH_LISTEN="$(prompt_default "WebAuth 本地监听地址" "${WEBAUTH_LISTEN:-127.0.0.1:8787}")"
+        WEBAUTH_TTL_SECONDS="$(prompt_default "WebAuth 放行 TTL 秒数" "${WEBAUTH_TTL_SECONDS:-3600}")"
+    else
+        WEBAUTH_TOKEN=""
+    fi
+
+    label="$(prompt_default "显示名" "${BOOTSTRAP_LABEL:-${DDNS_DOMAIN:-resource-${PO0_HOST}}}")"
+    upsert_target "1" "${label}" "${DDNS_DOMAIN}" "${REPORT_KEY}" "${PO0_HOST}" "${PO0_PORT}" "${PO0_USER}" "${PO0_SCRIPT}" "${DDNS_TOKEN}" "${SSH_EXTRA_ARGS}" "${RESOURCE_TOKEN}" "${REPORT_MODE}" "${DDNS_RESOLVE_DOMAIN}" "${CLIENT_IP_TOKEN}" "${SELF_REPORT_SOURCE}" "${SELF_REPORT_TTL_SECONDS}" "${WEBAUTH_TOKEN}" "${WEBAUTH_SOURCE}" "${WEBAUTH_TTL_SECONDS}" "${SSH_EXTRA_ARGS}" || return 1
+    chmod 600 "${CONFIG_FILE}" 2>/dev/null || true
+    printf '\n[OK] 已写入配置：%s\n' "${CONFIG_FILE}"
+
+    if (( ssh_ok == 1 )); then
+        if (( use_ddns == 1 || use_resource == 1 )); then
+            probe_worker_target || printf '[WARN] DDNS/资源任务 probe 未全部通过，请按上方错误修正后再安装定时任务。\n' >&2
+        fi
+        (( use_self_report == 1 )) && probe_self_report_target || true
+        (( use_webauth == 1 )) && probe_webauth_target || true
+    fi
+
+    if (( use_ddns == 1 || use_resource == 1 )); then
+        if (( ssh_ok == 1 )); then
+            if prompt_yes_no "安装/更新 cron 定时执行 DDNS 上报和资源任务轮询" "y"; then
+                install_periodic=1
+                cron_minutes="$(prompt_default "每几分钟执行一次（1-59）" "${CRON_MINUTES}")"
+                script_path="$(ensure_persistent_script)" || return 1
+                install_cron_minutes "${cron_minutes}" "${script_path}" || return 1
+            fi
+            prompt_yes_no "现在立即执行一次 DDNS 上报/资源任务轮询" "y" && run_now=1
+            (( run_now == 1 )) && run_all_client_jobs
+        else
+            printf '[WARN] 跳过 cron 安装：免密 SSH 未通过。\n' >&2
+        fi
+    fi
+
+    if (( use_self_report == 1 )); then
+        if prompt_yes_no "安装/更新 systemd Self-report server 服务" "n"; then
+            install_self_report_service || return 1
+        else
+            printf 'Self-report 手动启动命令：po0-lan-client --self-report-server --self-report-listen %s\n' "${SELF_REPORT_LISTEN}"
+        fi
+    fi
+
+    if (( use_webauth == 1 )); then
+        if prompt_yes_no "安装/更新 systemd WebAuth server 服务" "n"; then
+            install_webauth_service || return 1
+        else
+            printf 'WebAuth 手动启动命令：po0-lan-client --webauth-server --listen %s\n' "${WEBAUTH_LISTEN}"
+        fi
+    fi
+
+    printf '\n安装摘要\n'
+    printf '  PO0: %s@%s:%s\n' "${PO0_USER}" "${PO0_HOST}" "${PO0_PORT}"
+    printf '  SSH 参数: %s\n' "${SSH_EXTRA_ARGS}"
+    printf '  DDNS token: %s\n' "$(mask_secret "${DDNS_TOKEN}")"
+    printf '  Resource token: %s\n' "$(mask_secret "${RESOURCE_TOKEN}")"
+    printf '  Client IP token: %s\n' "$(mask_secret "${CLIENT_IP_TOKEN}")"
+    printf '  WebAuth token: %s\n' "$(mask_secret "${WEBAUTH_TOKEN}")"
+    (( install_periodic == 1 )) && printf '  Cron: 已安装\n'
+    printf '完成。\n'
 }
 
 probe_ok() {
@@ -2475,6 +2721,8 @@ menu_loop() {
     done
 }
 
+ORIGINAL_ARGC="$#"
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --config)
@@ -2629,6 +2877,10 @@ while [[ $# -gt 0 ]]; do
             ACTION="menu"
             shift
             ;;
+        --wizard)
+            ACTION="wizard"
+            shift
+            ;;
         --probe)
             ACTION="probe"
             shift
@@ -2731,6 +2983,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "${ACTION}" in
+    wizard)
+        po0_lan_wizard
+        exit $?
+        ;;
     menu)
         menu_loop
         exit $?
@@ -2801,6 +3057,11 @@ case "${ACTION}" in
         exit $?
         ;;
 esac
+
+if [[ "${ORIGINAL_ARGC}" == "0" ]]; then
+    po0_lan_wizard
+    exit $?
+fi
 
 if [[ -z "${PO0_HOST}" && -z "${DDNS_DOMAIN}" ]]; then
     menu_loop
