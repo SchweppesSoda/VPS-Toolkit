@@ -130,15 +130,16 @@ usage() {
         "常用命令:" \
         "  --probe              只检测依赖、DDNS 解析、SSH、PO0 token，不修改 PO0 白名单。" \
         "  --bootstrap          写入本机目标配置，默认先 probe，再执行一次 --run。" \
-        "  --install-cron [N]   安装/更新定时任务；管道运行时会自动落盘。" \
+        "  --install-cron [N]   安装/更新本机 Worker 轮询器；管道运行时会自动落盘。" \
+        "                        资源任务创建周期在 PO0 nft manager 里设置，本机只定期领取已创建任务。" \
         "  --source-key KEY     PO0 端来源 key/名称；脚本不会解析这个值。" \
         "  --ddns-domain DOMAIN LAN Worker 要解析的 DDNS 域名；结果通过 SSH 上报 PO0。" \
         "  --ddns-targets STR  DDNS 上报目标；格式 source_key|ddns_domain|host|port|user|script|token|ssh_args，多目标用分号或换行分隔。" \
         "  --domain DOMAIN      兼容旧参数：没有 --ddns-domain 时同时作为 source-key 和 DDNS 域名。" \
         "  --ssh-extra-args STR 可选 SSH 参数，例如 '-i /path/key -J jump-host'；不是私钥短语。" \
-        "  --no-run             bootstrap 后不立即执行 DDNS 解析上报和资源轮询。" \
-        "  --no-cron            bootstrap 时不安装定时任务。" \
-        "  --run                执行已配置目标的 DDNS 解析上报和资源任务轮询。" \
+        "  --no-run             bootstrap 后不立即执行 DDNS 解析上报和资源任务轮询领取。" \
+        "  --no-cron            bootstrap 时不安装本机 Worker 轮询器。" \
+        "  --run                执行已配置目标的 DDNS 解析上报，并轮询领取 PO0 已创建的资源任务。" \
         "  --webauth-server     在 LAN Worker 本地运行 WebAuth 接收服务；PO0 不开放 HTTP。" \
         "  --webauth-targets STR WebAuth 上报目标；格式 source|host|port|user|script|token|ttl|ssh_args，多目标用分号或换行分隔。" \
         "  --install-webauth-service 安装 systemd 服务运行 WebAuth server。" \
@@ -153,7 +154,7 @@ usage() {
         "WebAuth server 只运行在 LAN Worker 上，推荐经 cloudflared tunnel + Cloudflare Access 暴露。" \
         "DDNS resolver 模式解析 --ddns-domain；--source-key 只用于匹配 PO0 端来源，不在本机解析。" \
         "Self-report 模式接收访问设备上报/请求里的公网 IP，再通过 PO0 的 client_ip 来源写白名单。" \
-        "资源任务由 PO0 创建，本机主动领取固定白名单任务（iplist/ipdb），构建/下载后通过 SSH 调 PO0 manager 上传；不需要来源 key 也可以只做资源任务。" \
+        "资源任务由 PO0 创建，PO0 端 cron 决定创建周期；本机 Worker 轮询器只负责领取待处理任务，构建/下载后通过 SSH 调 PO0 manager 上传。" \
         "配置文件会明文保存 Token，请放在可信内网机器上，并注意文件权限。"
 }
 
@@ -1176,10 +1177,62 @@ cron_status_summary() {
         fi
     done < <(crontab -l 2>/dev/null || true)
     if [[ "${found}" == "1" ]]; then
-        printf '已安装：%s' "${cron_line:-本脚本管理的 cron}"
+        printf '已安装：%s' "${cron_line:-本脚本管理的 Worker 轮询器}"
     else
         printf '未安装'
     fi
+}
+
+remote_resource_task_cron_status() {
+    local host="$1"
+    local port="$2"
+    local user="$3"
+    local script="$4"
+    local extra="$5"
+    local response line key value status="unknown" detail="未读取到 PO0 状态"
+    response="$(remote_manager_call "${host}" "${port}" "${user}" "${script}" "${extra}" --resource-task-cron-status 2>&1)" || {
+        printf '查询失败|%s\n' "$(sanitize_field "${response}")"
+        return 1
+    }
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        [[ "${line}" == *=* ]] || continue
+        key="${line%%=*}"
+        value="${line#*=}"
+        case "${key}" in
+            STATUS) status="${value}" ;;
+            DETAIL) detail="${value}" ;;
+        esac
+    done <<< "${response}"
+    case "${status}" in
+        installed) printf '已安装|%s\n' "${detail}" ;;
+        missing) printf '未安装|PO0 尚未设置资源任务定时创建\n' ;;
+        unavailable) printf '不可用|%s\n' "${detail}" ;;
+        *) printf '未知|%s\n' "${detail}" ;;
+    esac
+}
+
+show_remote_resource_task_cron_status() {
+    local line any=0 status detail label
+    ensure_config_file || return 1
+    printf 'PO0 资源任务创建计划（只读）\n'
+    printf '说明：资源更新周期在 PO0 nft manager 设置；本机 Worker 只按自己的轮询器领取已创建任务。\n'
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        parse_target_line "${line}" || continue
+        [[ "${TARGET_ENABLED}" == "1" && -n "${TARGET_RESOURCE_TOKEN}" ]] || continue
+        any=1
+        label="${TARGET_LABEL:-${TARGET_PO0_HOST}}"
+        if IFS='|' read -r status detail < <(remote_resource_task_cron_status \
+            "${TARGET_PO0_HOST}" \
+            "${TARGET_PO0_PORT:-22}" \
+            "${TARGET_PO0_USER:-root}" \
+            "${TARGET_PO0_SCRIPT:-${DEFAULT_PO0_SCRIPT}}" \
+            "${TARGET_SSH_EXTRA_ARGS}"); then
+            printf '  %s: %s - %s\n' "${label}" "${status}" "${detail}"
+        else
+            printf '  %s: %s - %s\n' "${label}" "${status:-查询失败}" "${detail:-无法连接 PO0}"
+        fi
+    done < "${CONFIG_FILE}"
+    [[ "${any}" == "1" ]] || printf '  (没有启用的资源任务目标)\n'
 }
 
 print_dashboard() {
@@ -1210,10 +1263,10 @@ print_dashboard() {
     printf '\n%b目标概览%b\n' "${C_BOLD}" "${C_RESET}"
     printf '  目标数量 : 总计 %s，启用 %s，停用 %s\n' "${total}" "${enabled}" "${disabled}"
     printf '  DDNS 上报: %s 个目标\n' "${ddns}"
-    printf '  资源任务 : %s 个目标\n' "${resource}"
+    printf '  资源任务 : %s 个目标（PO0 创建计划，本机只轮询领取）\n' "${resource}"
     printf '  自上报   : %s 个目标，监听 %s\n' "${self_report}" "${SELF_REPORT_LISTEN}"
     printf '  WebAuth  : %s 个目标，监听 %s\n' "${webauth}" "${WEBAUTH_LISTEN}"
-    printf '  cron     : %s\n' "$(cron_status_summary)"
+    printf '  本机轮询器: %s\n' "$(cron_status_summary)"
     printf '\n%b最近 DDNS 统计%b\n' "${C_BOLD}" "${C_RESET}"
     printf '  成功=%s 失败=%s 最近=%s 状态=%s IP=%s\n' \
         "${DASH_SUCCESS_TOTAL}" "${DASH_FAIL_TOTAL}" "${DASH_LAST_AT:-无}" "${DASH_LAST_STATUS:-无}" "${DASH_LAST_IP_CSV:-无}"
@@ -1771,7 +1824,7 @@ po0_lan_wizard() {
     else
         printf '[WARN] 密钥 SSH 检查失败：%s\n' "${ssh_response}" >&2
         print_host_key_failure_help "${PO0_HOST}" "${PO0_PORT}" "${PO0_USER}" "${ssh_response}"
-        printf '可以继续手动粘贴 token 并保存配置，但不要安装 cron/service，直到免密 SSH 可用。\n' >&2
+        printf '可以继续手动粘贴 token 并保存配置，但不要安装本机 Worker 轮询器或 service，直到免密 SSH 可用。\n' >&2
     fi
 
     print_menu_section "本机角色"
@@ -1846,7 +1899,7 @@ po0_lan_wizard() {
 
     if (( ssh_ok == 1 )); then
         if (( use_ddns == 1 || use_resource == 1 )); then
-            probe_worker_target || printf '[WARN] DDNS/资源任务 probe 未全部通过，请按上方错误修正后再安装定时任务。\n' >&2
+            probe_worker_target || printf '[WARN] DDNS/资源任务 probe 未全部通过，请按上方错误修正后再安装本机 Worker 轮询器。\n' >&2
         fi
         (( use_self_report == 1 )) && probe_self_report_target || true
         (( use_webauth == 1 )) && probe_webauth_target || true
@@ -1854,15 +1907,15 @@ po0_lan_wizard() {
 
     if (( use_ddns == 1 || use_resource == 1 )); then
         if (( ssh_ok == 1 )); then
-            if prompt_yes_no "安装/更新 cron 定时执行 DDNS 上报和资源任务轮询" "y"; then
+            if prompt_yes_no "安装/更新本机 Worker 轮询器（资源创建周期在 PO0 设置）" "y"; then
                 install_periodic=1
-                cron_minutes="$(prompt_default "每几分钟执行一次（1-59）" "${CRON_MINUTES}")"
+                cron_minutes="$(prompt_default "本机每几分钟轮询一次（1-59）" "${CRON_MINUTES}")"
                 install_cron_minutes "${cron_minutes}" "${script_path}" || return 1
             fi
             prompt_yes_no "现在立即执行一次 DDNS 上报/资源任务轮询" "y" && run_now=1
             (( run_now == 1 )) && run_all_client_jobs
         else
-            printf '[WARN] 跳过 cron 安装：免密 SSH 未通过。\n' >&2
+            printf '[WARN] 跳过本机 Worker 轮询器安装：免密 SSH 未通过。\n' >&2
         fi
     fi
 
@@ -1889,7 +1942,7 @@ po0_lan_wizard() {
     printf '  Resource token: %s\n' "$(mask_secret "${RESOURCE_TOKEN}")"
     printf '  Client IP token: %s\n' "$(mask_secret "${CLIENT_IP_TOKEN}")"
     printf '  WebAuth token: %s\n' "$(mask_secret "${WEBAUTH_TOKEN}")"
-    (( install_periodic == 1 )) && printf '  Cron: 已安装\n'
+    (( install_periodic == 1 )) && printf '  本机 Worker 轮询器: 已安装\n'
     printf '完成。\n'
 }
 
@@ -2897,7 +2950,7 @@ print_cron_example() {
     [[ "${minutes}" =~ ^[0-9]+$ && "${minutes}" -ge 1 && "${minutes}" -le 59 ]] || minutes="5"
     script_path="$(script_self_path)"
     printf '%s\n' \
-        "cron 示例（每 ${minutes} 分钟执行 DDNS 解析上报并轮询资源任务）：" \
+        "本机 Worker 轮询器示例（每 ${minutes} 分钟执行 DDNS 上报，并领取 PO0 已创建资源任务）：" \
         "*/${minutes} * * * * bash $(sh_quote "${script_path}") --config $(sh_quote "${CONFIG_FILE}") --run >/tmp/po0-lan-client.log 2>&1"
 }
 
@@ -3011,7 +3064,9 @@ write_cron_without_managed_block() {
 install_cron_interactive() {
     local minutes script_path
     ensure_config_file || return 1
-    minutes="$(prompt_default "每几分钟上报一次（1-59）" "${CRON_MINUTES}")"
+    printf '本机 Worker 轮询器只负责定期执行 DDNS 上报、检查并领取 PO0 已创建的资源任务。\n'
+    printf '资源任务创建周期请在 PO0 nft manager 的“内网资源更新任务”里设置。\n'
+    minutes="$(prompt_default "本机每几分钟轮询一次（1-59）" "${CRON_MINUTES}")"
     minutes="$(trim "${minutes}")"
     script_path="$(ensure_persistent_script)" || return 1
     install_cron_minutes "${minutes}" "${script_path}"
@@ -3044,7 +3099,8 @@ install_cron_minutes() {
         return 1
     }
     rm -f "${tmp}" 2>/dev/null || true
-    printf '已安装/更新定时任务：每 %s 分钟执行 DDNS 解析上报和资源任务轮询。\n' "${minutes}"
+    printf '已安装/更新本机 Worker 轮询器：每 %s 分钟执行 DDNS 上报，并检查 PO0 待处理资源任务。\n' "${minutes}"
+    printf '提示：资源任务创建周期由 PO0 nft manager 控制，本机轮询器不决定资源更新频率。\n'
 }
 
 bootstrap_worker() {
@@ -3118,7 +3174,7 @@ remove_cron_interactive() {
         return 1
     }
     rm -f "${tmp}" 2>/dev/null || true
-    printf '已删除本脚本管理的定时任务。\n'
+    printf '已删除本脚本管理的本机 Worker 轮询器。\n'
 }
 
 show_cron_status() {
@@ -3140,10 +3196,10 @@ show_cron_status() {
             continue
         fi
         if [[ "${in_block}" == "1" ]]; then
-            printf '当前定时任务：%s\n' "${line}"
+            printf '当前本机 Worker 轮询器：%s\n' "${line}"
         fi
     done < <(crontab -l 2>/dev/null || true)
-    [[ "${found}" == "1" ]] || printf '当前没有本脚本管理的定时任务。\n'
+    [[ "${found}" == "1" ]] || printf '当前没有本脚本管理的 Worker 轮询器。\n'
 }
 
 show_webauth_cloudflare_guide() {
@@ -3182,7 +3238,7 @@ menu_loop() {
     while true; do
         print_dashboard
         print_menu_section "查看"
-        print_menu_pair 1 "上报目标与 DDNS 统计" 2 "资源任务统计"
+        print_menu_pair 1 "上报目标与 DDNS 统计" 2 "资源统计 / PO0 创建计划"
         print_menu_section "PO0 目标、SSH 与 Token"
         print_menu_pair 3 "添加 PO0 目标" 4 "编辑 PO0 目标"
         print_menu_pair 5 "SSH 私钥 / 参数" 6 "目标 Token"
@@ -3195,8 +3251,8 @@ menu_loop() {
         print_menu_pair 14 "WebAuth probe" 15 "启动 WebAuth 服务"
         print_menu_item 16 "WebAuth / Cloudflare Access 配置提示"
         print_menu_section "维护"
-        print_menu_pair 17 "安装 / 更新定时任务" 18 "删除定时任务"
-        print_menu_pair 19 "查看定时任务状态" 20 "清空 DDNS 统计"
+        print_menu_pair 17 "安装 / 更新本机轮询器" 18 "删除本机轮询器"
+        print_menu_pair 19 "查看本机轮询器状态" 20 "清空 DDNS 统计"
         print_menu_section "退出"
         print_menu_item 0 "退出"
         if ! choice="$(read_prompt "请选择操作 [0-20]: ")"; then
@@ -3206,7 +3262,7 @@ menu_loop() {
         choice="$(trim "${choice}")"
         case "${choice}" in
             1) list_targets; pause_before_return ;;
-            2) list_resource_stats; pause_before_return ;;
+            2) list_resource_stats; echo ""; show_remote_resource_task_cron_status; pause_before_return ;;
             3) add_target_interactive; pause_before_return ;;
             4) edit_target_interactive; pause_before_return ;;
             5) manage_target_ssh_interactive; pause_before_return ;;

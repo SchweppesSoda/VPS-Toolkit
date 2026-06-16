@@ -43,7 +43,7 @@ po0-lan-client --probe
 初始化时 PO0 SSH 地址一次只填一个；多个 PO0 目标后续进入 `po0-lan-client --menu` 添加。
 SSH 认证按向导选择：系统默认 SSH 配置/agent、已有私钥路径，或粘贴专用私钥。粘贴的私钥会保存到本机配置目录并设置 600 权限。
 “额外 SSH 参数”是传给 `ssh` 的选项，例如 `-J jump-host` 或 `-o StrictHostKeyChecking=accept-new`，不是私钥短语；带短语的私钥需要 `ssh-agent`。
-菜单里的 `PO0 目标 / SSH / Token` 用于添加、编辑、启停 PO0 目标，并管理目标 SSH 私钥和 Token；`资源任务` 与 `DDNS resolver` 是分开的执行入口，资源任务在前。
+菜单里的 `PO0 目标 / SSH / Token` 用于添加、编辑、启停 PO0 目标，并管理目标 SSH 私钥和 Token；`资源统计 / PO0 创建计划` 只读展示 PO0 端资源任务定时创建状态。资源任务创建周期在 PO0 nft manager 设置，LAN Worker 本机只安装轮询器来领取 pending 任务。
 
 如果旧版本安装后没有 `po0-lan-client` 命令，可手动补装：
 

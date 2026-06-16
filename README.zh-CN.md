@@ -57,10 +57,12 @@ curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scri
 chmod 755 /usr/local/sbin/po0-lan-client
 /usr/local/sbin/po0-lan-client --menu
 
-# PO0 内网 Worker：在 LAN Worker 机器上执行，DDNS 解析上报 + iplist/ipdb 资源轮询
+# PO0 内网 Worker：在 LAN Worker 机器上执行，DDNS 解析上报 + iplist/ipdb 资源轮询领取
+# --install-cron 5 是 Worker 本机轮询器；资源任务创建周期在 PO0 nft manager 里设置
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --source-key <DDNS_SOURCE_KEY> --ddns-domain <DDNS_DOMAIN> --token <DDNS_TOKEN> --resource-token <RESOURCE_TOKEN> --install-cron 5
 
-# PO0 内网 Worker：在 LAN Worker 机器上执行，只做资源轮询
+# PO0 内网 Worker：在 LAN Worker 机器上执行，只做资源任务轮询领取
+# PO0 端负责定时创建任务，Worker 只检查并领取 pending 任务
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --resource-token <RESOURCE_TOKEN> --install-cron 5
 
 # PO0 内网 Worker：在 LAN Worker 机器上执行，自上报接收端，HTTP 只跑在 LAN Worker

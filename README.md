@@ -57,10 +57,11 @@ curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scri
 chmod 755 /usr/local/sbin/po0-lan-client
 /usr/local/sbin/po0-lan-client --menu
 
-# PO0 LAN Worker, run on the LAN Worker host: DDNS resolver + iplist/ipdb resource polling
+# PO0 LAN Worker, run on the LAN Worker host: DDNS resolver + iplist/ipdb resource task polling
+# --install-cron 5 installs the Worker poller; the resource creation schedule is configured on PO0.
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --source-key <DDNS_SOURCE_KEY> --ddns-domain <DDNS_DOMAIN> --token <DDNS_TOKEN> --resource-token <RESOURCE_TOKEN> --install-cron 5
 
-# PO0 LAN Worker, run on the LAN Worker host: resource polling only
+# PO0 LAN Worker, run on the LAN Worker host: only poll and claim PO0-created resource tasks
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --resource-token <RESOURCE_TOKEN> --install-cron 5
 
 # PO0 LAN Worker, run on the LAN Worker host: self-report receiver, HTTP runs only on the LAN Worker

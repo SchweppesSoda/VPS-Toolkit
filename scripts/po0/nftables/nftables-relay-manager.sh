@@ -4808,10 +4808,10 @@ normalize_resource_task_cron_schedule() {
     printf '%s %s %s %s %s\n' "${fields[0]}" "${fields[1]}" "${fields[2]}" "${fields[3]}" "${fields[4]}"
 }
 
-print_resource_task_cron_summary() {
-    local begin end line in_block=0 found=0
+resource_task_cron_status_record() {
+    local begin end line in_block=0 found=0 cron_line=""
     command -v crontab >/dev/null 2>&1 || {
-        printf '系统未安装 crontab\n'
+        printf 'unavailable|系统未安装 crontab\n'
         return 0
     }
     begin="$(resource_task_cron_begin_marker)"
@@ -4827,10 +4827,33 @@ print_resource_task_cron_summary() {
         fi
         [[ "${in_block}" == "1" ]] || continue
         [[ -n "${line}" ]] || continue
-        printf '%s\n' "${line}"
+        cron_line="${line}"
         found=1
     done < <(crontab -l 2>/dev/null || true)
-    [[ "${found}" == "1" ]] || printf '未安装\n'
+    if [[ "${found}" == "1" ]]; then
+        printf 'installed|%s\n' "${cron_line}"
+    else
+        printf 'missing|未安装\n'
+    fi
+}
+
+print_resource_task_cron_summary() {
+    local status detail
+    IFS='|' read -r status detail < <(resource_task_cron_status_record)
+    case "${status}" in
+        installed) printf '%s\n' "${detail}" ;;
+        unavailable) printf '系统未安装 crontab\n' ;;
+        *) printf '未安装\n' ;;
+    esac
+}
+
+do_resource_task_cron_status_cli() {
+    local status detail
+    ensure_layout || return 1
+    IFS='|' read -r status detail < <(resource_task_cron_status_record)
+    printf 'STATUS=%s\n' "${status}"
+    printf 'DETAIL=%s\n' "${detail}"
+    printf 'ROLE=po0-resource-task-create-schedule\n'
 }
 
 install_resource_task_cron() {
@@ -4860,7 +4883,7 @@ install_resource_task_cron() {
         return 1
     }
     rm -f -- "${tmp}" 2>/dev/null || true
-    success "已安装/更新资源任务定时创建：${type}，计划：${schedule}"
+    success "已安装/更新 PO0 资源任务定时创建：${type}，计划：${schedule}"
     info "Worker 会在自己的轮询周期内领取这些任务并回传资源文件。"
 }
 
@@ -4880,7 +4903,7 @@ remove_resource_task_cron() {
         return 1
     }
     rm -f -- "${tmp}" 2>/dev/null || true
-    success "已删除资源任务定时创建 cron。"
+    success "已删除 PO0 资源任务定时创建 cron。"
 }
 
 dynamic_allowlist_cron_begin_marker() {
@@ -4990,7 +5013,8 @@ do_install_dynamic_allowlist_cleanup_cron_interactive() {
 
 do_install_resource_task_cron_interactive() {
     local choice type schedule
-    print_title "安装资源任务定时创建"
+    print_title "安装 PO0 资源任务定时创建"
+    echo "此计划只在 PO0 端创建任务；LAN Worker 只按本机轮询器领取并执行已创建任务。"
     echo "  1) iplist 地区库"
     echo "  2) qqwry.ipdb"
     echo "  3) 全部更新"
@@ -5005,7 +5029,7 @@ do_install_resource_task_cron_interactive() {
             ;;
     esac
     echo ""
-    echo "计划可填：hourly、daily、weekly、monthly，或标准 5 字段 cron 表达式。"
+    echo "PO0 创建计划可填：hourly、daily、weekly、monthly，或标准 5 字段 cron 表达式。"
     schedule="$(prompt_with_default "请输入计划" "daily")"
     install_resource_task_cron "${type}" "${schedule}"
 }
@@ -8955,8 +8979,8 @@ normalize_report_key_scope() {
 report_key_scope_allows() {
     case "$(normalize_report_key_scope "${1:-}")" in
         egern) printf '%s\n' '--ssh-ip-report --ssh-ip-report-check' ;;
-        worker) printf '%s\n' '--ddns-report --ddns-report-check --client-ip-report --client-ip-report-check --webauth-report --webauth-report-check --resource-task-ping --resource-task-claim --resource-task-upload --resource-task-complete --resource-task-fail' ;;
-        *) printf '%s\n' '--ssh-ip-report --ssh-ip-report-check --ddns-report --ddns-report-check --client-ip-report --client-ip-report-check --webauth-report --webauth-report-check --resource-task-ping --resource-task-claim --resource-task-upload --resource-task-complete --resource-task-fail' ;;
+        worker) printf '%s\n' '--ddns-report --ddns-report-check --client-ip-report --client-ip-report-check --webauth-report --webauth-report-check --resource-task-ping --resource-task-claim --resource-task-upload --resource-task-complete --resource-task-fail --resource-task-cron-status' ;;
+        *) printf '%s\n' '--ssh-ip-report --ssh-ip-report-check --ddns-report --ddns-report-check --client-ip-report --client-ip-report-check --webauth-report --webauth-report-check --resource-task-ping --resource-task-claim --resource-task-upload --resource-task-complete --resource-task-fail --resource-task-cron-status' ;;
     esac
 }
 
@@ -9056,13 +9080,13 @@ allow_action() {
         egern) [[ "${action}" == "--ssh-ip-report" || "${action}" == "--ssh-ip-report-check" ]] ;;
         worker)
             case "${action}" in
-                --ddns-report|--ddns-report-check|--client-ip-report|--client-ip-report-check|--webauth-report|--webauth-report-check|--resource-task-ping|--resource-task-claim|--resource-task-upload|--resource-task-complete|--resource-task-fail) return 0 ;;
+                --ddns-report|--ddns-report-check|--client-ip-report|--client-ip-report-check|--webauth-report|--webauth-report-check|--resource-task-ping|--resource-task-claim|--resource-task-upload|--resource-task-complete|--resource-task-fail|--resource-task-cron-status) return 0 ;;
                 *) return 1 ;;
             esac
             ;;
         all)
             case "${action}" in
-                --ssh-ip-report|--ssh-ip-report-check|--ddns-report|--ddns-report-check|--client-ip-report|--client-ip-report-check|--webauth-report|--webauth-report-check|--resource-task-ping|--resource-task-claim|--resource-task-upload|--resource-task-complete|--resource-task-fail) return 0 ;;
+                --ssh-ip-report|--ssh-ip-report-check|--ddns-report|--ddns-report-check|--client-ip-report|--client-ip-report-check|--webauth-report|--webauth-report-check|--resource-task-ping|--resource-task-claim|--resource-task-upload|--resource-task-complete|--resource-task-fail|--resource-task-cron-status) return 0 ;;
                 *) return 1 ;;
             esac
             ;;
@@ -9420,6 +9444,7 @@ do_check_ddns_report_source() {
 print_lan_worker_ddns_bootstrap_example() {
     local ddns_token="${1:-<SOURCE_TOKEN>}"
     echo "LAN Worker DDNS 解析部署示例："
+    echo "说明：--install-cron 5 安装的是 Worker 本机轮询器/自动运行器。"
     printf '  curl -fsSL %s | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script %s --source-key <DDNS_SOURCE_KEY> --ddns-domain <DDNS_DOMAIN> --token %s --install-cron 5\n' \
         "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "${ddns_token}"
 }
@@ -9427,9 +9452,10 @@ print_lan_worker_ddns_bootstrap_example() {
 print_lan_worker_resource_bootstrap_example() {
     local resource_token="${1:-<RESOURCE_TOKEN>}"
     echo "LAN Worker 资源任务部署示例："
+    echo "说明：资源创建周期在 PO0 端设置；--install-cron 5 只安装 Worker 本机轮询器。"
     printf '  curl -fsSL %s | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script %s --resource-token %s --install-cron 5\n' \
         "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "${resource_token}"
-    echo "只探测资源任务 token，不写配置、不安装 cron："
+    echo "只探测资源任务 token，不写配置、不安装 Worker 轮询器："
     printf '  curl -fsSL %s | bash -s -- --probe --po0-host <PO0_HOST> --po0-script %s --resource-token %s\n' \
         "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "${resource_token}"
 }
@@ -9510,12 +9536,14 @@ do_show_lan_resource_worker_commands() {
     deploy_token_values
     deploy_ensure_resource_token
     print_title "LAN Worker 资源任务 Worker"
-    echo "在 LAN Worker 机器上执行；只负责轮询和上传 iplist/ipdb 资源任务。"
+    echo "在 LAN Worker 机器上执行；只负责轮询、领取和上传 iplist/ipdb 资源任务。"
+    echo "资源任务创建周期在 PO0 端设置：内网资源更新任务 -> 安装 / 更新 PO0 定时创建。"
+    echo "--install-cron 5 只安装 Worker 本机轮询器，不决定资源更新频率。"
     echo ""
     printf '  curl -fsSL %s | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script %s --resource-token %s --install-cron 5\n' \
         "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${DEPLOY_RESOURCE_TOKEN}")"
     echo ""
-    echo "只探测，不写配置、不安装 cron："
+    echo "只探测，不写配置、不安装 Worker 轮询器："
     printf '  curl -fsSL %s | bash -s -- --probe --po0-host <PO0_HOST> --po0-script %s --resource-token %s\n' \
         "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${DEPLOY_RESOURCE_TOKEN}")"
 }
@@ -9525,6 +9553,7 @@ do_show_lan_ddns_worker_commands() {
     deploy_token_values
     print_title "LAN Worker DDNS 解析"
     echo "在 LAN Worker 机器上执行；LAN Worker 解析 DDNS 后通过 SSH 上报 PO0。"
+    echo "--install-cron 5 安装的是 Worker 本机自动运行器，用于定期 DDNS 上报。"
     echo ""
     printf '  curl -fsSL %s | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script %s --source-key <DDNS_SOURCE_KEY> --ddns-domain <DDNS_DOMAIN> --token %s --install-cron 5\n' \
         "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${DEPLOY_DDNS_TOKEN}")"
@@ -10536,22 +10565,23 @@ do_manage_resource_tasks() {
     while true; do
         print_title "内网资源更新任务"
         print_resource_data_overview
+        printf '职责说明 : PO0 端定时创建任务；LAN Worker 定期轮询、领取、执行并回传结果。\n'
         if token="$(resource_task_token_value 2>/dev/null)"; then
             printf '任务 Token : %s\n' "${token}"
             print_lan_worker_resource_bootstrap_example "${token}"
         else
             printf '任务 Token : 未生成\n'
         fi
-        printf '定时创建 : '
+        printf 'PO0 定时创建 : '
         print_resource_task_cron_summary
         print_menu_section "查看与创建"
         print_menu_pair 1 "查看任务和结果" 2 "创建 iplist 更新任务"
         print_menu_pair 3 "创建 qqwry.ipdb 更新任务" 4 "创建全部更新任务"
         print_menu_section "队列维护"
         print_menu_pair 5 "重新排队失败 / 执行中任务" 6 "取消未完成任务"
-        print_menu_section "Token 与定时"
-        print_menu_pair 7 "生成 / 重置任务 Token" 8 "安装 / 更新定时创建"
-        print_menu_item 9 "删除定时创建任务"
+        print_menu_section "Token 与 PO0 定时创建"
+        print_menu_pair 7 "生成 / 重置任务 Token" 8 "安装 / 更新 PO0 定时创建"
+        print_menu_item 9 "删除 PO0 定时创建"
         print_menu_section "退出"
         print_menu_item 0 "返回"
         read -r -p "请选择操作 [0-9]: " choice
@@ -10597,7 +10627,7 @@ do_manage_resource_tasks() {
                 pause_before_return
                 ;;
             9)
-                confirm_yes "确认删除资源任务定时创建 cron" && remove_resource_task_cron
+                confirm_yes "确认删除 PO0 资源任务定时创建 cron" && remove_resource_task_cron
                 pause_before_return
                 ;;
             0)
@@ -11090,6 +11120,8 @@ print_cli_usage() {
         "                   安装/更新 PO0 端定时创建任务。默认 daily；CRON_EXPR 需整体加引号；管道运行时会自动落盘。" \
         "  --remove-resource-task-cron" \
         "                   删除 PO0 端资源任务定时创建 cron。" \
+        "  --resource-task-cron-status" \
+        "                   只读输出 PO0 端资源任务定时创建状态，供 LAN Worker 菜单展示。" \
         "" \
         "内网资源任务接口（供 Worker 调用）:" \
         "  --resource-task-ping <token>" \
@@ -11276,6 +11308,10 @@ case "${1:-}" in
         ;;
     --remove-resource-task-cron)
         remove_resource_task_cron
+        exit $?
+        ;;
+    --resource-task-cron-status)
+        do_resource_task_cron_status_cli
         exit $?
         ;;
     --resource-task-ping)
