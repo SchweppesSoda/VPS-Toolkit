@@ -182,13 +182,13 @@ Windows：
 $env:PO0_LAN_WORKER_URL='<LAN_WORKER_REPORT_URL>'; $env:PO0_SELF_REPORT_SOURCE='<CLIENT_ID>'; $env:PO0_SELF_REPORT_SECRET='<SELF_REPORT_SECRET>'; $env:INSTALL_TASK='1'; $env:MINUTES='5'; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-outbound-ip-report.ps1' | iex
 ```
 
-self-report client 查询公网 IPv4 的默认顺序是 `https://ip9.com.cn/get`、`https://myip.ipip.net/json`、`http://ip-api.com/json/?lang=zh-CN`，再 fallback 到 `api.ipify.org`、`ipv4.icanhazip.com`、`ifconfig.co`。
+self-report client 查询公网 IPv4 会按默认列表轮询：`https://ip9.com.cn/get`、163 邮箱、Bilibili、126、腾讯新闻、爱奇艺、央视、12306、`https://myip.ipip.net/json`。脚本会记住上次使用位置，下次从下一个接口开始；默认不再使用 `ip-api`、`ipify`、`icanhazip`、`ifconfig.co`。
 
 ## Egern 当前出口 IP 上报
 
 Egern 模块不是 DDNS 模块。它的逻辑是：
 
-1. 用 `DIRECT` 请求 `IP_CHECK_URL` 获取手机当前出口 IPv4，默认接口是 `https://myip.ipip.net/json`。
+1. 用 `DIRECT` 轮询 IP 查询接口获取手机当前出口 IPv4，默认列表从 `https://ip9.com.cn/get` 开始，后续是国内接口和 `myip.ipip.net`。
 2. 通过一次性 SSH 调 PO0：
 
 ```bash

@@ -32,7 +32,8 @@ https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nft
 - `REPORT_NAME`：来源 ID，例如 `iphone`、`ipad-cellular`。
 - `REPORT_TOKEN`：PO0 端生成的 Client IP 上报 token。
 - `TTL_SECONDS`：默认 `3600`。
-- `IP_CHECK_URL`：默认 `https://ip9.com.cn/get`；脚本会 fallback 到 `https://myip.ipip.net/json`、`http://ip-api.com/json/?lang=zh-CN`、`api.ipify.org` 等接口。
+- `IP_CHECK_URL`：默认 `https://ip9.com.cn/get`；脚本会在 IP9、163、Bilibili、126、腾讯新闻、爱奇艺、央视、12306、`myip.ipip.net` 之间轮询，并从响应里提取第一个公网 IPv4。默认不再使用 `ip-api`、`ipify`、`icanhazip`、`ifconfig.co`。
+- `IP_CHECK_URLS`：可用逗号分隔的 URL 覆盖默认轮询列表；脚本会记住上次起点，下次从下一个接口开始。
 - `POLICY`：默认 `DIRECT`，用于确保查到的是当前设备真实出口 IP，而不是代理落地 IP。
 
 ## 多 PO0 上报

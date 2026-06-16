@@ -44,10 +44,10 @@ env_schema:
   IP_CHECK_URL:
     name: IPv4 check URL
     default_value: https://ip9.com.cn/get
-    description: First IPv4 check URL. The script falls back to myip.ipip.net, ip-api, ipify, icanhazip, and ifconfig.co.
+    description: First IPv4 check URL. The script rotates through IP9, domestic APIs, and myip.ipip.net by default.
   IP_CHECK_URLS:
     name: IPv4 check URL list
-    description: Optional comma-separated override for the full fallback list.
+    description: Optional comma-separated override for the full rotating URL list.
   POLICY:
     name: Egern policy
     default_value: DIRECT

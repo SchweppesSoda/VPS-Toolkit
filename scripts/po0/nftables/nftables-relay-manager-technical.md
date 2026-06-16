@@ -632,7 +632,7 @@ Worker 的 `resource-stats.tsv` 每个 PO0 端点只保留一行累计统计，�
 Egern 不再承担 DDNS 解析。它只做移动设备当前出口 IPv4 上报：
 
 ```text
-Egern 用 DIRECT 请求 IP_CHECK_URL，默认 `https://myip.ipip.net/json`，得到当前公网 IPv4
+Egern 用 DIRECT 轮询 IP 查询接口，默认列表为 IP9/163/Bilibili/126/腾讯新闻/爱奇艺/央视/12306/myip.ipip；脚本会记住上次起点，下次从下一个接口开始，从响应里提取当前公网 IPv4
 Egern 通过一次性 SSH 调 PO0 --client-ip-report
 PO0 写 entries.tsv：source_type=client_ip
 成功后重建并应用白名单

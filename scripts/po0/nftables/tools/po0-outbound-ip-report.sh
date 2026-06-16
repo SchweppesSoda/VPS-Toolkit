@@ -34,11 +34,14 @@ Options:
 
 Default IP check order:
   https://ip9.com.cn/get
+  https://mail.163.com/fgw/mailsrv-ipdetail/detail
+  https://api.live.bilibili.com/client/v1/Ip/getInfoNew
+  https://ipservice.ws.126.net/locate/api/getLocByIp
+  https://r.inews.qq.com/api/ip2city?otype=json
+  https://data.video.iqiyi.com/v.f4v
+  https://ip.apps.cntv.cn/whereis?client=json
+  https://exservice.12306.cn/excater/bonree/grip
   https://myip.ipip.net/json
-  http://ip-api.com/json/?lang=zh-CN
-  https://api.ipify.org?format=json
-  https://ipv4.icanhazip.com
-  https://ifconfig.co/ip
 EOF
 }
 
@@ -97,25 +100,61 @@ fetch_url_no_proxy() {
     return 1
 }
 
+ip_check_state_file() {
+    if [[ -n "${XDG_STATE_HOME:-}" ]]; then
+        printf '%s\n' "${XDG_STATE_HOME}/po0-self-report/ip-check-index"
+    elif [[ -n "${HOME:-}" ]]; then
+        printf '%s\n' "${HOME}/.local/state/po0-self-report/ip-check-index"
+    else
+        printf '%s\n' "/tmp/po0-self-report-ip-check-index"
+    fi
+}
+
+read_ip_check_index() {
+    local count="$1" state raw
+    [[ "${count}" =~ ^[0-9]+$ && "${count}" -gt 0 ]] || { printf '0\n'; return 0; }
+    state="$(ip_check_state_file)"
+    raw="$(cat "${state}" 2>/dev/null | tr -cd '0-9' || true)"
+    [[ -n "${raw}" ]] || raw="0"
+    printf '%s\n' "$((raw % count))"
+}
+
+write_ip_check_index() {
+    local count="$1" index="$2" state dir
+    [[ "${count}" =~ ^[0-9]+$ && "${count}" -gt 0 ]] || return 0
+    [[ "${index}" =~ ^[0-9]+$ ]] || index="0"
+    state="$(ip_check_state_file)"
+    dir="$(dirname "${state}")"
+    mkdir -p "${dir}" 2>/dev/null || true
+    printf '%s\n' "$((index % count))" > "${state}" 2>/dev/null || true
+}
+
 detect_outbound_ipv4() {
-    local urls raw url ip
+    local urls raw url ip start i idx count
     local -a url_array=()
     if [[ -n "${IP_CHECK_URLS}" ]]; then
         urls="${IP_CHECK_URLS}"
     else
-        urls="${IP_CHECK_URL},https://myip.ipip.net/json,http://ip-api.com/json/?lang=zh-CN,https://api.ipify.org?format=json,https://ipv4.icanhazip.com,https://ifconfig.co/ip"
+        urls="${IP_CHECK_URL},https://mail.163.com/fgw/mailsrv-ipdetail/detail,https://api.live.bilibili.com/client/v1/Ip/getInfoNew,https://ipservice.ws.126.net/locate/api/getLocByIp,https://r.inews.qq.com/api/ip2city?otype=json,https://data.video.iqiyi.com/v.f4v,https://ip.apps.cntv.cn/whereis?client=json,https://exservice.12306.cn/excater/bonree/grip,https://myip.ipip.net/json"
     fi
     IFS=',' read -r -a url_array <<< "${urls}"
-    for url in "${url_array[@]}"; do
+    count="${#url_array[@]}"
+    [[ "${count}" -gt 0 ]] || return 1
+    start="$(read_ip_check_index "${count}")"
+    for ((i = 0; i < count; i++)); do
+        idx=$(((start + i) % count))
+        url="${url_array[$idx]}"
         url="$(trim "${url}")"
         [[ -n "${url}" ]] || continue
         raw="$(fetch_url_no_proxy "${url}" 2>/dev/null || true)"
         ip="$(extract_first_public_ipv4 "${raw}" 2>/dev/null || true)"
         if [[ -n "${ip}" ]]; then
+            write_ip_check_index "${count}" "$(((idx + 1) % count))"
             printf '%s\n' "${ip}"
             return 0
         fi
     done
+    write_ip_check_index "${count}" "$(((start + 1) % count))"
     return 1
 }
 

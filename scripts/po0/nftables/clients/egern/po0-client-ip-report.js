@@ -1,4 +1,5 @@
 const STORAGE_KEY = 'po0-client-ip-report:last';
+const IP_CHECK_INDEX_KEY = 'po0-client-ip-report:ip-check-index';
 
 function required(env, key) {
   const value = String(env[key] || '').trim();
@@ -36,6 +37,20 @@ function extractIPv4FromText(text) {
     }
   }
   return ips;
+}
+
+function defaultIpCheckUrls(env) {
+  return [
+    env.IP_CHECK_URL || 'https://ip9.com.cn/get',
+    'https://mail.163.com/fgw/mailsrv-ipdetail/detail',
+    'https://api.live.bilibili.com/client/v1/Ip/getInfoNew',
+    'https://ipservice.ws.126.net/locate/api/getLocByIp',
+    'https://r.inews.qq.com/api/ip2city?otype=json',
+    'https://data.video.iqiyi.com/v.f4v',
+    'https://ip.apps.cntv.cn/whereis?client=json',
+    'https://exservice.12306.cn/excater/bonree/grip',
+    'https://myip.ipip.net/json',
+  ].filter(Boolean);
 }
 
 async function responseText(resp) {
@@ -82,23 +97,22 @@ async function detectCurrentIPv4WithFallback(ctx, env, policy) {
     .map((url) => url.trim())
     .filter(Boolean);
   if (urls.length === 0) {
-    urls.push(
-      env.IP_CHECK_URL || 'https://ip9.com.cn/get',
-      'https://myip.ipip.net/json',
-      'http://ip-api.com/json/?lang=zh-CN',
-      'https://api.ipify.org?format=json',
-      'https://ipv4.icanhazip.com',
-      'https://ifconfig.co/ip',
-    );
+    urls.push(...defaultIpCheckUrls(env));
   }
+  const start = await storageIndex(ctx, IP_CHECK_INDEX_KEY, urls.length);
   const errors = [];
-  for (const url of urls) {
+  for (let i = 0; i < urls.length; i += 1) {
+    const index = (start + i) % urls.length;
+    const url = urls[index];
     try {
-      return await detectCurrentIPv4(ctx, url, policy);
+      const ip = await detectCurrentIPv4(ctx, url, policy);
+      await storageSet(ctx, IP_CHECK_INDEX_KEY, String((index + 1) % urls.length));
+      return ip;
     } catch (error) {
       errors.push(`${url}: ${error?.message || error}`);
     }
   }
+  await storageSet(ctx, IP_CHECK_INDEX_KEY, String((start + 1) % urls.length));
   throw new Error(`All IP checks failed: ${errors.join('; ')}`);
 }
 
@@ -140,6 +154,23 @@ async function storageSet(ctx, key, value) {
   if (typeof storage.set === 'function') return await storage.set(key, value);
   if (typeof storage.setItem === 'function') return await storage.setItem(key, value);
   if (typeof storage.write === 'function') return await storage.write(key, value);
+}
+
+async function storageGet(ctx, key) {
+  const storage = ctx?.storage;
+  if (!storage) return null;
+  if (typeof storage.get === 'function') return await storage.get(key);
+  if (typeof storage.getItem === 'function') return await storage.getItem(key);
+  if (typeof storage.read === 'function') return await storage.read(key);
+  return null;
+}
+
+async function storageIndex(ctx, key, length) {
+  if (!Number.isFinite(length) || length <= 0) return 0;
+  const raw = await storageGet(ctx, key);
+  const index = Number.parseInt(String(raw ?? ''), 10);
+  if (!Number.isFinite(index) || index < 0) return 0;
+  return index % length;
 }
 
 function notify(ctx, title, body) {

@@ -45,11 +45,14 @@ Options:
 
 Default IP check order:
   https://ip9.com.cn/get
+  https://mail.163.com/fgw/mailsrv-ipdetail/detail
+  https://api.live.bilibili.com/client/v1/Ip/getInfoNew
+  https://ipservice.ws.126.net/locate/api/getLocByIp
+  https://r.inews.qq.com/api/ip2city?otype=json
+  https://data.video.iqiyi.com/v.f4v
+  https://ip.apps.cntv.cn/whereis?client=json
+  https://exservice.12306.cn/excater/bonree/grip
   https://myip.ipip.net/json
-  http://ip-api.com/json/?lang=zh-CN
-  https://api.ipify.org?format=json
-  https://ipv4.icanhazip.com
-  https://ifconfig.co/ip
 "@
 }
 
@@ -91,29 +94,77 @@ function Invoke-HttpNoProxy {
     }
 }
 
+function Get-IpCheckStatePath {
+    if ($env:LOCALAPPDATA) {
+        return (Join-Path $env:LOCALAPPDATA "PO0\self-report-ip-check-index.txt")
+    }
+    if ($env:TEMP) {
+        return (Join-Path $env:TEMP "po0-self-report-ip-check-index.txt")
+    }
+    return "po0-self-report-ip-check-index.txt"
+}
+
+function Get-IpCheckIndex {
+    param([int]$Count)
+    if ($Count -le 0) { return 0 }
+    $path = Get-IpCheckStatePath
+    try {
+        if (Test-Path -LiteralPath $path) {
+            $raw = (Get-Content -LiteralPath $path -Raw) -replace "[^\d]", ""
+            if ($raw) { return ([int]$raw % $Count) }
+        }
+    } catch {}
+    return 0
+}
+
+function Set-IpCheckIndex {
+    param([int]$Index, [int]$Count)
+    if ($Count -le 0) { return }
+    $path = Get-IpCheckStatePath
+    try {
+        $dir = Split-Path -Parent $path
+        if ($dir -and -not (Test-Path -LiteralPath $dir)) {
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        }
+        Set-Content -LiteralPath $path -Value ([string]($Index % $Count)) -Encoding ASCII
+    } catch {}
+}
+
 function Get-OutboundIPv4 {
     $urls = @()
     if ($IpCheckUrls.Count -gt 0) {
         $urls += $IpCheckUrls
     } else {
         $urls += $IpCheckUrl
+        $urls += "https://mail.163.com/fgw/mailsrv-ipdetail/detail"
+        $urls += "https://api.live.bilibili.com/client/v1/Ip/getInfoNew"
+        $urls += "https://ipservice.ws.126.net/locate/api/getLocByIp"
+        $urls += "https://r.inews.qq.com/api/ip2city?otype=json"
+        $urls += "https://data.video.iqiyi.com/v.f4v"
+        $urls += "https://ip.apps.cntv.cn/whereis?client=json"
+        $urls += "https://exservice.12306.cn/excater/bonree/grip"
         $urls += "https://myip.ipip.net/json"
-        $urls += "http://ip-api.com/json/?lang=zh-CN"
-        $urls += "https://api.ipify.org?format=json"
-        $urls += "https://ipv4.icanhazip.com"
-        $urls += "https://ifconfig.co/ip"
     }
-    foreach ($url in $urls) {
+    $count = $urls.Count
+    if ($count -le 0) { throw "No IP check URLs configured." }
+    $start = Get-IpCheckIndex -Count $count
+    for ($i = 0; $i -lt $count; $i++) {
+        $idx = ($start + $i) % $count
+        $url = $urls[$idx]
         $cleanUrl = ($url | Out-String).Trim()
         if (-not $cleanUrl) { continue }
         try {
             $body = Invoke-HttpNoProxy -Url $cleanUrl
             $ip = Get-FirstPublicIPv4FromText -Text $body
-            if ($ip) { return $ip }
+            if ($ip) {
+                Set-IpCheckIndex -Index (($idx + 1) % $count) -Count $count
+                return $ip
+            }
         } catch {
             Write-Verbose "IP check failed for ${cleanUrl}: $($_.Exception.Message)"
         }
     }
+    Set-IpCheckIndex -Index (($start + 1) % $count) -Count $count
     throw "Could not detect current outbound public IPv4."
 }
 
