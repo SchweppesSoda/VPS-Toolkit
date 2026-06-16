@@ -403,31 +403,41 @@ safe_filename_token() {
     printf '%s\n' "${value}"
 }
 
-read_private_key_paste() {
-    local line key="" seen_begin=0 seen_end=0
-    if [[ -w /dev/tty ]]; then
-        printf '请粘贴 SSH 私钥，粘贴到 END ... PRIVATE KEY 行后会自动结束；空输入取消。\n' > /dev/tty
-    else
-        printf '请粘贴 SSH 私钥，粘贴到 END ... PRIVATE KEY 行后会自动结束；空输入取消。\n' >&2
-    fi
+is_private_key_begin_line() {
+    case "$1" in
+        -----BEGIN\ *PRIVATE\ KEY-----) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+is_private_key_end_line() {
+    case "$1" in
+        -----END\ *PRIVATE\ KEY-----) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+read_private_key_from_first_line() {
+    local line="$1"
+    local key="" seen_begin=0 seen_end=0
     while true; do
-        if [[ -r /dev/tty && -w /dev/tty ]]; then
-            IFS= read -r line < /dev/tty || return 1
-        else
-            IFS= read -r line || return 1
-        fi
         if [[ -z "${line}" && "${seen_begin}" == "0" ]]; then
             printf '未读取到私钥内容。\n' >&2
             return 1
         fi
         key+="${line}"$'\n'
-        case "${line}" in
-            -----BEGIN\ *PRIVATE\ KEY-----) seen_begin=1 ;;
-            -----END\ *PRIVATE\ KEY-----)
-                seen_end=1
-                break
-                ;;
-        esac
+        if is_private_key_begin_line "${line}"; then
+            seen_begin=1
+        fi
+        if is_private_key_end_line "${line}"; then
+            seen_end=1
+            break
+        fi
+        if [[ -r /dev/tty && -w /dev/tty ]]; then
+            IFS= read -r line < /dev/tty || return 1
+        else
+            IFS= read -r line || return 1
+        fi
     done
     [[ "${seen_begin}" == "1" && "${seen_end}" == "1" ]] || {
         printf '私钥内容不完整。\n' >&2
@@ -436,18 +446,33 @@ read_private_key_paste() {
     printf '%s' "${key}"
 }
 
-save_pasted_ssh_key() {
+read_private_key_paste() {
+    local line
+    if [[ -w /dev/tty ]]; then
+        printf '请粘贴 SSH 私钥，粘贴到 END ... PRIVATE KEY 行后会自动结束；空输入取消。\n' > /dev/tty
+    else
+        printf '请粘贴 SSH 私钥，粘贴到 END ... PRIVATE KEY 行后会自动结束；空输入取消。\n' >&2
+    fi
+    if [[ -r /dev/tty && -w /dev/tty ]]; then
+        IFS= read -r line < /dev/tty || return 1
+    else
+        IFS= read -r line || return 1
+    fi
+    read_private_key_from_first_line "${line}"
+}
+
+save_ssh_key_content() {
     local host="$1"
     local port="$2"
     local user="$3"
-    local dir key_path key host_token port_token user_token old_umask
+    local key="$4"
+    local dir key_path host_token port_token user_token old_umask
     ensure_config_file || return 1
     dir="$(path_dirname "${CONFIG_FILE}")"
     host_token="$(safe_filename_token "${host}")"
     port_token="$(safe_filename_token "${port:-22}")"
     user_token="$(safe_filename_token "${user:-root}")"
     key_path="${dir}/ssh-key-${user_token}-${host_token}-${port_token}"
-    key="$(read_private_key_paste)" || return 1
     if [[ -e "${key_path}" ]]; then
         prompt_yes_no "私钥文件已存在，是否覆盖：${key_path}" "n" || return 1
     fi
@@ -460,6 +485,32 @@ save_pasted_ssh_key() {
     umask "${old_umask}"
     chmod 600 "${key_path}" 2>/dev/null || true
     printf '%s\n' "${key_path}"
+}
+
+save_pasted_ssh_key() {
+    local host="$1"
+    local port="$2"
+    local user="$3"
+    local key
+    key="$(read_private_key_paste)" || return 1
+    save_ssh_key_content "${host}" "${port}" "${user}" "${key}"
+}
+
+prompt_ssh_key_path_or_paste() {
+    local prompt="$1"
+    local default="$2"
+    local host="$3"
+    local port="$4"
+    local user="$5"
+    local value key
+    value="$(prompt_default "${prompt}" "${default}")"
+    if is_private_key_begin_line "${value}"; then
+        printf '[WARN] 检测到你把私钥内容粘贴到了“路径”输入框，正在继续读取剩余私钥内容并保存。\n' >&2
+        key="$(read_private_key_from_first_line "${value}")" || return 1
+        save_ssh_key_content "${host}" "${port}" "${user}" "${key}"
+        return 0
+    fi
+    printf '%s\n' "${value}"
 }
 
 ssh_extra_identity_path() {
@@ -1363,7 +1414,7 @@ manage_target_ssh_interactive() {
     choice="$(prompt_default "请选择" "0")"
     case "${choice}" in
         1)
-            new_key_path="$(prompt_default "SSH 私钥路径（路径不要含空格）" "${key_path}")"
+            new_key_path="$(prompt_ssh_key_path_or_paste "SSH 私钥路径（路径不要含空格；如要粘贴私钥请选 2）" "${key_path}" "${po0_host}" "${po0_port}" "${po0_user}")"
             new_extra="$(ssh_extra_with_identity "${extra}" "${new_key_path}")"
             ;;
         2)
@@ -1390,6 +1441,62 @@ manage_target_ssh_interactive() {
     fi
     update_target_ssh_args_by_index "${selected}" "${new_extra}" "${old_extra}" "${update_report_extra}" || return 1
     printf '已更新目标 %s 的 SSH 连接配置。\n' "${selected}"
+}
+
+update_target_tokens_by_index() {
+    local selected="$1"
+    local ddns_token="$2"
+    local resource_token="$3"
+    local client_ip_token="$4"
+    local webauth_token="$5"
+    local line idx=0 tmp
+    ensure_config_file || return 1
+    tmp="${CONFIG_FILE}.tmp.$$"
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        if ! parse_target_line "${line}"; then
+            printf '%s\n' "${line}" >> "${tmp}"
+            continue
+        fi
+        ((idx++))
+        if [[ "${idx}" == "${selected}" ]]; then
+            TARGET_TOKEN="$(sanitize_field "${ddns_token}")"
+            TARGET_RESOURCE_TOKEN="$(sanitize_field "${resource_token}")"
+            TARGET_CLIENT_IP_TOKEN="$(sanitize_field "${client_ip_token}")"
+            TARGET_WEBAUTH_TOKEN="$(sanitize_field "${webauth_token}")"
+        fi
+        printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
+            "${TARGET_ENABLED}" "${TARGET_LABEL}" "${TARGET_DOMAIN}" "${TARGET_REPORT_KEY}" "${TARGET_PO0_HOST}" "${TARGET_PO0_PORT}" "${TARGET_PO0_USER}" "${TARGET_PO0_SCRIPT}" "${TARGET_TOKEN}" "${TARGET_SSH_EXTRA_ARGS}" "${TARGET_RESOURCE_TOKEN}" "${TARGET_REPORT_MODE}" "${TARGET_DDNS_RESOLVE_DOMAIN}" "${TARGET_CLIENT_IP_TOKEN}" "${TARGET_CLIENT_IP_SOURCE}" "${TARGET_CLIENT_IP_TTL}" "${TARGET_WEBAUTH_TOKEN}" "${TARGET_WEBAUTH_SOURCE}" "${TARGET_WEBAUTH_TTL}" "${TARGET_REPORT_SSH_EXTRA_ARGS}" >> "${tmp}"
+    done < "${CONFIG_FILE}"
+    replace_config_from_tmp "${tmp}"
+}
+
+manage_target_tokens_interactive() {
+    local selected line idx=0
+    local ddns_token resource_token client_ip_token webauth_token
+    select_target_index || return 1
+    selected="${SELECTED_TARGET_INDEX}"
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        parse_target_line "${line}" || continue
+        ((idx++))
+        if [[ "${idx}" == "${selected}" ]]; then
+            ddns_token="${TARGET_TOKEN}"
+            resource_token="${TARGET_RESOURCE_TOKEN}"
+            client_ip_token="${TARGET_CLIENT_IP_TOKEN}"
+            webauth_token="${TARGET_WEBAUTH_TOKEN}"
+            break
+        fi
+    done < "${CONFIG_FILE}"
+    printf '\n目标 Token 维护；直接回车保留当前值，输入 - 可清空。\n'
+    ddns_token="$(prompt_default "DDNS 来源上报 Token" "${ddns_token}")"
+    resource_token="$(prompt_default "资源任务 Token" "${resource_token}")"
+    client_ip_token="$(prompt_default "Self-report client-ip Token" "${client_ip_token}")"
+    webauth_token="$(prompt_default "WebAuth Token" "${webauth_token}")"
+    [[ "${ddns_token}" == "-" ]] && ddns_token=""
+    [[ "${resource_token}" == "-" ]] && resource_token=""
+    [[ "${client_ip_token}" == "-" ]] && client_ip_token=""
+    [[ "${webauth_token}" == "-" ]] && webauth_token=""
+    update_target_tokens_by_index "${selected}" "${ddns_token}" "${resource_token}" "${client_ip_token}" "${webauth_token}" || return 1
+    printf '已更新目标 %s 的 Token。\n' "${selected}"
 }
 
 report_once() {
@@ -1527,13 +1634,22 @@ po0_lan_wizard() {
     PO0_PORT="$(prompt_default "PO0 SSH 端口" "${PO0_PORT:-22}")"
     PO0_USER="$(prompt_default "PO0 SSH 用户" "${PO0_USER:-root}")"
     PO0_SCRIPT="$(prompt_default "PO0 管理脚本路径" "${PO0_SCRIPT:-${DEFAULT_PO0_SCRIPT}}")"
-    key_path="$(prompt_default "SSH 私钥路径，可空；如要粘贴私钥请直接回车" "")"
-    if [[ -z "$(trim "${key_path}")" ]]; then
-        if prompt_yes_no "是否粘贴 SSH 私钥并保存到本机文件" "n"; then
+    printf '%s\n' "SSH 认证方式："
+    printf '%s\n' "  1) 使用系统默认 SSH 配置/agent"
+    printf '%s\n' "  2) 填写私钥文件路径"
+    printf '%s\n' "  3) 粘贴私钥并保存到本机"
+    case "$(prompt_default "请选择" "1")" in
+        2)
+            key_path="$(prompt_ssh_key_path_or_paste "SSH 私钥路径（路径不要含空格）" "" "${PO0_HOST}" "${PO0_PORT}" "${PO0_USER}")"
+            ;;
+        3)
             key_path="$(save_pasted_ssh_key "${PO0_HOST}" "${PO0_PORT}" "${PO0_USER}")" || return 1
             printf '[OK] 已保存 SSH 私钥：%s\n' "${key_path}"
-        fi
-    fi
+            ;;
+        *)
+            key_path=""
+            ;;
+    esac
     extra="$(prompt_default "额外 SSH 参数，可空（不是私钥短语；例如 -J jump-host 或 -o StrictHostKeyChecking=accept-new）" "${SSH_EXTRA_ARGS}")"
     SSH_EXTRA_ARGS="$(build_batchmode_ssh_extra_args "${key_path}" "${extra}")" || return 1
 
@@ -2949,31 +3065,32 @@ menu_loop() {
         printf '\n%s\n' "概览"
         printf '%s\n' "  1) 查看上报目标和统计"
         printf '%s\n' "  2) 查看资源任务统计"
-        printf '\n%s\n' "目标 / SSH 连接"
+        printf '\n%s\n' "PO0 目标 / SSH / Token"
         printf '%s\n' "  3) 添加 PO0 目标"
         printf '%s\n' "  4) 编辑 PO0 目标"
         printf '%s\n' "  5) 管理目标 SSH 私钥 / 参数"
-        printf '%s\n' "  6) 删除 PO0 目标"
-        printf '%s\n' "  7) 启用 / 停用 PO0 目标"
-        printf '\n%s\n' "DDNS resolver"
-        printf '%s\n' "  8) 立即执行 DDNS 解析上报"
+        printf '%s\n' "  6) 管理目标 Token"
+        printf '%s\n' "  7) 删除 PO0 目标"
+        printf '%s\n' "  8) 启用 / 停用 PO0 目标"
         printf '\n%s\n' "资源任务"
         printf '%s\n' "  9) 查看资源任务统计"
         printf '%s\n' " 10) 立即领取并执行资源任务"
+        printf '\n%s\n' "DDNS resolver"
+        printf '%s\n' " 11) 立即执行 DDNS 解析上报"
         printf '\n%s\n' "设备自上报"
-        printf '%s\n' " 11) Self-report probe"
-        printf '%s\n' " 12) 启动 Self-report 本地服务"
+        printf '%s\n' " 12) Self-report probe"
+        printf '%s\n' " 13) 启动 Self-report 本地服务"
         printf '\n%s\n' "WebAuth 放行"
-        printf '%s\n' " 13) WebAuth probe"
-        printf '%s\n' " 14) 启动 WebAuth 本地服务"
-        printf '%s\n' " 15) WebAuth / Cloudflare Access 配置提示"
+        printf '%s\n' " 14) WebAuth probe"
+        printf '%s\n' " 15) 启动 WebAuth 本地服务"
+        printf '%s\n' " 16) WebAuth / Cloudflare Access 配置提示"
         printf '\n%s\n' "维护"
-        printf '%s\n' " 16) 安装 / 更新定时任务"
-        printf '%s\n' " 17) 删除定时任务"
-        printf '%s\n' " 18) 查看定时任务状态"
-        printf '%s\n' " 19) 清空本机 DDNS 解析上报统计"
+        printf '%s\n' " 17) 安装 / 更新定时任务"
+        printf '%s\n' " 18) 删除定时任务"
+        printf '%s\n' " 19) 查看定时任务状态"
+        printf '%s\n' " 20) 清空本机 DDNS 解析上报统计"
         printf '%s\n' "  0) 退出"
-        if ! choice="$(read_prompt "请选择操作 [0-19]: ")"; then
+        if ! choice="$(read_prompt "请选择操作 [0-20]: ")"; then
             printf '\n输入结束，退出菜单。\n'
             return 0
         fi
@@ -2984,20 +3101,21 @@ menu_loop() {
             3) add_target_interactive ;;
             4) edit_target_interactive ;;
             5) manage_target_ssh_interactive ;;
-            6) delete_target_interactive ;;
-            7) toggle_target_interactive ;;
-            8) run_config_targets ;;
+            6) manage_target_tokens_interactive ;;
+            7) delete_target_interactive ;;
+            8) toggle_target_interactive ;;
             9) list_resource_stats ;;
             10) run_resource_targets ;;
-            11) probe_self_report_target ;;
-            12) run_self_report_server ;;
-            13) probe_webauth_target ;;
-            14) run_webauth_server ;;
-            15) show_webauth_cloudflare_guide ;;
-            16) install_cron_interactive ;;
-            17) remove_cron_interactive ;;
-            18) show_cron_status ;;
-            19) clear_stats_interactive ;;
+            11) run_config_targets ;;
+            12) probe_self_report_target ;;
+            13) run_self_report_server ;;
+            14) probe_webauth_target ;;
+            15) run_webauth_server ;;
+            16) show_webauth_cloudflare_guide ;;
+            17) install_cron_interactive ;;
+            18) remove_cron_interactive ;;
+            19) show_cron_status ;;
+            20) clear_stats_interactive ;;
             0) return 0 ;;
             *) printf '无效选择。\n' >&2 ;;
         esac

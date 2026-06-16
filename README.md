@@ -46,7 +46,7 @@ ssh root@<PO0_HOST> 'chmod +x /root/nftables-relay-manager.sh && bash /root/nfta
 # PO0 LAN Worker, recommended interactive setup on the LAN Worker host.
 # The wizard can fetch tokens over key-based SSH to PO0, write local config,
 # and install the local po0-lan-client command. One wizard run configures one PO0 target.
-# For SSH auth, enter an existing private-key path or leave it empty and paste a dedicated key.
+# For SSH auth, choose the default SSH config/agent, enter a private-key path, or paste a dedicated key.
 # "Extra SSH args" are ssh options, not the key passphrase; passphrase-protected keys need ssh-agent.
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh | bash
 po0-lan-client --menu

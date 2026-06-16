@@ -27,7 +27,7 @@ LAN Worker 命令在内网 Worker 机器上执行，不在 PO0 上执行。DDNS 
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh | bash
 ```
 
-SSH 认证可填已有私钥路径；也可留空后粘贴专用私钥，向导会保存到本机配置目录并设置 600 权限。`额外 SSH 参数` 是传给 `ssh` 的选项，例如 `-J jump-host` 或 `-o StrictHostKeyChecking=accept-new`，不是私钥短语；带短语的私钥需要 `ssh-agent`。菜单里的 `目标 / SSH 连接` 用于添加、编辑、启停 PO0 目标和管理目标 SSH 私钥；`DDNS resolver` 与 `资源任务` 是分开的执行入口。
+SSH 认证按向导选择：系统默认 SSH 配置/agent、已有私钥路径，或粘贴专用私钥。粘贴的私钥会保存到本机配置目录并设置 600 权限。`额外 SSH 参数` 是传给 `ssh` 的选项，例如 `-J jump-host` 或 `-o StrictHostKeyChecking=accept-new`，不是私钥短语；带短语的私钥需要 `ssh-agent`。菜单里的 `PO0 目标 / SSH / Token` 用于添加、编辑、启停 PO0 目标，并管理目标 SSH 私钥和 Token；`资源任务` 与 `DDNS resolver` 是分开的执行入口，资源任务在前。
 
 初始化后常用本地命令：
 
@@ -187,7 +187,7 @@ office-sg|office.example.com|sg-po0.example.com|22|root|/root/nftables-relay-man
 po0-lan-client --run --ddns-targets 'home-sg|home.example.com|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|;home-us|home.example.com|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|'
 ```
 
-首次部署推荐运行 `po0-lan-client --wizard`。长期维护可进入 `po0-lan-client --menu`，在 `目标 / SSH 连接` 里查看、编辑、删除、启停 PO0 目标，并管理目标 SSH 私钥 / 参数；底层仍保存到本机配置文件，旧配置继续兼容。
+首次部署推荐运行 `po0-lan-client --wizard`。长期维护可进入 `po0-lan-client --menu`，在 `PO0 目标 / SSH / Token` 里查看、编辑、删除、启停 PO0 目标，并管理目标 SSH 私钥、SSH 参数和 Token；底层仍保存到本机配置文件，旧配置继续兼容。
 
 PO0 不做本地 DDNS 解析。`--refresh-ddns` 只会把已经由 LAN Worker/路由器上报、且仍在 TTL 内的结果重建/应用；它不会延长原上报 TTL：
 
