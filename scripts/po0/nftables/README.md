@@ -271,7 +271,7 @@ bash /root/nftables-relay-manager.sh --pending-auto-sources
 
 效果：
 
-- 新的 DDNS / Client IP / WebAuth 自动 IP 进入 pending，不直接放行。
+- 新的 DDNS / Client IP / WebAuth 自动 IP 进入待审核列表，不直接放行。
 - 已有有效 IP 如果仍被同一来源上报，可以续期。
 - 手动白名单和 SSH 临时白名单继续按菜单操作生效。
 

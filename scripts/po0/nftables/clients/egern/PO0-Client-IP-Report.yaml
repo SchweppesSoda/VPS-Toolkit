@@ -40,7 +40,7 @@ env_schema:
     default_value: "3600"
   PO0_TARGETS:
     name: Multiple PO0 targets
-    description: Optional. One target per line: source|host|port|user|script|token|identity|ttl. When set, the module reports the same current IPv4 to every target.
+    description: "Optional. One target per line: source|host|port|user|script|token|identity|ttl. When set, the module reports the same current IPv4 to every target."
   IP_CHECK_URL:
     name: IPv4 check URL
     default_value: https://ip9.com.cn/get

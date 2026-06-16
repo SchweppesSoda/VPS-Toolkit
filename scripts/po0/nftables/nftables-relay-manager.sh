@@ -5050,12 +5050,12 @@ print_src_allowlist_details() {
     else
         printf '白名单状态 : 关闭\n'
     fi
-    printf '自动来源   : %s\n' "$([[ "${AUTOMATION_MODE}" == "attack" ]] && printf 'attack（新自动 IP 进入 pending）' || printf 'regular')"
+    printf '自动白名单 : %s\n' "$([[ "${AUTOMATION_MODE}" == "attack" ]] && printf 'attack（新自动 IP 进入待审核）' || printf 'regular')"
     printf '允许来源   : %s\n' "$(src_allowlist_mode_default_sources "${SRC_ALLOWLIST_MODE}")"
     if [[ -s "${AUTO_PENDING_FILE}" ]]; then
-        printf 'Pending    : %s 条（%s）\n' "$(awk -F '|' 'NF >= 7 && $1 !~ /^#/ && $7 == "pending" { c++ } END { print c + 0 }' "${AUTO_PENDING_FILE}" 2>/dev/null)" "${AUTO_PENDING_FILE}"
+        printf '待审核 IP  : %s 条（%s）\n' "$(awk -F '|' 'NF >= 7 && $1 !~ /^#/ && $7 == "pending" { c++ } END { print c + 0 }' "${AUTO_PENDING_FILE}" 2>/dev/null)" "${AUTO_PENDING_FILE}"
     else
-        printf 'Pending    : 0 条\n'
+        printf '待审核 IP  : 0 条\n'
     fi
     printf '地区数量   : %s\n' "$(src_allowlist_region_count)"
     printf '自定义 CIDR: %s 条（%s）\n' "${custom_count}" "${CUSTOM_SRC_ALLOWLIST_FILE}"
@@ -8279,7 +8279,7 @@ do_report_client_ip_source() {
     enable_allowlist_for_custom_add
     apply_src_allowlist_changes || return 1
     if [[ "${DYNAMIC_REPORT_PENDING_COUNT:-0}" -gt 0 ]]; then
-        printf '客户端 IP 已记录为 pending（attack mode）：%s -> %s\n' "${CLIENT_IP_REPORT_SOURCE:-${source_id}}" "${CLIENT_IP_REPORT_IP:-${ip}}"
+        printf '客户端 IP 已记录为待审核（attack mode）：%s -> %s\n' "${CLIENT_IP_REPORT_SOURCE:-${source_id}}" "${CLIENT_IP_REPORT_IP:-${ip}}"
     else
         printf '客户端 IP 上报已接收：%s -> %s，TTL %ss\n' "${CLIENT_IP_REPORT_SOURCE:-${source_id}}" "${CLIENT_IP_REPORT_IP:-${ip}}" "${CLIENT_IP_REPORT_TTL:-${ttl}}"
     fi
@@ -8317,7 +8317,7 @@ do_report_webauth_source() {
     enable_allowlist_for_custom_add
     apply_src_allowlist_changes || return 1
     if [[ "${DYNAMIC_REPORT_PENDING_COUNT:-0}" -gt 0 ]]; then
-        printf 'WebAuth IP 已记录为 pending（attack mode）：%s -> %s identity=%s\n' "${WEBAUTH_REPORT_SOURCE:-${source_id}}" "${WEBAUTH_REPORT_IP:-${ip}}" "${WEBAUTH_REPORT_IDENTITY:-${identity}}"
+        printf 'WebAuth IP 已记录为待审核（attack mode）：%s -> %s identity=%s\n' "${WEBAUTH_REPORT_SOURCE:-${source_id}}" "${WEBAUTH_REPORT_IP:-${ip}}" "${WEBAUTH_REPORT_IDENTITY:-${identity}}"
     else
         printf 'WebAuth 上报已接收：%s -> %s identity=%s expires=%s\n' "${WEBAUTH_REPORT_SOURCE:-${source_id}}" "${WEBAUTH_REPORT_IP:-${ip}}" "${WEBAUTH_REPORT_IDENTITY:-${identity}}" "${WEBAUTH_REPORT_EXPIRES_AT:-${expires_at}}"
     fi
@@ -8346,11 +8346,12 @@ do_show_client_ip_report_token() {
     printf 'Token 文件 : %s\n' "${CLIENT_IP_REPORT_TOKEN_FILE}"
     printf 'Token      : %s\n' "${token}"
     echo ""
-    echo "Egern / 移动客户端上报示例："
+    echo "底层 SSH 命令示例（Egern 模块会自动执行，通常不需要手动敲）："
     printf '  bash %s --client-ip-report iphone 1.2.3.4 %s egern 3600\n' "$(basename "$0")" "${token}"
     echo ""
-    echo "Egern 模块 URL："
+    echo "Egern 实际用法：导入下面模块 URL，然后在模块环境变量里填写 PO0_HOST、REPORT_NAME、REPORT_TOKEN 等："
     printf '  %s\n' "${EGERN_CLIENT_IP_MODULE_RAW_URL}"
+    echo "  REPORT_TOKEN=${token}"
 }
 
 do_show_webauth_report_token() {
@@ -8376,7 +8377,7 @@ set_automation_mode() {
             AUTOMATION_MODE="attack"
             ;;
         *)
-            err "自动来源模式无效：${mode:-空}。可用值：regular、attack。"
+            err "自动白名单安全模式无效：${mode:-空}。可用值：regular、attack。"
             return 1
             ;;
     esac
@@ -8387,14 +8388,14 @@ set_automation_mode() {
         attack|on|freeze) AUTOMATION_MODE="attack" ;;
     esac
     save_settings || return 1
-    success "自动来源模式已切换为：${AUTOMATION_MODE}"
+    success "自动白名单安全模式已切换为：${AUTOMATION_MODE}"
 }
 
 do_list_pending_auto_sources() {
     ensure_layout || return 1
-    print_title "Pending 自动来源"
+    print_title "自动来源待审核 IP"
     if [[ ! -s "${AUTO_PENDING_FILE}" ]]; then
-        echo "  (暂无 pending 自动来源)"
+        echo "  (暂无待审核自动来源 IP)"
         return 0
     fi
     list_pending_auto_sources
@@ -8412,7 +8413,7 @@ do_compat_check() {
     printf '旧 custom 文件: %s 条\n' "$(custom_allowlist_count)"
     printf 'entries      : %s 条\n' "$(allowlist_entries_count)"
     printf 'DDNS sources : %s 个\n' "$(allowlist_sources_count)"
-    printf '自动来源模式 : %s\n' "${AUTOMATION_MODE}"
+    printf '自动白名单安全模式 : %s\n' "${AUTOMATION_MODE}"
     success "兼容性检查完成；未修改任何文件。"
 }
 
@@ -8554,11 +8555,11 @@ do_manage_automation_mode() {
     ensure_layout || return
     load_settings 1
     while true; do
-        print_title "自动来源模式"
+        print_title "自动白名单安全模式"
         printf '当前模式 : %s\n' "${AUTOMATION_MODE}"
         echo "  1) regular：自动来源新 IP 可直接进入白名单"
-        echo "  2) attack：新自动 IP 只进入 pending，不直接放行"
-        echo "  3) 查看 pending 自动来源"
+        echo "  2) attack：新自动 IP 只进入待审核，不直接放行"
+        echo "  3) 查看自动来源待审核 IP"
         echo "  0) 返回"
         read -r -p "请选择操作 [0-3]: " choice
         case "${choice}" in
@@ -9510,7 +9511,7 @@ do_manage_src_allowlist() {
         echo " 13) 压缩被阻挡访问日志"
         echo " 14) 清空被阻挡访问日志"
         echo " 15) 管理内网资源更新任务"
-        echo " 16) 管理自动来源模式 / pending"
+        echo " 16) 自动白名单安全模式 / 待审核 IP"
         echo " 17) 显示客户端当前 IP 上报 Token"
         echo " 18) 显示 WebAuth 上报 Token"
         echo " 19) 管理动态来源开关（高级自选来源）"
@@ -9996,9 +9997,9 @@ print_cli_usage() {
         "  --webauth-report-check <source-id> [token]" \
         "                   只读检查 WebAuth 上报 token。" \
         "  --automation-mode <regular|attack>" \
-        "                   attack 模式冻结自动新增白名单，新自动 IP 进入 pending。" \
+        "                   attack 模式冻结自动新增白名单，新自动 IP 进入待审核。" \
         "  --pending-auto-sources" \
-        "                   查看 pending 自动来源。" \
+        "                   查看自动来源待审核 IP。" \
         "  --show-client-deploy-commands" \
         "                   输出 LAN Worker、WebAuth、Egern 的可复制部署命令。" \
         "  --compat-check   只读检查旧配置/旧白名单/旧日志兼容状态。" \
