@@ -29,7 +29,7 @@ bash nftables-relay-manager.sh
 LAN Worker 首次部署推荐在内网机器上直接使用 raw 脚本管道进入交互向导：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh | bash
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash
 ```
 
 向导会写入本机配置，并安装 `po0-lan-client` 命令。之后常用：
@@ -48,7 +48,7 @@ SSH 认证按向导选择：系统默认 SSH 配置/agent、已有私钥路径�
 如果旧版本安装后没有 `po0-lan-client` 命令，可手动补装：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh -o /usr/local/sbin/po0-lan-client
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh -o /usr/local/sbin/po0-lan-client
 chmod 755 /usr/local/sbin/po0-lan-client
 /usr/local/sbin/po0-lan-client --menu
 ```

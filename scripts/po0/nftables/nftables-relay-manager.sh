@@ -63,9 +63,9 @@ IPDB_DEFAULT_PIP_INDEX_URL="https://mirrors.cloud.tencent.com/pypi/simple"
 IPDB_PIP_INDEX_URL=""
 IPDB_DOWNLOAD_URL="https://raw.githubusercontent.com/nmgliangwei/qqwry.ipdb/main/qqwry.ipdb"
 MANAGER_INSTALL_PATH="${PO0_MANAGER_INSTALL_PATH:-/root/nftables-relay-manager.sh}"
-LAN_WORKER_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh"
-OUTBOUND_IP_REPORTER_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-outbound-ip-report.sh"
-OUTBOUND_IP_REPORTER_PS_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-outbound-ip-report.ps1"
+LAN_WORKER_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh"
+OUTBOUND_IP_REPORTER_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh"
+OUTBOUND_IP_REPORTER_PS_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1"
 EGERN_SSH_REPORT_MODULE_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/PO0-SSH-IP-Report.yaml"
 REPORT_KEY_WRAPPER_PATH="${CONF_DIR}/po0-report-key-wrapper"
 REPORT_KEY_DENY_LOG="${CONF_DIR}/po0-report-key-denied.log"
@@ -99,6 +99,7 @@ C_GREEN=""
 C_YELLOW=""
 C_RED=""
 C_CYAN=""
+C_MAGENTA=""
 
 RULE_ID=""
 RULE_NAME=""
@@ -199,6 +200,7 @@ setup_colors() {
         C_YELLOW=$'\033[33m'
         C_RED=$'\033[31m'
         C_CYAN=$'\033[36m'
+        C_MAGENTA=$'\033[35m'
     fi
 }
 
@@ -244,7 +246,7 @@ make_temp_dir() {
 }
 
 print_divider() {
-    printf '%s\n' "------------------------------------------------------------"
+    printf '%b%s%b\n' "${C_DIM}" "================================================================" "${C_RESET}"
 }
 
 print_title() {
@@ -252,6 +254,28 @@ print_title() {
     print_divider
     printf '%b%s%b\n' "${C_BOLD}${C_CYAN}" "$1" "${C_RESET}"
     print_divider
+}
+
+print_menu_section() {
+    printf '\n%b%s%b\n' "${C_BOLD}${C_MAGENTA}" "$1" "${C_RESET}"
+}
+
+print_menu_item() {
+    local number="$1"
+    local label="$2"
+    printf '  %b%2s%b) %s\n' "${C_CYAN}" "${number}" "${C_RESET}" "${label}"
+}
+
+print_menu_pair() {
+    local left_number="$1"
+    local left_label="$2"
+    local right_number="${3:-}"
+    local right_label="${4:-}"
+    printf '  %b%2s%b) %-30s' "${C_CYAN}" "${left_number}" "${C_RESET}" "${left_label}"
+    if [[ -n "${right_number}" ]]; then
+        printf '  %b%2s%b) %s' "${C_CYAN}" "${right_number}" "${C_RESET}" "${right_label}"
+    fi
+    printf '\n'
 }
 
 trim() {
@@ -9197,11 +9221,12 @@ do_manage_report_keys() {
     ensure_layout || return
     while true; do
         print_title "专用受限上报 key"
-        echo "  1) 显示已有 key 分类"
-        echo "  2) 新增 / 转换 public key 为受限上报 key"
-        echo "  3) 查看受限 key 拒绝日志"
-        echo "  4) 刷新受限 key wrapper（不改 authorized_keys）"
-        echo "  0) 返回"
+        print_menu_section "查看"
+        print_menu_pair 1 "显示已有 key 分类" 3 "查看拒绝日志"
+        print_menu_section "维护"
+        print_menu_pair 2 "新增 / 转换 public key" 4 "刷新 wrapper"
+        print_menu_section "退出"
+        print_menu_item 0 "返回"
         read -r -p "请选择操作 [0-4]: " choice
         case "${choice}" in
             1) user="$(prompt_with_default "系统用户" "root")"; show_report_keys_for_user "${user}"; pause_before_return ;;
@@ -9611,15 +9636,15 @@ do_manage_client_deploy_commands() {
     local choice
     while true; do
         print_title "LAN Worker / 客户端 / Egern 分场景部署"
-        echo "  1) PO0 主控脚本上传命令"
-        echo "  2) LAN Worker 资源任务 Worker"
-        echo "  3) LAN Worker DDNS 解析 Worker"
-        echo "  4) LAN Worker self-report server"
-        echo "  5) Self-report client"
-        echo "  6) LAN Worker WebAuth worker"
-        echo "  7) Egern SSH report"
-        echo "  8) 显示简短索引"
-        echo "  0) 返回"
+        print_menu_section "主控与索引"
+        print_menu_pair 1 "PO0 主控脚本上传" 8 "显示简短索引"
+        print_menu_section "LAN Worker 侧"
+        print_menu_pair 2 "资源任务 Worker" 3 "DDNS 解析 Worker"
+        print_menu_pair 4 "Self-report 接收服务" 6 "WebAuth 接收服务"
+        print_menu_section "访问端客户端"
+        print_menu_pair 5 "Self-report 客户端" 7 "Egern SSH report"
+        print_menu_section "退出"
+        print_menu_item 0 "返回"
         read -r -p "请选择操作 [0-8]: " choice
         case "${choice}" in
             1) do_show_po0_manager_deploy_commands; pause_before_return ;;
@@ -9984,15 +10009,14 @@ do_manage_ddns_allowlist_sources() {
     while true; do
         print_title "管理 DDNS 来源"
         printf '当前 DDNS 来源数量：%s\n' "$(allowlist_sources_count)"
-        echo ""
-        echo "  1) 查看 DDNS 来源和上报统计"
-        echo "  2) 添加 DDNS 来源"
-        echo "  3) 编辑 DDNS 来源"
-        echo "  4) 删除 DDNS 来源"
-        echo "  5) 启用 / 停用 DDNS 来源"
-        echo "  6) 按已上报结果刷新并应用已启用 DDNS 来源"
-        echo "  7) 显示 / 生成外部上报 Token"
-        echo "  0) 返回"
+        print_menu_section "查看与维护"
+        print_menu_pair 1 "查看来源和统计" 2 "添加来源"
+        print_menu_pair 3 "编辑来源" 4 "删除来源"
+        print_menu_pair 5 "启用 / 停用来源" 6 "刷新并应用已启用来源"
+        print_menu_section "Token"
+        print_menu_item 7 "显示 / 生成外部上报 Token"
+        print_menu_section "退出"
+        print_menu_item 0 "返回"
         read -r -p "请选择操作 [0-7]: " choice
         case "${choice}" in
             1)
@@ -10520,17 +10544,16 @@ do_manage_resource_tasks() {
         fi
         printf '定时创建 : '
         print_resource_task_cron_summary
-        echo ""
-        echo "  1) 查看任务和结果"
-        echo "  2) 创建 iplist 更新任务"
-        echo "  3) 创建 qqwry.ipdb 更新任务"
-        echo "  4) 创建全部更新任务"
-        echo "  5) 重新排队失败 / 执行中任务"
-        echo "  6) 取消未完成任务"
-        echo "  7) 生成 / 重置任务 Token"
-        echo "  8) 安装 / 更新定时创建任务"
-        echo "  9) 删除定时创建任务"
-        echo "  0) 返回"
+        print_menu_section "查看与创建"
+        print_menu_pair 1 "查看任务和结果" 2 "创建 iplist 更新任务"
+        print_menu_pair 3 "创建 qqwry.ipdb 更新任务" 4 "创建全部更新任务"
+        print_menu_section "队列维护"
+        print_menu_pair 5 "重新排队失败 / 执行中任务" 6 "取消未完成任务"
+        print_menu_section "Token 与定时"
+        print_menu_pair 7 "生成 / 重置任务 Token" 8 "安装 / 更新定时创建"
+        print_menu_item 9 "删除定时创建任务"
+        print_menu_section "退出"
+        print_menu_item 0 "返回"
         read -r -p "请选择操作 [0-9]: " choice
         case "${choice}" in
             1)
@@ -10620,44 +10643,28 @@ do_manage_src_allowlist() {
     while true; do
         print_title "管理源 IP 白名单"
         print_src_allowlist_details
-        echo ""
-        echo "  [查看]"
-        echo "  1) 字段说明：缓存 / entries / pending / 手动 CIDR"
-        echo "  2) 查看白名单来源 / IP 明细"
-        echo "  3) 查看最终生效 CIDR 缓存"
-        echo ""
-        echo "  [模式与静态来源]"
-        echo "  4) 设置源 IP 限制方式"
-        echo "  5) 管理地区白名单"
-        echo "  6) 管理手动 CIDR"
-        echo "  7) 从当前 SSH 来源临时加入 default /32"
-        echo "  8) 管理动态来源开关（高级自选来源）"
-        echo ""
-        echo "  [动态来源 / 客户端]"
-        echo "  9) 管理 DDNS 来源"
-        echo " 10) 显示 LAN Worker Self-report / Client IP Token"
-        echo " 11) 显示 Egern / SSH report Token"
-        echo " 12) 显示 WebAuth 上报 Token"
-        echo " 13) 安装 / 显示专用受限上报 key"
-        echo " 14) 自动来源安全模式 / pending IP"
-        echo " 15) 立即清理动态来源过期 / 超量 IP"
-        echo " 16) 安装 / 更新动态来源清理 cron"
-        echo " 17) 删除动态来源清理 cron"
-        echo ""
-        echo "  [学习与阻挡日志]"
-        echo " 18) 学习服务与候选提升"
-        echo " 19) 采集被阻挡访问日志"
-        echo " 20) 查看被阻挡访问统计"
-        echo " 21) 压缩被阻挡访问日志"
-        echo " 22) 清空被阻挡访问日志"
-        echo ""
-        echo "  [数据与维护]"
-        echo " 23) IPDB 数据与解析"
-        echo " 24) 导入 / 刷新 iplist 离线包"
-        echo " 25) 重建并应用白名单"
-        echo " 26) 管理白名单配置档案"
-        echo " 27) 管理内网资源更新任务"
-        echo "  0) 返回"
+        print_menu_section "查看与确认"
+        print_menu_pair 1 "字段说明" 2 "来源 / IP 明细"
+        print_menu_pair 3 "最终生效 CIDR 缓存" 4 "被阻挡访问统计"
+        print_menu_section "策略与静态来源"
+        print_menu_pair 5 "设置源 IP 限制方式" 6 "管理地区白名单"
+        print_menu_pair 7 "管理手动 CIDR" 8 "当前 SSH 临时放行"
+        print_menu_section "动态来源与客户端"
+        print_menu_pair 9 "动态来源开关" 10 "管理 DDNS 来源"
+        print_menu_pair 11 "Client IP / Self-report Token" 12 "Egern / SSH report Token"
+        print_menu_pair 13 "WebAuth 上报 Token" 14 "专用受限 SSH 上报 key"
+        print_menu_item 15 "自动来源安全模式 / pending IP"
+        print_menu_section "清理、学习与阻挡日志"
+        print_menu_pair 16 "清理动态来源过期 / 超量 IP" 17 "安装 / 更新清理 cron"
+        print_menu_pair 18 "删除动态来源清理 cron" 19 "学习服务与候选提升"
+        print_menu_pair 20 "采集被阻挡访问日志" 21 "压缩被阻挡访问日志"
+        print_menu_item 22 "清空被阻挡访问日志"
+        print_menu_section "数据与资源"
+        print_menu_pair 23 "IPDB 数据与解析" 24 "导入 / 刷新 iplist 离线包"
+        print_menu_pair 25 "重建并应用白名单" 26 "管理白名单配置档案"
+        print_menu_item 27 "管理内网资源更新任务"
+        print_menu_section "退出"
+        print_menu_item 0 "返回"
         read -r -p "请选择操作 [0-27]: " choice
         case "${choice}" in
             1)
@@ -10673,6 +10680,10 @@ do_manage_src_allowlist() {
                 pause_before_return
                 ;;
             4)
+                do_print_blocked_log_stats
+                pause_before_return
+                ;;
+            5)
                 save_allowlist_last_snapshot || {
                     pause_before_return
                     continue
@@ -10683,63 +10694,64 @@ do_manage_src_allowlist() {
                 }
                 apply_src_allowlist_changes || pause_before_return
                 ;;
-            5)
+            6)
                 do_manage_region_allowlist
                 ;;
-            6)
+            7)
                 do_manage_custom_allowlist
                 ;;
-            7)
+            8)
                 do_add_ssh_temp_allowlist_entry || pause_before_return
                 ;;
-            8)
+            9)
                 do_manage_allowlist_source_switches || pause_before_return
                 ;;
-            9)
+            10)
                 do_manage_ddns_allowlist_sources
                 ;;
-            10)
+            11)
                 do_show_client_ip_report_token
                 pause_before_return
                 ;;
-            11)
+            12)
                 do_show_ssh_report_token
                 pause_before_return
                 ;;
-            12)
+            13)
                 do_show_webauth_report_token
                 pause_before_return
                 ;;
-            13)
+            14)
                 do_manage_report_keys
                 ;;
-            14)
+            15)
                 do_manage_automation_mode
                 ;;
-            15)
-                do_cleanup_dynamic_allowlist || pause_before_return
-                ;;
             16)
-                do_install_dynamic_allowlist_cleanup_cron_interactive
+                do_cleanup_dynamic_allowlist
+                pause_before_return
                 ;;
             17)
+                do_install_dynamic_allowlist_cleanup_cron_interactive
+                ;;
+            18)
                 confirm_yes "确认删除动态来源清理 cron" && remove_dynamic_allowlist_cleanup_cron
                 pause_before_return
                 ;;
-            18)
+            19)
                 do_manage_learning_allowlist
                 ;;
-            19)
-                do_collect_blocked_ips || pause_before_return
-                ;;
             20)
-                do_print_blocked_log_stats || pause_before_return
+                do_collect_blocked_ips
+                pause_before_return
                 ;;
             21)
-                do_compact_block_log || pause_before_return
+                do_compact_block_log
+                pause_before_return
                 ;;
             22)
-                do_clear_block_log || pause_before_return
+                do_clear_block_log
+                pause_before_return
                 ;;
             23)
                 do_manage_ipdb_tools
@@ -11105,31 +11117,22 @@ main_menu() {
         print_status_panel
         print_runtime_rule_hint
         print_recommended_operations
-        echo ""
-        printf '%b基础操作%b\n' "${C_BOLD}" "${C_RESET}"
-        echo "  1) 安装 / 初始化 nftables"
-        echo "  2) 手动刷新 PO0 公网 IP 缓存"
-        echo "  3) 查看概览与规则列表"
-        echo ""
-        printf '%b规则管理%b\n' "${C_BOLD}" "${C_RESET}"
-        echo "  4) 新增转发规则"
-        echo "  5) 编辑转发规则"
-        echo "  6) 调整规则顺序"
-        echo "  7) 启用 / 停用规则"
-        echo "  8) 删除转发规则"
-        echo "  9) 导入规则 / 接管现有 nft 规则"
-        echo " 10) 导出规则"
-        echo ""
-        printf '%b访问来源 / 白名单 / 客户端%b\n' "${C_BOLD}" "${C_RESET}"
-        echo " 11) 管理源 IP 白名单"
-        echo " 12) LAN Worker / 客户端 / Egern 部署命令"
-        echo " 13) 管理内网资源更新任务"
-        echo ""
-        printf '%b系统维护%b\n' "${C_BOLD}" "${C_RESET}"
-        echo " 14) 修改中转机参数"
-        echo " 15) 诊断 / 自检"
-        echo " 16) 可选开启 BBR + fq"
-        echo "  0) 退出"
+        print_menu_section "部署与概览"
+        print_menu_pair 1 "安装 / 初始化 nftables" 2 "刷新 PO0 公网 IP"
+        print_menu_item 3 "查看概览与规则列表"
+        print_menu_section "转发规则"
+        print_menu_pair 4 "新增规则" 5 "编辑规则"
+        print_menu_pair 6 "调整顺序" 7 "启用 / 停用"
+        print_menu_pair 8 "删除规则" 9 "导入 / 接管现有规则"
+        print_menu_item 10 "导出规则"
+        print_menu_section "来源、客户端与资源"
+        print_menu_pair 11 "源 IP 白名单" 12 "客户端部署命令"
+        print_menu_item 13 "内网资源更新任务"
+        print_menu_section "系统维护"
+        print_menu_pair 14 "中转机参数" 15 "诊断 / 自检"
+        print_menu_item 16 "可选开启 BBR + fq"
+        print_menu_section "退出"
+        print_menu_item 0 "退出"
         print_divider
         read -r -p "请选择操作 [0-16]: " choice
         case "${choice}" in

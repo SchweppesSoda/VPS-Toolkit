@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh"
+RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh"
 DEFAULT_PO0_SCRIPT="/root/nftables-relay-manager.sh"
 PO0_HOST="${PO0_HOST:-}"
 PO0_PORT="${PO0_PORT:-22}"
@@ -39,8 +39,64 @@ SELF_REPORT_SOURCE="${PO0_SELF_REPORT_SOURCE:-self-report}"
 SELF_REPORT_SECRET="${PO0_SELF_REPORT_SECRET:-}"
 SELF_REPORT_TTL_SECONDS="${PO0_SELF_REPORT_TTL_SECONDS:-3600}"
 SELF_REPORT_TARGETS="${PO0_SELF_REPORT_TARGETS:-}"
+C_RESET=""
+C_BOLD=""
+C_DIM=""
+C_GREEN=""
+C_YELLOW=""
+C_RED=""
+C_CYAN=""
+C_MAGENTA=""
 
 [[ -n "${STATS_FILE}" ]] && STATS_FILE_EXPLICIT="1"
+
+setup_colors() {
+    if [[ -t 1 ]]; then
+        C_RESET=$'\033[0m'
+        C_BOLD=$'\033[1m'
+        C_DIM=$'\033[2m'
+        C_GREEN=$'\033[32m'
+        C_YELLOW=$'\033[33m'
+        C_RED=$'\033[31m'
+        C_CYAN=$'\033[36m'
+        C_MAGENTA=$'\033[35m'
+    fi
+}
+
+setup_colors
+
+print_divider() {
+    printf '%b%s%b\n' "${C_DIM}" "================================================================" "${C_RESET}"
+}
+
+print_title() {
+    printf '\n'
+    print_divider
+    printf '%b%s%b\n' "${C_BOLD}${C_CYAN}" "$1" "${C_RESET}"
+    print_divider
+}
+
+print_menu_section() {
+    printf '\n%b%s%b\n' "${C_BOLD}${C_MAGENTA}" "$1" "${C_RESET}"
+}
+
+print_menu_item() {
+    local number="$1"
+    local label="$2"
+    printf '  %b%2s%b) %s\n' "${C_CYAN}" "${number}" "${C_RESET}" "${label}"
+}
+
+print_menu_pair() {
+    local left_number="$1"
+    local left_label="$2"
+    local right_number="${3:-}"
+    local right_label="${4:-}"
+    printf '  %b%2s%b) %-30s' "${C_CYAN}" "${left_number}" "${C_RESET}" "${left_label}"
+    if [[ -n "${right_number}" ]]; then
+        printf '  %b%2s%b) %s' "${C_CYAN}" "${right_number}" "${C_RESET}" "${right_label}"
+    fi
+    printf '\n'
+}
 
 default_config_file() {
     if [[ -n "${CONFIG_FILE}" ]]; then
@@ -340,6 +396,10 @@ read_prompt() {
     printf '%s' "${prompt}" >&2
     IFS= read -r value || return 1
     printf '%s\n' "${value}"
+}
+
+pause_before_return() {
+    read_prompt "按回车返回菜单..." >/dev/null || true
 }
 
 prompt_yes_no() {
@@ -1141,21 +1201,25 @@ print_dashboard() {
         [[ -n "${TARGET_WEBAUTH_TOKEN}" ]] && webauth=$((webauth + 1))
     done < "${CONFIG_FILE}"
     dashboard_stat_totals
-    printf '\n%s\n' "PO0 内网 Worker Dashboard"
-    printf '配置文件   : %s\n' "${CONFIG_FILE}"
-    printf '统计文件   : %s\n' "${STATS_FILE}"
-    printf '资源统计   : %s\n' "${RESOURCE_STATS_FILE}"
-    printf 'Worker ID  : %s\n' "${WORKER_ID}"
-    printf '目标数量   : 总计 %s，启用 %s，停用 %s\n' "${total}" "${enabled}" "${disabled}"
-    printf 'DDNS 上报  : %s 个目标\n' "${ddns}"
-    printf '设备自上报 : %s 个目标，监听 %s\n' "${self_report}" "${SELF_REPORT_LISTEN}"
-    printf 'WebAuth 放行: %s 个目标，监听 %s\n' "${webauth}" "${WEBAUTH_LISTEN}"
-    printf '资源任务   : %s 个目标\n' "${resource}"
-    printf 'cron       : %s\n' "$(cron_status_summary)"
-    printf 'DDNS 统计  : 成功=%s 失败=%s 最近=%s 状态=%s IP=%s\n' \
+    print_title "PO0 内网 Worker"
+    printf '%b基础信息%b\n' "${C_BOLD}" "${C_RESET}"
+    printf '  配置文件 : %s\n' "${CONFIG_FILE}"
+    printf '  统计文件 : %s\n' "${STATS_FILE}"
+    printf '  资源统计 : %s\n' "${RESOURCE_STATS_FILE}"
+    printf '  Worker ID: %s\n' "${WORKER_ID}"
+    printf '\n%b目标概览%b\n' "${C_BOLD}" "${C_RESET}"
+    printf '  目标数量 : 总计 %s，启用 %s，停用 %s\n' "${total}" "${enabled}" "${disabled}"
+    printf '  DDNS 上报: %s 个目标\n' "${ddns}"
+    printf '  资源任务 : %s 个目标\n' "${resource}"
+    printf '  自上报   : %s 个目标，监听 %s\n' "${self_report}" "${SELF_REPORT_LISTEN}"
+    printf '  WebAuth  : %s 个目标，监听 %s\n' "${webauth}" "${WEBAUTH_LISTEN}"
+    printf '  cron     : %s\n' "$(cron_status_summary)"
+    printf '\n%b最近 DDNS 统计%b\n' "${C_BOLD}" "${C_RESET}"
+    printf '  成功=%s 失败=%s 最近=%s 状态=%s IP=%s\n' \
         "${DASH_SUCCESS_TOTAL}" "${DASH_FAIL_TOTAL}" "${DASH_LAST_AT:-无}" "${DASH_LAST_STATUS:-无}" "${DASH_LAST_IP_CSV:-无}"
-    [[ -n "${DASH_LAST_ERROR}" && "${DASH_LAST_ERROR}" != "无" ]] && printf '最近错误   : %s\n' "${DASH_LAST_ERROR}"
-    printf 'WebAuth 链路: Cloudflare Access/Tunnel -> LAN Worker -> SSH -> PO0\n'
+    [[ -n "${DASH_LAST_ERROR}" && "${DASH_LAST_ERROR}" != "无" ]] && printf '  最近错误 : %s\n' "${DASH_LAST_ERROR}"
+    printf '\n%b链路提示%b\n' "${C_BOLD}" "${C_RESET}"
+    printf '  WebAuth: Cloudflare Access/Tunnel -> LAN Worker -> SSH -> PO0\n'
 }
 
 update_target_stats() {
@@ -1672,7 +1736,7 @@ po0_lan_wizard() {
     local label install_periodic=0 cron_minutes run_now=0 script_path
     local generated_secret
 
-    printf '\nPO0 LAN Client 交互式安装向导\n'
+    print_title "PO0 LAN Worker 安装向导"
     printf '此向导会把 token 明文保存到本机配置文件：%s\n' "${CONFIG_FILE}"
     printf 'PO0 自动取 token 需要当前机器已经可以通过密钥 SSH 登录 PO0。\n\n'
 
@@ -1681,10 +1745,10 @@ po0_lan_wizard() {
     PO0_PORT="$(prompt_default "PO0 SSH 端口" "${PO0_PORT:-22}")"
     PO0_USER="$(prompt_default "PO0 SSH 用户" "${PO0_USER:-root}")"
     PO0_SCRIPT="$(prompt_default "PO0 管理脚本路径" "${PO0_SCRIPT:-${DEFAULT_PO0_SCRIPT}}")"
-    printf '%s\n' "SSH 认证方式："
-    printf '%s\n' "  1) 使用系统默认 SSH 配置/agent"
-    printf '%s\n' "  2) 填写私钥文件路径"
-    printf '%s\n' "  3) 粘贴私钥并保存到本机"
+    print_menu_section "SSH 认证方式"
+    print_menu_item 1 "使用系统默认 SSH 配置 / agent"
+    print_menu_item 2 "填写私钥文件路径"
+    print_menu_item 3 "粘贴私钥并保存到本机"
     case "$(prompt_default "请选择" "1")" in
         2)
             key_path="$(prompt_ssh_key_path_or_paste "SSH 私钥路径（路径不要含空格）" "" "${PO0_HOST}" "${PO0_PORT}" "${PO0_USER}")"
@@ -1710,7 +1774,7 @@ po0_lan_wizard() {
         printf '可以继续手动粘贴 token 并保存配置，但不要安装 cron/service，直到免密 SSH 可用。\n' >&2
     fi
 
-    printf '\n选择本机要承担的角色。\n'
+    print_menu_section "本机角色"
     prompt_yes_no "启用资源任务 Worker（领取 PO0 的 iplist/ipdb 更新任务）" "y" && use_resource=1
     prompt_yes_no "启用 DDNS resolver（本机解析 DDNS 后 SSH 上报 PO0）" "y" && use_ddns=1
     prompt_yes_no "启用 Self-report server 目标配置（访问设备先报本机，再由本机报 PO0）" "n" && use_self_report=1
@@ -1818,7 +1882,7 @@ po0_lan_wizard() {
         fi
     fi
 
-    printf '\n安装摘要\n'
+    print_title "安装摘要"
     printf '  PO0: %s@%s:%s\n' "${PO0_USER}" "${PO0_HOST}" "${PO0_PORT}"
     printf '  SSH 参数: %s\n' "${SSH_EXTRA_ARGS}"
     printf '  DDNS token: %s\n' "$(mask_secret "${DDNS_TOKEN}")"
@@ -1830,15 +1894,15 @@ po0_lan_wizard() {
 }
 
 probe_ok() {
-    printf '[OK] %s\n' "$1"
+    printf '%b[OK]%b %s\n' "${C_GREEN}" "${C_RESET}" "$1"
 }
 
 probe_warn() {
-    printf '[WARN] %s\n' "$1" >&2
+    printf '%b[WARN]%b %s\n' "${C_YELLOW}" "${C_RESET}" "$1" >&2
 }
 
 probe_fail() {
-    printf '[FAIL] %s\n' "$1" >&2
+    printf '%b[FAIL]%b %s\n' "${C_RED}" "${C_RESET}" "$1" >&2
 }
 
 probe_client_dependencies() {
@@ -3117,60 +3181,50 @@ menu_loop() {
     local choice
     while true; do
         print_dashboard
-        printf '\n%s\n' "概览"
-        printf '%s\n' "  1) 查看上报目标和统计"
-        printf '%s\n' "  2) 查看资源任务统计"
-        printf '\n%s\n' "PO0 目标 / SSH / Token"
-        printf '%s\n' "  3) 添加 PO0 目标"
-        printf '%s\n' "  4) 编辑 PO0 目标"
-        printf '%s\n' "  5) 管理目标 SSH 私钥 / 参数"
-        printf '%s\n' "  6) 管理目标 Token"
-        printf '%s\n' "  7) 删除 PO0 目标"
-        printf '%s\n' "  8) 启用 / 停用 PO0 目标"
-        printf '\n%s\n' "资源任务"
-        printf '%s\n' "  9) 查看资源任务统计"
-        printf '%s\n' " 10) 立即领取并执行资源任务"
-        printf '\n%s\n' "DDNS resolver"
-        printf '%s\n' " 11) 立即执行 DDNS 解析上报"
-        printf '\n%s\n' "设备自上报"
-        printf '%s\n' " 12) Self-report probe"
-        printf '%s\n' " 13) 启动 Self-report 本地服务"
-        printf '\n%s\n' "WebAuth 放行"
-        printf '%s\n' " 14) WebAuth probe"
-        printf '%s\n' " 15) 启动 WebAuth 本地服务"
-        printf '%s\n' " 16) WebAuth / Cloudflare Access 配置提示"
-        printf '\n%s\n' "维护"
-        printf '%s\n' " 17) 安装 / 更新定时任务"
-        printf '%s\n' " 18) 删除定时任务"
-        printf '%s\n' " 19) 查看定时任务状态"
-        printf '%s\n' " 20) 清空本机 DDNS 解析上报统计"
-        printf '%s\n' "  0) 退出"
+        print_menu_section "查看"
+        print_menu_pair 1 "上报目标与 DDNS 统计" 2 "资源任务统计"
+        print_menu_section "PO0 目标、SSH 与 Token"
+        print_menu_pair 3 "添加 PO0 目标" 4 "编辑 PO0 目标"
+        print_menu_pair 5 "SSH 私钥 / 参数" 6 "目标 Token"
+        print_menu_pair 7 "启用 / 停用目标" 8 "删除 PO0 目标"
+        print_menu_section "立即执行"
+        print_menu_pair 9 "执行全部任务" 10 "仅执行 DDNS 上报"
+        print_menu_item 11 "仅领取并执行资源任务"
+        print_menu_section "本地接收服务"
+        print_menu_pair 12 "Self-report probe" 13 "启动 Self-report 服务"
+        print_menu_pair 14 "WebAuth probe" 15 "启动 WebAuth 服务"
+        print_menu_item 16 "WebAuth / Cloudflare Access 配置提示"
+        print_menu_section "维护"
+        print_menu_pair 17 "安装 / 更新定时任务" 18 "删除定时任务"
+        print_menu_pair 19 "查看定时任务状态" 20 "清空 DDNS 统计"
+        print_menu_section "退出"
+        print_menu_item 0 "退出"
         if ! choice="$(read_prompt "请选择操作 [0-20]: ")"; then
             printf '\n输入结束，退出菜单。\n'
             return 0
         fi
         choice="$(trim "${choice}")"
         case "${choice}" in
-            1) list_targets ;;
-            2) list_resource_stats ;;
-            3) add_target_interactive ;;
-            4) edit_target_interactive ;;
-            5) manage_target_ssh_interactive ;;
-            6) manage_target_tokens_interactive ;;
-            7) delete_target_interactive ;;
-            8) toggle_target_interactive ;;
-            9) list_resource_stats ;;
-            10) run_resource_targets ;;
-            11) run_config_targets ;;
-            12) probe_self_report_target ;;
+            1) list_targets; pause_before_return ;;
+            2) list_resource_stats; pause_before_return ;;
+            3) add_target_interactive; pause_before_return ;;
+            4) edit_target_interactive; pause_before_return ;;
+            5) manage_target_ssh_interactive; pause_before_return ;;
+            6) manage_target_tokens_interactive; pause_before_return ;;
+            7) toggle_target_interactive; pause_before_return ;;
+            8) delete_target_interactive; pause_before_return ;;
+            9) run_all_client_jobs; pause_before_return ;;
+            10) run_config_targets; pause_before_return ;;
+            11) run_resource_targets; pause_before_return ;;
+            12) probe_self_report_target; pause_before_return ;;
             13) run_self_report_server ;;
-            14) probe_webauth_target ;;
+            14) probe_webauth_target; pause_before_return ;;
             15) run_webauth_server ;;
-            16) show_webauth_cloudflare_guide ;;
-            17) install_cron_interactive ;;
-            18) remove_cron_interactive ;;
-            19) show_cron_status ;;
-            20) clear_stats_interactive ;;
+            16) show_webauth_cloudflare_guide; pause_before_return ;;
+            17) install_cron_interactive; pause_before_return ;;
+            18) remove_cron_interactive; pause_before_return ;;
+            19) show_cron_status; pause_before_return ;;
+            20) clear_stats_interactive; pause_before_return ;;
             0) return 0 ;;
             *) printf '无效选择。\n' >&2 ;;
         esac

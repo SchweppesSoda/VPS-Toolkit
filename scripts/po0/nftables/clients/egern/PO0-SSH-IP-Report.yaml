@@ -1,64 +1,64 @@
-name: PO0 SSH IP Report
-description: Report the current Egern/mobile outbound IPv4 to PO0 over restricted SSH report. PO0 does not expose HTTP.
+name: PO0 SSH IP 上报
+description: 通过受限 SSH 把当前 Egern/移动设备的公网出口 IPv4 上报到 PO0。PO0 不开放 HTTP。
 author: SchweppesSoda
 icon: network
 
 env_schema:
   PO0_HOST:
-    name: PO0 SSH host
-    description: Single-target PO0 server hostname or IP for SSH. Leave it empty when SSH_REPORT_TARGETS is used.
+    name: PO0 SSH 主机
+    description: 单目标 PO0 的 SSH 主机名或 IP。使用 SSH_REPORT_TARGETS 时可留空。
   PO0_PORT:
-    name: PO0 SSH port
+    name: PO0 SSH 端口
     default_value: "22"
   PO0_USER:
-    name: PO0 SSH user
+    name: PO0 SSH 用户
     default_value: root
   PO0_PASSWORD:
-    name: PO0 SSH password
-    description: Use either password or private key.
+    name: PO0 SSH 密码
+    description: 密码和私钥二选一。
   PO0_PRIVATE_KEY:
-    name: PO0 SSH private key
-    description: 'Paste the key as-is. Multi-line, one-line PEM, and literal \n are normalized automatically.'
+    name: PO0 SSH 私钥
+    description: '按原样粘贴私钥。多行、一行 PEM、字面量 \n 都会自动规范化。'
   PO0_PASSPHRASE:
-    name: PO0 SSH key passphrase
-    description: Optional. Only needed when the private key is encrypted.
+    name: PO0 SSH 私钥口令
+    description: 可选。仅加密私钥需要填写。
   PO0_SCRIPT:
-    name: PO0 manager script path
+    name: PO0 管理脚本路径
     default_value: /root/nftables-relay-manager.sh
   SSH_REPORT_SOURCE:
-    name: SSH report source ID
+    name: SSH 上报来源 ID
     default_value: egern
-    description: Source ID shown on PO0, for example iphone or ipad-cellular.
+    description: PO0 上显示的来源 ID，例如 iphone 或 ipad-cellular。
   SSH_REPORT_TOKEN:
-    name: SSH report token
-    description: Single-target token shown by PO0 --show-client-deploy-commands or the source allowlist menu. Leave it empty when each SSH_REPORT_TARGETS line has its own token.
+    name: SSH 上报 Token
+    description: 单目标 token，可从 PO0 --show-client-deploy-commands 或源 IP 白名单菜单查看。每条 SSH_REPORT_TARGETS 自带 token 时可留空。
   REPORT_IDENTITY:
-    name: Optional identity
+    name: 可选身份标签
     default_value: egern
   TTL_SECONDS:
-    name: Allowlist TTL seconds
+    name: 白名单 TTL 秒数
     default_value: "3600"
   SSH_REPORT_TARGETS:
-    name: Multiple PO0 targets
-    description: "Optional. Separate targets with a newline, comma, semicolon, or space: source_id|host|port|user|script|token|identity|ttl. When set, the module reports the same current IPv4 to every target."
+    name: 多个 PO0 目标
+    description: "可选。多个目标可用换行、逗号、分号或空格分隔：source_id|host|port|user|script|token|identity|ttl。设置后会把同一个当前 IPv4 上报到每个目标。"
   IP_CHECK_URL:
-    name: IPv4 check URL
+    name: IPv4 探测 URL
     default_value: "https://ip9.com.cn/get"
-    description: First IPv4 check URL. The script rotates through IP9, domestic APIs, and myip.ipip.net by default.
+    description: 第一个公网 IPv4 探测地址。默认会轮询 IP9、国内接口和 myip.ipip.net。
   IP_CHECK_URLS:
-    name: IPv4 check URL list
-    description: Optional comma-separated override for the full rotating URL list.
+    name: IPv4 探测 URL 列表
+    description: 可选。用逗号分隔，覆盖完整轮询探测地址列表。
   POLICY:
-    name: Egern policy
+    name: Egern 策略
     default_value: DIRECT
   NOTIFY_SUCCESS:
-    name: Notify automatic success
+    name: 自动成功时通知
     default_value: "false"
     options:
       - "true"
       - "false"
   NOTIFY_FAILURE:
-    name: Notify failure
+    name: 失败时通知
     default_value: "true"
     options:
       - "true"
@@ -66,31 +66,31 @@ env_schema:
 
 scriptings:
   - schedule:
-      name: PO0 SSH IP Report
+      name: PO0 SSH IP 定时上报
       cron: "*/10 * * * *"
       script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js"
       update_interval: 86400
       timeout: 30
       debug: false
   - network:
-      name: PO0 SSH Report Network Change
+      name: PO0 SSH 网络变化上报
       script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js"
       update_interval: 86400
       timeout: 30
       debug: false
   - generic:
-      name: PO0 SSH IP Report Now
+      name: 立即上报 PO0 SSH IP
       script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js"
       update_interval: 86400
       timeout: 30
       debug: true
   - generic:
-      name: PO0 SSH Report Status
+      name: PO0 SSH 上报状态
       script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js"
       update_interval: 86400
       timeout: 30
       debug: true
 
 widgets:
-  - name: PO0 SSH Report Status
-    script_name: PO0 SSH Report Status
+  - name: PO0 SSH 上报状态
+    script_name: PO0 SSH 上报状态

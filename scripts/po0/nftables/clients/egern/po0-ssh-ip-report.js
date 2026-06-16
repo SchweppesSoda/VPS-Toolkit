@@ -1,6 +1,8 @@
 const STORAGE_KEY = 'po0-ssh-ip-report:last';
 const ERROR_STORAGE_KEY = 'po0-ssh-ip-report:last-error';
 const IP_CHECK_INDEX_KEY = 'po0-ssh-ip-report:ip-check-index';
+const REPORT_TITLE = 'PO0 SSH IP 上报';
+const REPORT_FAILED_TITLE = 'PO0 SSH IP 上报失败';
 
 function required(env, key) {
   const value = String(env[key] || '').trim();
@@ -94,7 +96,7 @@ async function responseText(resp) {
 async function detectCurrentIPv4(ctx, url, policy) {
   const resp = await ctx.http.get(url, { timeout: 10000, policy });
   if (resp.status < 200 || resp.status >= 300) {
-    throw new Error(`IP check failed: HTTP ${resp.status}`);
+    throw new Error(`公网 IPv4 探测失败：HTTP ${resp.status}`);
   }
 
   let data = null;
@@ -117,7 +119,7 @@ async function detectCurrentIPv4(ctx, url, policy) {
   const text = await responseText(resp);
   const ips = extractIPv4FromText(text);
   if (ips.length === 0) {
-    throw new Error(`No public IPv4 found from ${url}`);
+    throw new Error(`未从 ${url} 提取到公网 IPv4`);
   }
   return ips[0];
 }
@@ -144,7 +146,7 @@ async function detectCurrentIPv4WithFallback(ctx, env, policy) {
     }
   }
   await storageSet(ctx, IP_CHECK_INDEX_KEY, String((start + 1) % urls.length));
-  throw new Error(`All IP checks failed: ${errors.join('; ')}`);
+  throw new Error(`所有公网 IPv4 探测地址均失败：${errors.join('; ')}`);
 }
 
 function boolEnv(value, fallback) {
@@ -180,9 +182,9 @@ function formatTime(value) {
 }
 
 function ttlRemaining(expiresAt) {
-  if (!expiresAt) return 'unknown';
+  if (!expiresAt) return '未知';
   const ms = new Date(expiresAt).getTime() - Date.now();
-  if (!Number.isFinite(ms)) return 'unknown';
+  if (!Number.isFinite(ms)) return '未知';
   if (ms <= 0) return 'expired';
   const minutes = Math.floor(ms / 60000);
   if (minutes < 60) return `${minutes}m`;
@@ -252,13 +254,13 @@ function targetSummaryLines(state) {
   return targets.slice(0, 4).map((target) => {
     const name = targetName(target);
     if (target.ok) return `${name} TTL ${ttlRemaining(target.expiresAt)}`;
-    return `${name} failed: ${target.error || 'unknown'}`;
+    return `${name} 失败: ${target.error || '未知错误'}`;
   });
 }
 
 function widgetFromState(state, ctx) {
   if (!state) {
-    return widgetPanel('PO0 SSH Report', ['No report state yet.', 'Tap refresh to report.'], false, ctx);
+    return widgetPanel(REPORT_TITLE, ['暂无上报状态。', '点按刷新即可立即上报。'], false, ctx);
   }
 
   if (!state.ok) {
@@ -267,13 +269,13 @@ function widgetFromState(state, ctx) {
     const targetCount = state.targetCount ?? targets.length;
     const targetLines = targetSummaryLines(state);
     return widgetPanel(
-      'PO0 SSH Report',
+      REPORT_TITLE,
       [
-        `IP: ${state.ip || 'unknown'}`,
-        `Targets: ${successCount}/${targetCount || 1} OK`,
-        ...(targetLines.length ? targetLines : [`Reason: ${state.error || 'unknown'}`]),
-        `Last failure: ${formatTime(state.at)}`,
-        `Network: ${state.network || 'unknown'}`,
+        `IP: ${state.ip || '未知'}`,
+        `目标: ${successCount}/${targetCount || 1} 成功`,
+        ...(targetLines.length ? targetLines : [`原因: ${state.error || '未知错误'}`]),
+        `上次失败: ${formatTime(state.at)}`,
+        `网络: ${state.network || '未知'}`,
       ],
       false,
       ctx,
@@ -281,13 +283,13 @@ function widgetFromState(state, ctx) {
   }
 
   return widgetPanel(
-    'PO0 SSH Report',
+    REPORT_TITLE,
     [
-      `IP: ${state.ip || 'unknown'}`,
-      `Targets: ${state.successCount ?? 1}/${state.targetCount ?? 1} OK`,
+      `IP: ${state.ip || '未知'}`,
+      `目标: ${state.successCount ?? 1}/${state.targetCount ?? 1} 成功`,
       ...targetSummaryLines(state),
-      `Last success: ${formatTime(state.at)}`,
-      `Network: ${state.network || 'unknown'}`,
+      `上次成功: ${formatTime(state.at)}`,
+      `网络: ${state.network || '未知'}`,
     ],
     true,
     ctx,
@@ -296,12 +298,12 @@ function widgetFromState(state, ctx) {
 
 function networkLabel(ctx) {
   const network = ctx?.network || ctx?.networks || ctx?.environment?.network;
-  if (!network) return 'unknown';
+  if (!network) return '未知';
   if (typeof network === 'string') return network;
   try {
     return JSON.stringify(network);
   } catch (_) {
-    return 'unknown';
+    return '未知';
   }
 }
 
@@ -365,7 +367,7 @@ function commandResultError(result) {
 }
 
 function logMessage(ctx, level, message, detail = '') {
-  const line = `[PO0 SSH Report] ${message}${detail ? `: ${detail}` : ''}`;
+  const line = `[${REPORT_TITLE}] ${message}${detail ? `: ${detail}` : ''}`;
   try {
     if (level === 'error') console.error(line);
     else console.log(line);
@@ -394,8 +396,8 @@ function normalizeTarget(env, input, index) {
   const identity = targetValue(target, env, ['identity', 'REPORT_IDENTITY'], 'egern');
   const ttl = Number(targetValue(target, env, ['ttl', 'ttlSeconds', 'TTL_SECONDS'], '3600'));
 
-  if (!host) throw new Error(`PO0 target #${index + 1} missing host`);
-  if (!token) throw new Error(`PO0 target #${index + 1} missing token`);
+  if (!host) throw new Error(`PO0 目标 #${index + 1} 缺少主机`);
+  if (!token) throw new Error(`PO0 目标 #${index + 1} 缺少 token`);
 
   return {
     sourceId,
@@ -451,14 +453,14 @@ function parseTargets(env) {
   if (raw.startsWith('[')) {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed) || parsed.length === 0) {
-      throw new Error('SSH_REPORT_TARGETS JSON must be a non-empty array');
+      throw new Error('SSH_REPORT_TARGETS JSON 必须是非空数组');
     }
     return parsed.map((target, index) => normalizeTarget(env, target, index));
   }
 
   const lines = splitTargetLines(raw);
   if (lines.length === 0) {
-    throw new Error('SSH_REPORT_TARGETS is empty');
+    throw new Error('SSH_REPORT_TARGETS 为空');
   }
   return lines.map((line, index) => parseTargetLine(env, line, index));
 }
@@ -477,7 +479,7 @@ function sshConfig(env, target) {
     }
   } else {
     if (!String(target.password || '').trim()) {
-      throw new Error(`PO0 target ${target.sourceId}@${target.host} missing SSH password/private key`);
+      throw new Error(`PO0 目标 ${target.sourceId}@${target.host} 缺少 SSH 密码或私钥`);
     }
     config.password = target.password;
   }
@@ -538,7 +540,7 @@ export default async function(ctx) {
         });
       } catch (error) {
         const errorText = error?.message || String(error);
-        logMessage(ctx, 'error', `${targetName(target)} failed`, errorText);
+        logMessage(ctx, 'error', `${targetName(target)} 失败`, errorText);
         failures.push({
           ok: false,
           sourceId: target.sourceId,
@@ -568,13 +570,13 @@ export default async function(ctx) {
       const errorSummary = failures.map((failure) => `${targetName(failure)}: ${failure.error}`).join('; ');
       await storageSet(ctx, ERROR_STORAGE_KEY, errorSummary);
       if (notifyFailure) {
-        notifyLong(ctx, 'PO0 SSH Report Failed', `${ip}: ${results.length}/${targets.length} OK; ${errorSummary}`);
+        notifyLong(ctx, REPORT_FAILED_TITLE, `${ip}: ${results.length}/${targets.length} 成功；${errorSummary}`);
       }
       return isWidgetRun(ctx) ? widgetFromState(state, ctx) : state;
     }
 
     if (notifySuccess) {
-      notify(ctx, 'PO0 SSH Report', `${ip}: ${results.length}/${targets.length} PO0 updated`);
+      notify(ctx, REPORT_TITLE, `${ip}: ${results.length}/${targets.length} 个 PO0 已更新`);
     }
     return isWidgetRun(ctx) ? widgetFromState(state, ctx) : state;
   } catch (error) {
@@ -592,9 +594,9 @@ export default async function(ctx) {
     };
     await storageSet(ctx, STORAGE_KEY, JSON.stringify(state));
     await storageSet(ctx, ERROR_STORAGE_KEY, state.error);
-    logMessage(ctx, 'error', 'run failed', state.error);
+    logMessage(ctx, 'error', '运行失败', state.error);
     if (notifyFailure) {
-      notifyLong(ctx, 'PO0 SSH Report Failed', state.error);
+      notifyLong(ctx, REPORT_FAILED_TITLE, state.error);
     }
     if (isWidgetRun(ctx)) {
       return widgetFromState(state, ctx);

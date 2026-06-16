@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-outbound-ip-report.sh"
+RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh"
 WORKER_URL="${PO0_LAN_WORKER_URL:-${WORKER_URL:-}}"
 SOURCE_ID="${PO0_SELF_REPORT_SOURCE:-${SOURCE_ID:-self-report}}"
 IDENTITY="${PO0_SELF_REPORT_IDENTITY:-${IDENTITY:-$(hostname 2>/dev/null || printf 'self-report')}}"
@@ -12,37 +12,35 @@ INSTALL_CRON=""
 CRON_MINUTES="5"
 
 usage() {
-    cat <<EOF
-PO0 self-report client (Linux/OpenWrt)
-
-This client detects this device's current outbound public IPv4 and reports it to
-a LAN Worker self-report server. It does not connect to PO0 directly.
-
-Usage:
-  bash po0-outbound-ip-report.sh --worker-url https://worker.example.com/report --source-id laptop --secret SECRET
-  curl -fsSL ${RAW_URL} | bash -s -- --worker-url https://worker.example.com/report --source-id laptop --secret SECRET --install-cron 5
-
-Options:
-  --worker-url URL      LAN Worker self-report URL, for example https://auth.example.com/report.
-  --source-id ID        Source key written to PO0 client_ip records. Default: ${SOURCE_ID}
-  --identity ID         Device/user label shown in LAN Worker/PO0 logs. Default: ${IDENTITY}
-  --secret SECRET       Optional LAN Worker self-report shared secret.
-  --ip-check-url URL    First URL used to detect this device's outbound IPv4.
-                        Default: ${IP_CHECK_URL}
-  --ip-check-urls CSV   Override full comma-separated IP check URL list.
-  --install-cron [N]    Install cron to self-report every N minutes. Default: 5.
-
-Default IP check order:
-  https://ip9.com.cn/get
-  https://mail.163.com/fgw/mailsrv-ipdetail/detail
-  https://api.live.bilibili.com/client/v1/Ip/getInfoNew
-  https://ipservice.ws.126.net/locate/api/getLocByIp
-  https://r.inews.qq.com/api/ip2city?otype=json
-  https://data.video.iqiyi.com/v.f4v
-  https://ip.apps.cntv.cn/whereis?client=json
-  https://exservice.12306.cn/excater/bonree/grip
-  https://myip.ipip.net/json
-EOF
+    printf '%s\n' \
+        "PO0 自上报客户端（Linux/OpenWrt）" \
+        "" \
+        "本脚本探测当前设备的公网出口 IPv4，并上报到 LAN Worker 的 self-report" \
+        "接收服务。访问设备不直接连接 PO0。" \
+        "" \
+        "用法:" \
+        "  bash po0-outbound-ip-report.sh --worker-url https://worker.example.com/report --source-id laptop --secret SECRET" \
+        "  curl -fsSL ${RAW_URL} | bash -s -- --worker-url https://worker.example.com/report --source-id laptop --secret SECRET --install-cron 5" \
+        "" \
+        "参数:" \
+        "  --worker-url URL      LAN Worker self-report 接收地址，例如 https://auth.example.com/report。" \
+        "  --source-id ID        写入 PO0 client_ip 记录的来源 ID。默认: ${SOURCE_ID}" \
+        "  --identity ID         LAN Worker/PO0 日志里的设备或用户标签。默认: ${IDENTITY}" \
+        "  --secret SECRET       可选的 LAN Worker self-report 共享密钥。" \
+        "  --ip-check-url URL    第一个公网 IPv4 探测地址。默认: ${IP_CHECK_URL}" \
+        "  --ip-check-urls CSV   覆盖完整探测地址列表，多个 URL 用逗号分隔。" \
+        "  --install-cron [N]    安装 cron，每 N 分钟自上报一次。默认: 5。" \
+        "" \
+        "默认公网 IPv4 探测顺序:" \
+        "  https://ip9.com.cn/get" \
+        "  https://mail.163.com/fgw/mailsrv-ipdetail/detail" \
+        "  https://api.live.bilibili.com/client/v1/Ip/getInfoNew" \
+        "  https://ipservice.ws.126.net/locate/api/getLocByIp" \
+        "  https://r.inews.qq.com/api/ip2city?otype=json" \
+        "  https://data.video.iqiyi.com/v.f4v" \
+        "  https://ip.apps.cntv.cn/whereis?client=json" \
+        "  https://exservice.12306.cn/excater/bonree/grip" \
+        "  https://myip.ipip.net/json"
 }
 
 trim() {
@@ -97,7 +95,7 @@ fetch_url_no_proxy() {
             wget -qO- "${url}"
         return $?
     fi
-    echo "curl or wget is required to detect outbound IPv4." >&2
+    echo "缺少 curl 或 wget，无法探测公网出口 IPv4。" >&2
     return 1
 }
 
@@ -184,7 +182,7 @@ install_self() {
     elif command -v wget >/dev/null 2>&1; then
         wget -qO "${dest}" "${RAW_URL}" || return 1
     else
-        echo "Need curl/wget to persist piped script." >&2
+        echo "缺少 curl/wget，无法把管道运行的脚本落盘。" >&2
         return 1
     fi
     chmod 755 "${dest}" || true
@@ -194,7 +192,7 @@ install_self() {
 install_cron() {
     local script job tmp
     command -v crontab >/dev/null 2>&1 || {
-        echo "crontab not found." >&2
+        echo "未找到 crontab 命令。" >&2
         return 1
     }
     script="$(install_self)" || return 1
@@ -208,24 +206,24 @@ install_cron() {
     } > "${tmp}" || return 1
     crontab "${tmp}" || return 1
     rm -f "${tmp}"
-    echo "Installed self-report cron: every ${CRON_MINUTES} minutes."
+    echo "已安装 self-report cron：每 ${CRON_MINUTES} 分钟上报一次。"
 }
 
 report_once() {
     local ip
     [[ -n "${WORKER_URL}" ]] || {
-        echo "Missing --worker-url." >&2
+        echo "缺少 --worker-url。" >&2
         return 1
     }
     command -v curl >/dev/null 2>&1 || {
-        echo "curl is required to report to LAN Worker." >&2
+        echo "缺少 curl，无法上报到 LAN Worker。" >&2
         return 1
     }
     ip="$(detect_outbound_ipv4)" || {
-        echo "Could not detect current outbound public IPv4." >&2
+        echo "未能探测到当前公网出口 IPv4。" >&2
         return 1
     }
-    echo "Report current outbound IPv4 ${ip} to LAN Worker ${WORKER_URL}"
+    echo "上报当前公网出口 IPv4 ${ip} 到 LAN Worker：${WORKER_URL}"
     curl -fsS --get \
         --data-urlencode "source=${SOURCE_ID}" \
         --data-urlencode "ip=${ip}" \
@@ -247,11 +245,11 @@ while [[ $# -gt 0 ]]; do
             if [[ "${2:-}" =~ ^[0-9]+$ ]]; then CRON_MINUTES="${2:-}"; shift 2; else shift; fi
             ;;
         --po0-host|--po0-script|--source-key|--domain|--token)
-            echo "Direct PO0 self-report is no longer supported. Use --worker-url to report to LAN Worker." >&2
+            echo "不再支持直接向 PO0 自上报。请使用 --worker-url 上报到 LAN Worker。" >&2
             exit 1
             ;;
         --help|-h) usage; exit 0 ;;
-        *) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
+        *) echo "未知参数：$1" >&2; usage >&2; exit 1 ;;
     esac
 done
 
