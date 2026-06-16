@@ -314,13 +314,31 @@ prompt_default() {
     local default="$2"
     local value
     if [[ -n "${default}" ]]; then
-        read -r -p "${prompt} [${default}]: " value
+        if ! value="$(read_prompt "${prompt} [${default}]: ")"; then
+            value=""
+        fi
         value="$(trim "${value}")"
         [[ -n "${value}" ]] || value="${default}"
     else
-        read -r -p "${prompt}: " value
+        if ! value="$(read_prompt "${prompt}: ")"; then
+            value=""
+        fi
         value="$(trim "${value}")"
     fi
+    printf '%s\n' "${value}"
+}
+
+read_prompt() {
+    local prompt="$1"
+    local value
+    if [[ -r /dev/tty && -w /dev/tty ]]; then
+        if { printf '%s' "${prompt}" > /dev/tty && IFS= read -r value < /dev/tty; } 2>/dev/null; then
+            printf '%s\n' "${value}"
+            return 0
+        fi
+    fi
+    printf '%s' "${prompt}" >&2
+    IFS= read -r value || return 1
     printf '%s\n' "${value}"
 }
 
@@ -339,7 +357,9 @@ prompt_yes_no() {
             ;;
     esac
     while true; do
-        read -r -p "${prompt} [${suffix}]: " value
+        if ! value="$(read_prompt "${prompt} [${suffix}]: ")"; then
+            return 1
+        fi
         value="$(trim "${value}")"
         [[ -n "${value}" ]] || value="${default}"
         case "${value,,}" in
@@ -542,7 +562,10 @@ prune_stats_to_current_targets() {
 clear_stats_interactive() {
     local answer
     ensure_stats_file || return 1
-    read -r -p "确认清空本机上报统计 [y/N]: " answer
+    if ! answer="$(read_prompt "确认清空本机上报统计 [y/N]: ")"; then
+        printf '\n输入结束，取消清空。\n'
+        return 0
+    fi
     answer="$(trim "${answer}")"
     case "${answer,,}" in
         y|yes)
@@ -1007,7 +1030,10 @@ select_target_index() {
         return 1
     }
     list_targets
-    read -r -p "请选择目标 [1-${count}]: " choice
+    if ! choice="$(read_prompt "请选择目标 [1-${count}]: ")"; then
+        printf '\n输入结束，取消选择。\n'
+        return 1
+    fi
     choice="$(trim "${choice}")"
     [[ "${choice}" =~ ^[0-9]+$ ]] || return 1
     (( choice >= 1 && choice <= count )) || return 1
@@ -2692,7 +2718,7 @@ menu_loop() {
         printf '%s\n' " 16) 查看定时任务状态"
         printf '%s\n' " 17) 清空本机 DDNS 解析上报统计"
         printf '%s\n' "  0) 退出"
-        if ! read -r -p "请选择操作 [0-17]: " choice; then
+        if ! choice="$(read_prompt "请选择操作 [0-17]: ")"; then
             printf '\n输入结束，退出菜单。\n'
             return 0
         fi
