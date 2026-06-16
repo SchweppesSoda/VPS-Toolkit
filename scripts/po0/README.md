@@ -41,6 +41,9 @@ po0-lan-client --probe
 ```
 
 初始化时 PO0 SSH 地址一次只填一个；多个 PO0 目标后续进入 `po0-lan-client --menu` 添加。
+SSH 认证可填已有私钥路径；也可留空后粘贴专用私钥，向导会保存到本机配置目录并设置 600 权限。
+“额外 SSH 参数”是传给 `ssh` 的选项，例如 `-J jump-host` 或 `-o StrictHostKeyChecking=accept-new`，不是私钥短语；带短语的私钥需要 `ssh-agent`。
+菜单里的 `目标 / SSH 连接` 用于添加、编辑、启停 PO0 目标和管理目标 SSH 私钥；`DDNS resolver` 与 `资源任务` 是分开的执行入口。
 
 如果旧版本安装后没有 `po0-lan-client` 命令，可手动补装：
 

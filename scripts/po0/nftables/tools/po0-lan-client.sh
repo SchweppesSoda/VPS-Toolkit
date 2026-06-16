@@ -79,7 +79,7 @@ usage() {
         "  --ddns-domain DOMAIN LAN Worker 要解析的 DDNS 域名；结果通过 SSH 上报 PO0。" \
         "  --ddns-targets STR  DDNS 上报目标；格式 source_key|ddns_domain|host|port|user|script|token|ssh_args，多目标用分号或换行分隔。" \
         "  --domain DOMAIN      兼容旧参数：没有 --ddns-domain 时同时作为 source-key 和 DDNS 域名。" \
-        "  --ssh-extra-args STR 可选 SSH 参数，例如 '-i /path/key -o BatchMode=yes'。" \
+        "  --ssh-extra-args STR 可选 SSH 参数，例如 '-i /path/key -J jump-host'；不是私钥短语。" \
         "  --no-run             bootstrap 后不立即执行 DDNS 解析上报和资源轮询。" \
         "  --no-cron            bootstrap 时不安装定时任务。" \
         "  --run                执行已配置目标的 DDNS 解析上报和资源任务轮询。" \
@@ -392,6 +392,160 @@ mask_secret() {
     else
         printf '%s...%s\n' "${value:0:6}" "${value: -4}"
     fi
+}
+
+safe_filename_token() {
+    local value="$1"
+    value="${value//[!A-Za-z0-9_.-]/_}"
+    value="${value##_}"
+    value="${value%%_}"
+    [[ -n "${value}" ]] || value="po0"
+    printf '%s\n' "${value}"
+}
+
+read_private_key_paste() {
+    local line key="" seen_begin=0 seen_end=0
+    if [[ -w /dev/tty ]]; then
+        printf '请粘贴 SSH 私钥，粘贴到 END ... PRIVATE KEY 行后会自动结束；空输入取消。\n' > /dev/tty
+    else
+        printf '请粘贴 SSH 私钥，粘贴到 END ... PRIVATE KEY 行后会自动结束；空输入取消。\n' >&2
+    fi
+    while true; do
+        if [[ -r /dev/tty && -w /dev/tty ]]; then
+            IFS= read -r line < /dev/tty || return 1
+        else
+            IFS= read -r line || return 1
+        fi
+        if [[ -z "${line}" && "${seen_begin}" == "0" ]]; then
+            printf '未读取到私钥内容。\n' >&2
+            return 1
+        fi
+        key+="${line}"$'\n'
+        case "${line}" in
+            -----BEGIN\ *PRIVATE\ KEY-----) seen_begin=1 ;;
+            -----END\ *PRIVATE\ KEY-----)
+                seen_end=1
+                break
+                ;;
+        esac
+    done
+    [[ "${seen_begin}" == "1" && "${seen_end}" == "1" ]] || {
+        printf '私钥内容不完整。\n' >&2
+        return 1
+    }
+    printf '%s' "${key}"
+}
+
+save_pasted_ssh_key() {
+    local host="$1"
+    local port="$2"
+    local user="$3"
+    local dir key_path key host_token port_token user_token old_umask
+    ensure_config_file || return 1
+    dir="$(path_dirname "${CONFIG_FILE}")"
+    host_token="$(safe_filename_token "${host}")"
+    port_token="$(safe_filename_token "${port:-22}")"
+    user_token="$(safe_filename_token "${user:-root}")"
+    key_path="${dir}/ssh-key-${user_token}-${host_token}-${port_token}"
+    key="$(read_private_key_paste)" || return 1
+    if [[ -e "${key_path}" ]]; then
+        prompt_yes_no "私钥文件已存在，是否覆盖：${key_path}" "n" || return 1
+    fi
+    old_umask="$(umask)"
+    umask 077
+    printf '%s' "${key}" > "${key_path}" || {
+        umask "${old_umask}"
+        return 1
+    }
+    umask "${old_umask}"
+    chmod 600 "${key_path}" 2>/dev/null || true
+    printf '%s\n' "${key_path}"
+}
+
+ssh_extra_identity_path() {
+    local extra="$1"
+    local -a parts=()
+    local i token next
+    [[ -n "${extra}" ]] || return 1
+    read -r -a parts <<< "${extra}"
+    for ((i = 0; i < ${#parts[@]}; i++)); do
+        token="${parts[$i]}"
+        next="${parts[$((i + 1))]:-}"
+        case "${token}" in
+            -i)
+                [[ -n "${next}" ]] && { printf '%s\n' "${next}"; return 0; }
+                ;;
+            -i?*)
+                printf '%s\n' "${token#-i}"
+                return 0
+                ;;
+            IdentityFile=*)
+                printf '%s\n' "${token#IdentityFile=}"
+                return 0
+                ;;
+            -o)
+                case "${next}" in
+                    IdentityFile=*)
+                        printf '%s\n' "${next#IdentityFile=}"
+                        return 0
+                        ;;
+                esac
+                ;;
+            -oIdentityFile=*)
+                printf '%s\n' "${token#-oIdentityFile=}"
+                return 0
+                ;;
+        esac
+    done
+    return 1
+}
+
+ssh_extra_without_identity() {
+    local extra="$1"
+    local -a parts=()
+    local out="" token next
+    local i skip_next=0
+    [[ -n "${extra}" ]] || { printf '\n'; return 0; }
+    read -r -a parts <<< "${extra}"
+    for ((i = 0; i < ${#parts[@]}; i++)); do
+        if [[ "${skip_next}" == "1" ]]; then
+            skip_next=0
+            continue
+        fi
+        token="${parts[$i]}"
+        next="${parts[$((i + 1))]:-}"
+        case "${token}" in
+            -i)
+                skip_next=1
+                continue
+                ;;
+            -i?*|IdentityFile=*|-oIdentityFile=*)
+                continue
+                ;;
+            -o)
+                case "${next}" in
+                    IdentityFile=*)
+                        skip_next=1
+                        continue
+                        ;;
+                esac
+                ;;
+        esac
+        out="${out:+${out} }${token}"
+    done
+    printf '%s\n' "${out}"
+}
+
+ssh_extra_with_identity() {
+    local extra="$1"
+    local key_path="$2"
+    local out
+    out="$(ssh_extra_without_identity "${extra}")"
+    key_path="$(trim "${key_path}")"
+    if [[ -n "${key_path}" ]]; then
+        out="-i ${key_path}${out:+ ${out}}"
+    fi
+    printf '%s\n' "${out}"
 }
 
 build_batchmode_ssh_extra_args() {
@@ -989,7 +1143,7 @@ add_target_interactive() {
     else
         report_key=""
     fi
-    ssh_extra_args="$(prompt_default "额外 SSH 参数，可空" "${SSH_EXTRA_ARGS}")"
+    ssh_extra_args="$(prompt_default "额外 SSH 参数，可空（不是私钥短语；例如 -J jump-host 或 -o StrictHostKeyChecking=accept-new）" "${SSH_EXTRA_ARGS}")"
     append_target "1" "${label}" "${domain}" "${report_key}" "${po0_host}" "${po0_port}" "${po0_user}" "${po0_script}" "${token}" "${ssh_extra_args}" "${resource_token}" "${report_mode}" "${ddns_resolve_domain}" || return 1
     printf '已添加：%s -> %s\n' "${domain:-资源-only}" "${po0_host}"
 }
@@ -1111,7 +1265,7 @@ edit_target_interactive() {
     po0_script="$(prompt_default "PO0 管理脚本路径" "${po0_script:-${DEFAULT_PO0_SCRIPT}}")"
     token="$(prompt_default "DDNS 来源上报 Token，可空" "${token}")"
     resource_token="$(prompt_default "资源任务 Token，可空" "${resource_token}")"
-    ssh_extra_args="$(prompt_default "额外 SSH 参数，可空" "${ssh_extra_args}")"
+    ssh_extra_args="$(prompt_default "额外 SSH 参数，可空（不是私钥短语；例如 -J jump-host 或 -o StrictHostKeyChecking=accept-new）" "${ssh_extra_args}")"
     [[ -n "${domain}" ]] || report_key=""
     [[ -n "${po0_host}" && ( -n "${domain}" || -n "${resource_token}" ) ]] || {
         printf 'PO0 SSH 地址不能为空；PO0 来源 key 和资源任务 Token 不能同时为空。\n' >&2
@@ -1146,6 +1300,96 @@ edit_target_interactive() {
     replace_config_from_tmp "${tmp}"
     prune_stats_to_current_targets || true
     printf '已更新目标 %s。\n' "${selected}"
+}
+
+update_target_ssh_args_by_index() {
+    local selected="$1"
+    local new_extra="$2"
+    local old_extra="$3"
+    local update_report_extra="${4:-0}"
+    local line idx=0 tmp
+    ensure_config_file || return 1
+    tmp="${CONFIG_FILE}.tmp.$$"
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        if ! parse_target_line "${line}"; then
+            printf '%s\n' "${line}" >> "${tmp}"
+            continue
+        fi
+        ((idx++))
+        if [[ "${idx}" == "${selected}" ]]; then
+            TARGET_SSH_EXTRA_ARGS="$(sanitize_field "${new_extra}")"
+            if [[ "${update_report_extra}" == "1" || -z "${TARGET_REPORT_SSH_EXTRA_ARGS}" || "${TARGET_REPORT_SSH_EXTRA_ARGS}" == "${old_extra}" ]]; then
+                TARGET_REPORT_SSH_EXTRA_ARGS="${TARGET_SSH_EXTRA_ARGS}"
+            fi
+        fi
+        printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
+            "${TARGET_ENABLED}" "${TARGET_LABEL}" "${TARGET_DOMAIN}" "${TARGET_REPORT_KEY}" "${TARGET_PO0_HOST}" "${TARGET_PO0_PORT}" "${TARGET_PO0_USER}" "${TARGET_PO0_SCRIPT}" "${TARGET_TOKEN}" "${TARGET_SSH_EXTRA_ARGS}" "${TARGET_RESOURCE_TOKEN}" "${TARGET_REPORT_MODE}" "${TARGET_DDNS_RESOLVE_DOMAIN}" "${TARGET_CLIENT_IP_TOKEN}" "${TARGET_CLIENT_IP_SOURCE}" "${TARGET_CLIENT_IP_TTL}" "${TARGET_WEBAUTH_TOKEN}" "${TARGET_WEBAUTH_SOURCE}" "${TARGET_WEBAUTH_TTL}" "${TARGET_REPORT_SSH_EXTRA_ARGS}" >> "${tmp}"
+    done < "${CONFIG_FILE}"
+    replace_config_from_tmp "${tmp}"
+}
+
+manage_target_ssh_interactive() {
+    local selected line idx=0 choice key_path new_key_path extra old_extra new_extra current_report_extra update_report_extra=0
+    local po0_host po0_port po0_user
+    select_target_index || return 1
+    selected="${SELECTED_TARGET_INDEX}"
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        parse_target_line "${line}" || continue
+        ((idx++))
+        if [[ "${idx}" == "${selected}" ]]; then
+            po0_host="${TARGET_PO0_HOST}"
+            po0_port="${TARGET_PO0_PORT:-22}"
+            po0_user="${TARGET_PO0_USER:-root}"
+            extra="${TARGET_SSH_EXTRA_ARGS}"
+            current_report_extra="${TARGET_REPORT_SSH_EXTRA_ARGS}"
+            break
+        fi
+    done < "${CONFIG_FILE}"
+    [[ -n "${po0_host:-}" ]] || return 1
+    old_extra="${extra}"
+    key_path="$(ssh_extra_identity_path "${extra}" 2>/dev/null || true)"
+
+    printf '\n目标 SSH 连接配置：%s@%s:%s\n' "${po0_user}" "${po0_host}" "${po0_port}"
+    printf '当前私钥路径：%s\n' "${key_path:-未单独指定，使用系统默认 SSH 配置/agent}"
+    printf '当前额外 SSH 参数：%s\n' "${extra:-无}"
+    if [[ -n "${current_report_extra}" && "${current_report_extra}" != "${extra}" ]]; then
+        printf 'Self-report/WebAuth 上报 SSH 参数覆盖：%s\n' "${current_report_extra}"
+    fi
+    printf '%s\n' "  1) 设置/更换私钥路径"
+    printf '%s\n' "  2) 粘贴私钥并保存到本机"
+    printf '%s\n' "  3) 清除私钥路径（保留其它 SSH 参数）"
+    printf '%s\n' "  4) 编辑额外 SSH 参数（不是私钥短语）"
+    printf '%s\n' "  0) 返回"
+    choice="$(prompt_default "请选择" "0")"
+    case "${choice}" in
+        1)
+            new_key_path="$(prompt_default "SSH 私钥路径（路径不要含空格）" "${key_path}")"
+            new_extra="$(ssh_extra_with_identity "${extra}" "${new_key_path}")"
+            ;;
+        2)
+            new_key_path="$(save_pasted_ssh_key "${po0_host}" "${po0_port}" "${po0_user}")" || return 1
+            printf '[OK] 已保存 SSH 私钥：%s\n' "${new_key_path}"
+            new_extra="$(ssh_extra_with_identity "${extra}" "${new_key_path}")"
+            ;;
+        3)
+            new_extra="$(ssh_extra_without_identity "${extra}")"
+            ;;
+        4)
+            new_extra="$(prompt_default "额外 SSH 参数，例如 -J jump-host 或 -o StrictHostKeyChecking=accept-new" "${extra}")"
+            ;;
+        0|"")
+            return 0
+            ;;
+        *)
+            printf '无效选择。\n' >&2
+            return 1
+            ;;
+    esac
+    if [[ -n "${current_report_extra}" && "${current_report_extra}" != "${old_extra}" ]]; then
+        prompt_yes_no "Self-report/WebAuth 上报 SSH 参数有单独覆盖，是否同步更新" "n" && update_report_extra=1
+    fi
+    update_target_ssh_args_by_index "${selected}" "${new_extra}" "${old_extra}" "${update_report_extra}" || return 1
+    printf '已更新目标 %s 的 SSH 连接配置。\n' "${selected}"
 }
 
 report_once() {
@@ -1283,8 +1527,14 @@ po0_lan_wizard() {
     PO0_PORT="$(prompt_default "PO0 SSH 端口" "${PO0_PORT:-22}")"
     PO0_USER="$(prompt_default "PO0 SSH 用户" "${PO0_USER:-root}")"
     PO0_SCRIPT="$(prompt_default "PO0 管理脚本路径" "${PO0_SCRIPT:-${DEFAULT_PO0_SCRIPT}}")"
-    key_path="$(prompt_default "SSH 私钥路径，可空（路径不要含空格）" "")"
-    extra="$(prompt_default "额外 SSH 参数，可空" "${SSH_EXTRA_ARGS}")"
+    key_path="$(prompt_default "SSH 私钥路径，可空；如要粘贴私钥请直接回车" "")"
+    if [[ -z "$(trim "${key_path}")" ]]; then
+        if prompt_yes_no "是否粘贴 SSH 私钥并保存到本机文件" "n"; then
+            key_path="$(save_pasted_ssh_key "${PO0_HOST}" "${PO0_PORT}" "${PO0_USER}")" || return 1
+            printf '[OK] 已保存 SSH 私钥：%s\n' "${key_path}"
+        fi
+    fi
+    extra="$(prompt_default "额外 SSH 参数，可空（不是私钥短语；例如 -J jump-host 或 -o StrictHostKeyChecking=accept-new）" "${SSH_EXTRA_ARGS}")"
     SSH_EXTRA_ARGS="$(build_batchmode_ssh_extra_args "${key_path}" "${extra}")" || return 1
 
     printf '\n检查密钥 SSH 和 PO0 管理脚本...\n'
@@ -2699,27 +2949,31 @@ menu_loop() {
         printf '\n%s\n' "概览"
         printf '%s\n' "  1) 查看上报目标和统计"
         printf '%s\n' "  2) 查看资源任务统计"
-        printf '\n%s\n' "DDNS / 资源任务"
-        printf '%s\n' "  3) 添加上报目标"
-        printf '%s\n' "  4) 编辑上报目标"
-        printf '%s\n' "  5) 删除上报目标"
-        printf '%s\n' "  6) 启用 / 停用上报目标"
-        printf '%s\n' "  7) 立即执行 DDNS 解析上报"
-        printf '%s\n' "  8) 立即领取并执行资源任务"
+        printf '\n%s\n' "目标 / SSH 连接"
+        printf '%s\n' "  3) 添加 PO0 目标"
+        printf '%s\n' "  4) 编辑 PO0 目标"
+        printf '%s\n' "  5) 管理目标 SSH 私钥 / 参数"
+        printf '%s\n' "  6) 删除 PO0 目标"
+        printf '%s\n' "  7) 启用 / 停用 PO0 目标"
+        printf '\n%s\n' "DDNS resolver"
+        printf '%s\n' "  8) 立即执行 DDNS 解析上报"
+        printf '\n%s\n' "资源任务"
+        printf '%s\n' "  9) 查看资源任务统计"
+        printf '%s\n' " 10) 立即领取并执行资源任务"
         printf '\n%s\n' "设备自上报"
-        printf '%s\n' "  9) Self-report probe"
-        printf '%s\n' " 10) 启动 Self-report 本地服务"
+        printf '%s\n' " 11) Self-report probe"
+        printf '%s\n' " 12) 启动 Self-report 本地服务"
         printf '\n%s\n' "WebAuth 放行"
-        printf '%s\n' " 11) WebAuth probe"
-        printf '%s\n' " 12) 启动 WebAuth 本地服务"
-        printf '%s\n' " 13) WebAuth / Cloudflare Access 配置提示"
+        printf '%s\n' " 13) WebAuth probe"
+        printf '%s\n' " 14) 启动 WebAuth 本地服务"
+        printf '%s\n' " 15) WebAuth / Cloudflare Access 配置提示"
         printf '\n%s\n' "维护"
-        printf '%s\n' " 14) 安装 / 更新定时任务"
-        printf '%s\n' " 15) 删除定时任务"
-        printf '%s\n' " 16) 查看定时任务状态"
-        printf '%s\n' " 17) 清空本机 DDNS 解析上报统计"
+        printf '%s\n' " 16) 安装 / 更新定时任务"
+        printf '%s\n' " 17) 删除定时任务"
+        printf '%s\n' " 18) 查看定时任务状态"
+        printf '%s\n' " 19) 清空本机 DDNS 解析上报统计"
         printf '%s\n' "  0) 退出"
-        if ! choice="$(read_prompt "请选择操作 [0-17]: ")"; then
+        if ! choice="$(read_prompt "请选择操作 [0-19]: ")"; then
             printf '\n输入结束，退出菜单。\n'
             return 0
         fi
@@ -2729,19 +2983,21 @@ menu_loop() {
             2) list_resource_stats ;;
             3) add_target_interactive ;;
             4) edit_target_interactive ;;
-            5) delete_target_interactive ;;
-            6) toggle_target_interactive ;;
-            7) run_config_targets ;;
-            8) run_resource_targets ;;
-            9) probe_self_report_target ;;
-            10) run_self_report_server ;;
-            11) probe_webauth_target ;;
-            12) run_webauth_server ;;
-            13) show_webauth_cloudflare_guide ;;
-            14) install_cron_interactive ;;
-            15) remove_cron_interactive ;;
-            16) show_cron_status ;;
-            17) clear_stats_interactive ;;
+            5) manage_target_ssh_interactive ;;
+            6) delete_target_interactive ;;
+            7) toggle_target_interactive ;;
+            8) run_config_targets ;;
+            9) list_resource_stats ;;
+            10) run_resource_targets ;;
+            11) probe_self_report_target ;;
+            12) run_self_report_server ;;
+            13) probe_webauth_target ;;
+            14) run_webauth_server ;;
+            15) show_webauth_cloudflare_guide ;;
+            16) install_cron_interactive ;;
+            17) remove_cron_interactive ;;
+            18) show_cron_status ;;
+            19) clear_stats_interactive ;;
             0) return 0 ;;
             *) printf '无效选择。\n' >&2 ;;
         esac

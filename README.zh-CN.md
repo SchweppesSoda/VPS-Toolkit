@@ -46,6 +46,8 @@ ssh root@<PO0_HOST> 'chmod +x /root/nftables-relay-manager.sh && bash /root/nfta
 # PO0 内网 Worker：推荐在 LAN Worker 机器上用交互向导安装
 # 向导可通过密钥 SSH 自动从 PO0 读取 token，写入本机配置，并安装本机 po0-lan-client 命令
 # 每次向导初始化一个 PO0 目标；多个 PO0 后续用 po0-lan-client --menu 添加
+# SSH 认证可填已有私钥路径；也可留空后粘贴专用私钥，向导会保存为 600 权限文件
+# “额外 SSH 参数”是 ssh 选项，不是私钥短语；带短语的私钥需要 ssh-agent
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh | bash
 po0-lan-client --menu
 po0-lan-client --run
