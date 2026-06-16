@@ -1363,6 +1363,8 @@ po0_lan_wizard() {
     upsert_target "1" "${label}" "${DDNS_DOMAIN}" "${REPORT_KEY}" "${PO0_HOST}" "${PO0_PORT}" "${PO0_USER}" "${PO0_SCRIPT}" "${DDNS_TOKEN}" "${SSH_EXTRA_ARGS}" "${RESOURCE_TOKEN}" "${REPORT_MODE}" "${DDNS_RESOLVE_DOMAIN}" "${CLIENT_IP_TOKEN}" "${SELF_REPORT_SOURCE}" "${SELF_REPORT_TTL_SECONDS}" "${WEBAUTH_TOKEN}" "${WEBAUTH_SOURCE}" "${WEBAUTH_TTL_SECONDS}" "${SSH_EXTRA_ARGS}" || return 1
     chmod 600 "${CONFIG_FILE}" 2>/dev/null || true
     printf '\n[OK] 已写入配置：%s\n' "${CONFIG_FILE}"
+    script_path="$(ensure_persistent_script)" || return 1
+    printf '[OK] 已安装本机命令：%s\n' "${script_path}"
 
     if (( ssh_ok == 1 )); then
         if (( use_ddns == 1 || use_resource == 1 )); then
@@ -1377,7 +1379,6 @@ po0_lan_wizard() {
             if prompt_yes_no "安装/更新 cron 定时执行 DDNS 上报和资源任务轮询" "y"; then
                 install_periodic=1
                 cron_minutes="$(prompt_default "每几分钟执行一次（1-59）" "${CRON_MINUTES}")"
-                script_path="$(ensure_persistent_script)" || return 1
                 install_cron_minutes "${cron_minutes}" "${script_path}" || return 1
             fi
             prompt_yes_no "现在立即执行一次 DDNS 上报/资源任务轮询" "y" && run_now=1
@@ -2468,7 +2469,7 @@ install_self() {
     dest="$(default_install_path)"
     dir="$(path_dirname "${dest}")"
     mkdir -p "${dir}" || return 1
-    if [[ -r "${src}" && "${src}" != */bash && "${src}" != */sh ]]; then
+    if ! is_transient_script_path "${src}" && [[ -r "${src}" && "${src}" != */bash && "${src}" != */sh ]]; then
         if [[ -e "${dest}" ]] && [[ "${src}" -ef "${dest}" ]]; then
             :
         else

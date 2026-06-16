@@ -44,8 +44,16 @@ scp scripts/po0/nftables/nftables-relay-manager.sh root@<PO0_HOST>:/root/nftable
 ssh root@<PO0_HOST> 'chmod +x /root/nftables-relay-manager.sh && bash /root/nftables-relay-manager.sh'
 
 # PO0 LAN Worker, recommended interactive setup on the LAN Worker host.
-# The wizard can fetch tokens over key-based SSH to PO0, then write local config and install cron/services.
+# The wizard can fetch tokens over key-based SSH to PO0, write local config,
+# and install the local po0-lan-client command. One wizard run configures one PO0 target.
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh | bash
+po0-lan-client --menu
+po0-lan-client --run
+
+# If an older install did not create po0-lan-client, install the command manually.
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh -o /usr/local/sbin/po0-lan-client
+chmod 755 /usr/local/sbin/po0-lan-client
+/usr/local/sbin/po0-lan-client --menu
 
 # PO0 LAN Worker, run on the LAN Worker host: DDNS resolver + iplist/ipdb resource polling
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --source-key <DDNS_SOURCE_KEY> --ddns-domain <DDNS_DOMAIN> --token <DDNS_TOKEN> --resource-token <RESOURCE_TOKEN> --install-cron 5

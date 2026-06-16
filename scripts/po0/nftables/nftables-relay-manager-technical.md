@@ -569,11 +569,22 @@ scripts/po0/nftables/tools/po0-outbound-ip-report.sh
 scripts/po0/nftables/tools/po0-outbound-ip-report.ps1
 ```
 
-`po0-lan-client.sh` 适合 Linux/macOS/OpenWrt 内网机器。它可以同时做 DDNS resolver 上报和资源任务轮询，也可以只做资源任务。推荐先用交互向导；向导会通过 `ssh -o BatchMode=yes` 检查到 PO0 的密钥 SSH，密钥 SSH 可用时自动读取所需 token，写入本机目标配置，并按选择安装 cron / systemd 服务：
+`po0-lan-client.sh` 适合 Linux/macOS/OpenWrt 内网机器。它可以同时做 DDNS resolver 上报和资源任务轮询，也可以只做资源任务。推荐先用交互向导；向导会通过 `ssh -o BatchMode=yes` 检查到 PO0 的密钥 SSH，密钥 SSH 可用时自动读取所需 token，写入本机目标配置，安装本机 `po0-lan-client` 命令，并按选择安装 cron / systemd 服务。首次向导里的 PO0 SSH 地址一次只填一个；多个 PO0 目标后续用菜单添加：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh | bash
+po0-lan-client --menu
+po0-lan-client --run
+po0-lan-client --probe
 po0-lan-client --wizard
+```
+
+如果旧版本安装后没有 `po0-lan-client` 命令，可手动补装：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh -o /usr/local/sbin/po0-lan-client
+chmod 755 /usr/local/sbin/po0-lan-client
+/usr/local/sbin/po0-lan-client --menu
 ```
 
 自动化场景仍可使用公开仓库一键部署命令：

@@ -26,7 +26,29 @@ bash nftables-relay-manager.sh
 
 详细功能和客户端使用方式见 [`nftables/README.md`](./nftables/README.md)。
 
-LAN Worker 首次部署推荐在内网机器上运行 `po0-lan-client --wizard`，或直接使用 raw 脚本管道进入交互向导。
+LAN Worker 首次部署推荐在内网机器上直接使用 raw 脚本管道进入交互向导：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh | bash
+```
+
+向导会写入本机配置，并安装 `po0-lan-client` 命令。之后常用：
+
+```bash
+po0-lan-client --menu
+po0-lan-client --run
+po0-lan-client --probe
+```
+
+初始化时 PO0 SSH 地址一次只填一个；多个 PO0 目标后续进入 `po0-lan-client --menu` 添加。
+
+如果旧版本安装后没有 `po0-lan-client` 命令，可手动补装：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh -o /usr/local/sbin/po0-lan-client
+chmod 755 /usr/local/sbin/po0-lan-client
+/usr/local/sbin/po0-lan-client --menu
+```
 
 ### 管理代理服务增强
 

@@ -44,8 +44,16 @@ scp scripts/po0/nftables/nftables-relay-manager.sh root@<PO0_HOST>:/root/nftable
 ssh root@<PO0_HOST> 'chmod +x /root/nftables-relay-manager.sh && bash /root/nftables-relay-manager.sh'
 
 # PO0 内网 Worker：推荐在 LAN Worker 机器上用交互向导安装
-# 向导可通过密钥 SSH 自动从 PO0 读取 token，然后写入本机配置并安装 cron/service
+# 向导可通过密钥 SSH 自动从 PO0 读取 token，写入本机配置，并安装本机 po0-lan-client 命令
+# 每次向导初始化一个 PO0 目标；多个 PO0 后续用 po0-lan-client --menu 添加
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh | bash
+po0-lan-client --menu
+po0-lan-client --run
+
+# 如果旧版本安装后没有 po0-lan-client 命令，可手动补装
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh -o /usr/local/sbin/po0-lan-client
+chmod 755 /usr/local/sbin/po0-lan-client
+/usr/local/sbin/po0-lan-client --menu
 
 # PO0 内网 Worker：在 LAN Worker 机器上执行，DDNS 解析上报 + iplist/ipdb 资源轮询
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --source-key <DDNS_SOURCE_KEY> --ddns-domain <DDNS_DOMAIN> --token <DDNS_TOKEN> --resource-token <RESOURCE_TOKEN> --install-cron 5

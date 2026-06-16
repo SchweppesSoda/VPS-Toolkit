@@ -21,16 +21,32 @@ ssh root@<PO0_HOST> 'chmod +x /root/nftables-relay-manager.sh && bash /root/nfta
 
 LAN Worker 命令在内网 Worker 机器上执行，不在 PO0 上执行。DDNS 解析上报 + 资源任务轮询：
 
-推荐先用交互向导。向导会检查到 PO0 的密钥 SSH；密钥 SSH 可用时，会自动调用 PO0 主控读取所需 token，然后写入本机配置并按选择安装 cron / systemd 服务：
+推荐先用交互向导。向导会检查到 PO0 的密钥 SSH；密钥 SSH 可用时，会自动调用 PO0 主控读取所需 token，然后写入本机配置、安装本机 `po0-lan-client` 命令，并按选择安装 cron / systemd 服务。首次向导里的 PO0 SSH 地址一次只填一个；多个 PO0 目标后续进入菜单添加：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh | bash
+```
+
+初始化后常用本地命令：
+
+```bash
+po0-lan-client --menu
+po0-lan-client --run
+po0-lan-client --probe
 ```
 
 也可以显式进入向导：
 
 ```bash
 po0-lan-client --wizard
+```
+
+如果旧版本安装后没有 `po0-lan-client` 命令，可手动补装：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh -o /usr/local/sbin/po0-lan-client
+chmod 755 /usr/local/sbin/po0-lan-client
+/usr/local/sbin/po0-lan-client --menu
 ```
 
 如果要用于自动化，仍可直接传参数：
@@ -193,7 +209,7 @@ iplist
 ipdb
 ```
 
-Worker 管道运行且需要 cron 或服务时，会自动落盘到：
+Worker 交互向导、管道运行且需要 cron 或服务时，会自动落盘到：
 
 ```text
 root:     /usr/local/sbin/po0-lan-client
