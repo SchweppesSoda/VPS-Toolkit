@@ -280,6 +280,12 @@ bash /root/nftables-relay-manager.sh --ssh-ip-report <source-id> <ipv4> <token> 
 bash /root/nftables-relay-manager.sh --ssh-ip-report-check <source-id> <token>
 ```
 
+如果使用 PO0 专用受限 SSH 上报 key，Egern 专用 key 的 scope 应为 `egern`。wrapper 拒绝时，PO0 会记录不含 token 的摘要：
+
+```bash
+bash /root/nftables-relay-manager.sh --show-report-key-denials 80
+```
+
 模块提供：
 
 - `schedule`：默认每 10 分钟上报。

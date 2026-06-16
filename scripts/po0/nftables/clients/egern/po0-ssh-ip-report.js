@@ -1,4 +1,5 @@
 const STORAGE_KEY = 'po0-ssh-ip-report:last';
+const ERROR_STORAGE_KEY = 'po0-ssh-ip-report:last-error';
 const IP_CHECK_INDEX_KEY = 'po0-ssh-ip-report:ip-check-index';
 
 function required(env, key) {
@@ -334,6 +335,46 @@ function notify(ctx, title, body) {
   ctx.notify({ title, body });
 }
 
+function notifyLong(ctx, title, body) {
+  const text = String(body || '').trim();
+  if (!text) return;
+  const chunks = wrapText(text, 180).slice(0, 4);
+  if (chunks.length <= 1) {
+    notify(ctx, title, text);
+    return;
+  }
+  chunks.forEach((chunk, index) => {
+    notify(ctx, `${title} ${index + 1}/${chunks.length}`, chunk);
+  });
+}
+
+function oneLineOutput(value) {
+  return String(value || '')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join(' | ');
+}
+
+function commandResultError(result) {
+  const stderr = oneLineOutput(result?.stderr);
+  const stdout = oneLineOutput(result?.stdout);
+  const code = result?.code ?? result?.exitCode ?? 'unknown';
+  return stderr || stdout || `exit ${code}`;
+}
+
+function logMessage(ctx, level, message, detail = '') {
+  const line = `[PO0 SSH Report] ${message}${detail ? `: ${detail}` : ''}`;
+  try {
+    if (level === 'error') console.error(line);
+    else console.log(line);
+  } catch (_) {}
+  try {
+    if (typeof ctx?.log === 'function') ctx.log(line);
+  } catch (_) {}
+}
+
 function targetValue(target, env, keys, fallback = '') {
   for (const key of keys) {
     const value = target?.[key] ?? env?.[key];
@@ -459,9 +500,9 @@ async function reportToPO0(ctx, env, target, ip) {
     const result = await session.exec(command);
     const code = result.code ?? result.exitCode ?? 0;
     if (code !== 0) {
-      throw new Error(`${target.sourceId}@${target.host}: ${result.stderr || result.stdout || code}`);
+      throw new Error(`exit ${code}: ${commandResultError(result)}`);
     }
-    return result.stdout || `OK ${target.sourceId} ${ip}`;
+    return oneLineOutput(result.stdout) || `OK ${target.sourceId} ${ip}`;
   } finally {
     await session.close();
   }
@@ -496,12 +537,14 @@ export default async function(ctx) {
           output: String(output || '').trim(),
         });
       } catch (error) {
+        const errorText = error?.message || String(error);
+        logMessage(ctx, 'error', `${targetName(target)} failed`, errorText);
         failures.push({
           ok: false,
           sourceId: target.sourceId,
           host: target.host,
           port: target.port,
-          error: error?.message || String(error),
+          error: errorText,
         });
       }
     }
@@ -522,9 +565,10 @@ export default async function(ctx) {
     await storageSet(ctx, STORAGE_KEY, JSON.stringify(state));
 
     if (failures.length > 0) {
-      const errorSummary = failures.map((failure) => `${failure.sourceId}@${failure.host}: ${failure.error}`).join('; ');
+      const errorSummary = failures.map((failure) => `${targetName(failure)}: ${failure.error}`).join('; ');
+      await storageSet(ctx, ERROR_STORAGE_KEY, errorSummary);
       if (notifyFailure) {
-        notify(ctx, 'PO0 SSH Report Failed', `${ip}: ${results.length}/${targets.length} OK; ${errorSummary}`);
+        notifyLong(ctx, 'PO0 SSH Report Failed', `${ip}: ${results.length}/${targets.length} OK; ${errorSummary}`);
       }
       return isWidgetRun(ctx) ? widgetFromState(state, ctx) : state;
     }
@@ -547,8 +591,10 @@ export default async function(ctx) {
       error: error?.message || String(error),
     };
     await storageSet(ctx, STORAGE_KEY, JSON.stringify(state));
+    await storageSet(ctx, ERROR_STORAGE_KEY, state.error);
+    logMessage(ctx, 'error', 'run failed', state.error);
     if (notifyFailure) {
-      notify(ctx, 'PO0 SSH Report Failed', state.error);
+      notifyLong(ctx, 'PO0 SSH Report Failed', state.error);
     }
     if (isWidgetRun(ctx)) {
       return widgetFromState(state, ctx);

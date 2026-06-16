@@ -694,6 +694,8 @@ iphone-us|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_U
 
 脚本只查询一次当前 IPv4，然后按目标列表依次 SSH 上报。全部目标成功时状态为成功；部分失败时保留每个目标的成功/失败明细并发出失败通知，但不会回滚已成功的 PO0。
 
+如果使用 PO0 专用受限 SSH 上报 key，Egern 专用 key 的 scope 应为 `egern`。wrapper 拒绝时会把不含 token 的摘要写入 `/etc/nftables.d/po0-report-key-denied.log`，也可以用 `--show-report-key-denials 80` 查看最近记录。Egern 手动执行和 Status 脚本开启 debug，SSH stderr 会写入脚本日志；长错误会分段通知。
+
 ### 5.7 高级渲染调试
 
 入口：

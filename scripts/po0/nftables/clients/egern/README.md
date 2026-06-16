@@ -65,4 +65,16 @@ iphone-sg|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_S
 - `generic`：在 Egern 手动执行 `PO0 SSH IP Report Now`。
 - `widget`：点击系统“更新小组件”会立即执行一次上报，并显示每个 PO0 target 的成功/失败、IP、时间、TTL 和错误原因。
 
-手动执行成功/失败都会尽量通知；自动成功默认不通知，失败默认通知。
+手动执行成功/失败都会尽量通知；自动成功默认不通知，失败默认通知。手动执行和 Status 脚本开启 debug，SSH stderr 会写入 Egern 脚本日志；长错误会分段通知，避免只显示半截 `PO0 restricted report key denied`。
+
+PO0 端如果使用专用受限 SSH 上报 key，Egern 专用 key 的 scope 应为 `egern`。被 wrapper 拒绝时，PO0 会把不含 token 的拒绝摘要写到：
+
+```text
+/etc/nftables.d/po0-report-key-denied.log
+```
+
+也可以在 PO0 上查看最近记录：
+
+```bash
+bash /root/nftables-relay-manager.sh --show-report-key-denials 80
+```

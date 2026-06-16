@@ -67,6 +67,7 @@ OUTBOUND_IP_REPORTER_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VP
 OUTBOUND_IP_REPORTER_PS_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-outbound-ip-report.ps1"
 EGERN_SSH_REPORT_MODULE_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/PO0-SSH-IP-Report.yaml"
 REPORT_KEY_WRAPPER_PATH="${CONF_DIR}/po0-report-key-wrapper"
+REPORT_KEY_DENY_LOG="${CONF_DIR}/po0-report-key-denied.log"
 
 NAT_TABLE="po0_relay_nat"
 MANGLE_TABLE="po0_relay_mangle"
@@ -8974,8 +8975,24 @@ set -euo pipefail
 scope="${1:-all}"
 manager="${2:-/root/nftables-relay-manager.sh}"
 orig="${SSH_ORIGINAL_COMMAND:-}"
+deny_log="/etc/nftables.d/po0-report-key-denied.log"
+first=""
+second=""
+third=""
+rest=""
+action=""
+declare -a args=()
 
-deny() { printf 'PO0 restricted report key denied: %s\n' "$*" >&2; exit 126; }
+log_deny() {
+    local reason="$*" now conn argc
+    now="$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date 2>/dev/null || printf 'unknown')"
+    conn="${SSH_CONNECTION:-unknown}"
+    argc="${#args[@]}"
+    printf '%s scope=%s reason=%s action=%s first=%s second=%s third=%s argc=%s conn=%s\n' \
+        "${now}" "${scope}" "${reason}" "${action:-unknown}" "${first:-unknown}" "${second:-unknown}" "${third:-unknown}" "${argc}" "${conn}" >> "${deny_log}" 2>/dev/null || true
+}
+
+deny() { log_deny "$*"; printf 'PO0 restricted report key denied: %s\n' "$*" >&2; exit 126; }
 
 is_public_ipv4() {
     [[ "${1:-}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || return 1
@@ -9017,7 +9034,14 @@ allow_action() {
 [[ -n "${orig}" ]] || deny "empty command"
 clean="${orig//\'/}"
 clean="${clean//\"/}"
-read -r first second third rest <<< "${clean}"
+while true; do
+    read -r first second third rest <<< "${clean}"
+    if [[ ( "${first}" == "bash" || "${first}" == "/bin/bash" || "${first}" == "/usr/bin/bash" || "${first}" == "sh" || "${first}" == "/bin/sh" || "${first}" == "/usr/bin/sh" ) && ( "${second}" == "-c" || "${second}" == "-lc" ) ]]; then
+        clean="${third:-} ${rest:-}"
+        continue
+    fi
+    break
+done
 if [[ "${first}" == "bash" || "${first}" == "/bin/bash" || "${first}" == "/usr/bin/bash" ]]; then
     [[ "${second}" == "${manager}" ]] || deny "unexpected manager path"
     action="${third}"
@@ -9087,6 +9111,7 @@ show_report_keys_for_user() {
     auth="$(report_key_auth_file "${user}")" || { err "无法确定 ${user} 的 authorized_keys 路径。"; return 1; }
     printf '用户: %s\n' "${user}"
     printf 'authorized_keys: %s\n' "${auth}"
+    printf '拒绝日志: %s\n' "${REPORT_KEY_DENY_LOG}"
     [[ -f "${auth}" ]] || { printf '  (文件不存在)\n'; return 0; }
     while IFS= read -r line || [[ -n "${line}" ]]; do
         line="$(trim "${line}")"
@@ -9109,6 +9134,17 @@ show_report_keys_for_user() {
         [[ "${category}" == "PO0 受限上报 key" ]] && printf '      allowed    : %s\n      wrapper    : %s\n' "$(report_key_scope_allows "${scope}")" "${REPORT_KEY_WRAPPER_PATH}"
         ((idx++))
     done < "${auth}"
+}
+
+show_report_key_denials() {
+    local limit="${1:-50}"
+    [[ "${limit}" =~ ^[0-9]+$ && "${limit}" -gt 0 ]] || limit=50
+    printf 'PO0 受限上报 key 拒绝日志：%s\n' "${REPORT_KEY_DENY_LOG}"
+    if [[ ! -s "${REPORT_KEY_DENY_LOG}" ]]; then
+        printf '  (暂无拒绝记录)\n'
+        return 0
+    fi
+    tail -n "${limit}" "${REPORT_KEY_DENY_LOG}" 2>/dev/null || cat "${REPORT_KEY_DENY_LOG}"
 }
 
 install_report_public_key() {
@@ -9155,8 +9191,9 @@ do_manage_report_keys() {
         print_title "专用受限上报 key"
         echo "  1) 显示已有 key 分类"
         echo "  2) 新增 / 转换 public key 为受限上报 key"
+        echo "  3) 查看受限 key 拒绝日志"
         echo "  0) 返回"
-        read -r -p "请选择操作 [0-2]: " choice
+        read -r -p "请选择操作 [0-3]: " choice
         case "${choice}" in
             1) user="$(prompt_with_default "系统用户" "root")"; show_report_keys_for_user "${user}"; pause_before_return ;;
             2)
@@ -9167,6 +9204,7 @@ do_manage_report_keys() {
                 install_report_public_key "${user}" "${scope}" "${pubkey}"
                 pause_before_return
                 ;;
+            3) show_report_key_denials 80; pause_before_return ;;
             0) return ;;
             *) err "无效选择。" ;;
         esac
@@ -9176,6 +9214,11 @@ do_manage_report_keys() {
 do_show_report_keys_cli() {
     ensure_layout || return 1
     show_report_keys_for_user "${1:-root}"
+}
+
+do_show_report_key_denials_cli() {
+    ensure_layout || return 1
+    show_report_key_denials "${1:-50}"
 }
 
 do_install_report_key_cli() {
@@ -11002,6 +11045,8 @@ print_cli_usage() {
         "                   输出 LAN Worker 向导使用的 KEY=value token bundle（SSH only）。" \
         "  --show-report-keys [user]" \
         "                   显示普通登录 key、PO0 受限上报 key、其它 restricted key 分类。" \
+        "  --show-report-key-denials [lines]" \
+        "                   显示 PO0 受限上报 key 最近拒绝日志；不记录 token。" \
         "  --install-report-key <egern|worker|all> '<public-key-line>' [user]" \
         "                   追加或转换专用受限上报 public key；不接收私钥。" \
         "  --compat-check   只读检查旧配置/旧白名单/旧日志兼容状态。" \
@@ -11178,6 +11223,10 @@ case "${1:-}" in
         ;;
     --show-report-keys)
         do_show_report_keys_cli "${2:-root}"
+        exit $?
+        ;;
+    --show-report-key-denials)
+        do_show_report_key_denials_cli "${2:-50}"
         exit $?
         ;;
     --install-report-key)

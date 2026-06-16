@@ -83,13 +83,13 @@ scriptings:
       script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js"
       update_interval: 86400
       timeout: 30
-      debug: false
+      debug: true
   - generic:
       name: PO0 SSH Report Status
       script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js"
       update_interval: 86400
       timeout: 30
-      debug: false
+      debug: true
 
 widgets:
   - name: PO0 SSH Report Status
