@@ -60,6 +60,6 @@ iphone-us|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_U
 - `schedule`：默认每 10 分钟自动上报一次。
 - `network`：网络变化时触发一次。
 - `generic`：在 Egern 手动执行 `PO0 Client IP Report Now`。
-- `widget`：显示最近一次成功/失败状态。
+- `widget`：点击系统的“更新小组件”会立即执行一次上报，并显示最新成功/失败状态。
 
 手动执行成功或失败都会尽量通知；自动成功默认不通知，失败默认通知。

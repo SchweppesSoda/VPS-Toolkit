@@ -86,9 +86,9 @@ scriptings:
       debug: false
   - generic:
       name: PO0 Client IP Status
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-client-ip-widget.js"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-client-ip-report.js"
       update_interval: 86400
-      timeout: 10
+      timeout: 30
       debug: false
 
 widgets:

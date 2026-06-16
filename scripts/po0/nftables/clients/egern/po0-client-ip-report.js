@@ -166,6 +166,125 @@ function isManualRun(ctx) {
   return /generic|manual|now|立即|手动/i.test(scriptLabel(ctx));
 }
 
+function isWidgetRun(ctx) {
+  return Boolean(ctx?.widgetFamily);
+}
+
+function formatTime(value) {
+  if (!value) return 'never';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString();
+}
+
+function ttlRemaining(expiresAt) {
+  if (!expiresAt) return 'unknown';
+  const ms = new Date(expiresAt).getTime() - Date.now();
+  if (!Number.isFinite(ms)) return 'unknown';
+  if (ms <= 0) return 'expired';
+  const minutes = Math.floor(ms / 60000);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return `${hours}h ${rest}m`;
+}
+
+function textNode(text, size = 'caption1', weight = 'regular', color = '#E6EAF0') {
+  return {
+    type: 'text',
+    text: String(text),
+    font: { size, weight },
+    textColor: color,
+    maxLines: 1,
+    minScale: 0.55,
+  };
+}
+
+function widgetPanel(title, content, ok, ctx) {
+  const lines = Array.isArray(content) ? content : String(content || '').split('\n').filter(Boolean);
+  const family = String(ctx?.widgetFamily || '');
+  const maxLines = family.includes('Large') ? 8 : 5;
+  const shownLines = lines.slice(0, maxLines);
+  const accent = ok ? '#34C759' : '#FF453A';
+
+  return {
+    type: 'widget',
+    padding: 14,
+    gap: 7,
+    backgroundColor: '#111318',
+    refreshAfter: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+    children: [
+      {
+        type: 'stack',
+        direction: 'row',
+        alignItems: 'center',
+        gap: 6,
+        children: [
+          {
+            type: 'image',
+            src: ok ? 'sf-symbol:checkmark.shield.fill' : 'sf-symbol:exclamationmark.triangle.fill',
+            width: 18,
+            height: 18,
+            color: accent,
+          },
+          textNode(title, 'headline', 'semibold', '#FFFFFF'),
+        ],
+      },
+      ...shownLines.map((line) => textNode(line)),
+    ],
+  };
+}
+
+function targetSummaryLines(state) {
+  const targets = Array.isArray(state.targets) ? state.targets : [];
+  if (targets.length === 0) {
+    if (state.expiresAt) return [`${state.reportName || 'egern'}@${state.po0Host || 'PO0'} TTL ${ttlRemaining(state.expiresAt)}`];
+    return [];
+  }
+  return targets.slice(0, 4).map((target) => {
+    const name = `${target.reportName || 'egern'}@${target.host || 'PO0'}`;
+    if (target.ok) return `${name} TTL ${ttlRemaining(target.expiresAt)}`;
+    return `${name} failed: ${target.error || 'unknown'}`;
+  });
+}
+
+function widgetFromState(state, ctx) {
+  if (!state) {
+    return widgetPanel('PO0 Client IP', ['No report state yet.', 'Tap refresh to report.'], false, ctx);
+  }
+
+  if (!state.ok) {
+    const targets = Array.isArray(state.targets) ? state.targets : [];
+    const successCount = state.successCount ?? targets.filter((target) => target.ok).length;
+    const targetCount = state.targetCount ?? targets.length;
+    return widgetPanel(
+      'PO0 Client IP',
+      [
+        `IP: ${state.ip || 'unknown'}`,
+        `Last failure: ${formatTime(state.at)}`,
+        `Targets: ${successCount}/${targetCount || 1} OK`,
+        `Network: ${state.network || 'unknown'}`,
+        ...(targetSummaryLines(state).length ? targetSummaryLines(state) : [`Reason: ${state.error || 'unknown'}`]),
+      ],
+      false,
+      ctx,
+    );
+  }
+
+  return widgetPanel(
+    'PO0 Client IP',
+    [
+      `IP: ${state.ip || 'unknown'}`,
+      `Targets: ${state.successCount ?? 1}/${state.targetCount ?? 1} OK`,
+      `Last success: ${formatTime(state.at)}`,
+      `Network: ${state.network || 'unknown'}`,
+      ...targetSummaryLines(state),
+    ],
+    true,
+    ctx,
+  );
+}
+
 function networkLabel(ctx) {
   const network = ctx?.network || ctx?.networks || ctx?.environment?.network;
   if (!network) return 'unknown';
@@ -386,13 +505,13 @@ export default async function(ctx) {
       if (notifyFailure) {
         notify(ctx, 'PO0 Client IP Report Failed', `${ip}: ${results.length}/${targets.length} OK; ${errorSummary}`);
       }
-      return state;
+      return isWidgetRun(ctx) ? widgetFromState(state, ctx) : state;
     }
 
     if (notifySuccess) {
       notify(ctx, 'PO0 Client IP Report', `${ip}: ${results.length}/${targets.length} PO0 updated`);
     }
-    return state;
+    return isWidgetRun(ctx) ? widgetFromState(state, ctx) : state;
   } catch (error) {
     const state = {
       ok: false,
@@ -409,6 +528,9 @@ export default async function(ctx) {
     await storageSet(ctx, STORAGE_KEY, JSON.stringify(state));
     if (notifyFailure) {
       notify(ctx, 'PO0 Client IP Report Failed', state.error);
+    }
+    if (isWidgetRun(ctx)) {
+      return widgetFromState(state, ctx);
     }
     throw error;
   }
