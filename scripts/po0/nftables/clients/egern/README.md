@@ -76,5 +76,6 @@ PO0 端如果使用专用受限 SSH 上报 key，Egern 专用 key 的 scope 应�
 也可以在 PO0 上查看最近记录：
 
 ```bash
+bash /root/nftables-relay-manager.sh --refresh-report-key-wrapper
 bash /root/nftables-relay-manager.sh --show-report-key-denials 80
 ```

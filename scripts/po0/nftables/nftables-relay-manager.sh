@@ -9192,8 +9192,9 @@ do_manage_report_keys() {
         echo "  1) 显示已有 key 分类"
         echo "  2) 新增 / 转换 public key 为受限上报 key"
         echo "  3) 查看受限 key 拒绝日志"
+        echo "  4) 刷新受限 key wrapper"
         echo "  0) 返回"
-        read -r -p "请选择操作 [0-3]: " choice
+        read -r -p "请选择操作 [0-4]: " choice
         case "${choice}" in
             1) user="$(prompt_with_default "系统用户" "root")"; show_report_keys_for_user "${user}"; pause_before_return ;;
             2)
@@ -9205,6 +9206,7 @@ do_manage_report_keys() {
                 pause_before_return
                 ;;
             3) show_report_key_denials 80; pause_before_return ;;
+            4) ensure_report_key_wrapper && success "已刷新 wrapper：${REPORT_KEY_WRAPPER_PATH}"; pause_before_return ;;
             0) return ;;
             *) err "无效选择。" ;;
         esac
@@ -9219,6 +9221,12 @@ do_show_report_keys_cli() {
 do_show_report_key_denials_cli() {
     ensure_layout || return 1
     show_report_key_denials "${1:-50}"
+}
+
+do_refresh_report_key_wrapper_cli() {
+    ensure_layout || return 1
+    ensure_report_key_wrapper || return 1
+    printf '已刷新 PO0 受限上报 key wrapper：%s\n' "${REPORT_KEY_WRAPPER_PATH}"
 }
 
 do_install_report_key_cli() {
@@ -11047,6 +11055,8 @@ print_cli_usage() {
         "                   显示普通登录 key、PO0 受限上报 key、其它 restricted key 分类。" \
         "  --show-report-key-denials [lines]" \
         "                   显示 PO0 受限上报 key 最近拒绝日志；不记录 token。" \
+        "  --refresh-report-key-wrapper" \
+        "                   只刷新 PO0 受限上报 key wrapper，不改 authorized_keys。" \
         "  --install-report-key <egern|worker|all> '<public-key-line>' [user]" \
         "                   追加或转换专用受限上报 public key；不接收私钥。" \
         "  --compat-check   只读检查旧配置/旧白名单/旧日志兼容状态。" \
@@ -11227,6 +11237,10 @@ case "${1:-}" in
         ;;
     --show-report-key-denials)
         do_show_report_key_denials_cli "${2:-50}"
+        exit $?
+        ;;
+    --refresh-report-key-wrapper)
+        do_refresh_report_key_wrapper_cli
         exit $?
         ;;
     --install-report-key)
