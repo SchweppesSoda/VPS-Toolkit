@@ -5,42 +5,21 @@
 核心边界：
 
 - PO0 不开放 HTTP / WebAuth / Secret URL。
-- PO0 默认不做本地 DDNS 解析；`--refresh-ddns` 只保留为高级兜底。
+- PO0 不做本地 DDNS 解析；`--refresh-ddns` 只按外部已上报且仍在 TTL 内的 DDNS 结果重建/应用，不延长原上报 TTL。
 - LAN Worker 负责 DDNS 解析上报、`iplist/ipdb` 资源任务、WebAuth Client、Self-report 接收端。
 - Egern 负责移动设备当前出口 IPv4 上报，不再解析 DDNS。
 - 资源任务只允许 `iplist`、`ipdb`，不支持任意远程 shell。
 
-## 公开 raw 命令
+## 部署命令
 
-PO0 主控临时运行：
-
-```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/nftables-relay-manager.sh)
-```
-
-PO0 无法访问 GitHub 时，可用 raw 加速地址启动：
+PO0 主控脚本不依赖 HTTPS 拉取。先从本地仓库上传到 PO0，再运行：
 
 ```bash
-PO0_RAW_BASE_URL='https://gh-proxy.com/https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main' bash -c 'curl -fsSL "$PO0_RAW_BASE_URL/scripts/po0/nftables/nftables-relay-manager.sh" | bash'
+scp scripts/po0/nftables/nftables-relay-manager.sh root@<PO0_HOST>:/root/nftables-relay-manager.sh
+ssh root@<PO0_HOST> 'chmod +x /root/nftables-relay-manager.sh && bash /root/nftables-relay-manager.sh'
 ```
 
-PO0 主控落盘到兼容旧配置的路径：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/nftables-relay-manager.sh -o /root/nftables-relay-manager.sh
-chmod +x /root/nftables-relay-manager.sh
-bash /root/nftables-relay-manager.sh
-```
-
-加速落盘命令：
-
-```bash
-PO0_RAW_BASE_URL='https://gh-proxy.com/https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main' bash -c 'curl -fsSL "$PO0_RAW_BASE_URL/scripts/po0/nftables/nftables-relay-manager.sh" -o /root/nftables-relay-manager.sh && chmod +x /root/nftables-relay-manager.sh && bash /root/nftables-relay-manager.sh'
-```
-
-`gh-proxy.com` 只是示例；不可用时，把 `PO0_RAW_BASE_URL` 换成其它 GitHub raw 代理根地址。主控脚本落盘/自更新时还会按 `PO0_GITHUB_RAW_PROXY_PREFIXES` 继续尝试多个代理前缀。
-
-LAN Worker：DDNS 解析上报 + 资源任务轮询：
+LAN Worker 命令在内网 Worker 机器上执行，不在 PO0 上执行。DDNS 解析上报 + 资源任务轮询：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script /root/nftables-relay-manager.sh --source-key <DDNS_SOURCE_KEY> --ddns-domain <DDNS_DOMAIN> --token <DDNS_TOKEN> --resource-token <RESOURCE_TOKEN> --install-cron 5
@@ -74,9 +53,10 @@ https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nft
 
 主菜单按功能分组：
 
-- 基础操作：安装、刷新中转机 IP、查看 Dashboard。
+- 基础操作：安装、手动刷新 PO0 公网 IP 缓存、查看 Dashboard。
 - 规则管理：新增、编辑、排序、启停、删除、导入、导出转发规则。
-- 系统维护：中转参数、源 IP 白名单、自检、BBR、预览、客户端部署命令。
+- 访问来源 / 白名单 / 客户端：源 IP 白名单、LAN Worker/客户端/Egern 部署命令、内网资源更新任务。
+- 系统维护：中转参数、自检、BBR。
 
 客户端部署命令可由主控自动生成：
 
@@ -115,10 +95,21 @@ custom_sources        高级自选来源组合
 可组合的来源：
 
 ```text
-manual, ssh_temp, ddns, client_ip, webauth, learned, region, url_report
+manual, ssh_temp, ddns, client_ip, webauth, learned, region
 ```
 
-`url_report` 只保留为旧格式兼容，不作为当前推荐路径。
+动态来源缓存策略：
+- `ddns`、`client_ip`、`webauth` 按 `source_type + source_value` 分组。
+- 每个来源默认最多保留最近 5 个有效 IP。
+- 已存在 IP 再次上报会刷新时间和过期时间，不重复新增。
+- 过期条目不会进入最终 nftables 白名单缓存。
+
+手动清理和安装清理 cron：
+
+```bash
+bash /root/nftables-relay-manager.sh --cleanup-dynamic-allowlist
+bash /root/nftables-relay-manager.sh --install-dynamic-allowlist-cleanup-cron daily
+```
 
 ## DDNS Resolver 上报
 
@@ -138,7 +129,9 @@ bash /root/nftables-relay-manager.sh --ddns-report <source-key> <ipv4[,ipv4...]>
 bash /root/nftables-relay-manager.sh --ddns-report-check <source-key> <token>
 ```
 
-LAN Worker 里 `--source-key` 只是 PO0 DDNS 来源 key/名称，用来匹配 PO0 来源表；`--ddns-domain` 才是真正要解析的 DDNS 域名。旧参数 `--domain` 仍作为兼容别名：没有 `--ddns-domain` 时，同时作为 source key 和 DDNS 域名。PO0 本机兜底刷新仍可手动执行，但默认不推荐，也不会默认安装 cron：
+LAN Worker 里 `--source-key` 只是 PO0 DDNS 来源 key/名称，用来匹配 PO0 来源表；`--ddns-domain` 才是真正要解析的 DDNS 域名。旧参数 `--domain` 仍作为兼容别名：没有 `--ddns-domain` 时，同时作为 source key 和 DDNS 域名。
+
+PO0 不做本地 DDNS 解析。`--refresh-ddns` 只会把已经由 LAN Worker/路由器上报、且仍在 TTL 内的结果重建/应用；它不会延长原上报 TTL：
 
 ```bash
 bash /root/nftables-relay-manager.sh --refresh-ddns
@@ -298,7 +291,7 @@ bash /root/nftables-relay-manager.sh --automation-mode regular
 bash /root/nftables-relay-manager.sh --compat-check
 ```
 
-旧文件清理预览：
+旧文件清理 dry-run：
 
 ```bash
 bash /root/nftables-relay-manager.sh --cleanup-legacy --dry-run

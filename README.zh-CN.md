@@ -39,29 +39,17 @@ GitHub Actions 会在 `main` 分支的 `web/**` 变化后，把根主页索引�
 ## 快速使用
 
 ```bash
-# PO0 nftables 中转管理器：临时交互运行
-bash <(curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/nftables-relay-manager.sh)
+# PO0 nftables 中转管理器：先上传，再在 PO0 上运行
+scp scripts/po0/nftables/nftables-relay-manager.sh root@<PO0_HOST>:/root/nftables-relay-manager.sh
+ssh root@<PO0_HOST> 'chmod +x /root/nftables-relay-manager.sh && bash /root/nftables-relay-manager.sh'
 
-# PO0 nftables 中转管理器：PO0 无法访问 GitHub 时走 raw 加速
-PO0_RAW_BASE_URL='https://gh-proxy.com/https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main' bash -c 'curl -fsSL "$PO0_RAW_BASE_URL/scripts/po0/nftables/nftables-relay-manager.sh" | bash'
-
-# PO0 nftables 中转管理器：落盘到兼容旧配置的路径
-curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/nftables-relay-manager.sh -o /root/nftables-relay-manager.sh
-chmod +x /root/nftables-relay-manager.sh
-bash /root/nftables-relay-manager.sh
-
-# PO0 nftables 中转管理器：加速落盘命令
-PO0_RAW_BASE_URL='https://gh-proxy.com/https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main' bash -c 'curl -fsSL "$PO0_RAW_BASE_URL/scripts/po0/nftables/nftables-relay-manager.sh" -o /root/nftables-relay-manager.sh && chmod +x /root/nftables-relay-manager.sh && bash /root/nftables-relay-manager.sh'
-
-# 如果 gh-proxy.com 不可用，把 PO0_RAW_BASE_URL 换成其它 GitHub raw 代理根地址即可。
-
-# PO0 内网 Worker：DDNS 解析上报 + iplist/ipdb 资源轮询
+# PO0 内网 Worker：在 LAN Worker 机器上执行，DDNS 解析上报 + iplist/ipdb 资源轮询
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --source-key <DDNS_SOURCE_KEY> --ddns-domain <DDNS_DOMAIN> --token <DDNS_TOKEN> --resource-token <RESOURCE_TOKEN> --install-cron 5
 
-# PO0 内网 Worker：只做资源轮询
+# PO0 内网 Worker：在 LAN Worker 机器上执行，只做资源轮询
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --resource-token <RESOURCE_TOKEN> --install-cron 5
 
-# PO0 内网 Worker：自上报接收端，HTTP 只跑在 LAN Worker
+# PO0 内网 Worker：在 LAN Worker 机器上执行，自上报接收端，HTTP 只跑在 LAN Worker
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh | bash -s -- --install-self
 po0-lan-client --self-report-server --self-report-listen 127.0.0.1:8788 --po0-host <PO0_HOST> --client-ip-token <CLIENT_REPORT_TOKEN> --self-report-secret <SELF_REPORT_SECRET>
 
