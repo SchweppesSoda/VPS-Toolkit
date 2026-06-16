@@ -9219,17 +9219,15 @@ do_show_client_deploy_index() {
     echo ""
     echo "进入具体菜单后，只显示对应场景的命令："
     echo "  1) PO0 主控脚本上传命令"
-    echo "  2) LAN Worker 专用 token"
-    echo "  3) LAN Worker 资源任务 Worker"
-    echo "  4) LAN Worker DDNS 解析 Worker"
-    echo "  5) LAN Worker self-report server"
-    echo "  6) Self-report client"
-    echo "  7) LAN Worker WebAuth worker"
-    echo "  8) Egern SSH report"
-    echo "  9) 专用受限 SSH 上报 key"
+    echo "  2) LAN Worker 资源任务 Worker"
+    echo "  3) LAN Worker DDNS 解析 Worker"
+    echo "  4) LAN Worker self-report server"
+    echo "  5) Self-report client"
+    echo "  6) LAN Worker WebAuth worker"
+    echo "  7) Egern SSH report"
     echo ""
     echo "CLI 示例："
-    echo "  bash nftables-relay-manager.sh --show-client-deploy-commands tokens"
+    echo "  bash nftables-relay-manager.sh --show-client-deploy-commands lan-resource"
     echo "  bash nftables-relay-manager.sh --show-client-deploy-commands lan-ddns"
     echo "  bash nftables-relay-manager.sh --show-client-deploy-commands egern"
 }
@@ -9383,14 +9381,12 @@ do_show_client_deploy_topic() {
     case "${1:-index}" in
         index|menu|"") do_show_client_deploy_index ;;
         po0|manager) do_show_po0_manager_deploy_commands ;;
-        token|tokens|bundle|worker-token|worker-tokens) do_show_lan_worker_tokens ;;
         lan-resource|resource|worker-resource) do_show_lan_resource_worker_commands ;;
         lan-ddns|ddns|worker-ddns) do_show_lan_ddns_worker_commands ;;
         self-server|self-report-server|self-report) do_show_self_report_server_commands ;;
         self-client|client) do_show_self_report_client_commands ;;
         webauth|webauth-worker) do_show_webauth_worker_commands ;;
         egern|ssh-report) do_show_egern_deploy_commands ;;
-        key|keys|restricted-key) do_show_restricted_report_key_commands ;;
         all|legacy) do_show_client_deploy_index ;;
         *)
             err "未知部署主题：${1}"
@@ -9405,28 +9401,24 @@ do_manage_client_deploy_commands() {
     while true; do
         print_title "LAN Worker / 客户端 / Egern 分场景部署"
         echo "  1) PO0 主控脚本上传命令"
-        echo "  2) LAN Worker 专用 token"
-        echo "  3) LAN Worker 资源任务 Worker"
-        echo "  4) LAN Worker DDNS 解析 Worker"
-        echo "  5) LAN Worker self-report server"
-        echo "  6) Self-report client"
-        echo "  7) LAN Worker WebAuth worker"
-        echo "  8) Egern SSH report"
-        echo "  9) 专用受限 SSH 上报 key"
-        echo " 10) 显示简短索引"
+        echo "  2) LAN Worker 资源任务 Worker"
+        echo "  3) LAN Worker DDNS 解析 Worker"
+        echo "  4) LAN Worker self-report server"
+        echo "  5) Self-report client"
+        echo "  6) LAN Worker WebAuth worker"
+        echo "  7) Egern SSH report"
+        echo "  8) 显示简短索引"
         echo "  0) 返回"
-        read -r -p "请选择操作 [0-10]: " choice
+        read -r -p "请选择操作 [0-8]: " choice
         case "${choice}" in
             1) do_show_po0_manager_deploy_commands; pause_before_return ;;
-            2) do_show_lan_worker_tokens; pause_before_return ;;
-            3) do_show_lan_resource_worker_commands; pause_before_return ;;
-            4) do_show_lan_ddns_worker_commands; pause_before_return ;;
-            5) do_show_self_report_server_commands; pause_before_return ;;
-            6) do_show_self_report_client_commands; pause_before_return ;;
-            7) do_show_webauth_worker_commands; pause_before_return ;;
-            8) do_show_egern_deploy_commands; pause_before_return ;;
-            9) do_show_restricted_report_key_commands; pause_before_return ;;
-            10) do_show_client_deploy_index; pause_before_return ;;
+            2) do_show_lan_resource_worker_commands; pause_before_return ;;
+            3) do_show_lan_ddns_worker_commands; pause_before_return ;;
+            4) do_show_self_report_server_commands; pause_before_return ;;
+            5) do_show_self_report_client_commands; pause_before_return ;;
+            6) do_show_webauth_worker_commands; pause_before_return ;;
+            7) do_show_egern_deploy_commands; pause_before_return ;;
+            8) do_show_client_deploy_index; pause_before_return ;;
             0) return ;;
             *) err "无效选择。" ;;
         esac
@@ -10811,8 +10803,8 @@ print_cli_usage() {
         "                   安装/更新动态来源清理 cron，默认 daily。" \
         "  --remove-dynamic-allowlist-cleanup-cron" \
         "                   删除动态来源清理 cron。" \
-        "  --show-client-deploy-commands [tokens|lan-resource|lan-ddns|self-server|self-client|webauth|egern|key|all]" \
-        "                   按主题输出 LAN Worker、Self-report、WebAuth、Egern 的部署命令；all 为旧版全量输出。" \
+        "  --show-client-deploy-commands [lan-resource|lan-ddns|self-server|self-client|webauth|egern|all]" \
+        "                   按主题输出 LAN Worker、Self-report、WebAuth、Egern 的部署命令；token/key 管理在白名单菜单或专用 CLI。" \
         "  --worker-token-bundle [--ensure-resource-token]" \
         "                   输出 LAN Worker 向导使用的 KEY=value token bundle（SSH only）。" \
         "  --show-report-keys [user]" \
