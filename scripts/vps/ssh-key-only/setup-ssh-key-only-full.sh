@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# 为指定账户安装 SSH 公钥，将 sshd 切换到随机端口，并同步迁移 nftables 端口规则。
+# 为指定账户安装 SSH 公钥，将 sshd 切换到随机或指定端口，并同步迁移 nftables 端口规则。
 
 SSHD_CONFIG="/etc/ssh/sshd_config"
 # 使用 IANA 动态/私有高位端口区间，并在其中随机挑选空闲端口。
@@ -31,6 +31,9 @@ REPLACE_AUTH_KEYS=0
 NFT_AVAILABLE=0
 NFT_CREATED_MANAGED_CHAIN=0
 NFT_NEEDS_MANAGED_CHAIN=0
+PORT_SELECTION_MODE="random"
+REQUESTED_NEW_PORT=""
+RANDOM_REQUESTED=0
 
 info() {
   printf '%s\n' "$*"
@@ -57,6 +60,23 @@ is_valid_port() {
   local port="$1"
   [[ "${port}" =~ ^[0-9]+$ ]] || return 1
   (( port >= 1 && port <= 65535 ))
+}
+
+is_allowed_new_ssh_port() {
+  local port="$1"
+  local range min max
+
+  is_valid_port "${port}" || return 1
+
+  for range in "${SSH_PORT_RANGES[@]}"; do
+    min="${range%-*}"
+    max="${range#*-}"
+    if (( port >= min && port <= max )); then
+      return 0
+    fi
+  done
+
+  return 1
 }
 
 is_excluded_port() {
@@ -185,6 +205,62 @@ can_check_listening_ports() {
   has_cmd ss || has_cmd lsof || has_cmd netstat
 }
 
+usage() {
+  cat <<EOF
+Usage:
+  setup-ssh-key-only-full.sh [--random]
+  setup-ssh-key-only-full.sh --port <port>
+  setup-ssh-key-only-full.sh --help
+
+Options:
+  --random        Randomly choose a new SSH port from: ${SSH_PORT_RANGES[*]}
+  -p, --port     Use a specific new SSH port from: ${SSH_PORT_RANGES[*]}
+  -h, --help     Show this help.
+
+Remote pipe example:
+  curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/vps/ssh-key-only/setup-ssh-key-only-full.sh | sudo env SSH_CONNECTION="\$SSH_CONNECTION" bash -s -- --port 55022
+
+The current SSH session port may be outside this range, but the new SSH port
+must follow scripts/vps/docs/vps-port-firewall-summary.md.
+EOF
+}
+
+parse_args() {
+  while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+      --random)
+        if [[ "${PORT_SELECTION_MODE}" == "custom" ]]; then
+          die "--random 不能与 --port 同时使用。"
+        fi
+        PORT_SELECTION_MODE="random"
+        RANDOM_REQUESTED=1
+        shift
+        ;;
+      -p|--port)
+        if [[ "${PORT_SELECTION_MODE}" == "custom" ]]; then
+          die "只能指定一次 --port。"
+        fi
+        if [[ "${RANDOM_REQUESTED}" -eq 1 ]]; then
+          die "--port 不能与 --random 同时使用。"
+        fi
+        if [[ "$#" -lt 2 || -z "${2:-}" || "${2:-}" == --* ]]; then
+          die "--port 需要端口值。"
+        fi
+        REQUESTED_NEW_PORT="$2"
+        PORT_SELECTION_MODE="custom"
+        shift 2
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        die "未知参数：$1。使用 --help 查看用法。"
+        ;;
+    esac
+  done
+}
+
 random_range_candidate() {
   if has_cmd shuf; then
     printf '%s\n' "${SSH_PORT_RANGES[@]}" | shuf -n 1
@@ -224,7 +300,7 @@ choose_random_port() {
 
   for ((attempt = 1; attempt <= 300; attempt++)); do
     port="$(random_port_candidate)"
-    is_valid_port "${port}" || continue
+    is_allowed_new_ssh_port "${port}" || continue
     is_excluded_port "${port}" && continue
     [[ "${port}" == "${current_port}" ]] && continue
     port_in_use "${port}" && continue
@@ -233,6 +309,34 @@ choose_random_port() {
   done
 
   return 1
+}
+
+validate_new_port_candidate() {
+  local port="$1"
+  local current_port="$2"
+  local label="$3"
+
+  if ! is_allowed_new_ssh_port "${port}"; then
+    die "${label} ${port} 不在允许的 SSH 新端口范围内：${SSH_PORT_RANGES[*]}。"
+  fi
+  if is_excluded_port "${port}"; then
+    die "${label} ${port} 属于排除端口：${EXCLUDED_PORTS[*]}。"
+  fi
+  if [[ "${port}" == "${current_port}" ]]; then
+    die "${label} ${port} 不能与当前 SSH 端口相同。"
+  fi
+
+  if can_check_listening_ports; then
+    if port_in_use "${port}"; then
+      warn "${label} ${port} 已被本机服务监听，当前占用信息如下："
+      show_port_owner "${port}"
+      die "端口占用检查失败，请选择其他端口。"
+    else
+      info "端口占用检查：${port}/tcp 当前未被本机服务监听。"
+    fi
+  else
+    warn "未找到 ss/lsof/netstat，无法检查 ${port}/tcp 是否被本机服务监听。"
+  fi
 }
 
 detect_nft_input_chain() {
@@ -847,6 +951,7 @@ main() {
   local current_port new_port sshd_bin backup_path tmp_file effective_ports
   local skip_nft=0
 
+  parse_args "$@"
   need_root_and_ssh_session
 
   current_port="$(printf '%s\n' "${SSH_CONNECTION}" | awk '{print $4}')"
@@ -861,22 +966,22 @@ main() {
     skip_nft=1
   fi
 
-  new_port="$(choose_random_port "${current_port}")" || die "无法选择可用的随机端口。"
+  if [[ "${PORT_SELECTION_MODE}" == "custom" ]]; then
+    new_port="${REQUESTED_NEW_PORT}"
+  else
+    new_port="$(choose_random_port "${current_port}")" || die "无法选择可用的随机端口。"
+  fi
+
   section "本次计划"
   info "当前 SSH 端口：${current_port}"
-  info "准备切换到的新随机端口：${new_port}"
-  if can_check_listening_ports; then
-    if port_in_use "${new_port}"; then
-      warn "随机端口 ${new_port} 仍显示被占用，当前占用信息如下："
-      show_port_owner "${new_port}"
-      die "端口占用检查失败，请重新运行脚本选择其他端口。"
-    else
-      info "端口占用检查：${new_port}/tcp 当前未被本机服务监听。"
-    fi
+  info "SSH 新端口允许范围：${SSH_PORT_RANGES[*]}"
+  if [[ "${PORT_SELECTION_MODE}" == "custom" ]]; then
+    info "准备切换到的自定义 SSH 新端口：${new_port}"
+    validate_new_port_candidate "${new_port}" "${current_port}" "自定义端口"
   else
-    warn "未找到 ss/lsof/netstat，无法检查随机端口是否被本机服务监听。"
+    info "准备切换到的新随机端口：${new_port}"
+    validate_new_port_candidate "${new_port}" "${current_port}" "随机端口"
   fi
-  info "端口候选范围：${SSH_PORT_RANGES[*]}"
   info "排除端口：${EXCLUDED_PORTS[*]}"
 
   prompt_for_user_and_key

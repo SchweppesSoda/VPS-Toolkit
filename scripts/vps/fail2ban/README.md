@@ -8,7 +8,7 @@
 建议入口：
 
 ```bash
-sudo bash scripts/vps/fail2ban/fail2ban.sh
-sudo bash scripts/vps/fail2ban/fail2ban.sh default
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/vps/fail2ban/fail2ban.sh | sudo bash -s -- default
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/vps/fail2ban/fail2ban.sh | sudo bash -s -- advanced
 ```
 

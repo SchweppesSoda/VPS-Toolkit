@@ -57,16 +57,16 @@ po0-lan-client --self-report-server --self-report-listen 127.0.0.1:8788 --po0-ho
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-outbound-ip-report.sh | bash -s -- --worker-url <LAN_WORKER_REPORT_URL> --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --install-cron 5
 
 # Fail2ban helper
-sudo bash scripts/vps/fail2ban/fail2ban.sh
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/vps/fail2ban/fail2ban.sh | sudo bash -s -- default
 
 # 3x-ui node exporter
 bash <(curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/vps/3x-ui/3x-ui-node-exporter.sh)
 
 # ForwardX NAT VPS agent adapter
-bash scripts/vps/forwardx/forwardx-nat-agent-adapter.sh install --public-port 54999 --internal-port 81 --proto both
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/vps/forwardx/forwardx-nat-agent-adapter.sh | sudo bash -s -- install --public-port 54999 --internal-port 81 --proto both
 
 # SSH key-only hardening
-sudo bash scripts/vps/ssh-key-only/setup-ssh-key-only-full.sh
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/vps/ssh-key-only/setup-ssh-key-only-full.sh | sudo env SSH_CONNECTION="$SSH_CONNECTION" bash -s -- --port 55022
 ```
 
 Windows self-report client:

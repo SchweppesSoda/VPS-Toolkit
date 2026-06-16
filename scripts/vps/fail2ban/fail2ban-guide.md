@@ -101,7 +101,7 @@ action   = %(action_)s  # 默认封禁动作
 如果只是给 VPS 做 SSH 防爆破，建议优先使用仓库里的脚本默认模式：
 
 ```bash
-sudo bash scripts/vps/fail2ban/fail2ban.sh default
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/vps/fail2ban/fail2ban.sh | sudo bash -s -- default
 ```
 
 脚本会把配置写到：
@@ -140,13 +140,13 @@ maxretry = 3
 如果你想保留这些推荐值，但逐项手动改，可以用高级模式下的自定义配置：
 
 ```bash
-sudo bash scripts/vps/fail2ban/fail2ban.sh install
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/vps/fail2ban/fail2ban.sh | sudo bash -s -- install
 ```
 
 如果你想从菜单里选，脚本现在会先给你两个入口：
 
 ```bash
-sudo bash scripts/vps/fail2ban/fail2ban.sh
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/vps/fail2ban/fail2ban.sh | sudo bash -s --
 ```
 
 - 默认模式：一键推荐配置，自动探测，只在最后确认。
@@ -155,7 +155,7 @@ sudo bash scripts/vps/fail2ban/fail2ban.sh
 如果脚本写入后需要回滚到上一次配置：
 
 ```bash
-sudo bash scripts/vps/fail2ban/fail2ban.sh rollback
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/vps/fail2ban/fail2ban.sh | sudo bash -s -- rollback
 ```
 
 ---
