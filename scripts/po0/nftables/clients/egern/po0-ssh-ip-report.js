@@ -203,8 +203,8 @@ function textNode(text, size = 'caption1', weight = 'regular', color = '#E6EAF0'
 
 function widgetPanel(title, content, ok, ctx) {
   const lines = Array.isArray(content) ? content : String(content || '').split('\n').filter(Boolean);
-  const family = String(ctx?.widgetFamily || '');
-  const maxLines = family.includes('Large') ? 8 : 5;
+  const family = String(ctx?.widgetFamily || '').toLowerCase();
+  const maxLines = family.includes('large') ? 10 : family.includes('small') ? 4 : 7;
   const shownLines = lines.slice(0, maxLines);
   const accent = ok ? '#34C759' : '#FF453A';
 
@@ -236,6 +236,12 @@ function widgetPanel(title, content, ok, ctx) {
   };
 }
 
+function targetName(target) {
+  const host = target.host || 'PO0';
+  const port = target.port ? `:${target.port}` : '';
+  return `${target.sourceId || 'egern'}@${host}${port}`;
+}
+
 function targetSummaryLines(state) {
   const targets = Array.isArray(state.targets) ? state.targets : [];
   if (targets.length === 0) {
@@ -243,7 +249,7 @@ function targetSummaryLines(state) {
     return [];
   }
   return targets.slice(0, 4).map((target) => {
-    const name = `${target.sourceId || 'egern'}@${target.host || 'PO0'}`;
+    const name = targetName(target);
     if (target.ok) return `${name} TTL ${ttlRemaining(target.expiresAt)}`;
     return `${name} failed: ${target.error || 'unknown'}`;
   });
@@ -258,14 +264,15 @@ function widgetFromState(state, ctx) {
     const targets = Array.isArray(state.targets) ? state.targets : [];
     const successCount = state.successCount ?? targets.filter((target) => target.ok).length;
     const targetCount = state.targetCount ?? targets.length;
+    const targetLines = targetSummaryLines(state);
     return widgetPanel(
       'PO0 SSH Report',
       [
         `IP: ${state.ip || 'unknown'}`,
-        `Last failure: ${formatTime(state.at)}`,
         `Targets: ${successCount}/${targetCount || 1} OK`,
+        ...(targetLines.length ? targetLines : [`Reason: ${state.error || 'unknown'}`]),
+        `Last failure: ${formatTime(state.at)}`,
         `Network: ${state.network || 'unknown'}`,
-        ...(targetSummaryLines(state).length ? targetSummaryLines(state) : [`Reason: ${state.error || 'unknown'}`]),
       ],
       false,
       ctx,
@@ -277,9 +284,9 @@ function widgetFromState(state, ctx) {
     [
       `IP: ${state.ip || 'unknown'}`,
       `Targets: ${state.successCount ?? 1}/${state.targetCount ?? 1} OK`,
+      ...targetSummaryLines(state),
       `Last success: ${formatTime(state.at)}`,
       `Network: ${state.network || 'unknown'}`,
-      ...targetSummaryLines(state),
     ],
     true,
     ctx,
