@@ -27,7 +27,7 @@ https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nft
 - `PO0_HOST`：PO0 SSH 地址。
 - `PO0_PORT`：默认 `22`。
 - `PO0_USER`：默认 `root`。
-- `PO0_PASSWORD` 或 `PO0_PRIVATE_KEY`：二选一，推荐私钥。
+- `PO0_PASSWORD` 或 `PO0_PRIVATE_KEY`：二选一，推荐私钥。私钥可以原样多行粘贴，也可以压成一行粘贴；脚本会自动还原 PEM 换行，字面量 `\n` 也兼容。
 - `PO0_SCRIPT`：默认 `/root/nftables-relay-manager.sh`。
 - `REPORT_NAME`：来源 ID，例如 `iphone`、`ipad-cellular`。
 - `REPORT_TOKEN`：PO0 端生成的 Client IP 上报 token。

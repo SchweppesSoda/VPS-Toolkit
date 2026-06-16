@@ -18,7 +18,7 @@ env_schema:
     description: Use either password or private key.
   PO0_PRIVATE_KEY:
     name: PO0 SSH private key
-    description: Use \n for line breaks if pasted as one line.
+    description: 'Paste the key as-is. Multi-line, one-line PEM, and literal \n are normalized automatically.'
   PO0_PASSPHRASE:
     name: PO0 SSH key passphrase
     description: Optional. Only needed when the private key is encrypted.

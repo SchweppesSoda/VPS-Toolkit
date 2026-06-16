@@ -11,6 +11,35 @@ function shQuote(value) {
   return `'${String(value).replace(/'/g, "'\\''")}'`;
 }
 
+function wrapText(value, width) {
+  const chunks = [];
+  const text = String(value || '');
+  for (let index = 0; index < text.length; index += width) {
+    chunks.push(text.slice(index, index + width));
+  }
+  return chunks;
+}
+
+function normalizeSshPrivateKey(value) {
+  let key = String(value || '').trim();
+  if (!key) return '';
+
+  key = key
+    .replace(/\\r\\n/g, '\n')
+    .replace(/\\n/g, '\n')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .trim();
+
+  const oneLine = key.replace(/\n+/g, ' ').trim();
+  const match = oneLine.match(/(-----BEGIN ([A-Z0-9 ]*PRIVATE KEY)-----)\s*([\s\S]*?)\s*(-----END \2-----)/);
+  if (!match) return key;
+
+  const body = match[3].replace(/\s+/g, '');
+  if (!body) return `${match[1]}\n${match[4]}\n`;
+  return `${match[1]}\n${wrapText(body, 64).join('\n')}\n${match[4]}\n`;
+}
+
 function isPublicIPv4(ip) {
   const m = String(ip || '').trim().match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
   if (!m) return false;
@@ -261,7 +290,7 @@ function sshConfig(env, target) {
     timeout: 10000,
   };
   if (String(target.privateKey || '').trim()) {
-    config.privateKey = String(target.privateKey).replace(/\\n/g, '\n');
+    config.privateKey = normalizeSshPrivateKey(target.privateKey);
     if (String(target.passphrase || '').trim()) {
       config.passphrase = target.passphrase;
     }
