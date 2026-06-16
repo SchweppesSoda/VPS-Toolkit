@@ -648,7 +648,7 @@ bash nftables-relay-manager.sh --resource-task-fail TASK_ID WORKER_ID REASON TOK
 bash nftables-relay-manager.sh --resource-task-ping TOKEN
 ```
 
-`--resource-task-create` 和 `--install-resource-task-cron` 是 PO0 管理员入口，只创建等待领取的固定任务，不主动连接内网机器。`--resource-task-ping/claim/complete/fail` 主要供 Worker 调用。`--resource-task-ping` 只读检查 token；任务领取和状态修改使用 `flock`（系统提供时）串行化；上传路径由 PO0 生成，客户端不能指定生产文件路径。资源任务使用独立 Token，不复用 DDNS 上报 Token。
+`--resource-task-create` 和 `--install-resource-task-cron` 是 PO0 管理员入口，只创建等待领取的固定任务，不主动连接内网机器。`--resource-task-ping/claim/complete/fail` 主要供 Worker 调用。`--resource-task-ping` 只读检查 token；任务领取和状态修改使用 `flock`（系统提供时）串行化；上传路径由 PO0 生成，客户端不能指定生产文件路径。资源任务使用独立 Token，不复用 DDNS 上报 Token。使用 PO0 专用受限 SSH 上报 key 时，`scope=worker` 允许 `--resource-task-ping/claim/complete/fail`，但不允许 `--resource-task-create` 或安装 PO0 端定时任务；旧 wrapper 需要用新版脚本重新安装/刷新。
 
 `qqwry.ipdb` 默认下载源：
 

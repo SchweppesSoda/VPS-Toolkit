@@ -4568,6 +4568,17 @@ resource_task_new_id() {
     printf '%s-%s\n' "$(date -u '+%Y%m%dT%H%M%SZ')" "${suffix}"
 }
 
+resource_task_pending_id_for_type() {
+    local type="$1"
+    [[ -f "${RESOURCE_TASKS_FILE}" ]] || return 0
+    awk -F '|' -v type="${type}" '
+        NF >= 3 && $1 !~ /^#/ && $2 == type && $3 == "pending" {
+            print $1
+            exit
+        }
+    ' "${RESOURCE_TASKS_FILE}"
+}
+
 compact_resource_tasks_file() {
     local tmp
     make_temp_file "${RESOURCE_TASKS_FILE}" || return 1
@@ -4596,12 +4607,18 @@ compact_resource_tasks_file() {
 
 create_resource_task() {
     local type="$1"
-    local id now
+    local id now existing
     resource_task_artifact_name "${type}" >/dev/null || {
         err "不支持的资源任务类型：${type}"
         return 1
     }
     resource_task_lock || return 1
+    existing="$(resource_task_pending_id_for_type "${type}" || true)"
+    if [[ -n "${existing}" ]]; then
+        resource_task_unlock
+        warn "已经存在同类型等待领取任务：${existing}（$(resource_task_type_label "${type}")），本次不再追加。"
+        return 0
+    fi
     id="$(resource_task_new_id)"
     now="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
     printf '%s|%s|pending|%s|||||||等待内网机器领取\n' \
@@ -4615,6 +4632,35 @@ create_resource_task() {
     }
     resource_task_unlock
     success "已创建任务 ${id}：$(resource_task_type_label "${type}")。"
+}
+
+delete_pending_resource_tasks() {
+    local type="${1:-all}" line id task_type status created claimed finished worker artifact sha size message
+    local tmp removed=0
+    type="$(normalize_resource_task_create_type "${type}")" || return 1
+    resource_task_lock || return 1
+    make_temp_file "${RESOURCE_TASKS_FILE}" || {
+        resource_task_unlock
+        return 1
+    }
+    tmp="${TEMP_FILE_RESULT}"
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        if [[ -n "${line}" && "${line}" != \#* ]]; then
+            IFS='|' read -r id task_type status created claimed finished worker artifact sha size message <<< "${line}"
+            if [[ "${status}" == "pending" && ( "${type}" == "all" || "${task_type}" == "${type}" ) ]]; then
+                ((removed++))
+                continue
+            fi
+        fi
+        printf '%s\n' "${line}" >> "${tmp}"
+    done < "${RESOURCE_TASKS_FILE}"
+    mv -f "${tmp}" "${RESOURCE_TASKS_FILE}"
+    resource_task_unlock
+    if [[ "${removed}" -gt 0 ]]; then
+        success "已删除等待领取的资源任务：${removed} 个。"
+    else
+        warn "没有匹配的等待领取资源任务。"
+    fi
 }
 
 normalize_resource_task_create_type() {
@@ -5209,7 +5255,8 @@ fail_resource_task() {
 }
 
 retry_resource_tasks() {
-    local line id type status created claimed finished worker artifact sha size message tmp count=0
+    local line id type status created claimed finished worker artifact sha size message tmp count=0 skipped=0
+    declare -A pending_seen=()
     ensure_resource_task_layout || return 1
     resource_task_lock || return 1
     make_temp_file "${RESOURCE_TASKS_FILE}" || {
@@ -5220,7 +5267,16 @@ retry_resource_tasks() {
     while IFS= read -r line || [[ -n "${line}" ]]; do
         if [[ -n "${line}" && "${line}" != \#* ]]; then
             IFS='|' read -r id type status created claimed finished worker artifact sha size message <<< "${line}"
+            if [[ "${status}" == "pending" ]]; then
+                pending_seen["${type}"]=1
+            fi
             if [[ "${status}" == "failed" || "${status}" == "running" ]]; then
+                if [[ "${pending_seen[${type}]:-0}" == "1" ]]; then
+                    ((skipped++))
+                    printf '%s\n' "${line}" >> "${tmp}"
+                    continue
+                fi
+                pending_seen["${type}"]=1
                 ((count++))
                 printf '%s|%s|pending|%s|||||||手动重新排队\n' "${id}" "${type}" "${created}" >> "${tmp}"
                 continue
@@ -5235,6 +5291,7 @@ retry_resource_tasks() {
     }
     resource_task_unlock
     success "已将 ${count} 个失败或执行中的任务重新排队。"
+    [[ "${skipped}" -eq 0 ]] || warn "已跳过 ${skipped} 个同类型重复任务，避免堆积多个 pending。"
 }
 
 ensure_iplist_ready() {
@@ -8789,8 +8846,8 @@ normalize_report_key_scope() {
 report_key_scope_allows() {
     case "$(normalize_report_key_scope "${1:-}")" in
         egern) printf '%s\n' '--ssh-ip-report --ssh-ip-report-check' ;;
-        worker) printf '%s\n' '--ddns-report --ddns-report-check --client-ip-report --client-ip-report-check --webauth-report --webauth-report-check' ;;
-        *) printf '%s\n' '--ssh-ip-report --ssh-ip-report-check --ddns-report --ddns-report-check --client-ip-report --client-ip-report-check --webauth-report --webauth-report-check' ;;
+        worker) printf '%s\n' '--ddns-report --ddns-report-check --client-ip-report --client-ip-report-check --webauth-report --webauth-report-check --resource-task-ping --resource-task-claim --resource-task-complete --resource-task-fail' ;;
+        *) printf '%s\n' '--ssh-ip-report --ssh-ip-report-check --ddns-report --ddns-report-check --client-ip-report --client-ip-report-check --webauth-report --webauth-report-check --resource-task-ping --resource-task-claim --resource-task-complete --resource-task-fail' ;;
     esac
 }
 
@@ -8874,13 +8931,13 @@ allow_action() {
         egern) [[ "${action}" == "--ssh-ip-report" || "${action}" == "--ssh-ip-report-check" ]] ;;
         worker)
             case "${action}" in
-                --ddns-report|--ddns-report-check|--client-ip-report|--client-ip-report-check|--webauth-report|--webauth-report-check) return 0 ;;
+                --ddns-report|--ddns-report-check|--client-ip-report|--client-ip-report-check|--webauth-report|--webauth-report-check|--resource-task-ping|--resource-task-claim|--resource-task-complete|--resource-task-fail) return 0 ;;
                 *) return 1 ;;
             esac
             ;;
         all)
             case "${action}" in
-                --ssh-ip-report|--ssh-ip-report-check|--ddns-report|--ddns-report-check|--client-ip-report|--client-ip-report-check|--webauth-report|--webauth-report-check) return 0 ;;
+                --ssh-ip-report|--ssh-ip-report-check|--ddns-report|--ddns-report-check|--client-ip-report|--client-ip-report-check|--webauth-report|--webauth-report-check|--resource-task-ping|--resource-task-claim|--resource-task-complete|--resource-task-fail) return 0 ;;
                 *) return 1 ;;
             esac
             ;;
@@ -8916,6 +8973,25 @@ case "${action}" in
         ;;
     --ssh-ip-report-check|--client-ip-report-check|--ddns-report-check|--webauth-report-check)
         [[ "${#args[@]}" -ge 1 ]] || deny "${action} needs source"
+        ;;
+    --resource-task-ping)
+        [[ "${#args[@]}" -ge 1 ]] || deny "${action} needs token"
+        ;;
+    --resource-task-claim)
+        [[ "${#args[@]}" -ge 2 ]] || deny "${action} needs worker token"
+        [[ "${args[0]}" =~ ^[A-Za-z0-9._:-]{1,80}$ ]] || deny "invalid worker_id"
+        ;;
+    --resource-task-complete)
+        [[ "${#args[@]}" -ge 5 ]] || deny "${action} needs task worker sha size token"
+        [[ "${args[0]}" =~ ^[A-Za-z0-9._-]+$ ]] || deny "invalid task_id"
+        [[ "${args[1]}" =~ ^[A-Za-z0-9._:-]{1,80}$ ]] || deny "invalid worker_id"
+        [[ "${args[2]}" =~ ^[A-Fa-f0-9]{64}$ ]] || deny "invalid sha256"
+        [[ "${args[3]}" =~ ^[0-9]+$ ]] || deny "invalid size"
+        ;;
+    --resource-task-fail)
+        [[ "${#args[@]}" -ge 4 ]] || deny "${action} needs task worker reason token"
+        [[ "${args[0]}" =~ ^[A-Za-z0-9._-]+$ ]] || deny "invalid task_id"
+        [[ "${args[1]}" =~ ^[A-Za-z0-9._:-]{1,80}$ ]] || deny "invalid worker_id"
         ;;
 esac
 exec bash "${manager}" "${action}" "${args[@]}"
@@ -10259,12 +10335,48 @@ do_manage_ipdb_tools() {
     done
 }
 
+do_delete_pending_resource_tasks_interactive() {
+    local choice type
+    echo "删除等待领取的资源任务："
+    echo "  1) iplist 地区库"
+    echo "  2) qqwry.ipdb"
+    echo "  3) 全部等待领取任务"
+    echo "  0) 取消"
+    read -r -p "请选择删除范围 [0-3]: " choice
+    case "${choice}" in
+        1) type="iplist" ;;
+        2) type="ipdb" ;;
+        3) type="all" ;;
+        0) return 0 ;;
+        *) err "无效选择。"; return 1 ;;
+    esac
+    confirm_yes "确认删除 ${type} 的等待领取资源任务" || return 1
+    delete_pending_resource_tasks "${type}"
+}
+
+print_resource_data_overview() {
+    if iplist_ready; then
+        printf 'iplist 数据 : 已导入\n'
+        printf 'iplist 目录 : %s\n' "${IPLIST_DIR}"
+        printf 'iplist 索引 : %s\n' "${IPLIST_MANIFEST}"
+    else
+        printf 'iplist 数据 : 未导入\n'
+        printf 'iplist 目录 : %s\n' "${IPLIST_DIR}"
+    fi
+    if [[ -s "${IPDB_FILE}" ]]; then
+        printf 'IPDB 文件  : 已导入（%s）\n' "${IPDB_FILE}"
+    else
+        printf 'IPDB 文件  : 未导入（%s）\n' "${IPDB_FILE}"
+    fi
+    printf 'IPDB 下载源: %s\n' "${IPDB_DOWNLOAD_URL}"
+}
+
 do_manage_resource_tasks() {
     local choice token
     ensure_layout || return
     while true; do
         print_title "内网资源更新任务"
-        printf 'IPDB 下载源: %s\n' "${IPDB_DOWNLOAD_URL}"
+        print_resource_data_overview
         if token="$(resource_task_token_value 2>/dev/null)"; then
             printf '任务 Token : %s\n' "${token}"
             print_lan_worker_resource_bootstrap_example "${token}"
@@ -10279,11 +10391,12 @@ do_manage_resource_tasks() {
         echo "  3) 创建 qqwry.ipdb 更新任务"
         echo "  4) 创建全部更新任务"
         echo "  5) 重新排队失败 / 执行中任务"
-        echo "  6) 生成 / 重置任务 Token"
-        echo "  7) 安装 / 更新定时创建任务"
-        echo "  8) 删除定时创建任务"
+        echo "  6) 删除等待领取任务"
+        echo "  7) 生成 / 重置任务 Token"
+        echo "  8) 安装 / 更新定时创建任务"
+        echo "  9) 删除定时创建任务"
         echo "  0) 返回"
-        read -r -p "请选择操作 [0-8]: " choice
+        read -r -p "请选择操作 [0-9]: " choice
         case "${choice}" in
             1)
                 list_resource_tasks
@@ -10307,6 +10420,10 @@ do_manage_resource_tasks() {
                 pause_before_return
                 ;;
             6)
+                do_delete_pending_resource_tasks_interactive
+                pause_before_return
+                ;;
+            7)
                 confirm_yes "确认生成新 Token（旧客户端 Token 将立即失效）" && {
                     token="$(generate_resource_task_token)" || {
                         pause_before_return
@@ -10317,11 +10434,11 @@ do_manage_resource_tasks() {
                 }
                 pause_before_return
                 ;;
-            7)
+            8)
                 do_install_resource_task_cron_interactive
                 pause_before_return
                 ;;
-            8)
+            9)
                 confirm_yes "确认删除资源任务定时创建 cron" && remove_resource_task_cron
                 pause_before_return
                 ;;

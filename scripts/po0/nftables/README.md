@@ -211,6 +211,8 @@ iplist
 ipdb
 ```
 
+如果 LAN Worker 使用 PO0 端“专用受限 SSH 上报 key”，请使用 `scope=worker` 并确保 PO0 端 wrapper 已由新版脚本重新安装/刷新。`worker` scope 只允许上报和资源任务 Worker 动作：`--resource-task-ping/claim/complete/fail`，不允许创建资源任务或安装 PO0 端 cron。
+
 Worker 交互向导、管道运行且需要 cron 或服务时，会自动落盘到：
 
 ```text
