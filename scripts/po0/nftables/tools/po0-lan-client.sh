@@ -421,6 +421,7 @@ read_private_key_from_first_line() {
     local line="$1"
     local key="" seen_begin=0 seen_end=0
     while true; do
+        line="${line%$'\r'}"
         if [[ -z "${line}" && "${seen_begin}" == "0" ]]; then
             printf '未读取到私钥内容。\n' >&2
             return 1
@@ -446,6 +447,12 @@ read_private_key_from_first_line() {
     printf '%s' "${key}"
 }
 
+validate_ssh_private_key_file() {
+    local path="$1"
+    command -v ssh-keygen >/dev/null 2>&1 || return 0
+    ssh-keygen -y -f "${path}" >/dev/null 2>&1
+}
+
 read_private_key_paste() {
     local line
     if [[ -w /dev/tty ]]; then
@@ -466,7 +473,7 @@ save_ssh_key_content() {
     local port="$2"
     local user="$3"
     local key="$4"
-    local dir key_path host_token port_token user_token old_umask
+    local dir key_path host_token port_token user_token old_umask backup_path=""
     ensure_config_file || return 1
     dir="$(path_dirname "${CONFIG_FILE}")"
     host_token="$(safe_filename_token "${host}")"
@@ -475,15 +482,28 @@ save_ssh_key_content() {
     key_path="${dir}/ssh-key-${user_token}-${host_token}-${port_token}"
     if [[ -e "${key_path}" ]]; then
         prompt_yes_no "私钥文件已存在，是否覆盖：${key_path}" "n" || return 1
+        backup_path="${key_path}.bak.$$"
+        cp -p "${key_path}" "${backup_path}" 2>/dev/null || backup_path=""
     fi
     old_umask="$(umask)"
     umask 077
-    printf '%s' "${key}" > "${key_path}" || {
+    printf '%s\n' "${key}" > "${key_path}" || {
         umask "${old_umask}"
+        [[ -n "${backup_path}" ]] && mv -f "${backup_path}" "${key_path}" 2>/dev/null || true
         return 1
     }
     umask "${old_umask}"
     chmod 600 "${key_path}" 2>/dev/null || true
+    if ! validate_ssh_private_key_file "${key_path}"; then
+        if [[ -n "${backup_path}" && -f "${backup_path}" ]]; then
+            mv -f "${backup_path}" "${key_path}" 2>/dev/null || true
+        else
+            rm -f -- "${key_path}" 2>/dev/null || true
+        fi
+        printf 'SSH 私钥保存后校验失败，未使用这次粘贴内容。请确认粘贴的是完整 OpenSSH 私钥，或改用 1Password 导出到文件后填写路径。\n' >&2
+        return 1
+    fi
+    [[ -n "${backup_path}" ]] && rm -f -- "${backup_path}" 2>/dev/null || true
     printf '%s\n' "${key_path}"
 }
 
