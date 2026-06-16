@@ -12,6 +12,7 @@ DDNS_RESOLVE_DOMAIN="${PO0_DDNS_DOMAIN:-${DDNS_RESOLVE_DOMAIN:-}}"
 REPORT_MODE="${PO0_REPORT_MODE:-${REPORT_MODE:-}}"
 REPORT_KEY="${REPORT_KEY:-${DDNS_NAME:-}}"
 DDNS_TOKEN="${PO0_SOURCE_TOKEN:-${OUTBOUND_IP_TOKEN:-${DDNS_TOKEN:-}}}"
+DDNS_TARGETS="${PO0_DDNS_TARGETS:-}"
 CLIENT_IP_TOKEN="${PO0_CLIENT_IP_TOKEN:-${CLIENT_IP_TOKEN:-}}"
 RESOURCE_TOKEN="${PO0_RESOURCE_TOKEN:-}"
 SSH_EXTRA_ARGS="${SSH_EXTRA_ARGS:-}"
@@ -32,10 +33,12 @@ WEBAUTH_LISTEN="${PO0_WEBAUTH_LISTEN:-127.0.0.1:8787}"
 WEBAUTH_SOURCE="${PO0_WEBAUTH_SOURCE:-cf-access}"
 WEBAUTH_TOKEN="${PO0_WEBAUTH_TOKEN:-}"
 WEBAUTH_TTL_SECONDS="${PO0_WEBAUTH_TTL_SECONDS:-3600}"
+WEBAUTH_TARGETS="${PO0_WEBAUTH_TARGETS:-}"
 SELF_REPORT_LISTEN="${PO0_SELF_REPORT_LISTEN:-127.0.0.1:8788}"
 SELF_REPORT_SOURCE="${PO0_SELF_REPORT_SOURCE:-self-report}"
 SELF_REPORT_SECRET="${PO0_SELF_REPORT_SECRET:-}"
 SELF_REPORT_TTL_SECONDS="${PO0_SELF_REPORT_TTL_SECONDS:-3600}"
+SELF_REPORT_TARGETS="${PO0_SELF_REPORT_TARGETS:-}"
 
 [[ -n "${STATS_FILE}" ]] && STATS_FILE_EXPLICIT="1"
 
@@ -72,15 +75,18 @@ usage() {
         "  --install-cron [N]   安装/更新定时任务；管道运行时会自动落盘。" \
         "  --source-key KEY     PO0 端来源 key/名称；脚本不会解析这个值。" \
         "  --ddns-domain DOMAIN LAN Worker 要解析的 DDNS 域名；结果通过 SSH 上报 PO0。" \
+        "  --ddns-targets STR  DDNS 上报目标；格式 source_key|ddns_domain|host|port|user|script|token|ssh_args，多目标用分号或换行分隔。" \
         "  --domain DOMAIN      兼容旧参数：没有 --ddns-domain 时同时作为 source-key 和 DDNS 域名。" \
         "  --ssh-extra-args STR 可选 SSH 参数，例如 '-i /path/key -o BatchMode=yes'。" \
         "  --no-run             bootstrap 后不立即执行 DDNS 解析上报和资源轮询。" \
         "  --no-cron            bootstrap 时不安装定时任务。" \
         "  --run                执行已配置目标的 DDNS 解析上报和资源任务轮询。" \
         "  --webauth-server     在 LAN Worker 本地运行 WebAuth 接收服务；PO0 不开放 HTTP。" \
+        "  --webauth-targets STR WebAuth 上报目标；格式 source|host|port|user|script|token|ttl|ssh_args，多目标用分号或换行分隔。" \
         "  --install-webauth-service 安装 systemd 服务运行 WebAuth server。" \
         "  --webauth-probe      检查 WebAuth 依赖和 PO0 上报 token。" \
         "  --self-report-server 在 LAN Worker 本地运行自上报接收服务；访问设备先报 LAN Worker，再由 LAN Worker SSH 上报 PO0。" \
+        "  --self-report-targets STR 设备自上报目标；格式 source|host|port|user|script|token|ttl|ssh_args，多目标用分号或换行分隔。" \
         "  --self-report-probe  检查自上报接收端依赖和 PO0 client-ip token。" \
         "  --menu               进入高级菜单。" \
         "" \
@@ -167,6 +173,7 @@ is_public_ipv4() {
     (( o1 == 172 && o2 >= 16 && o2 <= 31 )) && return 1
     (( o1 == 192 && o2 == 168 )) && return 1
     (( o1 == 100 && o2 >= 64 && o2 <= 127 )) && return 1
+    (( o1 == 198 && o2 >= 18 && o2 <= 19 )) && return 1
     (( o1 >= 224 )) && return 1
     return 0
 }
@@ -324,7 +331,7 @@ parse_target_line() {
             ;;
     esac
     if [[ "${line}" == *"|"* ]]; then
-        IFS='|' read -r TARGET_ENABLED TARGET_LABEL TARGET_DOMAIN TARGET_REPORT_KEY TARGET_PO0_HOST TARGET_PO0_PORT TARGET_PO0_USER TARGET_PO0_SCRIPT TARGET_TOKEN TARGET_SSH_EXTRA_ARGS TARGET_RESOURCE_TOKEN TARGET_REPORT_MODE TARGET_DDNS_RESOLVE_DOMAIN <<< "${line}"
+        IFS='|' read -r TARGET_ENABLED TARGET_LABEL TARGET_DOMAIN TARGET_REPORT_KEY TARGET_PO0_HOST TARGET_PO0_PORT TARGET_PO0_USER TARGET_PO0_SCRIPT TARGET_TOKEN TARGET_SSH_EXTRA_ARGS TARGET_RESOURCE_TOKEN TARGET_REPORT_MODE TARGET_DDNS_RESOLVE_DOMAIN TARGET_CLIENT_IP_TOKEN TARGET_CLIENT_IP_SOURCE TARGET_CLIENT_IP_TTL TARGET_WEBAUTH_TOKEN TARGET_WEBAUTH_SOURCE TARGET_WEBAUTH_TTL TARGET_REPORT_SSH_EXTRA_ARGS <<< "${line}"
     else
         # Legacy whitespace configs had no resource_token column; keep all
         # remaining words in ssh_extra_args for backward compatibility.
@@ -332,6 +339,13 @@ parse_target_line() {
         TARGET_RESOURCE_TOKEN=""
         TARGET_REPORT_MODE=""
         TARGET_DDNS_RESOLVE_DOMAIN=""
+        TARGET_CLIENT_IP_TOKEN=""
+        TARGET_CLIENT_IP_SOURCE=""
+        TARGET_CLIENT_IP_TTL=""
+        TARGET_WEBAUTH_TOKEN=""
+        TARGET_WEBAUTH_SOURCE=""
+        TARGET_WEBAUTH_TTL=""
+        TARGET_REPORT_SSH_EXTRA_ARGS=""
     fi
     TARGET_ENABLED="$(sanitize_field "${TARGET_ENABLED}")"
     TARGET_LABEL="$(sanitize_field "${TARGET_LABEL}")"
@@ -346,6 +360,13 @@ parse_target_line() {
     TARGET_RESOURCE_TOKEN="$(sanitize_field "${TARGET_RESOURCE_TOKEN:-}")"
     TARGET_REPORT_MODE="$(normalize_report_mode "${TARGET_REPORT_MODE:-}")"
     TARGET_DDNS_RESOLVE_DOMAIN="$(sanitize_field "${TARGET_DDNS_RESOLVE_DOMAIN:-}")"
+    TARGET_CLIENT_IP_TOKEN="$(sanitize_field "${TARGET_CLIENT_IP_TOKEN:-}")"
+    TARGET_CLIENT_IP_SOURCE="$(sanitize_field "${TARGET_CLIENT_IP_SOURCE:-}")"
+    TARGET_CLIENT_IP_TTL="$(sanitize_field "${TARGET_CLIENT_IP_TTL:-}")"
+    TARGET_WEBAUTH_TOKEN="$(sanitize_field "${TARGET_WEBAUTH_TOKEN:-}")"
+    TARGET_WEBAUTH_SOURCE="$(sanitize_field "${TARGET_WEBAUTH_SOURCE:-}")"
+    TARGET_WEBAUTH_TTL="$(sanitize_field "${TARGET_WEBAUTH_TTL:-}")"
+    TARGET_REPORT_SSH_EXTRA_ARGS="$(sanitize_field "${TARGET_REPORT_SSH_EXTRA_ARGS:-}")"
     if [[ "${TARGET_REPORT_MODE}" == "auto" ]]; then
         if [[ -n "${TARGET_DOMAIN}" ]]; then
             TARGET_REPORT_MODE="ddns"
@@ -358,7 +379,7 @@ parse_target_line() {
         TARGET_DDNS_RESOLVE_DOMAIN="${TARGET_DOMAIN}"
     fi
     [[ -n "${TARGET_PO0_HOST}" ]] || return 1
-    [[ -n "${TARGET_DOMAIN}" || -n "${TARGET_RESOURCE_TOKEN}" ]] || return 1
+    [[ -n "${TARGET_DOMAIN}" || -n "${TARGET_RESOURCE_TOKEN}" || -n "${TARGET_CLIENT_IP_TOKEN}" || -n "${TARGET_WEBAUTH_TOKEN}" ]] || return 1
 }
 
 target_line_count() {
@@ -392,14 +413,15 @@ list_targets() {
         key_label="${TARGET_REPORT_KEY:-${TARGET_DOMAIN:-无}}"
         mode_label="${TARGET_REPORT_MODE:-none}"
         target_id="$(target_id_for "${TARGET_DOMAIN}" "${key_label}" "${TARGET_PO0_HOST}" "${TARGET_PO0_PORT:-22}" "${TARGET_PO0_USER:-root}")"
-        printf '  %2d) %-4s %-14s mode=%s source=%s key=%s PO0=%s@%s:%s\n' \
-            "${idx}" "${status}" "${TARGET_LABEL:-未命名}" "${mode_label}" "${domain_label}" "${key_label}" "${TARGET_PO0_USER:-root}" "${TARGET_PO0_HOST}" "${TARGET_PO0_PORT:-22}"
+        printf '  %2d) %-4s %-14s 类型=%s PO0=%s@%s:%s\n' \
+            "${idx}" "${status}" "${TARGET_LABEL:-未命名}" "$(target_kind_summary)" "${TARGET_PO0_USER:-root}" "${TARGET_PO0_HOST}" "${TARGET_PO0_PORT:-22}"
         if [[ "${TARGET_REPORT_MODE}" == "ddns" ]]; then
+            printf '      来源 key：%s；PO0 匹配 key：%s\n' "${domain_label}" "${key_label}"
             printf '      DDNS 域名：%s\n' "${TARGET_DDNS_RESOLVE_DOMAIN:-${TARGET_DOMAIN}}"
             print_target_stats "${target_id}"
-        else
-            printf '      统计：无 DDNS 解析上报（只轮询资源任务或服务模式）\n'
         fi
+        [[ -n "${TARGET_CLIENT_IP_TOKEN}" ]] && printf '      设备自上报：source=%s ttl=%s\n' "${TARGET_CLIENT_IP_SOURCE:-${SELF_REPORT_SOURCE}}" "${TARGET_CLIENT_IP_TTL:-${SELF_REPORT_TTL_SECONDS}}"
+        [[ -n "${TARGET_WEBAUTH_TOKEN}" ]] && printf '      WebAuth 放行：source=%s ttl=%s\n' "${TARGET_WEBAUTH_SOURCE:-${WEBAUTH_SOURCE}}" "${TARGET_WEBAUTH_TTL:-${WEBAUTH_TTL_SECONDS}}"
         if [[ -n "${TARGET_RESOURCE_TOKEN}" ]]; then
             printf '      资源任务：已配置 Token\n'
         else
@@ -471,13 +493,20 @@ append_target() {
     local resource_token="${11:-}"
     local report_mode="${12:-auto}"
     local ddns_resolve_domain="${13:-}"
+    local client_ip_token="${14:-}"
+    local client_ip_source="${15:-}"
+    local client_ip_ttl="${16:-}"
+    local webauth_token="${17:-}"
+    local webauth_source="${18:-}"
+    local webauth_ttl="${19:-}"
+    local report_ssh_extra_args="${20:-}"
     ensure_config_file || return 1
     report_mode="$(normalize_report_mode "${report_mode}")"
     if [[ "${report_mode}" == "auto" ]]; then
         [[ -n "${ddns_resolve_domain:-${domain}}" ]] && report_mode="ddns" || report_mode="none"
     fi
     [[ -n "${ddns_resolve_domain}" ]] || ddns_resolve_domain="${domain}"
-    printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
+    printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
         "$(sanitize_field "${enabled}")" \
         "$(sanitize_field "${label}")" \
         "$(sanitize_field "${domain}")" \
@@ -490,7 +519,14 @@ append_target() {
         "$(sanitize_field "${ssh_extra_args}")" \
         "$(sanitize_field "${resource_token}")" \
         "$(sanitize_field "${report_mode}")" \
-        "$(sanitize_field "${ddns_resolve_domain}")" >> "${CONFIG_FILE}"
+        "$(sanitize_field "${ddns_resolve_domain}")" \
+        "$(sanitize_field "${client_ip_token}")" \
+        "$(sanitize_field "${client_ip_source}")" \
+        "$(sanitize_field "${client_ip_ttl}")" \
+        "$(sanitize_field "${webauth_token}")" \
+        "$(sanitize_field "${webauth_source}")" \
+        "$(sanitize_field "${webauth_ttl}")" \
+        "$(sanitize_field "${report_ssh_extra_args}")" >> "${CONFIG_FILE}"
 }
 
 upsert_target() {
@@ -507,6 +543,13 @@ upsert_target() {
     local resource_token="${11:-}"
     local report_mode="${12:-auto}"
     local ddns_resolve_domain="${13:-}"
+    local client_ip_token="${14:-}"
+    local client_ip_source="${15:-}"
+    local client_ip_ttl="${16:-}"
+    local webauth_token="${17:-}"
+    local webauth_source="${18:-}"
+    local webauth_ttl="${19:-}"
+    local report_ssh_extra_args="${20:-}"
     local tmp line found=0
     ensure_config_file || return 1
     report_mode="$(normalize_report_mode "${report_mode}")"
@@ -523,7 +566,7 @@ upsert_target() {
                 && "${TARGET_PO0_PORT:-22}" == "${po0_port:-22}" \
                 && "${TARGET_PO0_USER:-root}" == "${po0_user:-root}" ]]; then
                 found=1
-                printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
+                printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
                     "$(sanitize_field "${enabled}")" \
                     "$(sanitize_field "${label}")" \
                     "$(sanitize_field "${domain}")" \
@@ -536,14 +579,21 @@ upsert_target() {
                     "$(sanitize_field "${ssh_extra_args}")" \
                     "$(sanitize_field "${resource_token}")" \
                     "$(sanitize_field "${report_mode}")" \
-                    "$(sanitize_field "${ddns_resolve_domain}")" >> "${tmp}"
+                    "$(sanitize_field "${ddns_resolve_domain}")" \
+                    "$(sanitize_field "${client_ip_token}")" \
+                    "$(sanitize_field "${client_ip_source}")" \
+                    "$(sanitize_field "${client_ip_ttl}")" \
+                    "$(sanitize_field "${webauth_token}")" \
+                    "$(sanitize_field "${webauth_source}")" \
+                    "$(sanitize_field "${webauth_ttl}")" \
+                    "$(sanitize_field "${report_ssh_extra_args}")" >> "${tmp}"
                 continue
             fi
         fi
         printf '%s\n' "${line}" >> "${tmp}"
     done < "${CONFIG_FILE}"
     if [[ "${found}" != "1" ]]; then
-        printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
+        printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
             "$(sanitize_field "${enabled}")" \
             "$(sanitize_field "${label}")" \
             "$(sanitize_field "${domain}")" \
@@ -556,7 +606,14 @@ upsert_target() {
             "$(sanitize_field "${ssh_extra_args}")" \
             "$(sanitize_field "${resource_token}")" \
             "$(sanitize_field "${report_mode}")" \
-            "$(sanitize_field "${ddns_resolve_domain}")" >> "${tmp}"
+            "$(sanitize_field "${ddns_resolve_domain}")" \
+            "$(sanitize_field "${client_ip_token}")" \
+            "$(sanitize_field "${client_ip_source}")" \
+            "$(sanitize_field "${client_ip_ttl}")" \
+            "$(sanitize_field "${webauth_token}")" \
+            "$(sanitize_field "${webauth_source}")" \
+            "$(sanitize_field "${webauth_ttl}")" \
+            "$(sanitize_field "${report_ssh_extra_args}")" >> "${tmp}"
     fi
     replace_config_from_tmp "${tmp}"
 }
@@ -634,6 +691,117 @@ print_target_stats() {
     if [[ -n "${STAT_LAST_ERROR}" ]]; then
         printf '      错误：%s\n' "${STAT_LAST_ERROR}"
     fi
+}
+
+target_kind_summary() {
+    local kinds=""
+    if [[ "${TARGET_REPORT_MODE}" == "ddns" && -n "${TARGET_DOMAIN}" && -n "${TARGET_DDNS_RESOLVE_DOMAIN}" ]]; then
+        kinds="DDNS 上报"
+    fi
+    if [[ -n "${TARGET_CLIENT_IP_TOKEN}" ]]; then
+        [[ -n "${kinds}" ]] && kinds+=", "
+        kinds+="设备自上报"
+    fi
+    if [[ -n "${TARGET_WEBAUTH_TOKEN}" ]]; then
+        [[ -n "${kinds}" ]] && kinds+=", "
+        kinds+="WebAuth 放行"
+    fi
+    if [[ -n "${TARGET_RESOURCE_TOKEN}" ]]; then
+        [[ -n "${kinds}" ]] && kinds+=", "
+        kinds+="资源任务"
+    fi
+    printf '%s\n' "${kinds:-未配置任务}"
+}
+
+dashboard_stat_totals() {
+    local line id success fail last_status last_at last_ip_csv last_error
+    DASH_SUCCESS_TOTAL=0
+    DASH_FAIL_TOTAL=0
+    DASH_LAST_STATUS=""
+    DASH_LAST_AT=""
+    DASH_LAST_IP_CSV=""
+    DASH_LAST_ERROR=""
+    [[ -f "${STATS_FILE}" ]] || return 0
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        line="$(trim "${line}")"
+        [[ -n "${line}" && ! "${line}" =~ ^# ]] || continue
+        IFS='|' read -r id success fail last_status last_at last_ip_csv last_error <<< "${line}"
+        [[ "${success}" =~ ^[0-9]+$ ]] || success=0
+        [[ "${fail}" =~ ^[0-9]+$ ]] || fail=0
+        DASH_SUCCESS_TOTAL=$((DASH_SUCCESS_TOTAL + success))
+        DASH_FAIL_TOTAL=$((DASH_FAIL_TOTAL + fail))
+        if [[ -n "${last_at}" && ( -z "${DASH_LAST_AT}" || "${last_at}" > "${DASH_LAST_AT}" ) ]]; then
+            DASH_LAST_STATUS="${last_status}"
+            DASH_LAST_AT="${last_at}"
+            DASH_LAST_IP_CSV="${last_ip_csv}"
+            DASH_LAST_ERROR="${last_error}"
+        fi
+    done < "${STATS_FILE}"
+}
+
+cron_status_summary() {
+    local begin end line in_block=0 found=0 cron_line=""
+    begin="$(cron_begin_marker)"
+    end="$(cron_end_marker)"
+    if ! have_cmd crontab; then
+        printf 'crontab 不可用'
+        return 0
+    fi
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        if [[ "${line}" == "${begin}" ]]; then
+            in_block=1
+            found=1
+            continue
+        fi
+        if [[ "${line}" == "${end}" ]]; then
+            in_block=0
+            continue
+        fi
+        if [[ "${in_block}" == "1" ]]; then
+            cron_line="${line}"
+        fi
+    done < <(crontab -l 2>/dev/null || true)
+    if [[ "${found}" == "1" ]]; then
+        printf '已安装：%s' "${cron_line:-本脚本管理的 cron}"
+    else
+        printf '未安装'
+    fi
+}
+
+print_dashboard() {
+    local line total=0 enabled=0 ddns=0 resource=0 self_report=0 webauth=0 disabled=0
+    ensure_config_file || return 1
+    refresh_stats_file
+    refresh_resource_stats_file
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        parse_target_line "${line}" || continue
+        total=$((total + 1))
+        if [[ "${TARGET_ENABLED}" == "1" ]]; then
+            enabled=$((enabled + 1))
+        else
+            disabled=$((disabled + 1))
+        fi
+        [[ "${TARGET_REPORT_MODE}" == "ddns" && -n "${TARGET_DOMAIN}" && -n "${TARGET_DDNS_RESOLVE_DOMAIN}" ]] && ddns=$((ddns + 1))
+        [[ -n "${TARGET_RESOURCE_TOKEN}" ]] && resource=$((resource + 1))
+        [[ -n "${TARGET_CLIENT_IP_TOKEN}" ]] && self_report=$((self_report + 1))
+        [[ -n "${TARGET_WEBAUTH_TOKEN}" ]] && webauth=$((webauth + 1))
+    done < "${CONFIG_FILE}"
+    dashboard_stat_totals
+    printf '\n%s\n' "PO0 内网 Worker Dashboard"
+    printf '配置文件   : %s\n' "${CONFIG_FILE}"
+    printf '统计文件   : %s\n' "${STATS_FILE}"
+    printf '资源统计   : %s\n' "${RESOURCE_STATS_FILE}"
+    printf 'Worker ID  : %s\n' "${WORKER_ID}"
+    printf '目标数量   : 总计 %s，启用 %s，停用 %s\n' "${total}" "${enabled}" "${disabled}"
+    printf 'DDNS 上报  : %s 个目标\n' "${ddns}"
+    printf '设备自上报 : %s 个目标，监听 %s\n' "${self_report}" "${SELF_REPORT_LISTEN}"
+    printf 'WebAuth 放行: %s 个目标，监听 %s\n' "${webauth}" "${WEBAUTH_LISTEN}"
+    printf '资源任务   : %s 个目标\n' "${resource}"
+    printf 'cron       : %s\n' "$(cron_status_summary)"
+    printf 'DDNS 统计  : 成功=%s 失败=%s 最近=%s 状态=%s IP=%s\n' \
+        "${DASH_SUCCESS_TOTAL}" "${DASH_FAIL_TOTAL}" "${DASH_LAST_AT:-无}" "${DASH_LAST_STATUS:-无}" "${DASH_LAST_IP_CSV:-无}"
+    [[ -n "${DASH_LAST_ERROR}" && "${DASH_LAST_ERROR}" != "无" ]] && printf '最近错误   : %s\n' "${DASH_LAST_ERROR}"
+    printf 'WebAuth 链路: Cloudflare Access/Tunnel -> LAN Worker -> SSH -> PO0\n'
 }
 
 update_target_stats() {
@@ -741,8 +909,8 @@ rewrite_targets_by_index() {
                 continue
             fi
             [[ "${TARGET_ENABLED}" == "1" ]] && TARGET_ENABLED="0" || TARGET_ENABLED="1"
-            printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
-                "${TARGET_ENABLED}" "${TARGET_LABEL}" "${TARGET_DOMAIN}" "${TARGET_REPORT_KEY}" "${TARGET_PO0_HOST}" "${TARGET_PO0_PORT}" "${TARGET_PO0_USER}" "${TARGET_PO0_SCRIPT}" "${TARGET_TOKEN}" "${TARGET_SSH_EXTRA_ARGS}" "${TARGET_RESOURCE_TOKEN}" "${TARGET_REPORT_MODE}" "${TARGET_DDNS_RESOLVE_DOMAIN}" >> "${tmp}"
+            printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
+                "${TARGET_ENABLED}" "${TARGET_LABEL}" "${TARGET_DOMAIN}" "${TARGET_REPORT_KEY}" "${TARGET_PO0_HOST}" "${TARGET_PO0_PORT}" "${TARGET_PO0_USER}" "${TARGET_PO0_SCRIPT}" "${TARGET_TOKEN}" "${TARGET_SSH_EXTRA_ARGS}" "${TARGET_RESOURCE_TOKEN}" "${TARGET_REPORT_MODE}" "${TARGET_DDNS_RESOLVE_DOMAIN}" "${TARGET_CLIENT_IP_TOKEN}" "${TARGET_CLIENT_IP_SOURCE}" "${TARGET_CLIENT_IP_TTL}" "${TARGET_WEBAUTH_TOKEN}" "${TARGET_WEBAUTH_SOURCE}" "${TARGET_WEBAUTH_TTL}" "${TARGET_REPORT_SSH_EXTRA_ARGS}" >> "${tmp}"
             continue
         fi
         printf '%s\n' "${line}" >> "${tmp}"
@@ -787,6 +955,7 @@ toggle_target_interactive() {
 edit_target_interactive() {
     local selected line idx=0 tmp
     local enabled label domain report_key po0_host po0_port po0_user po0_script token ssh_extra_args resource_token report_mode ddns_resolve_domain
+    local client_ip_token client_ip_source client_ip_ttl webauth_token webauth_source webauth_ttl report_ssh_extra_args
     select_target_index || return 1
     selected="${SELECTED_TARGET_INDEX}"
     while IFS= read -r line || [[ -n "${line}" ]]; do
@@ -806,6 +975,13 @@ edit_target_interactive() {
             resource_token="${TARGET_RESOURCE_TOKEN}"
             report_mode="${TARGET_REPORT_MODE}"
             ddns_resolve_domain="${TARGET_DDNS_RESOLVE_DOMAIN}"
+            client_ip_token="${TARGET_CLIENT_IP_TOKEN}"
+            client_ip_source="${TARGET_CLIENT_IP_SOURCE}"
+            client_ip_ttl="${TARGET_CLIENT_IP_TTL}"
+            webauth_token="${TARGET_WEBAUTH_TOKEN}"
+            webauth_source="${TARGET_WEBAUTH_SOURCE}"
+            webauth_ttl="${TARGET_WEBAUTH_TTL}"
+            report_ssh_extra_args="${TARGET_REPORT_SSH_EXTRA_ARGS}"
             break
         fi
     done < "${CONFIG_FILE}"
@@ -850,11 +1026,14 @@ edit_target_interactive() {
         fi
         ((idx++))
         if [[ "${idx}" == "${selected}" ]]; then
-            printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
+            printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
                 "${enabled}" "$(sanitize_field "${label}")" "$(sanitize_field "${domain}")" "$(sanitize_field "${report_key}")" \
                 "$(sanitize_field "${po0_host}")" "$(sanitize_field "${po0_port}")" "$(sanitize_field "${po0_user}")" \
                 "$(sanitize_field "${po0_script}")" "$(sanitize_field "${token}")" "$(sanitize_field "${ssh_extra_args}")" \
-                "$(sanitize_field "${resource_token}")" "$(sanitize_field "${report_mode}")" "$(sanitize_field "${ddns_resolve_domain}")" >> "${tmp}"
+                "$(sanitize_field "${resource_token}")" "$(sanitize_field "${report_mode}")" "$(sanitize_field "${ddns_resolve_domain}")" \
+                "$(sanitize_field "${client_ip_token}")" "$(sanitize_field "${client_ip_source}")" "$(sanitize_field "${client_ip_ttl}")" \
+                "$(sanitize_field "${webauth_token}")" "$(sanitize_field "${webauth_source}")" "$(sanitize_field "${webauth_ttl}")" \
+                "$(sanitize_field "${report_ssh_extra_args}")" >> "${tmp}"
             continue
         fi
         printf '%s\n' "${line}" >> "${tmp}"
@@ -909,6 +1088,35 @@ report_once() {
         return 1
     fi
     update_target_stats "${target_id}" "成功" "${ip_csv}" "" || true
+}
+
+run_ddns_target_lines() {
+    local raw="$1" line source_key resolve_domain host port user script token extra ok=0 fail=0 skipped=0
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        line="$(trim "${line}")"
+        [[ -n "${line}" && ! "${line}" == \#* ]] || continue
+        IFS='|' read -r source_key resolve_domain host port user script token extra <<< "${line}"
+        source_key="$(sanitize_field "${source_key}")"
+        resolve_domain="$(sanitize_field "${resolve_domain}")"
+        host="$(sanitize_field "${host}")"
+        port="$(sanitize_field "${port:-22}")"
+        user="$(sanitize_field "${user:-root}")"
+        script="$(sanitize_field "${script:-${DEFAULT_PO0_SCRIPT}}")"
+        token="$(sanitize_field "${token}")"
+        extra="$(sanitize_field "${extra:-}")"
+        if [[ -z "${source_key}" || -z "${resolve_domain}" || -z "${host}" ]]; then
+            printf '跳过无效 DDNS 上报目标：%s\n' "${line}" >&2
+            skipped=$((skipped + 1))
+            continue
+        fi
+        if report_once "${source_key}" "${source_key}" "${resolve_domain}" "${host}" "${port:-22}" "${user:-root}" "${script:-${DEFAULT_PO0_SCRIPT}}" "${token}" "${extra}"; then
+            ok=$((ok + 1))
+        else
+            fail=$((fail + 1))
+        fi
+    done < <(printf '%s\n' "${raw}" | tr ';' '\n')
+    printf 'DDNS 临时上报目标执行完成：成功 %s，失败 %s，跳过 %s。\n' "${ok}" "${fail}" "${skipped}"
+    [[ "${fail}" == "0" ]]
 }
 
 remote_manager_call() {
@@ -1030,6 +1238,10 @@ probe_worker_target() {
 
 run_config_targets() {
     local line ok=0 fail=0 skipped=0 no_ddns=0
+    if [[ -n "${DDNS_TARGETS}" ]]; then
+        run_ddns_target_lines "${DDNS_TARGETS}"
+        return $?
+    fi
     ensure_config_file || return 1
     prune_stats_to_current_targets || true
     while IFS= read -r line || [[ -n "${line}" ]]; do
@@ -1334,42 +1546,115 @@ run_all_client_jobs() {
     return "${failed}"
 }
 
+self_report_targets_env() {
+    local line source ttl extra count=0
+    if [[ -n "${SELF_REPORT_TARGETS}" ]]; then
+        printf '%s\n' "${SELF_REPORT_TARGETS}" | tr ';' '\n'
+        return 0
+    fi
+    ensure_config_file || return 1
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        parse_target_line "${line}" || continue
+        [[ "${TARGET_ENABLED}" == "1" ]] || continue
+        [[ -n "${TARGET_CLIENT_IP_TOKEN}" ]] || continue
+        source="${TARGET_CLIENT_IP_SOURCE:-${SELF_REPORT_SOURCE}}"
+        ttl="${TARGET_CLIENT_IP_TTL:-${SELF_REPORT_TTL_SECONDS}}"
+        extra="${TARGET_REPORT_SSH_EXTRA_ARGS:-${TARGET_SSH_EXTRA_ARGS}}"
+        printf '%s|%s|%s|%s|%s|%s|%s|%s\n' \
+            "${source}" "${TARGET_PO0_HOST}" "${TARGET_PO0_PORT:-22}" "${TARGET_PO0_USER:-root}" "${TARGET_PO0_SCRIPT:-${DEFAULT_PO0_SCRIPT}}" "${TARGET_CLIENT_IP_TOKEN}" "${ttl:-3600}" "${extra}"
+        count=$((count + 1))
+    done < "${CONFIG_FILE}"
+    if [[ "${count}" == "0" && -n "${PO0_HOST}" && -n "${CLIENT_IP_TOKEN}" ]]; then
+        printf '%s|%s|%s|%s|%s|%s|%s|%s\n' \
+            "${SELF_REPORT_SOURCE}" "${PO0_HOST}" "${PO0_PORT:-22}" "${PO0_USER:-root}" "${PO0_SCRIPT:-${DEFAULT_PO0_SCRIPT}}" "${CLIENT_IP_TOKEN}" "${SELF_REPORT_TTL_SECONDS:-3600}" "${SSH_EXTRA_ARGS}"
+    fi
+}
+
+webauth_targets_env() {
+    local line source ttl extra count=0
+    if [[ -n "${WEBAUTH_TARGETS}" ]]; then
+        printf '%s\n' "${WEBAUTH_TARGETS}" | tr ';' '\n'
+        return 0
+    fi
+    ensure_config_file || return 1
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        parse_target_line "${line}" || continue
+        [[ "${TARGET_ENABLED}" == "1" ]] || continue
+        [[ -n "${TARGET_WEBAUTH_TOKEN}" ]] || continue
+        source="${TARGET_WEBAUTH_SOURCE:-${WEBAUTH_SOURCE}}"
+        ttl="${TARGET_WEBAUTH_TTL:-${WEBAUTH_TTL_SECONDS}}"
+        extra="${TARGET_REPORT_SSH_EXTRA_ARGS:-${TARGET_SSH_EXTRA_ARGS}}"
+        printf '%s|%s|%s|%s|%s|%s|%s|%s\n' \
+            "${source}" "${TARGET_PO0_HOST}" "${TARGET_PO0_PORT:-22}" "${TARGET_PO0_USER:-root}" "${TARGET_PO0_SCRIPT:-${DEFAULT_PO0_SCRIPT}}" "${TARGET_WEBAUTH_TOKEN}" "${ttl:-3600}" "${extra}"
+        count=$((count + 1))
+    done < "${CONFIG_FILE}"
+    if [[ "${count}" == "0" && -n "${PO0_HOST}" && -n "${WEBAUTH_TOKEN}" ]]; then
+        printf '%s|%s|%s|%s|%s|%s|%s|%s\n' \
+            "${WEBAUTH_SOURCE}" "${PO0_HOST}" "${PO0_PORT:-22}" "${PO0_USER:-root}" "${PO0_SCRIPT:-${DEFAULT_PO0_SCRIPT}}" "${WEBAUTH_TOKEN}" "${WEBAUTH_TTL_SECONDS:-3600}" "${SSH_EXTRA_ARGS}"
+    fi
+}
+
 probe_webauth_target() {
-    local failed=0 response
-    [[ -n "${PO0_HOST}" ]] || { probe_fail "缺少 --po0-host。"; return 1; }
-    [[ -n "${WEBAUTH_TOKEN}" ]] || { probe_fail "缺少 --webauth-token。"; return 1; }
+    local failed=0 response targets line source host port user script token ttl extra count=0
     have_cmd ssh || { probe_fail "缺少 ssh。"; failed=1; }
     if ! have_cmd python3 && ! have_cmd python; then
         probe_fail "缺少 python3/python，无法运行 WebAuth 本地 HTTP 服务。"
         failed=1
     fi
-    if response="$(remote_manager_call "${PO0_HOST}" "${PO0_PORT}" "${PO0_USER}" "${PO0_SCRIPT}" "${SSH_EXTRA_ARGS}" --webauth-report-check "${WEBAUTH_SOURCE}" "${WEBAUTH_TOKEN}" 2>&1)"; then
-        probe_ok "WebAuth 上报权限检查通过：${response}"
-    else
-        probe_fail "WebAuth 上报权限检查失败：${response}"
+    targets="$(webauth_targets_env)" || return 1
+    [[ -n "${targets}" ]] || {
+        probe_fail "没有 WebAuth 上报目标。请配置 --po0-host/--webauth-token，或在菜单中添加 WebAuth 放行目标。"
+        return 1
+    }
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        line="$(trim "${line}")"
+        [[ -n "${line}" && ! "${line}" == \#* ]] || continue
+        IFS='|' read -r source host port user script token ttl extra <<< "${line}"
+        source="$(sanitize_field "${source:-${WEBAUTH_SOURCE}}")"
+        host="$(sanitize_field "${host}")"
+        port="$(sanitize_field "${port:-22}")"
+        user="$(sanitize_field "${user:-root}")"
+        script="$(sanitize_field "${script:-${DEFAULT_PO0_SCRIPT}}")"
+        token="$(sanitize_field "${token}")"
+        extra="$(sanitize_field "${extra:-}")"
+        [[ -n "${host}" && -n "${token}" ]] || {
+            probe_fail "跳过无效 WebAuth 上报目标：${line}"
+            failed=1
+            continue
+        }
+        count=$((count + 1))
+        if response="$(remote_manager_call "${host}" "${port:-22}" "${user:-root}" "${script:-${DEFAULT_PO0_SCRIPT}}" "${extra}" --webauth-report-check "${source:-${WEBAUTH_SOURCE}}" "${token}" 2>&1)"; then
+            probe_ok "WebAuth 目标 ${source:-${WEBAUTH_SOURCE}}@${host}:${port:-22} 权限检查通过：${response}"
+        else
+            probe_fail "WebAuth 目标 ${source:-${WEBAUTH_SOURCE}}@${host}:${port:-22} 权限检查失败：${response}"
+            failed=1
+        fi
+    done < <(printf '%s\n' "${targets}")
+    if [[ "${count}" == "0" ]]; then
+        probe_fail "没有可用的 WebAuth 上报目标。"
         failed=1
     fi
     return "${failed}"
 }
 
 run_webauth_server() {
-    local py listen_host listen_port extra_json
-    [[ -n "${PO0_HOST}" ]] || { printf '缺少 --po0-host。\n' >&2; return 1; }
-    [[ -n "${WEBAUTH_TOKEN}" ]] || { printf '缺少 --webauth-token。\n' >&2; return 1; }
+    local py listen_host listen_port targets
+    targets="$(webauth_targets_env)" || return 1
+    [[ -n "${targets}" ]] || { printf 'missing WebAuth PO0 target. Configure --po0-host/--webauth-token or WebAuth 上报目标。\n' >&2; return 1; }
     if have_cmd python3; then
         py="python3"
     elif have_cmd python; then
         py="python"
     else
-        printf '缺少 python3/python，无法运行 WebAuth server。\n' >&2
+        printf 'missing python3/python; cannot run WebAuth server.\n' >&2
         return 1
     fi
     listen_host="${WEBAUTH_LISTEN%:*}"
     listen_port="${WEBAUTH_LISTEN##*:}"
     [[ -n "${listen_host}" && "${listen_host}" != "${WEBAUTH_LISTEN}" ]] || listen_host="127.0.0.1"
     [[ "${listen_port}" =~ ^[0-9]+$ ]] || listen_port="8787"
-    export PO0_HOST PO0_PORT PO0_USER PO0_SCRIPT SSH_EXTRA_ARGS WEBAUTH_SOURCE WEBAUTH_TOKEN WEBAUTH_TTL_SECONDS
-    printf 'WebAuth server listening on %s:%s；PO0 不开放 HTTP。\n' "${listen_host}" "${listen_port}"
+    export PO0_WEBAUTH_TARGETS="${targets}"
+    printf 'WebAuth server listening on %s:%s; PO0 has no HTTP listener.\n' "${listen_host}" "${listen_port}"
     "${py}" - "${listen_host}" "${listen_port}" <<'PY'
 import http.server
 import os
@@ -1399,37 +1684,72 @@ def is_public_ipv4(ip):
         return False
     if o[0] == 192 and o[1] == 168:
         return False
+    if o[0] == 198 and 18 <= o[1] <= 19:
+        return False
     return True
 
-def env(name, default=""):
-    return os.environ.get(name, default)
+def parse_targets(raw):
+    targets = []
+    for line in (raw or "").replace(";", "\n").splitlines():
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        parts = [part.strip() for part in line.split('|')]
+        while len(parts) < 8:
+            parts.append('')
+        source, host, port, user, script, token, ttl, extra = parts[:8]
+        if not host or not token:
+            continue
+        targets.append({
+            'source': source or 'cf-access',
+            'host': host,
+            'port': port or '22',
+            'user': user or 'root',
+            'script': script or '/root/nftables-relay-manager.sh',
+            'token': token,
+            'ttl': ttl or '3600',
+            'extra': extra,
+        })
+    return targets
 
-def report(ip, identity, note):
-    host = env("PO0_HOST")
-    port = env("PO0_PORT", "22")
-    user = env("PO0_USER", "root") or "root"
-    script = env("PO0_SCRIPT", "/root/nftables-relay-manager.sh")
-    source = env("WEBAUTH_SOURCE", "cf-access")
-    token = env("WEBAUTH_TOKEN")
-    ttl = int(env("WEBAUTH_TTL_SECONDS", "3600") or "3600")
+TARGETS = parse_targets(os.environ.get('PO0_WEBAUTH_TARGETS', ''))
+if not TARGETS:
+    raise SystemExit('missing PO0_WEBAUTH_TARGETS')
+
+def report_target(target, ip, identity, note):
+    try:
+        ttl = int(target.get('ttl') or '3600')
+    except ValueError:
+        ttl = 3600
     expires_at = str(int(time.time()) + max(60, ttl))
     remote = " ".join([
         "bash",
-        shlex.quote(script),
+        shlex.quote(target['script']),
         "--webauth-report",
-        shlex.quote(source),
+        shlex.quote(target['source']),
         shlex.quote(ip),
         shlex.quote(identity or "unknown"),
         shlex.quote(expires_at),
-        shlex.quote(token),
+        shlex.quote(target['token']),
         shlex.quote(note or "lan-webauth"),
     ])
-    cmd = ["ssh", "-p", port]
-    extra = env("SSH_EXTRA_ARGS")
-    if extra:
-        cmd.extend(shlex.split(extra))
-    cmd.extend([f"{user}@{host}", remote])
+    cmd = ["ssh", "-p", target['port']]
+    if target.get('extra'):
+        cmd.extend(shlex.split(target['extra']))
+    cmd.extend([f"{target['user']}@{target['host']}", remote])
     return subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+
+def report_all(ip, identity, note):
+    ok = []
+    failed = []
+    for target in TARGETS:
+        result = report_target(target, ip, identity, note)
+        label = f"{target['source']}@{target['host']}"
+        if result.returncode == 0:
+            ok.append(label)
+        else:
+            failed.append(f"{label}: {result.stderr or result.stdout or result.returncode}")
+    return ok, failed
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
@@ -1451,24 +1771,44 @@ class Handler(http.server.BaseHTTPRequestHandler):
         )
         if not is_public_ipv4(ip):
             self.send_response(400)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.end_headers()
             self.wfile.write(f"invalid public ipv4: {ip}\n".encode())
             return
         try:
-            result = report(ip, identity, "cf-access")
+            ok, failed = report_all(ip, identity, "cf-access")
         except Exception as exc:
             self.send_response(502)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.end_headers()
             self.wfile.write(f"report failed: {exc}\n".encode())
             return
-        if result.returncode == 0:
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write((result.stdout or f"OK {ip}\n").encode())
-        else:
+        if failed:
             self.send_response(502)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.end_headers()
-            self.wfile.write((result.stderr or result.stdout or "report failed\n").encode())
+            body = [
+                "PO0 WebAuth partial/failed",
+                f"ip: {ip}",
+                f"identity: {identity}",
+                f"ok: {len(ok)}/{len(TARGETS)}",
+                "updated: " + (", ".join(ok) if ok else "none"),
+                "failed: " + "; ".join(failed),
+                "",
+            ]
+            self.wfile.write(("\n".join(body)).encode())
+        else:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.end_headers()
+            body = [
+                "PO0 WebAuth OK",
+                f"ip: {ip}",
+                f"identity: {identity}",
+                "updated: " + ", ".join(ok),
+                "",
+            ]
+            self.wfile.write(("\n".join(body)).encode())
 
     def log_message(self, fmt, *args):
         sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
@@ -1477,9 +1817,8 @@ with socketserver.ThreadingTCPServer((listen_host, listen_port), Handler) as htt
     httpd.serve_forever()
 PY
 }
-
 install_webauth_service() {
-    local script_path unit name="po0-lan-webauth.service"
+    local script_path unit target_args="" name="po0-lan-webauth.service"
     [[ "${EUID:-$(id -u 2>/dev/null || printf 1)}" -eq 0 ]] || {
         printf '安装 systemd 服务需要 root。\n' >&2
         return 1
@@ -1490,6 +1829,7 @@ install_webauth_service() {
     }
     script_path="$(ensure_persistent_script)" || return 1
     unit="/etc/systemd/system/${name}"
+    [[ -n "${WEBAUTH_TARGETS}" ]] && target_args=" --webauth-targets $(sh_quote "${WEBAUTH_TARGETS}")"
     cat > "${unit}" <<EOF
 [Unit]
 Description=PO0 LAN WebAuth client reporter
@@ -1498,7 +1838,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/env bash $(sh_quote "${script_path}") --webauth-server --listen $(sh_quote "${WEBAUTH_LISTEN}") --po0-host $(sh_quote "${PO0_HOST}") --po0-port $(sh_quote "${PO0_PORT}") --po0-user $(sh_quote "${PO0_USER}") --po0-script $(sh_quote "${PO0_SCRIPT}") --webauth-source $(sh_quote "${WEBAUTH_SOURCE}") --webauth-token $(sh_quote "${WEBAUTH_TOKEN}") --webauth-ttl $(sh_quote "${WEBAUTH_TTL_SECONDS}")
+ExecStart=/usr/bin/env bash $(sh_quote "${script_path}") --config $(sh_quote "${CONFIG_FILE}") --webauth-server --listen $(sh_quote "${WEBAUTH_LISTEN}") --po0-host $(sh_quote "${PO0_HOST}") --po0-port $(sh_quote "${PO0_PORT}") --po0-user $(sh_quote "${PO0_USER}") --po0-script $(sh_quote "${PO0_SCRIPT}") --webauth-source $(sh_quote "${WEBAUTH_SOURCE}") --webauth-token $(sh_quote "${WEBAUTH_TOKEN}") --webauth-ttl $(sh_quote "${WEBAUTH_TTL_SECONDS}")${target_args}
 Restart=always
 RestartSec=5
 
@@ -1511,9 +1851,7 @@ EOF
 }
 
 probe_self_report_target() {
-    local response failed=0
-    [[ -n "${PO0_HOST}" ]] || { probe_fail "缺少 --po0-host。"; return 1; }
-    [[ -n "${CLIENT_IP_TOKEN}" ]] || { probe_fail "缺少 --client-ip-token。"; return 1; }
+    local response failed=0 targets line source host port user script token ttl extra count=0
     have_cmd ssh || { probe_fail "缺少 ssh，无法连接 PO0。"; failed=1; }
     if have_cmd python3 || have_cmd python; then
         probe_ok "Python 可用，可运行 self-report server"
@@ -1521,33 +1859,60 @@ probe_self_report_target() {
         probe_fail "缺少 python3/python，无法运行 self-report server。"
         failed=1
     fi
-    if response="$(remote_manager_call "${PO0_HOST}" "${PO0_PORT}" "${PO0_USER}" "${PO0_SCRIPT}" "${SSH_EXTRA_ARGS}" --client-ip-report-check "${SELF_REPORT_SOURCE}" "${CLIENT_IP_TOKEN}" 2>&1)"; then
-        probe_ok "Client IP 上报权限检查通过：${response}"
-    else
-        probe_fail "Client IP 上报权限检查失败：${response}"
+    targets="$(self_report_targets_env)" || return 1
+    [[ -n "${targets}" ]] || {
+        probe_fail "没有设备自上报目标。请配置 --po0-host/--client-ip-token，或在菜单中添加设备自上报目标。"
+        return 1
+    }
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        line="$(trim "${line}")"
+        [[ -n "${line}" && ! "${line}" == \#* ]] || continue
+        IFS='|' read -r source host port user script token ttl extra <<< "${line}"
+        source="$(sanitize_field "${source:-${SELF_REPORT_SOURCE}}")"
+        host="$(sanitize_field "${host}")"
+        port="$(sanitize_field "${port:-22}")"
+        user="$(sanitize_field "${user:-root}")"
+        script="$(sanitize_field "${script:-${DEFAULT_PO0_SCRIPT}}")"
+        token="$(sanitize_field "${token}")"
+        extra="$(sanitize_field "${extra:-}")"
+        [[ -n "${host}" && -n "${token}" ]] || {
+            probe_fail "跳过无效设备自上报目标：${line}"
+            failed=1
+            continue
+        }
+        count=$((count + 1))
+        if response="$(remote_manager_call "${host}" "${port:-22}" "${user:-root}" "${script:-${DEFAULT_PO0_SCRIPT}}" "${extra}" --client-ip-report-check "${source:-${SELF_REPORT_SOURCE}}" "${token}" 2>&1)"; then
+            probe_ok "设备自上报目标 ${source:-${SELF_REPORT_SOURCE}}@${host}:${port:-22} 权限检查通过：${response}"
+        else
+            probe_fail "设备自上报目标 ${source:-${SELF_REPORT_SOURCE}}@${host}:${port:-22} 权限检查失败：${response}"
+            failed=1
+        fi
+    done < <(printf '%s\n' "${targets}")
+    if [[ "${count}" == "0" ]]; then
+        probe_fail "没有可用的设备自上报目标。"
         failed=1
     fi
     [[ "${failed}" == "0" ]]
 }
 
 run_self_report_server() {
-    local py listen_host listen_port
-    [[ -n "${PO0_HOST}" ]] || { printf '缺少 --po0-host。\n' >&2; return 1; }
-    [[ -n "${CLIENT_IP_TOKEN}" ]] || { printf '缺少 --client-ip-token。\n' >&2; return 1; }
+    local py listen_host listen_port targets
+    targets="$(self_report_targets_env)" || return 1
+    [[ -n "${targets}" ]] || { printf 'missing Self-report PO0 target. Configure --po0-host/--client-ip-token or 设备自上报目标。\n' >&2; return 1; }
     if have_cmd python3; then
         py="python3"
     elif have_cmd python; then
         py="python"
     else
-        printf '缺少 python3/python，无法运行 self-report server。\n' >&2
+        printf 'missing python3/python; cannot run self-report server.\n' >&2
         return 1
     fi
     listen_host="${SELF_REPORT_LISTEN%:*}"
     listen_port="${SELF_REPORT_LISTEN##*:}"
     [[ -n "${listen_host}" && "${listen_host}" != "${SELF_REPORT_LISTEN}" ]] || listen_host="127.0.0.1"
     [[ "${listen_port}" =~ ^[0-9]+$ ]] || listen_port="8788"
-    export PO0_HOST PO0_PORT PO0_USER PO0_SCRIPT SSH_EXTRA_ARGS SELF_REPORT_SOURCE CLIENT_IP_TOKEN SELF_REPORT_SECRET SELF_REPORT_TTL_SECONDS
-    printf 'Self-report server listening on %s:%s；访问设备 -> LAN Worker -> SSH -> PO0。\n' "${listen_host}" "${listen_port}"
+    export PO0_SELF_REPORT_TARGETS="${targets}" SELF_REPORT_SECRET
+    printf 'Self-report server listening on %s:%s; device -> LAN Worker -> SSH -> PO0.\n' "${listen_host}" "${listen_port}"
     "${py}" - "${listen_host}" "${listen_port}" <<'PY'
 import http.server
 import os
@@ -1577,10 +1942,9 @@ def is_public_ipv4(ip):
         return False
     if o[0] == 192 and o[1] == 168:
         return False
+    if o[0] == 198 and 18 <= o[1] <= 19:
+        return False
     return True
-
-def env(name, default=""):
-    return os.environ.get(name, default)
 
 def first(values, default=""):
     for value in values:
@@ -1606,30 +1970,63 @@ def parse_request(handler):
             params.update({k: v[-1] for k, v in urllib.parse.parse_qs(body).items()})
     return parsed.path, params
 
-def report(ip, identity, source):
-    host = env("PO0_HOST")
-    port = env("PO0_PORT", "22")
-    user = env("PO0_USER", "root") or "root"
-    script = env("PO0_SCRIPT", "/root/nftables-relay-manager.sh")
-    source = source or env("SELF_REPORT_SOURCE", "self-report")
-    token = env("CLIENT_IP_TOKEN")
-    ttl = env("SELF_REPORT_TTL_SECONDS", "3600") or "3600"
+def parse_targets(raw):
+    targets = []
+    for line in (raw or "").replace(";", "\n").splitlines():
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        parts = [part.strip() for part in line.split('|')]
+        while len(parts) < 8:
+            parts.append('')
+        source, host, port, user, script, token, ttl, extra = parts[:8]
+        if not host or not token:
+            continue
+        targets.append({
+            'source': source or 'self-report',
+            'host': host,
+            'port': port or '22',
+            'user': user or 'root',
+            'script': script or '/root/nftables-relay-manager.sh',
+            'token': token,
+            'ttl': ttl or '3600',
+            'extra': extra,
+        })
+    return targets
+
+TARGETS = parse_targets(os.environ.get('PO0_SELF_REPORT_TARGETS', ''))
+if not TARGETS:
+    raise SystemExit('missing PO0_SELF_REPORT_TARGETS')
+
+def report_target(target, ip, identity, source_override):
+    source = source_override or target['source']
     remote = " ".join([
         "bash",
-        shlex.quote(script),
+        shlex.quote(target['script']),
         "--client-ip-report",
         shlex.quote(source),
         shlex.quote(ip),
-        shlex.quote(token),
+        shlex.quote(target['token']),
         shlex.quote(identity or "self-report"),
-        shlex.quote(ttl),
+        shlex.quote(target['ttl']),
     ])
-    cmd = ["ssh", "-p", port]
-    extra = env("SSH_EXTRA_ARGS")
-    if extra:
-        cmd.extend(shlex.split(extra))
-    cmd.extend([f"{user}@{host}", remote])
+    cmd = ["ssh", "-p", target['port']]
+    if target.get('extra'):
+        cmd.extend(shlex.split(target['extra']))
+    cmd.extend([f"{target['user']}@{target['host']}", remote])
     return subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+
+def report_all(ip, identity, source_override):
+    ok = []
+    failed = []
+    for target in TARGETS:
+        result = report_target(target, ip, identity, source_override)
+        label = f"{source_override or target['source']}@{target['host']}"
+        if result.returncode == 0:
+            ok.append(label)
+        else:
+            failed.append(f"{label}: {result.stderr or result.stdout or result.returncode}")
+    return ok, failed
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
@@ -1646,7 +2043,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(b"OK\n")
             return
 
-        secret = env("SELF_REPORT_SECRET")
+        secret = os.environ.get("SELF_REPORT_SECRET", "")
         supplied = first([
             params.get("token"),
             self.headers.get("X-PO0-Token"),
@@ -1666,11 +2063,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             (self.headers.get("X-Forwarded-For") or "").split(",", 1)[0].strip(),
             self.client_address[0],
         ])
-        source = first([
-            params.get("source"),
-            params.get("source_id"),
-            env("SELF_REPORT_SOURCE", "self-report"),
-        ])
+        source_override = first([params.get("source"), params.get("source_id")])
         identity = first([
             params.get("identity"),
             self.headers.get("Cf-Access-Authenticated-User-Email"),
@@ -1685,20 +2078,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(f"invalid public ipv4: {ip}\n".encode())
             return
         try:
-            result = report(ip, identity, source)
+            ok, failed = report_all(ip, identity, source_override)
         except Exception as exc:
             self.send_response(502)
             self.end_headers()
             self.wfile.write(f"report failed: {exc}\n".encode())
             return
-        if result.returncode == 0:
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write((result.stdout or f"OK {ip}\n").encode())
-        else:
+        if failed:
             self.send_response(502)
             self.end_headers()
-            self.wfile.write((result.stderr or result.stdout or "report failed\n").encode())
+            self.wfile.write((f"partial/failed {len(ok)}/{len(TARGETS)} OK; " + "; ".join(failed) + "\n").encode())
+        else:
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write((f"OK {ip}; targets={len(ok)}\n").encode())
 
     def log_message(self, fmt, *args):
         sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
@@ -1707,9 +2100,8 @@ with socketserver.ThreadingTCPServer((listen_host, listen_port), Handler) as htt
     httpd.serve_forever()
 PY
 }
-
 install_self_report_service() {
-    local script_path unit name="po0-lan-self-report.service"
+    local script_path unit target_args="" name="po0-lan-self-report.service"
     [[ "${EUID:-$(id -u 2>/dev/null || printf 1)}" -eq 0 ]] || {
         printf '安装 systemd 服务需要 root。\n' >&2
         return 1
@@ -1720,6 +2112,7 @@ install_self_report_service() {
     }
     script_path="$(ensure_persistent_script)" || return 1
     unit="/etc/systemd/system/${name}"
+    [[ -n "${SELF_REPORT_TARGETS}" ]] && target_args=" --self-report-targets $(sh_quote "${SELF_REPORT_TARGETS}")"
     cat > "${unit}" <<EOF
 [Unit]
 Description=PO0 LAN self-report receiver
@@ -1728,7 +2121,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/env bash $(sh_quote "${script_path}") --self-report-server --self-report-listen $(sh_quote "${SELF_REPORT_LISTEN}") --po0-host $(sh_quote "${PO0_HOST}") --po0-port $(sh_quote "${PO0_PORT}") --po0-user $(sh_quote "${PO0_USER}") --po0-script $(sh_quote "${PO0_SCRIPT}") --self-report-source $(sh_quote "${SELF_REPORT_SOURCE}") --client-ip-token $(sh_quote "${CLIENT_IP_TOKEN}") --self-report-secret $(sh_quote "${SELF_REPORT_SECRET}") --self-report-ttl $(sh_quote "${SELF_REPORT_TTL_SECONDS}")
+ExecStart=/usr/bin/env bash $(sh_quote "${script_path}") --config $(sh_quote "${CONFIG_FILE}") --self-report-server --self-report-listen $(sh_quote "${SELF_REPORT_LISTEN}") --po0-host $(sh_quote "${PO0_HOST}") --po0-port $(sh_quote "${PO0_PORT}") --po0-user $(sh_quote "${PO0_USER}") --po0-script $(sh_quote "${PO0_SCRIPT}") --self-report-source $(sh_quote "${SELF_REPORT_SOURCE}") --client-ip-token $(sh_quote "${CLIENT_IP_TOKEN}") --self-report-secret $(sh_quote "${SELF_REPORT_SECRET}") --self-report-ttl $(sh_quote "${SELF_REPORT_TTL_SECONDS}")${target_args}
 Restart=always
 RestartSec=5
 
@@ -1937,7 +2330,7 @@ bootstrap_worker() {
         probe_warn "已跳过 probe，仅写入本机配置。"
     fi
 
-    upsert_target "1" "${label}" "${DDNS_DOMAIN}" "${REPORT_KEY}" "${PO0_HOST}" "${PO0_PORT}" "${PO0_USER}" "${PO0_SCRIPT}" "${DDNS_TOKEN}" "${SSH_EXTRA_ARGS}" "${RESOURCE_TOKEN}" "${mode}" "${ddns_resolve_domain}" || return 1
+    upsert_target "1" "${label}" "${DDNS_DOMAIN}" "${REPORT_KEY}" "${PO0_HOST}" "${PO0_PORT}" "${PO0_USER}" "${PO0_SCRIPT}" "${DDNS_TOKEN}" "${SSH_EXTRA_ARGS}" "${RESOURCE_TOKEN}" "${mode}" "${ddns_resolve_domain}" "${CLIENT_IP_TOKEN}" "${SELF_REPORT_SOURCE}" "${SELF_REPORT_TTL_SECONDS}" "${WEBAUTH_TOKEN}" "${WEBAUTH_SOURCE}" "${WEBAUTH_TTL_SECONDS}" "${SSH_EXTRA_ARGS}" || return 1
     chmod 600 "${CONFIG_FILE}" 2>/dev/null || true
     printf '已写入 worker 目标配置：%s\n' "${CONFIG_FILE}"
 
@@ -1995,47 +2388,87 @@ show_cron_status() {
     [[ "${found}" == "1" ]] || printf '当前没有本脚本管理的定时任务。\n'
 }
 
+show_webauth_cloudflare_guide() {
+    local domain
+    domain="$(prompt_default "WebAuth 域名（例如 auth.example.com）" "<AUTH_DOMAIN>")"
+    printf '\n%s\n' "WebAuth / Cloudflare Access 接入"
+    printf '%s\n' "链路：Browser -> Cloudflare Access -> Cloudflare Tunnel -> LAN Worker ${WEBAUTH_LISTEN} -> SSH -> PO0"
+    printf '%s\n' ""
+    printf '%s\n' "cloudflared ingress 配置片段："
+    cat <<EOF
+ingress:
+  - hostname: ${domain}
+    service: http://${WEBAUTH_LISTEN}
+  - service: http_status:404
+EOF
+    printf '%s\n' ""
+    printf '%s\n' "Cloudflare 控制台动作："
+    printf '%s\n' "  1. 创建 Cloudflare Tunnel，并让 cloudflared 运行在 LAN Worker。"
+    printf '%s\n' "  2. Public hostname 绑定 ${domain}，service 指向 http://${WEBAUTH_LISTEN}。"
+    printf '%s\n' "  3. Access -> Applications -> Add application -> Self-hosted。"
+    printf '%s\n' "  4. 应用域名填写 ${domain}。"
+    printf '%s\n' "  5. 配置允许登录的邮箱、域名或 Access group。"
+    printf '%s\n' "  6. 确认该 hostname 受 Access 保护。"
+    printf '%s\n' ""
+    printf '%s\n' "本地检查命令："
+    printf '  cloudflared tunnel ingress validate\n'
+    printf '  cloudflared tunnel ingress rule https://%s\n' "${domain}"
+    printf '%s\n' ""
+    printf '%s\n' "LAN Worker 启动命令："
+    printf '  po0-lan-client --webauth-server --listen %s\n' "${WEBAUTH_LISTEN}"
+    printf '%s\n' "PO0 不开放 HTTP；Cloudflare 只连接 LAN Worker。"
+}
+
 menu_loop() {
     local choice
     while true; do
-        printf '\n%s\n' "PO0 内网 Worker"
-        printf '%s\n' "配置文件：${CONFIG_FILE}"
+        print_dashboard
+        printf '\n%s\n' "概览"
         printf '%s\n' "  1) 查看上报目标和统计"
-        printf '%s\n' "  2) 添加上报目标"
-        printf '%s\n' "  3) 编辑上报目标"
-        printf '%s\n' "  4) 删除上报目标"
-        printf '%s\n' "  5) 启用 / 停用上报目标"
-        printf '%s\n' "  6) 立即执行 DDNS 解析上报"
-        printf '%s\n' "  7) 立即领取并执行资源任务"
-        printf '%s\n' "  8) 查看本机资源任务统计"
-        printf '%s\n' "  9) 安装 / 更新定时任务"
-        printf '%s\n' " 10) 删除定时任务"
-        printf '%s\n' " 11) 查看定时任务状态"
-        printf '%s\n' " 12) 清空本机 DDNS 解析上报统计"
-        printf '%s\n' " 13) WebAuth probe"
-        printf '%s\n' " 14) 启动 WebAuth 本地服务"
-        printf '%s\n' " 15) Self-report probe"
-        printf '%s\n' " 16) 启动 Self-report 本地服务"
+        printf '%s\n' "  2) 查看资源任务统计"
+        printf '\n%s\n' "DDNS / 资源任务"
+        printf '%s\n' "  3) 添加上报目标"
+        printf '%s\n' "  4) 编辑上报目标"
+        printf '%s\n' "  5) 删除上报目标"
+        printf '%s\n' "  6) 启用 / 停用上报目标"
+        printf '%s\n' "  7) 立即执行 DDNS 解析上报"
+        printf '%s\n' "  8) 立即领取并执行资源任务"
+        printf '\n%s\n' "设备自上报"
+        printf '%s\n' "  9) Self-report probe"
+        printf '%s\n' " 10) 启动 Self-report 本地服务"
+        printf '\n%s\n' "WebAuth 放行"
+        printf '%s\n' " 11) WebAuth probe"
+        printf '%s\n' " 12) 启动 WebAuth 本地服务"
+        printf '%s\n' " 13) WebAuth / Cloudflare Access 配置提示"
+        printf '\n%s\n' "维护"
+        printf '%s\n' " 14) 安装 / 更新定时任务"
+        printf '%s\n' " 15) 删除定时任务"
+        printf '%s\n' " 16) 查看定时任务状态"
+        printf '%s\n' " 17) 清空本机 DDNS 解析上报统计"
         printf '%s\n' "  0) 退出"
-        read -r -p "请选择操作 [0-16]: " choice
+        if ! read -r -p "请选择操作 [0-17]: " choice; then
+            printf '\n输入结束，退出菜单。\n'
+            return 0
+        fi
         choice="$(trim "${choice}")"
         case "${choice}" in
             1) list_targets ;;
-            2) add_target_interactive ;;
-            3) edit_target_interactive ;;
-            4) delete_target_interactive ;;
-            5) toggle_target_interactive ;;
-            6) run_config_targets ;;
-            7) run_resource_targets ;;
-            8) list_resource_stats ;;
-            9) install_cron_interactive ;;
-            10) remove_cron_interactive ;;
-            11) show_cron_status ;;
-            12) clear_stats_interactive ;;
-            13) probe_webauth_target ;;
-            14) run_webauth_server ;;
-            15) probe_self_report_target ;;
-            16) run_self_report_server ;;
+            2) list_resource_stats ;;
+            3) add_target_interactive ;;
+            4) edit_target_interactive ;;
+            5) delete_target_interactive ;;
+            6) toggle_target_interactive ;;
+            7) run_config_targets ;;
+            8) run_resource_targets ;;
+            9) probe_self_report_target ;;
+            10) run_self_report_server ;;
+            11) probe_webauth_target ;;
+            12) run_webauth_server ;;
+            13) show_webauth_cloudflare_guide ;;
+            14) install_cron_interactive ;;
+            15) remove_cron_interactive ;;
+            16) show_cron_status ;;
+            17) clear_stats_interactive ;;
             0) return 0 ;;
             *) printf '无效选择。\n' >&2 ;;
         esac
@@ -2078,6 +2511,11 @@ while [[ $# -gt 0 ]]; do
             require_arg_value "$@"
             DDNS_RESOLVE_DOMAIN="${2:-}"
             [[ -n "${REPORT_MODE}" ]] || REPORT_MODE="ddns"
+            shift 2
+            ;;
+        --ddns-targets)
+            require_arg_value "$@"
+            DDNS_TARGETS="${2:-}"
             shift 2
             ;;
         --report-mode)
@@ -2147,6 +2585,11 @@ while [[ $# -gt 0 ]]; do
             WEBAUTH_TTL_SECONDS="${2:-}"
             shift 2
             ;;
+        --webauth-targets)
+            require_arg_value "$@"
+            WEBAUTH_TARGETS="${2:-}"
+            shift 2
+            ;;
         --self-report-listen)
             require_arg_value "$@"
             SELF_REPORT_LISTEN="${2:-}"
@@ -2170,6 +2613,11 @@ while [[ $# -gt 0 ]]; do
         --self-report-ttl)
             require_arg_value "$@"
             SELF_REPORT_TTL_SECONDS="${2:-}"
+            shift 2
+            ;;
+        --self-report-targets)
+            require_arg_value "$@"
+            SELF_REPORT_TARGETS="${2:-}"
             shift 2
             ;;
         --label)

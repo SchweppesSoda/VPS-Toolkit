@@ -2,7 +2,7 @@
 
 ## 定位
 
-`setup-ssh-key-only-full.sh` 是一个 SSH 登录加固脚本。它在当前 SSH 会话内运行，为指定系统用户写入 OpenSSH 公钥，然后把 sshd 切换到 `49152-65535` 内的随机或指定端口，并在新端口上强制使用公钥认证。
+`setup-ssh-key-only-full.sh` 是一个 SSH 登录加固脚本。它在当前 SSH 会话内运行，为指定系统用户新增或替换 OpenSSH 登录公钥，然后把 sshd 切换到 `49152-65535` 内的随机或指定端口，并在新端口上强制使用公钥认证。
 
 脚本同时处理 nftables 端口放行和旧端口收口，但它不负责云厂商安全组。云控制台或 VPS 面板里的端口放行仍需要人工处理。
 
@@ -40,13 +40,13 @@ SSH 新端口范围以 `scripts/vps/docs/vps-port-firewall-summary.md` 为准，
 
 ## 账号和公钥处理
 
-脚本交互式要求用户输入目标系统账号和 OpenSSH 公钥：
+脚本交互式要求用户输入目标系统账号和 OpenSSH 公钥。脚本只写入 `authorized_keys` 里的登录公钥，不生成、不保存、不要求粘贴私钥；私钥应保留在用户本地机器。
 
 1. 通过 `id <user>` 确认账号存在。
 2. 通过 `getent passwd` 或 `/etc/passwd` 获取 home 目录。
 3. 创建或修正 `~/.ssh` 和 `authorized_keys` 权限。
 4. 校验公钥前缀是否像标准 OpenSSH 公钥。
-5. 如果 `authorized_keys` 已存在内容，询问是否替换旧公钥。
+5. 选择公钥写入方式：新增或替换。
 
 权限处理如下：
 
@@ -54,7 +54,11 @@ SSH 新端口范围以 `scripts/vps/docs/vps-port-firewall-summary.md` 为准，
 - `authorized_keys` 使用 `600`。
 - owner/group 设为目标用户及其主组。
 
-如果选择替换旧公钥，脚本先备份 `authorized_keys`，再只保留本次输入的公钥。否则会去重追加。
+公钥写入模式：
+
+- 默认交互模式：如果 `authorized_keys` 已有内容，明确询问新增或替换；如果为空或不存在，直接新增。
+- `--key-mode add` 或 `--add-key`：保留旧公钥，并对本次输入的公钥去重追加。
+- `--key-mode replace` 或 `--replace-key`：先备份 `authorized_keys`，再只保留本次输入的公钥。
 
 ## sshd_config 重写模型
 
@@ -179,3 +183,9 @@ ssh -p <new_port> -o PreferredAuthentications=password -o PubkeyAuthentication=n
 
 它没有尝试做完整防火墙持久化，也没有跨文件重写所有 sshd Include 配置。原因是这些行为和发行版、镜像、面板环境强相关，自动化过度反而更容易造成不可预期结果。
 
+
+## PO0 受限上报 key 识别
+
+脚本在展示目标用户 `authorized_keys` 时会按行识别 OpenSSH 公钥，并分为：普通登录 key、PO0 受限上报 key、其它 forced-command/restricted key。PO0 受限上报 key 通过 `po0-report:scope=` 备注识别，并展示 fingerprint、scope、允许范围。
+
+当用户选择 `--replace-key` 或交互选择替换时，如果 `authorized_keys` 内存在 PO0 受限上报 key，脚本会提示替换会删除 Egern / LAN Worker 的受限上报能力。`--add-key` 不影响这些条目。

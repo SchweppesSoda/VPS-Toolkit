@@ -46,7 +46,7 @@ $env:PO0_LAN_WORKER_URL='<LAN_WORKER_REPORT_URL>'; $env:PO0_SELF_REPORT_SOURCE='
 Egern 模块 raw URL：
 
 ```text
-https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/PO0-Client-IP-Report.yaml
+https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/PO0-SSH-IP-Report.yaml
 ```
 
 ## PO0 主控菜单
@@ -79,8 +79,8 @@ region_custom -> region_plus_trusted
 可选模式：
 
 ```text
-manual_only           手动 CIDR + 当前 SSH 临时来源
-trusted_dynamic       手动 + SSH 临时 + DDNS + Client IP + WebAuth + learned
+manual_only           仅手动 CIDR（SSH 临时需在菜单中手动开启）
+trusted_dynamic       手动 + DDNS + Client IP + SSH report + WebAuth + learned（SSH 临时需手动开启）
 region_plus_trusted   地区库 + trusted_dynamic
 region_only           仅地区库
 custom_sources        高级自选来源组合
@@ -95,11 +95,11 @@ custom_sources        高级自选来源组合
 可组合的来源：
 
 ```text
-manual, ssh_temp, ddns, client_ip, webauth, learned, region
+manual, ssh_temp, ddns, client_ip, ssh_report, webauth, learned, region
 ```
 
 动态来源缓存策略：
-- `ddns`、`client_ip`、`webauth` 按 `source_type + source_value` 分组。
+- `ddns`、`client_ip`、`ssh_report`、`webauth` 按 `source_type + source_value` 分组。
 - 每个来源默认最多保留最近 5 个有效 IP。
 - 已存在 IP 再次上报会刷新时间和过期时间，不重复新增。
 - 过期条目不会进入最终 nftables 白名单缓存。
@@ -130,6 +130,23 @@ bash /root/nftables-relay-manager.sh --ddns-report-check <source-key> <token>
 ```
 
 LAN Worker 里 `--source-key` 只是 PO0 DDNS 来源 key/名称，用来匹配 PO0 来源表；`--ddns-domain` 才是真正要解析的 DDNS 域名。旧参数 `--domain` 仍作为兼容别名：没有 `--ddns-domain` 时，同时作为 source key 和 DDNS 域名。
+
+多个 PO0 或多个域名推荐先整理成“DDNS 上报目标”：
+
+```text
+source_key|ddns_domain|host|port|user|script|token|ssh_args
+home-sg|home.example.com|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|
+home-us|home.example.com|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|
+office-sg|office.example.com|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_OFFICE_SG|
+```
+
+临时执行可以直接传目标行：
+
+```bash
+po0-lan-client --run --ddns-targets 'home-sg|home.example.com|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|;home-us|home.example.com|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|'
+```
+
+长期运行推荐进入 `po0-lan-client --menu`，在“上报目标”里维护；底层仍保存到本机配置文件，旧配置继续兼容。
 
 PO0 不做本地 DDNS 解析。`--refresh-ddns` 只会把已经由 LAN Worker/路由器上报、且仍在 TTL 内的结果重建/应用；它不会延长原上报 TTL：
 
@@ -177,6 +194,18 @@ curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scri
 po0-lan-client --self-report-server --self-report-listen 127.0.0.1:8788 --po0-host <PO0_HOST> --po0-script /root/nftables-relay-manager.sh --self-report-source self-report --client-ip-token <CLIENT_REPORT_TOKEN> --self-report-secret <SELF_REPORT_SECRET>
 ```
 
+多个 PO0 用“设备自上报目标”合并到同一个 LAN Worker：
+
+```text
+source|host|port|user|script|token|ttl|ssh_args
+self-report|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|3600|
+self-report|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|3600|
+```
+
+```bash
+po0-lan-client --self-report-server --self-report-listen 127.0.0.1:8788 --self-report-targets 'self-report|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|3600|;self-report|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|3600|' --self-report-secret <SELF_REPORT_SECRET>
+```
+
 访问设备定时自上报：
 
 ```bash
@@ -199,13 +228,13 @@ Egern 模块不是 DDNS 模块。它的逻辑是：
 2. 通过一次性 SSH 调 PO0：
 
 ```bash
-bash /root/nftables-relay-manager.sh --client-ip-report <source-id> <ipv4> <token> <identity> <ttl>
+bash /root/nftables-relay-manager.sh --ssh-ip-report <source-id> <ipv4> <token> <identity> <ttl>
 ```
 
 只读检查：
 
 ```bash
-bash /root/nftables-relay-manager.sh --client-ip-report-check <source-id> <token>
+bash /root/nftables-relay-manager.sh --ssh-ip-report-check <source-id> <token>
 ```
 
 模块提供：
@@ -215,7 +244,7 @@ bash /root/nftables-relay-manager.sh --client-ip-report-check <source-id> <token
 - `generic`：手动立即上报。
 - `widget`：查看最近成功 IP、时间、TTL、失败原因、网络类型、PO0 host。
 
-Egern 可以向多个 PO0 上报同一个当前出口 IPv4。模块环境变量 `PO0_TARGETS` 一行一个目标：
+Egern 可以向多个 PO0 上报同一个当前出口 IPv4。模块环境变量 `SSH_REPORT_TARGETS` 一行一个目标：
 
 ```text
 source|host|port|user|script|token|identity|ttl
@@ -228,9 +257,9 @@ iphone-sg|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_S
 iphone-us|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|egern-iphone|3600
 ```
 
-不填 `PO0_TARGETS` 时，模块继续按单目标 `PO0_HOST`、`REPORT_NAME`、`REPORT_TOKEN` 运行，兼容旧配置。
+不填 `SSH_REPORT_TARGETS` 时，模块按单目标 `PO0_HOST`、`SSH_REPORT_SOURCE`、`SSH_REPORT_TOKEN` 运行。旧 Egern Client IP 模块不再保留兼容。
 
-不要为两个 PO0 重复导入两份 Egern 模块。正确做法是只导入一份模块，把两个 PO0 生成的目标行合并到同一个 `PO0_TARGETS`，这样只查一次当前出口 IPv4，Widget 也能显示同一轮上报里每个 PO0 的成功/失败。
+不要为两个 PO0 重复导入两份 Egern 模块。正确做法是只导入一份模块，把两个 PO0 生成的目标行合并到同一个 `SSH_REPORT_TARGETS`，这样只查一次当前出口 IPv4，Widget 也能显示同一轮上报里每个 PO0 的成功/失败。
 
 ## LAN Worker WebAuth
 
@@ -240,6 +269,13 @@ WebAuth 只运行在 LAN Worker 上，PO0 不开放 HTTP。推荐结构：
 Browser -> Cloudflare Access -> cloudflared tunnel -> LAN Worker 127.0.0.1:8787 -> SSH -> PO0
 ```
 
+Self-report 和 WebAuth 的区别：
+
+```text
+Self-report：访问设备主动把自己的出口 IP 报给 LAN Worker。
+WebAuth：用户打开 Cloudflare Access 保护的网页，登录后 LAN Worker 根据 Cloudflare 请求头放行这个访问 IP。
+```
+
 LAN Worker 启动 WebAuth 本地服务：
 
 ```bash
@@ -247,11 +283,44 @@ curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scri
 po0-lan-client --webauth-server --listen 127.0.0.1:8787 --po0-host <PO0_HOST> --po0-script /root/nftables-relay-manager.sh --webauth-source cf-access --webauth-token <WEBAUTH_TOKEN>
 ```
 
+多个 PO0 同样使用“WebAuth 放行目标”：
+
+```bash
+po0-lan-client --webauth-server --listen 127.0.0.1:8787 --webauth-targets 'cf-access|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|3600|;cf-access|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|3600|'
+```
+
 PO0 接收的仍是 SSH 命令：
 
 ```bash
 bash /root/nftables-relay-manager.sh --webauth-report <source-id> <ipv4> <identity> <expires-at> <token> [note]
 ```
+
+Cloudflare Tunnel ingress 示例，运行在 LAN Worker：
+
+```yaml
+ingress:
+  - hostname: auth.example.com
+    service: http://127.0.0.1:8787
+  - service: http_status:404
+```
+
+Cloudflare 控制台动作：
+
+1. 创建 Cloudflare Tunnel，并让 `cloudflared` 运行在 LAN Worker。
+2. Public hostname 绑定 `auth.example.com`，service 指向 `http://127.0.0.1:8787`。
+3. Access -> Applications -> Add application -> Self-hosted。
+4. 应用域名填写同一个 `auth.example.com`。
+5. 配置允许登录的邮箱、域名或 Access group。
+6. 确认该 hostname 受 Access 保护。
+
+本地检查命令：
+
+```bash
+cloudflared tunnel ingress validate
+cloudflared tunnel ingress rule https://auth.example.com
+```
+
+LAN Worker 会优先读取 `CF-Connecting-IP` 作为访问 IP，读取 `Cf-Access-Authenticated-User-Email` 或 `CF-Access-Authenticated-User-Email` 作为身份。浏览器页面会返回成功、部分成功或失败，以及已上报到哪些 PO0。
 
 ## attack mode
 
@@ -264,7 +333,7 @@ bash /root/nftables-relay-manager.sh --pending-auto-sources
 
 效果：
 
-- 新的 DDNS / Client IP / WebAuth 自动 IP 进入待审核列表，不直接放行。
+- 新的 DDNS / Client IP / SSH report / WebAuth 自动 IP 进入待审核列表，不直接放行。
 - 已有有效 IP 如果仍被同一来源上报，可以续期。
 - 手动白名单和 SSH 临时白名单继续按菜单操作生效。
 

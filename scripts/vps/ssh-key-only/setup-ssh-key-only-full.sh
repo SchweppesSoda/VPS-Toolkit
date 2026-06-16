@@ -34,6 +34,7 @@ NFT_NEEDS_MANAGED_CHAIN=0
 PORT_SELECTION_MODE="random"
 REQUESTED_NEW_PORT=""
 RANDOM_REQUESTED=0
+KEY_INSTALL_MODE="prompt"
 
 info() {
   printf '%s\n' "$*"
@@ -215,6 +216,9 @@ Usage:
 Options:
   --random        Randomly choose a new SSH port from: ${SSH_PORT_RANGES[*]}
   -p, --port     Use a specific new SSH port from: ${SSH_PORT_RANGES[*]}
+  --key-mode      Public-key install mode: add or replace.
+  --add-key       Keep existing authorized_keys and add the pasted public key.
+  --replace-key   Back up authorized_keys, then keep only the pasted public key.
   -h, --help     Show this help.
 
 Remote pipe example:
@@ -222,7 +226,30 @@ Remote pipe example:
 
 The current SSH session port may be outside this range, but the new SSH port
 must follow scripts/vps/docs/vps-port-firewall-summary.md.
+The script installs SSH login public keys in authorized_keys. Keep the private
+key on your local machine; do not paste a private key here.
 EOF
+}
+
+normalize_key_install_mode() {
+  local mode="$1"
+  mode="${mode,,}"
+  case "${mode}" in
+    add|append|keep) printf 'add\n' ;;
+    replace|overwrite) printf 'replace\n' ;;
+    prompt|"") printf 'prompt\n' ;;
+    *) return 1 ;;
+  esac
+}
+
+set_key_install_mode() {
+  local mode="$1"
+
+  mode="$(normalize_key_install_mode "${mode}")" || die "密钥写入模式只能是 add 或 replace。"
+  if [[ "${KEY_INSTALL_MODE}" != "prompt" && "${KEY_INSTALL_MODE}" != "${mode}" ]]; then
+    die "密钥写入模式参数冲突。"
+  fi
+  KEY_INSTALL_MODE="${mode}"
 }
 
 parse_args() {
@@ -249,6 +276,21 @@ parse_args() {
         REQUESTED_NEW_PORT="$2"
         PORT_SELECTION_MODE="custom"
         shift 2
+        ;;
+      --key-mode)
+        if [[ "$#" -lt 2 || -z "${2:-}" || "${2:-}" == --* ]]; then
+          die "--key-mode 需要 add 或 replace。"
+        fi
+        set_key_install_mode "$2"
+        shift 2
+        ;;
+      --add-key)
+        set_key_install_mode add
+        shift
+        ;;
+      --replace-key)
+        set_key_install_mode replace
+        shift
         ;;
       -h|--help)
         usage
@@ -809,19 +851,13 @@ show_account_state() {
   fi
 
   if [[ -f "${AUTH_KEYS}" ]]; then
-    key_count="$(grep -cE '^(ssh-|ecdsa-sha2-)' "${AUTH_KEYS}" 2>/dev/null || true)"
+    key_count="$(grep -cE '(^|[[:space:]])(ssh-ed25519|ssh-rsa|ecdsa-sha2-)' "${AUTH_KEYS}" 2>/dev/null || true)"
     info "现有公钥数量：${key_count}"
-    info "现有公钥指纹："
-    if has_cmd ssh-keygen; then
-      ssh-keygen -lf "${AUTH_KEYS}" 2>/dev/null || info "无法解析 authorized_keys 指纹。"
-    else
-      info "未找到 ssh-keygen，无法展示指纹。"
-    fi
+    show_authorized_keys_classified
   else
     info "authorized_keys：不存在，稍后会创建。"
   fi
 }
-
 confirm_continue() {
   local answer
 
@@ -846,25 +882,158 @@ confirm_continue_without_nft() {
   esac
 }
 
-prompt_replace_authorized_keys() {
+authorized_key_public_part() {
+  local line="$1" token key_type=""
+  for token in ${line}; do
+    case "${token}" in
+      ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521)
+        key_type="${token}"
+        continue
+        ;;
+    esac
+    if [[ -n "${key_type}" ]]; then
+      printf '%s %s\n' "${key_type}" "${token}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+authorized_key_fingerprint() {
+  local public_part="$1" tmp
+  if ! has_cmd ssh-keygen; then
+    printf 'ssh-keygen unavailable\n'
+    return 0
+  fi
+  tmp="$(mktemp)"
+  printf '%s\n' "${public_part}" > "${tmp}"
+  ssh-keygen -lf "${tmp}" 2>/dev/null || printf 'unparseable\n'
+  rm -f "${tmp}" 2>/dev/null || true
+}
+
+po0_restricted_scope_from_line() {
+  local line="$1" scope
+  [[ "${line}" == *"po0-report:scope="* ]] || return 1
+  scope="${line#*po0-report:scope=}"
+  scope="${scope%%,*}"
+  printf '%s\n' "${scope}"
+}
+
+po0_scope_allowed_summary() {
+  case "${1:-}" in
+    egern)
+      printf '%s\n' '--ssh-ip-report, --ssh-ip-report-check'
+      ;;
+    worker)
+      printf '%s\n' '--ddns-report/check, --client-ip-report/check, --webauth-report/check'
+      ;;
+    all)
+      printf '%s\n' '--ssh-ip-report/check, --ddns-report/check, --client-ip-report/check, --webauth-report/check'
+      ;;
+    *)
+      printf '%s\n' 'unknown'
+      ;;
+  esac
+}
+
+po0_restricted_key_count() {
+  [[ -f "${AUTH_KEYS}" ]] || {
+    printf '0\n'
+    return 0
+  }
+  grep -c 'po0-report:scope=' "${AUTH_KEYS}" 2>/dev/null || printf '0\n'
+}
+
+warn_replace_removes_po0_restricted_keys() {
+  local count
+  count="$(po0_restricted_key_count)"
+  [[ "${count}" =~ ^[0-9]+$ ]] || count=0
+  if (( count > 0 )); then
+    warn "检测到 ${count} 个 PO0 受限上报 key。替换 authorized_keys 会删除它们。"
+    warn "这些 key 通常由 nftables-relay-manager.sh 安装，用于 Egern / LAN Worker 受限上报。"
+    warn "如果需要保留上报能力，请使用 --add-key，或替换后重新在 PO0 主控脚本里安装受限 key。"
+  fi
+}
+
+show_authorized_keys_classified() {
+  local line public_part fp scope category idx=1
+  if [[ ! -f "${AUTH_KEYS}" ]]; then
+    info "authorized_keys：不存在，稍后会创建。"
+    return 0
+  fi
+  info "现有公钥分类："
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    [[ -n "${line}" && ! "${line}" =~ ^# ]] || continue
+    public_part="$(authorized_key_public_part "${line}" || true)"
+    [[ -n "${public_part}" ]] || continue
+    fp="$(authorized_key_fingerprint "${public_part}")"
+    if scope="$(po0_restricted_scope_from_line "${line}")"; then
+      category="PO0 受限上报 key"
+    elif [[ "${line}" == *"command="* || "${line}" == restrict,* ]]; then
+      category="其它 forced-command/restricted key"
+      scope="-"
+    else
+      category="普通登录 key"
+      scope="-"
+    fi
+    info "  ${idx}) ${category}"
+    info "     fingerprint: ${fp}"
+    info "     scope      : ${scope}"
+    if [[ "${category}" == "PO0 受限上报 key" ]]; then
+      info "     allowed    : $(po0_scope_allowed_summary "${scope}")"
+    fi
+    idx=$((idx + 1))
+  done < "${AUTH_KEYS}"
+  if [[ "${idx}" -eq 1 ]]; then
+    info "  (authorized_keys 没有可解析的 OpenSSH 公钥)"
+  fi
+}
+
+prompt_key_install_mode() {
   local answer
+
+  case "${KEY_INSTALL_MODE}" in
+    add)
+      REPLACE_AUTH_KEYS=0
+      info "密钥写入方式：新增/保留旧公钥。"
+      return
+      ;;
+    replace)
+      REPLACE_AUTH_KEYS=1
+      warn_replace_removes_po0_restricted_keys
+      warn "密钥写入方式：替换 authorized_keys，只保留本次输入的新公钥。"
+      return
+      ;;
+  esac
 
   if [[ ! -s "${AUTH_KEYS}" ]]; then
     REPLACE_AUTH_KEYS=0
+    info "authorized_keys 为空或不存在，将新增本次输入的公钥。"
     return
   fi
 
   info ""
   warn "检测到 ${AUTH_KEYS} 已存在公钥。"
-  info "如果选择删除旧公钥，脚本会备份原文件，然后只保留这次输入的新公钥。"
-  printf '是否删除原来的公钥，只保留这次输入的新公钥？请输入 yes 删除，直接回车则保留：'
+  info "请选择本次公钥写入方式："
+  info "1. 新增：保留旧公钥，并追加/去重本次输入的公钥。"
+  info "2. 替换：先备份 authorized_keys，然后只保留本次输入的新公钥。"
+  printf '请选择 1 或 2，直接回车默认 1 新增：'
   read -r answer
 
-  if [[ "${answer}" == "yes" ]]; then
-    REPLACE_AUTH_KEYS=1
-  else
-    REPLACE_AUTH_KEYS=0
-  fi
+  case "${answer}" in
+    2|replace|REPLACE|Replace|yes|YES|Yes)
+      REPLACE_AUTH_KEYS=1
+      warn_replace_removes_po0_restricted_keys
+      ;;
+    ""|1|add|ADD|Add|no|NO|No)
+      REPLACE_AUTH_KEYS=0
+      ;;
+    *)
+      die "无效选择，已取消。"
+      ;;
+  esac
 }
 
 need_root_and_ssh_session() {
@@ -915,7 +1084,7 @@ prompt_for_user_and_key() {
       ;;
   esac
 
-  prompt_replace_authorized_keys
+  prompt_key_install_mode
 }
 
 install_public_key() {
@@ -987,7 +1156,11 @@ main() {
   prompt_for_user_and_key
 
   section "即将执行的动作"
-  info "1. 为 ${SSH_USER} 写入/确认 SSH 公钥。"
+  if [[ "${REPLACE_AUTH_KEYS}" -eq 1 ]]; then
+    info "1. 备份 ${AUTH_KEYS}，并只保留本次输入的 SSH 公钥。"
+  else
+    info "1. 为 ${SSH_USER} 新增/确认本次输入的 SSH 公钥，保留已有公钥。"
+  fi
   info "2. 备份 ${SSHD_CONFIG}。"
   info "3. 将 sshd 监听端口改为 ${new_port}，并只允许该端口使用公钥登录。"
   if [[ "${skip_nft}" -eq 1 ]]; then

@@ -21,6 +21,8 @@ DDNS_REPORT_TOKEN_FILE="${CONF_DIR}/po0-relay-ddns-report.token"
 DDNS_REPORT_STATS_FILE="${CONF_DIR}/po0-relay-ddns-report-stats.tsv"
 CLIENT_IP_REPORT_TOKEN_FILE="${CONF_DIR}/po0-relay-client-ip-report.token"
 CLIENT_IP_REPORT_STATS_FILE="${CONF_DIR}/po0-relay-client-ip-report-stats.tsv"
+SSH_REPORT_TOKEN_FILE="${CONF_DIR}/po0-relay-ssh-report.token"
+SSH_REPORT_STATS_FILE="${CONF_DIR}/po0-relay-ssh-report-stats.tsv"
 WEBAUTH_REPORT_TOKEN_FILE="${CONF_DIR}/po0-relay-webauth-report.token"
 WEBAUTH_REPORT_STATS_FILE="${CONF_DIR}/po0-relay-webauth-report-stats.tsv"
 AUTO_PENDING_FILE="${CONF_DIR}/po0-relay-auto-pending.tsv"
@@ -63,7 +65,8 @@ MANAGER_INSTALL_PATH="${PO0_MANAGER_INSTALL_PATH:-/root/nftables-relay-manager.s
 LAN_WORKER_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-lan-client.sh"
 OUTBOUND_IP_REPORTER_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-outbound-ip-report.sh"
 OUTBOUND_IP_REPORTER_PS_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/po0-outbound-ip-report.ps1"
-EGERN_CLIENT_IP_MODULE_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/PO0-Client-IP-Report.yaml"
+EGERN_SSH_REPORT_MODULE_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/PO0-SSH-IP-Report.yaml"
+REPORT_KEY_WRAPPER_PATH="${CONF_DIR}/po0-report-key-wrapper"
 
 NAT_TABLE="po0_relay_nat"
 MANGLE_TABLE="po0_relay_mangle"
@@ -151,6 +154,10 @@ CLIENT_IP_REPORT_SOURCE=""
 CLIENT_IP_REPORT_IP=""
 CLIENT_IP_REPORT_IDENTITY=""
 CLIENT_IP_REPORT_TTL=""
+SSH_REPORT_SOURCE=""
+SSH_REPORT_IP=""
+SSH_REPORT_IDENTITY=""
+SSH_REPORT_TTL=""
 WEBAUTH_REPORT_SOURCE=""
 WEBAUTH_REPORT_IP=""
 WEBAUTH_REPORT_IDENTITY=""
@@ -502,6 +509,7 @@ is_public_ipv4() {
     (( o1 == 10 )) && return 1
     (( o1 == 127 )) && return 1
     (( o1 == 169 && o2 == 254 )) && return 1
+    (( o1 == 198 && o2 >= 18 && o2 <= 19 )) && return 1
     (( o1 >= 224 )) && return 1
     return 0
 }
@@ -940,13 +948,13 @@ normalize_src_allowlist_mode() {
 src_allowlist_mode_default_sources() {
     case "${1:-${SRC_ALLOWLIST_MODE}}" in
         manual_only)
-            printf 'manual,ssh_temp\n'
+            printf 'manual\n'
             ;;
         trusted_dynamic)
-            printf 'manual,ssh_temp,ddns,client_ip,webauth,learned\n'
+            printf 'manual,ddns,client_ip,ssh_report,webauth,learned\n'
             ;;
         region_plus_trusted)
-            printf 'region,manual,ssh_temp,ddns,client_ip,webauth,learned\n'
+            printf 'region,manual,ddns,client_ip,ssh_report,webauth,learned\n'
             ;;
         region_only)
             printf 'region\n'
@@ -961,10 +969,10 @@ src_allowlist_mode_default_sources() {
                     return 0
                 fi
             done
-            printf 'manual,ssh_temp,ddns,client_ip,webauth,learned\n'
+            printf 'manual,ddns,client_ip,ssh_report,webauth,learned\n'
             ;;
         *)
-            printf 'manual,ssh_temp,ddns,client_ip,webauth,learned\n'
+            printf 'manual,ddns,client_ip,ssh_report,webauth,learned\n'
             ;;
     esac
 }
@@ -1077,8 +1085,11 @@ normalize_allowlist_set_sources() {
             ddns|domain)
                 normalized="ddns"
                 ;;
-            client_ip|client-ip|mobile|egern|device_ip|device-ip)
+            client_ip|client-ip|mobile|device_ip|device-ip)
                 normalized="client_ip"
+                ;;
+            ssh_report|ssh-report|ssh_ip|ssh-ip|egern|egern_ssh|egern-ssh)
+                normalized="ssh_report"
                 ;;
             webauth|web_auth|web-auth|cf_access|cf-access|cloudflare_access|cloudflare-access)
                 normalized="webauth"
@@ -1095,7 +1106,7 @@ normalize_allowlist_set_sources() {
             out+=",${normalized}"
         fi
     done
-    [[ -n "${out}" ]] || out="manual,ssh_temp,ddns,client_ip,webauth,learned"
+    [[ -n "${out}" ]] || out="manual,ddns,client_ip,ssh_report,webauth,learned"
     printf '%s\n' "${out}"
 }
 
@@ -1106,7 +1117,7 @@ default_allowlist_set_record() {
         "1" \
         "public" \
         "*" \
-        "manual,ssh_temp,ddns,client_ip,webauth,learned" \
+        "manual,ddns,client_ip,ssh_report,webauth,learned" \
         "Legacy global source allowlist mapped to the public set"
 }
 
@@ -1193,7 +1204,7 @@ write_allowlist_sets_file() {
 #   public scope: *
 #   ports scope : tcp/30001,udp/30002,both/30003
 # sources:
-#   region,manual,learned,ssh_temp,ddns,client_ip,webauth
+#   region,manual,learned,ssh_temp,ddns,client_ip,ssh_report,webauth
 EOF
     for set in "${ALLOWLIST_SETS[@]}"; do
         parse_allowlist_set_line "${set}" || continue
@@ -1306,8 +1317,11 @@ normalize_allowlist_entry_source_type() {
         ddns|domain)
             printf 'ddns\n'
             ;;
-        client_ip|client-ip|mobile|egern|device_ip|device-ip)
+        client_ip|client-ip|mobile|device_ip|device-ip)
             printf 'client_ip\n'
+            ;;
+        ssh_report|ssh-report|ssh_ip|ssh-ip|egern|egern_ssh|egern-ssh)
+            printf 'ssh_report\n'
             ;;
         webauth|web_auth|web-auth|cf_access|cf-access|cloudflare_access|cloudflare-access)
             printf 'webauth\n'
@@ -1326,6 +1340,7 @@ allowlist_source_type_label() {
         ssh_temp) printf 'SSH 临时' ;;
         ddns) printf 'DDNS 上报' ;;
         client_ip) printf '客户端 IP' ;;
+        ssh_report) printf 'SSH report' ;;
         webauth) printf 'WebAuth' ;;
         *) printf '%s' "${1:-unknown}" ;;
     esac
@@ -1421,7 +1436,7 @@ write_allowlist_entries_header() {
     cat > "${path}" <<'EOF'
 # Managed by nftables relay manager
 # format: set_id|cidr|source_type|source_value|note|created_at|expires_at
-# source_type: region,manual,learned,ssh_temp,ddns,client_ip,webauth
+# source_type: region,manual,learned,ssh_temp,ddns,client_ip,ssh_report,webauth
 EOF
 }
 
@@ -1532,7 +1547,7 @@ automation_mode_is_attack() {
 
 auto_source_type_is_freezable() {
     case "$(normalize_allowlist_entry_source_type "${1:-}" 2>/dev/null || true)" in
-        ddns|client_ip|webauth)
+        ddns|client_ip|ssh_report|webauth)
             return 0
             ;;
         *)
@@ -1543,7 +1558,7 @@ auto_source_type_is_freezable() {
 
 dynamic_allowlist_source_type() {
     case "$(normalize_allowlist_entry_source_type "${1:-}" 2>/dev/null || true)" in
-        ddns|client_ip|webauth)
+        ddns|client_ip|ssh_report|webauth)
             return 0
             ;;
         *)
@@ -1702,7 +1717,7 @@ write_allowlist_sources_header() {
 # Managed by nftables relay manager
 # format: set_id|source_type|name|value|enabled|ttl_seconds|last_resolved_at|last_result
 # source_type: ddns
-# last_result: report:<ip_csv> for external reports, local:<ip_csv> for PO0 DNS fallback, or ERROR ...
+# last_result: report:<ip_csv> for external reports, local:<ip_csv> for legacy compatibility, or ERROR ...
 EOF
 }
 
@@ -2199,6 +2214,14 @@ validate_client_ip_report_token() {
     token_file_matches "${CLIENT_IP_REPORT_TOKEN_FILE}" "${1:-}"
 }
 
+ssh_report_token_value() {
+    token_file_value "${SSH_REPORT_TOKEN_FILE}"
+}
+
+validate_ssh_report_token() {
+    token_file_matches "${SSH_REPORT_TOKEN_FILE}" "${1:-}"
+}
+
 webauth_report_token_value() {
     token_file_value "${WEBAUTH_REPORT_TOKEN_FILE}"
 }
@@ -2508,6 +2531,44 @@ report_client_ip_source() {
     CLIENT_IP_REPORT_IP="${ip}"
     CLIENT_IP_REPORT_IDENTITY="${identity}"
     CLIENT_IP_REPORT_TTL="${ttl}"
+}
+
+report_ssh_ip_source() {
+    local source_id="$1"
+    local ip="$2"
+    local token="$3"
+    local identity="${4:-}"
+    local ttl="${5:-3600}"
+    local expires_at note cidr
+    source_id="$(sanitize_allowlist_source_text "${source_id}")"
+    identity="$(sanitize_allowlist_source_text "${identity}")"
+    [[ -n "${source_id}" ]] || {
+        update_generic_report_stats "${SSH_REPORT_STATS_FILE}" "unknown" "rejected" "${ip}" "missing_source_id" || true
+        err "missing ssh report source id"
+        return 1
+    }
+    is_public_ipv4 "${ip}" || {
+        update_generic_report_stats "${SSH_REPORT_STATS_FILE}" "${source_id}" "rejected" "${ip}" "invalid_public_ipv4" || true
+        err "invalid ssh report public IPv4: ${ip}"
+        return 1
+    }
+    validate_ssh_report_token "${token}" || {
+        update_generic_report_stats "${SSH_REPORT_STATS_FILE}" "${source_id}" "rejected" "${ip}" "invalid_token" || true
+        err "invalid ssh report token"
+        return 1
+    }
+    ttl="$(normalize_client_ttl_seconds "${ttl}")"
+    expires_at="$(utc_after_seconds_iso "${ttl}")"
+    cidr="${ip}/32"
+    note="ssh_report ${source_id}"
+    [[ -n "${identity}" ]] && note="${note} identity=${identity}"
+    note="${note} ttl=${ttl} $(ipdb_snapshot_for_ip "${ip}")"
+    replace_allowlist_entries_for_source_with_expiry "default" "ssh_report" "${source_id}" "${note}" "${expires_at}" "${cidr}" || return 1
+    update_generic_report_stats "${SSH_REPORT_STATS_FILE}" "${source_id}" "accepted" "${ip}" "pending=${DYNAMIC_REPORT_PENDING_COUNT:-0}" || true
+    SSH_REPORT_SOURCE="${source_id}"
+    SSH_REPORT_IP="${ip}"
+    SSH_REPORT_IDENTITY="${identity}"
+    SSH_REPORT_TTL="${ttl}"
 }
 
 report_webauth_source() {
@@ -5277,7 +5338,7 @@ do_show_allowlist_source_entries() {
     printf '自动来源安全模式: %s\n' "$([[ "${AUTOMATION_MODE}" == "attack" ]] && printf 'attack（新自动 IP 进入待审核）' || printf 'regular（新自动 IP 直接生效）')"
     printf 'entries 文件    : %s\n' "${ALLOWLIST_ENTRIES_FILE}"
     echo ""
-    echo "说明：这里显示手动 CIDR、SSH 临时、DDNS、Client IP、WebAuth、学习提升等条目。地区库的海量 CIDR 不逐条存在 entries 文件，最终展开结果看“最终 CIDR 缓存”。"
+    echo "说明：这里显示手动 CIDR、SSH 临时、DDNS、Client IP、SSH report、WebAuth、学习提升等条目。地区库的海量 CIDR 不逐条存在 entries 文件，最终展开结果看“最终 CIDR 缓存”。"
     echo ""
     show_allowlist_entry_table
 }
@@ -5313,15 +5374,15 @@ do_explain_src_allowlist_fields() {
   适合放你明确确认过的固定公网 IP 或网段。它不是全部白名单。
 
 entries
-  手动、SSH 临时、DDNS、Client IP、WebAuth、learned 等条目的统一记录表：
+  手动、SSH 临时、DDNS、Client IP、SSH report、WebAuth、learned 等条目的统一记录表：
   ${ALLOWLIST_ENTRIES_FILE}
 
 允许来源
   当前白名单模式会采用哪些 source_type。比如 trusted_dynamic 会采用：
-  manual、ssh_temp、ddns、client_ip、webauth、learned。
+  manual、ddns、client_ip、ssh_report、webauth、learned。ssh_temp 只在手动开启时参与。
 
 待审核 IP
-  attack 模式下，新的 DDNS / Client IP / WebAuth 等自动来源不会直接放行，
+  attack 模式下，新的 DDNS / Client IP / SSH report / WebAuth 等自动来源不会直接放行，
   而是进入待审核队列：${AUTO_PENDING_FILE}
 
 地区库
@@ -5355,7 +5416,7 @@ print_src_allowlist_details() {
     printf '自动白名单 : %s\n' "$([[ "${AUTOMATION_MODE}" == "attack" ]] && printf 'attack（新自动 IP 进入待审核）' || printf 'regular')"
     printf '允许来源   : %s\n' "$(allowlist_sources_label "$(src_allowlist_mode_default_sources "${SRC_ALLOWLIST_MODE}")")"
     printf '来源条目   : %s 条（%s）\n' "$(allowlist_entries_count)" "${ALLOWLIST_ENTRIES_FILE}"
-    printf '动态缓存   : ddns/client_ip/webauth 每个来源最多保留 %s 个有效 IP，过期条目不进入最终缓存\n' "$(dynamic_allowlist_max_per_source)"
+    printf '动态缓存   : ddns/client_ip/ssh_report/webauth 每个来源最多保留 %s 个有效 IP，过期条目不进入最终缓存\n' "$(dynamic_allowlist_max_per_source)"
     printf '待审核 IP  : %s 条（%s）\n' "$(allowlist_pending_count)" "${AUTO_PENDING_FILE}"
     printf '地区数量   : %s\n' "$(src_allowlist_region_count)"
     printf '手动 CIDR  : %s 条（%s）\n' "${custom_count}" "${CUSTOM_SRC_ALLOWLIST_FILE}"
@@ -6304,6 +6365,7 @@ ensure_layout() {
     [[ -f "${BLOCK_SUMMARY_FILE}" ]] || regenerate_block_summary
     [[ -f "${AUTO_PENDING_FILE}" ]] || ensure_auto_pending_file
     [[ -f "${CLIENT_IP_REPORT_STATS_FILE}" ]] || ensure_generic_report_stats_file "${CLIENT_IP_REPORT_STATS_FILE}"
+    [[ -f "${SSH_REPORT_STATS_FILE}" ]] || ensure_generic_report_stats_file "${SSH_REPORT_STATS_FILE}"
     [[ -f "${WEBAUTH_REPORT_STATS_FILE}" ]] || ensure_generic_report_stats_file "${WEBAUTH_REPORT_STATS_FILE}"
     [[ -f "${RESOURCE_TASKS_FILE}" ]] || resource_task_write_header "${RESOURCE_TASKS_FILE}"
 }
@@ -6339,7 +6401,7 @@ backup_takeover_files() {
 backup_managed_files() {
     local ts file
     ts="$(date '+%Y%m%d_%H%M%S')"
-    for file in "${NFT_CONF}" "${SETTINGS_FILE}" "${RULES_FILE}" "${SRC_ALLOWLIST_CACHE}" "${CUSTOM_SRC_ALLOWLIST_FILE}" "${ALLOWLIST_SETS_FILE}" "${ALLOWLIST_ENTRIES_FILE}" "${ALLOWLIST_SOURCES_FILE}" "${DDNS_REPORT_STATS_FILE}" "${CLIENT_IP_REPORT_STATS_FILE}" "${WEBAUTH_REPORT_STATS_FILE}" "${AUTO_PENDING_FILE}" "${BLOCK_LOG_FILE}" "${BLOCK_SUMMARY_FILE}"; do
+    for file in "${NFT_CONF}" "${SETTINGS_FILE}" "${RULES_FILE}" "${SRC_ALLOWLIST_CACHE}" "${CUSTOM_SRC_ALLOWLIST_FILE}" "${ALLOWLIST_SETS_FILE}" "${ALLOWLIST_ENTRIES_FILE}" "${ALLOWLIST_SOURCES_FILE}" "${DDNS_REPORT_STATS_FILE}" "${CLIENT_IP_REPORT_STATS_FILE}" "${SSH_REPORT_STATS_FILE}" "${WEBAUTH_REPORT_STATS_FILE}" "${AUTO_PENDING_FILE}" "${BLOCK_LOG_FILE}" "${BLOCK_SUMMARY_FILE}"; do
         [[ -f "${file}" ]] && cp "${file}" "${BACKUP_DIR}/$(basename "${file}").${ts}" 2>/dev/null || true
     done
 }
@@ -8357,8 +8419,8 @@ prompt_src_allowlist_mode() {
     while true; do
         echo "选择源 IP 限制方式："
         echo "  0) 关闭：不限制访问转发端口的来源 IP"
-        echo "  1) 仅手动来源：手动 CIDR + 当前 SSH 临时来源"
-        echo "  2) 可信动态来源：手动 + SSH 临时 + DDNS + Egern/Client IP + WebAuth + learned"
+        echo "  1) 仅手动来源：手动 CIDR（SSH 临时需在菜单中手动开启）"
+        echo "  2) 可信动态来源：手动 + DDNS + Client IP + SSH report + WebAuth + learned（不默认含 SSH 临时）"
         echo "  3) 地区 + 可信动态来源"
         echo "  4) 仅地区库"
         echo "  5) 高级自选来源组合"
@@ -8409,7 +8471,7 @@ configure_default_allowlist_sources_interactive() {
     load_allowlist_sets
     raw="$(src_allowlist_mode_default_sources custom_sources)"
     echo ""
-    echo "可选来源：region, manual, ssh_temp, ddns, client_ip, webauth, learned"
+    echo "可选来源：region, manual, ssh_temp, ddns, client_ip, ssh_report, webauth, learned"
     raw="$(prompt_with_default "请输入允许的来源，逗号分隔" "${raw}")"
     normalized="$(normalize_allowlist_set_sources "${raw}")" || {
         err "来源组合无效。"
@@ -8446,6 +8508,23 @@ set_default_allowlist_sources() {
     fi
     ALLOWLIST_SETS=("${next[@]}")
     save_allowlist_sets
+}
+
+enable_allowlist_source_type_for_current_mode() {
+    local source_type="$1"
+    local sources source normalized
+    source_type="$(normalize_allowlist_entry_source_type "${source_type}")" || return 1
+    ENABLE_SRC_ALLOWLIST="1"
+    sources="$(src_allowlist_mode_default_sources "${SRC_ALLOWLIST_MODE}")"
+    for source in ${sources//,/ }; do
+        if [[ "${source}" == "${source_type}" ]]; then
+            return 0
+        fi
+    done
+    normalized="$(normalize_allowlist_set_sources "${sources},${source_type}")" || return 1
+    SRC_ALLOWLIST_MODE="custom_sources"
+    set_default_allowlist_sources "${normalized}" || return 1
+    info "已切换为高级自选来源，并启用 ${source_type}。"
 }
 
 do_manage_allowlist_source_switches() {
@@ -8571,7 +8650,6 @@ do_report_client_ip_source() {
     local ttl="${5:-3600}"
     [[ -n "${source_id}" && -n "${ip}" ]] || {
         err "用法：--client-ip-report <source-id> <ipv4> <token> [identity] [ttl]"
-        return 1
     }
     ensure_layout || return 1
     load_settings 1
@@ -8598,6 +8676,43 @@ do_check_client_ip_report_source() {
         return 1
     }
     printf 'OK|客户端 IP 来源可上报：%s\n' "${source_id}"
+}
+
+do_report_ssh_ip_source() {
+    local source_id="${1:-}"
+    local ip="${2:-}"
+    local token="${3:-}"
+    local identity="${4:-}"
+    local ttl="${5:-3600}"
+    [[ -n "${source_id}" && -n "${ip}" ]] || {
+        err "用法：--ssh-ip-report <source-id> <ipv4> <token> [identity] [ttl]"
+        return 1
+    }
+    ensure_layout || return 1
+    load_settings 1
+    report_ssh_ip_source "${source_id}" "${ip}" "${token}" "${identity}" "${ttl}" || return 1
+    enable_allowlist_for_custom_add
+    apply_src_allowlist_changes || return 1
+    if [[ "${DYNAMIC_REPORT_PENDING_COUNT:-0}" -gt 0 ]]; then
+        printf 'SSH report IP 已记录为待审核（attack mode）：%s -> %s\n' "${SSH_REPORT_SOURCE:-${source_id}}" "${SSH_REPORT_IP:-${ip}}"
+    else
+        printf 'SSH report 已接收：%s -> %s，TTL %ss\n' "${SSH_REPORT_SOURCE:-${source_id}}" "${SSH_REPORT_IP:-${ip}}" "${SSH_REPORT_TTL:-${ttl}}"
+    fi
+}
+
+do_check_ssh_ip_report_source() {
+    local source_id="${1:-}"
+    local token="${2:-}"
+    source_id="$(sanitize_allowlist_source_text "$(trim "${source_id}")")"
+    [[ -n "${source_id}" ]] || {
+        printf 'ERROR|missing ssh report source id\n'
+        return 1
+    }
+    validate_ssh_report_token "${token}" || {
+        printf 'ERROR|invalid ssh report token\n'
+        return 1
+    }
+    printf 'OK|ssh report source can report: %s\n' "${source_id}"
 }
 
 do_report_webauth_source() {
@@ -8646,8 +8761,8 @@ do_show_client_ip_report_token() {
     printf 'Token 文件 : %s\n' "${CLIENT_IP_REPORT_TOKEN_FILE}"
     printf 'Token      : %s\n' "${token}"
     echo ""
-    echo "PO0 接收命令（SSH only；通常由 LAN Worker 或 Egern 自动执行）："
-    printf '  bash %s --client-ip-report iphone 1.2.3.4 %s egern 3600\n' "$(basename "$0")" "${token}"
+    echo "PO0 接收命令（SSH only；通常由 LAN Worker 自动执行）："
+    printf '  bash %s --client-ip-report self-report 1.2.3.4 %s lan-worker 3600\n' "$(basename "$0")" "${token}"
     echo ""
     echo "LAN Worker self-report server（HTTP 只跑在 LAN Worker，不跑在 PO0）："
     printf '  po0-lan-client --self-report-server --self-report-listen 127.0.0.1:8788 --po0-host <PO0_HOST> --po0-script %s --self-report-source self-report --client-ip-token %s --self-report-secret <SELF_REPORT_SECRET>\n' \
@@ -8660,12 +8775,283 @@ do_show_client_ip_report_token() {
     echo "Windows PowerShell 自上报 client（访问设备 -> LAN Worker）："
     printf "  \$env:PO0_LAN_WORKER_URL='<LAN_WORKER_REPORT_URL>'; \$env:PO0_SELF_REPORT_SOURCE='<CLIENT_ID>'; \$env:PO0_SELF_REPORT_SECRET='<SELF_REPORT_SECRET>'; \$env:INSTALL_TASK='1'; \$env:MINUTES='5'; irm -UseBasicParsing '%s' | iex\n" \
         "${OUTBOUND_IP_REPORTER_PS_RAW_URL}"
+}
+
+normalize_report_key_scope() {
+    case "$(trim "${1:-}")" in
+        egern|ssh_report|ssh-report) printf 'egern\n' ;;
+        worker|lan|lan-worker) printf 'worker\n' ;;
+        all|both|"") printf 'all\n' ;;
+        *) printf 'all\n' ;;
+    esac
+}
+
+report_key_scope_allows() {
+    case "$(normalize_report_key_scope "${1:-}")" in
+        egern) printf '%s\n' '--ssh-ip-report --ssh-ip-report-check' ;;
+        worker) printf '%s\n' '--ddns-report --ddns-report-check --client-ip-report --client-ip-report-check --webauth-report --webauth-report-check' ;;
+        *) printf '%s\n' '--ssh-ip-report --ssh-ip-report-check --ddns-report --ddns-report-check --client-ip-report --client-ip-report-check --webauth-report --webauth-report-check' ;;
+    esac
+}
+
+report_key_user_home() {
+    local user="${1:-root}"
+    if command -v getent >/dev/null 2>&1; then
+        getent passwd "${user}" | awk -F: '{print $6; exit}'
+        return
+    fi
+    awk -F: -v user="${user}" '$1 == user {print $6; exit}' /etc/passwd
+}
+
+report_key_auth_file() {
+    local user="${1:-root}" home
+    home="$(report_key_user_home "${user}")"
+    [[ -n "${home}" ]] || return 1
+    printf '%s/.ssh/authorized_keys\n' "${home}"
+}
+
+report_key_public_part() {
+    local line="$1" token key_type=""
+    for token in ${line}; do
+        case "${token}" in
+            ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521)
+                key_type="${token}"
+                continue
+                ;;
+        esac
+        if [[ -n "${key_type}" ]]; then
+            printf '%s %s\n' "${key_type}" "${token}"
+            return 0
+        fi
+    done
+    return 1
+}
+
+report_key_fingerprint() {
+    local public_part="$1" tmp fp
+    if ! command -v ssh-keygen >/dev/null 2>&1; then
+        printf 'ssh-keygen unavailable\n'
+        return 0
+    fi
+    make_temp_file "${CONF_DIR}/po0-report-key.pub" || return 1
+    tmp="${TEMP_FILE_RESULT}"
+    printf '%s\n' "${public_part}" > "${tmp}"
+    fp="$(ssh-keygen -lf "${tmp}" 2>/dev/null || true)"
+    printf '%s\n' "${fp:-unparseable}"
+}
+
+ensure_report_key_wrapper() {
+    mkdir -p "$(dirname "${REPORT_KEY_WRAPPER_PATH}")" || return 1
+    cat > "${REPORT_KEY_WRAPPER_PATH}" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+scope="${1:-all}"
+manager="${2:-/root/nftables-relay-manager.sh}"
+orig="${SSH_ORIGINAL_COMMAND:-}"
+
+deny() { printf 'PO0 restricted report key denied: %s\n' "$*" >&2; exit 126; }
+
+is_public_ipv4() {
+    [[ "${1:-}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || return 1
+    local IFS=. o o1 o2 o3 o4
+    read -r o1 o2 o3 o4 <<< "$1"
+    for o in "$o1" "$o2" "$o3" "$o4"; do
+        [[ "$o" =~ ^[0-9]+$ ]] || return 1
+        (( o >= 0 && o <= 255 )) || return 1
+    done
+    (( o1 == 0 || o1 == 10 || o1 == 127 || o1 >= 224 )) && return 1
+    (( o1 == 100 && o2 >= 64 && o2 <= 127 )) && return 1
+    (( o1 == 169 && o2 == 254 )) && return 1
+    (( o1 == 172 && o2 >= 16 && o2 <= 31 )) && return 1
+    (( o1 == 192 && o2 == 168 )) && return 1
+    (( o1 == 198 && o2 >= 18 && o2 <= 19 )) && return 1
+    return 0
+}
+
+allow_action() {
+    local action="$1"
+    case "${scope}" in
+        egern) [[ "${action}" == "--ssh-ip-report" || "${action}" == "--ssh-ip-report-check" ]] ;;
+        worker)
+            case "${action}" in
+                --ddns-report|--ddns-report-check|--client-ip-report|--client-ip-report-check|--webauth-report|--webauth-report-check) return 0 ;;
+                *) return 1 ;;
+            esac
+            ;;
+        all)
+            case "${action}" in
+                --ssh-ip-report|--ssh-ip-report-check|--ddns-report|--ddns-report-check|--client-ip-report|--client-ip-report-check|--webauth-report|--webauth-report-check) return 0 ;;
+                *) return 1 ;;
+            esac
+            ;;
+        *) return 1 ;;
+    esac
+}
+
+[[ -n "${orig}" ]] || deny "empty command"
+clean="${orig//\'/}"
+clean="${clean//\"/}"
+read -r first second third rest <<< "${clean}"
+if [[ "${first}" == "bash" || "${first}" == "/bin/bash" || "${first}" == "/usr/bin/bash" ]]; then
+    [[ "${second}" == "${manager}" ]] || deny "unexpected manager path"
+    action="${third}"
+    read -r -a args <<< "${rest:-}"
+elif [[ "${first}" == "${manager}" ]]; then
+    action="${second}"
+    read -r -a args <<< "${third:-} ${rest:-}"
+else
+    deny "unexpected command"
+fi
+allow_action "${action}" || deny "action ${action} not allowed for scope ${scope}"
+case "${action}" in
+    --ssh-ip-report|--client-ip-report)
+        [[ "${#args[@]}" -ge 3 ]] || deny "${action} needs source ip token"
+        is_public_ipv4 "${args[1]}" || deny "invalid public IPv4"
+        [[ "${#args[@]}" -lt 5 || "${args[4]}" =~ ^[0-9]+$ ]] || deny "invalid ttl"
+        ;;
+    --ddns-report) [[ "${#args[@]}" -ge 2 ]] || deny "${action} needs source ips" ;;
+    --webauth-report)
+        [[ "${#args[@]}" -ge 5 ]] || deny "${action} needs source ip identity expires token"
+        is_public_ipv4 "${args[1]}" || deny "invalid public IPv4"
+        ;;
+    --ssh-ip-report-check|--client-ip-report-check|--ddns-report-check|--webauth-report-check)
+        [[ "${#args[@]}" -ge 1 ]] || deny "${action} needs source"
+        ;;
+esac
+exec bash "${manager}" "${action}" "${args[@]}"
+EOF
+    chmod 700 "${REPORT_KEY_WRAPPER_PATH}" || return 1
+}
+
+report_key_restricted_options() {
+    local scope
+    scope="$(normalize_report_key_scope "${1:-all}")"
+    printf 'restrict,no-pty,no-agent-forwarding,no-X11-forwarding,no-port-forwarding,command="%s %s %s"' \
+        "${REPORT_KEY_WRAPPER_PATH}" "${scope}" "${MANAGER_INSTALL_PATH}"
+}
+
+show_report_keys_for_user() {
+    local user="${1:-root}" auth line idx=1 public_part fp scope category
+    auth="$(report_key_auth_file "${user}")" || { err "无法确定 ${user} 的 authorized_keys 路径。"; return 1; }
+    printf '用户: %s\n' "${user}"
+    printf 'authorized_keys: %s\n' "${auth}"
+    [[ -f "${auth}" ]] || { printf '  (文件不存在)\n'; return 0; }
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        line="$(trim "${line}")"
+        [[ -n "${line}" && ! "${line}" =~ ^# ]] || continue
+        public_part="$(report_key_public_part "${line}" || true)"
+        [[ -n "${public_part}" ]] || continue
+        fp="$(report_key_fingerprint "${public_part}")"
+        if [[ "${line}" == *"po0-report:scope="* ]]; then
+            scope="${line#*po0-report:scope=}"
+            scope="${scope%%,*}"
+            category="PO0 受限上报 key"
+        elif [[ "${line}" == *"command="* || "${line}" == restrict,* ]]; then
+            scope="-"; category="其它 forced-command/restricted key"
+        else
+            scope="-"; category="普通登录 key"
+        fi
+        printf '  %2d) %s\n' "${idx}" "${category}"
+        printf '      fingerprint: %s\n' "${fp}"
+        printf '      scope      : %s\n' "${scope}"
+        [[ "${category}" == "PO0 受限上报 key" ]] && printf '      allowed    : %s\n      wrapper    : %s\n' "$(report_key_scope_allows "${scope}")" "${REPORT_KEY_WRAPPER_PATH}"
+        ((idx++))
+    done < "${auth}"
+}
+
+install_report_public_key() {
+    local user="$1" scope="$2" pubkey="$3" auth ssh_dir group public_part blob existing line options comment tmp converted=0
+    scope="$(normalize_report_key_scope "${scope}")"
+    auth="$(report_key_auth_file "${user}")" || return 1
+    ssh_dir="$(dirname "${auth}")"
+    public_part="$(report_key_public_part "${pubkey}")" || { err "请输入 OpenSSH public key，不要粘贴私钥。"; return 1; }
+    blob="${public_part#* }"
+    ensure_report_key_wrapper || return 1
+    mkdir -p "${ssh_dir}" || return 1
+    chmod 700 "${ssh_dir}" 2>/dev/null || true
+    touch "${auth}" || return 1
+    chmod 600 "${auth}" 2>/dev/null || true
+    group="$(id -gn "${user}" 2>/dev/null || printf '%s' "${user}")"
+    chown "${user}:${group}" "${ssh_dir}" "${auth}" 2>/dev/null || true
+    options="$(report_key_restricted_options "${scope}")"
+    comment="po0-report:scope=${scope},script=${MANAGER_INSTALL_PATH},created=$(utc_now_iso)"
+    line="${options} ${public_part} ${comment}"
+    if grep -Fq "${blob}" "${auth}" 2>/dev/null; then
+        printf '检测到相同公钥已存在，将把匹配行转换/更新为 PO0 受限上报 key。\n'
+        make_temp_file "${auth}" || return 1
+        tmp="${TEMP_FILE_RESULT}"
+        while IFS= read -r existing || [[ -n "${existing}" ]]; do
+            if [[ "${existing}" == *"${blob}"* && "${converted}" == "0" ]]; then
+                printf '%s\n' "${line}" >> "${tmp}"
+                converted=1
+            else
+                printf '%s\n' "${existing}" >> "${tmp}"
+            fi
+        done < "${auth}"
+        mv -f "${tmp}" "${auth}"
+    else
+        printf '%s\n' "${line}" >> "${auth}"
+    fi
+    chmod 600 "${auth}" 2>/dev/null || true
+    printf '已安装 PO0 受限上报 key：user=%s scope=%s\n' "${user}" "${scope}"
+}
+
+do_manage_report_keys() {
+    local choice user scope pubkey
+    ensure_layout || return
+    while true; do
+        print_title "专用受限上报 key"
+        echo "  1) 显示已有 key 分类"
+        echo "  2) 新增 / 转换 public key 为受限上报 key"
+        echo "  0) 返回"
+        read -r -p "请选择操作 [0-2]: " choice
+        case "${choice}" in
+            1) user="$(prompt_with_default "系统用户" "root")"; show_report_keys_for_user "${user}"; pause_before_return ;;
+            2)
+                user="$(prompt_with_default "系统用户" "root")"
+                scope="$(prompt_with_default "scope: egern / worker / all" "egern")"
+                echo "请粘贴 public key（.pub 内容），不要粘贴私钥："
+                read -r pubkey
+                install_report_public_key "${user}" "${scope}" "${pubkey}"
+                pause_before_return
+                ;;
+            0) return ;;
+            *) err "无效选择。" ;;
+        esac
+    done
+}
+
+do_show_report_keys_cli() {
+    ensure_layout || return 1
+    show_report_keys_for_user "${1:-root}"
+}
+
+do_install_report_key_cli() {
+    local scope="${1:-}" pubkey="${2:-}" user="${3:-root}"
+    [[ -n "${scope}" && -n "${pubkey}" ]] || { err "用法：--install-report-key <egern|worker|all> '<public-key-line>' [user]"; return 1; }
+    ensure_layout || return 1
+    install_report_public_key "${user}" "${scope}" "${pubkey}"
+}
+
+do_show_ssh_report_token() {
+    local token
+    ensure_layout || return 1
+    token="$(ssh_report_token_value)" || return 1
+    print_title "Egern / SSH report Token"
+    printf 'Token file : %s\n' "${SSH_REPORT_TOKEN_FILE}"
+    printf 'Token      : %s\n' "${token}"
     echo ""
-    echo "Egern 当前出口 IPv4 上报："
-    printf '  模块 URL: %s\n' "${EGERN_CLIENT_IP_MODULE_RAW_URL}"
-    printf '  REPORT_TOKEN=%s\n' "${token}"
-    printf '  PO0_TARGETS 单目标示例: egern-po0|<PO0_HOST>|22|root|%s|%s|egern|3600\n' "${MANAGER_INSTALL_PATH}" "${token}"
-    echo "  多 PO0：只导入一份 Egern 模块，把每个 PO0 的目标行合并到同一个 PO0_TARGETS。"
+    echo "PO0 SSH-only report command:"
+    printf '  bash %s --ssh-ip-report iphone 1.2.3.4 %s egern 3600\n' "$(basename "$0")" "${token}"
+    echo ""
+    echo "Egern module:"
+    printf '  Module URL: %s\n' "${EGERN_SSH_REPORT_MODULE_RAW_URL}"
+    printf '  SSH_REPORT_TOKEN=%s\n' "${token}"
+    printf '  PO0_SCRIPT=%s\n' "${MANAGER_INSTALL_PATH}"
+    echo ""
+    echo "Multiple PO0: import one Egern module and merge all target rows into SSH_REPORT_TARGETS."
+    printf '  SSH_REPORT_TARGETS row: source_id|host|port|user|script|token|identity|ttl\n'
+    printf '    egern-po0|<PO0_HOST>|22|root|%s|%s|egern|3600\n' "${MANAGER_INSTALL_PATH}" "${token}"
 }
 
 do_show_webauth_report_token() {
@@ -8804,34 +9190,41 @@ print_lan_worker_bootstrap_example() {
 }
 
 do_show_client_deploy_commands() {
-    local ddns_token resource_token client_token webauth_token
+    local ddns_token resource_token client_token ssh_token webauth_token
     ensure_layout || return 1
     ddns_token="$(ddns_report_token_value 2>/dev/null || printf '<DDNS_TOKEN>')"
     resource_token="$(resource_task_token_value 2>/dev/null || printf '<RESOURCE_TOKEN>')"
     client_token="$(client_ip_report_token_value 2>/dev/null || printf '<CLIENT_REPORT_TOKEN>')"
+    ssh_token="$(ssh_report_token_value 2>/dev/null || printf '<SSH_REPORT_TOKEN>')"
     webauth_token="$(webauth_report_token_value 2>/dev/null || printf '<WEBAUTH_TOKEN>')"
-    print_title "LAN Worker / 客户端部署命令"
+    print_title "LAN Worker / 客户端 / Egern 部署命令"
     printf 'PO0 主控路径 : %s\n' "${MANAGER_INSTALL_PATH}"
     echo ""
     echo "PO0 主控脚本部署方式（PO0 不依赖 HTTPS 拉取）："
     printf '  scp scripts/po0/nftables/nftables-relay-manager.sh root@<PO0_HOST>:%s\n' "${MANAGER_INSTALL_PATH}"
     printf '  ssh root@<PO0_HOST> "chmod +x %s && bash %s"\n' "${MANAGER_INSTALL_PATH}" "${MANAGER_INSTALL_PATH}"
     echo ""
-    printf 'Worker RAW（在 LAN Worker/客户端上使用，不在 PO0 上执行）: %s\n' "${LAN_WORKER_RAW_URL}"
-    printf 'Self-report Client RAW（在访问设备上使用）          : %s\n' "${OUTBOUND_IP_REPORTER_RAW_URL}"
+    printf 'Worker RAW（在 LAN Worker 上使用，不在 PO0 上执行）: %s\n' "${LAN_WORKER_RAW_URL}"
+    printf 'Self-report Client RAW（访问设备上使用）        : %s\n' "${OUTBOUND_IP_REPORTER_RAW_URL}"
     echo ""
     echo "资源任务 Worker（只更新 iplist/ipdb）："
     printf '  curl -fsSL %s | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script %s --resource-token %s --install-cron 5\n' \
         "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${resource_token}")"
     echo ""
-    echo "DDNS Resolver + 资源任务 Worker（LAN Worker 解析 DDNS 域名后 SSH 上报）："
+    echo "DDNS Resolver + 资源任务 Worker（LAN Worker 解析 DDNS 后 SSH 上报 PO0）："
     printf '  curl -fsSL %s | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script %s --source-key <DDNS_SOURCE_KEY> --ddns-domain <DDNS_DOMAIN> --token %s --resource-token %s --install-cron 5\n' \
         "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${ddns_token}")" "$(shell_quote "${resource_token}")"
+    printf '  DDNS 上报目标行: source_key|ddns_domain|host|port|user|script|token|ssh_args\n'
+    printf '    <DDNS_SOURCE_KEY>|<DDNS_DOMAIN>|<PO0_HOST>|22|root|%s|%s|\n' "${MANAGER_INSTALL_PATH}" "${ddns_token}"
+    printf '  临时合并多个目标: po0-lan-client --run --ddns-targets "<目标1;目标2>"\n'
     echo ""
-    echo "Self-report Server（跑在 LAN Worker；访问设备先报 LAN Worker，LAN Worker 再 SSH 上报 PO0）："
+    echo "Self-report Server（跑在 LAN Worker；访问设备先报 LAN Worker，再由 LAN Worker SSH 上报 PO0）："
     printf '  curl -fsSL %s | bash -s -- --install-self\n' "${LAN_WORKER_RAW_URL}"
     printf '  po0-lan-client --self-report-server --self-report-listen 127.0.0.1:8788 --po0-host <PO0_HOST> --po0-script %s --self-report-source self-report --client-ip-token %s --self-report-secret <SELF_REPORT_SECRET>\n' \
         "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${client_token}")"
+    printf '  设备自上报目标行: source|host|port|user|script|token|ttl|ssh_args\n'
+    printf '    self-report|<PO0_HOST>|22|root|%s|%s|3600|\n' "${MANAGER_INSTALL_PATH}" "${client_token}"
+    printf '  合并多个目标行后使用: po0-lan-client --self-report-server --self-report-targets "<目标1;目标2>" --self-report-secret <SELF_REPORT_SECRET>\n'
     echo ""
     echo "Self-report Client（Linux/OpenWrt/访问设备，检测自身出口 IPv4 后上报 LAN Worker）："
     printf '  curl -fsSL %s | bash -s -- --worker-url <LAN_WORKER_REPORT_URL> --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --install-cron 5\n' \
@@ -8849,18 +9242,20 @@ do_show_client_deploy_commands() {
     printf '  curl -fsSL %s | bash -s -- --install-self\n' "${LAN_WORKER_RAW_URL}"
     printf '  po0-lan-client --webauth-server --listen 127.0.0.1:8787 --po0-host <PO0_HOST> --po0-script %s --webauth-source cf-access --webauth-token %s\n' \
         "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${webauth_token}")"
+    printf '  WebAuth 放行目标行: source|host|port|user|script|token|ttl|ssh_args\n'
+    printf '    cf-access|<PO0_HOST>|22|root|%s|%s|3600|\n' "${MANAGER_INSTALL_PATH}" "${webauth_token}"
+    printf '  合并多个目标行后使用: po0-lan-client --webauth-server --webauth-targets "<目标1;目标2>" --listen 127.0.0.1:8787\n'
     echo ""
-    echo "Egern 当前出口 IPv4 上报："
-    printf '  模块 URL: %s\n' "${EGERN_CLIENT_IP_MODULE_RAW_URL}"
-    printf '  REPORT_TOKEN=%s\n' "${client_token}"
+    echo "Egern 当前出口 IPv4 上报（直接 SSH 到 PO0，归 ssh_report）："
+    printf '  模块 URL: %s\n' "${EGERN_SSH_REPORT_MODULE_RAW_URL}"
+    printf '  SSH_REPORT_TOKEN=%s\n' "${ssh_token}"
     printf '  PO0_SCRIPT=%s\n' "${MANAGER_INSTALL_PATH}"
-    printf '  多 PO0: 不要重复导入模块，把每个 PO0 输出的目标行合并到同一个 PO0_TARGETS。\n'
-    printf '  PO0_TARGETS 每行: source|host|port|user|script|token|identity|ttl\n'
-    printf '    egern-po0|<PO0_HOST>|22|root|%s|%s|egern|3600\n' "${MANAGER_INSTALL_PATH}" "${client_token}"
+    printf '  SSH_REPORT_TARGETS 每行: source_id|host|port|user|script|token|identity|ttl\n'
+    printf '    egern-po0|<PO0_HOST>|22|root|%s|%s|egern|3600\n' "${MANAGER_INSTALL_PATH}" "${ssh_token}"
     echo ""
-    echo "说明：PO0 默认不本地解析 DDNS；DDNS 推荐由 LAN Worker/路由器/NAS 解析 DDNS 后 SSH 上报。自上报 HTTP 入口只跑在 LAN Worker。"
+    echo "专用受限 key：在白名单菜单中执行“安装 / 显示专用受限上报 key”，Egern 建议 scope=egern，LAN Worker 建议 scope=worker。"
+    echo "说明：PO0 默认不本地解析 DDNS；HTTP/Self-report/WebAuth 入口只跑在 LAN Worker。"
 }
-
 do_manage_automation_mode() {
     local choice
     ensure_layout || return
@@ -9413,7 +9808,7 @@ do_add_ssh_temp_allowlist_entry() {
     confirm_yes "确认加入 default 临时白名单" || return 1
     save_allowlist_last_snapshot || return 1
     append_allowlist_entry "default" "${ip}/32" "ssh_temp" "SSH_CONNECTION" "${note}" "${expires_at}" || return 1
-    enable_allowlist_for_custom_add
+    enable_allowlist_source_type_for_current_mode "ssh_temp" || return 1
     apply_src_allowlist_changes
 }
 
@@ -9779,7 +10174,7 @@ do_manage_src_allowlist() {
         print_src_allowlist_details
         echo ""
         echo "  [查看]"
-        echo "  1) 字段说明：缓存 / entries / 待审核 / 手动 CIDR"
+        echo "  1) 字段说明：缓存 / entries / pending / 手动 CIDR"
         echo "  2) 查看白名单来源 / IP 明细"
         echo "  3) 查看最终生效 CIDR 缓存"
         echo ""
@@ -9790,30 +10185,32 @@ do_manage_src_allowlist() {
         echo "  7) 从当前 SSH 来源临时加入 default /32"
         echo "  8) 管理动态来源开关（高级自选来源）"
         echo ""
-        echo "  [动态来源]"
+        echo "  [动态来源 / 客户端]"
         echo "  9) 管理 DDNS 来源"
-        echo " 10) 显示客户端当前 IP 上报 Token"
-        echo " 11) 显示 WebAuth 上报 Token"
-        echo " 12) 自动来源安全模式 / 待审核 IP"
-        echo " 13) 立即清理动态来源过期 / 超量 IP"
-        echo " 14) 安装 / 更新动态来源清理 cron"
-        echo " 15) 删除动态来源清理 cron"
+        echo " 10) 显示 LAN Worker Self-report / Client IP Token"
+        echo " 11) 显示 Egern / SSH report Token"
+        echo " 12) 显示 WebAuth 上报 Token"
+        echo " 13) 安装 / 显示专用受限上报 key"
+        echo " 14) 自动来源安全模式 / pending IP"
+        echo " 15) 立即清理动态来源过期 / 超量 IP"
+        echo " 16) 安装 / 更新动态来源清理 cron"
+        echo " 17) 删除动态来源清理 cron"
         echo ""
         echo "  [学习与阻挡日志]"
-        echo " 16) 学习服务与候选提升"
-        echo " 17) 采集被阻挡访问日志"
-        echo " 18) 查看被阻挡访问统计"
-        echo " 19) 压缩被阻挡访问日志"
-        echo " 20) 清空被阻挡访问日志"
+        echo " 18) 学习服务与候选提升"
+        echo " 19) 采集被阻挡访问日志"
+        echo " 20) 查看被阻挡访问统计"
+        echo " 21) 压缩被阻挡访问日志"
+        echo " 22) 清空被阻挡访问日志"
         echo ""
         echo "  [数据与维护]"
-        echo " 21) IPDB 数据与解析"
-        echo " 22) 导入 / 刷新 iplist 离线包"
-        echo " 23) 重建并应用白名单"
-        echo " 24) 管理白名单配置档案"
-        echo " 25) 管理内网资源更新任务"
+        echo " 23) IPDB 数据与解析"
+        echo " 24) 导入 / 刷新 iplist 离线包"
+        echo " 25) 重建并应用白名单"
+        echo " 26) 管理白名单配置档案"
+        echo " 27) 管理内网资源更新任务"
         echo "  0) 返回"
-        read -r -p "请选择操作 [0-25]: " choice
+        read -r -p "请选择操作 [0-27]: " choice
         case "${choice}" in
             1)
                 do_explain_src_allowlist_fields
@@ -9858,44 +10255,51 @@ do_manage_src_allowlist() {
                 pause_before_return
                 ;;
             11)
-                do_show_webauth_report_token
+                do_show_ssh_report_token
                 pause_before_return
                 ;;
             12)
-                do_manage_automation_mode
+                do_show_webauth_report_token
+                pause_before_return
                 ;;
             13)
-                do_cleanup_dynamic_allowlist || pause_before_return
+                do_manage_report_keys
                 ;;
             14)
-                do_install_dynamic_allowlist_cleanup_cron_interactive
+                do_manage_automation_mode
                 ;;
             15)
+                do_cleanup_dynamic_allowlist || pause_before_return
+                ;;
+            16)
+                do_install_dynamic_allowlist_cleanup_cron_interactive
+                ;;
+            17)
                 confirm_yes "确认删除动态来源清理 cron" && remove_dynamic_allowlist_cleanup_cron
                 pause_before_return
                 ;;
-            16)
+            18)
                 do_manage_learning_allowlist
                 ;;
-            17)
+            19)
                 do_collect_blocked_ips || pause_before_return
                 ;;
-            18)
+            20)
                 do_print_blocked_log_stats || pause_before_return
                 ;;
-            19)
+            21)
                 do_compact_block_log || pause_before_return
                 ;;
-            20)
+            22)
                 do_clear_block_log || pause_before_return
                 ;;
-            21)
+            23)
                 do_manage_ipdb_tools
                 ;;
-            22)
+            24)
                 do_import_iplist_package
                 ;;
-            23)
+            25)
                 src_allowlist_enabled || {
                     err "白名单未开启，或当前模式没有可用 CIDR。"
                     pause_before_return
@@ -9903,10 +10307,10 @@ do_manage_src_allowlist() {
                 }
                 apply_src_allowlist_changes || pause_before_return
                 ;;
-            24)
+            26)
                 do_manage_allowlist_profiles
                 ;;
-            25)
+            27)
                 do_manage_resource_tasks
                 ;;
             0)
@@ -9918,7 +10322,6 @@ do_manage_src_allowlist() {
         esac
     done
 }
-
 do_enable_bbr() {
     print_title "可选开启 BBR + fq"
     warn "纯 nftables 内核转发本身并不依赖 BBR，此项仅作可选优化。"
@@ -10172,7 +10575,7 @@ print_cli_usage() {
         "  --collect-blocked [since]" \
         "                   采集 po0-block 内核日志到被阻挡访问 TSV。默认范围: 1 hour ago。" \
         "  白名单模式      manual_only / trusted_dynamic / region_plus_trusted / region_only / custom_sources。" \
-        "                   custom_sources 可在菜单中手动组合 manual、ssh_temp、ddns、client_ip、webauth、learned、region。" \
+        "                   custom_sources 可在菜单中手动组合 manual、ssh_temp、ddns、client_ip、ssh_report、webauth、learned、region。" \
         "" \
         "DDNS / Worker 上报接口（SSH only，PO0 不开放 HTTP）:" \
         "  --ddns-report <source-key> <公网IPv4[,公网IPv4...]> [token]" \
@@ -10182,9 +10585,13 @@ print_cli_usage() {
         "  --outbound-ip-report / --outbound-ip-report-check" \
         "                   旧脚本兼容别名；新自上报应先报 LAN Worker，再由 LAN Worker 调 --client-ip-report。" \
         "  --client-ip-report <source-id> <ipv4> <token> [identity] [ttl]" \
-        "                   接收 Egern/移动客户端当前出口 IPv4 上报。" \
+        "                   接收 LAN Worker self-report 代报的访问设备公网 IPv4。" \
         "  --client-ip-report-check <source-id> [token]" \
         "                   只读检查客户端 IP 上报 token。" \
+        "  --ssh-ip-report <source-id> <ipv4> <token> [identity] [ttl]" \
+        "                   接收 Egern / 直接 SSH 上报的当前出口公网 IPv4，写入 ssh_report 来源。" \
+        "  --ssh-ip-report-check <source-id> [token]" \
+        "                   只读检查 SSH report token。" \
         "  --webauth-report <source-id> <ipv4> <identity> <expires-at> <token> [note]" \
         "                   接收 LAN Worker WebAuth 上报；PO0 不开放 HTTP。" \
         "  --webauth-report-check <source-id> [token]" \
@@ -10194,13 +10601,17 @@ print_cli_usage() {
         "  --pending-auto-sources" \
         "                   查看自动来源待审核 IP。" \
         "  --cleanup-dynamic-allowlist" \
-        "                   清理 ddns/client_ip/webauth 的过期和超量 IP；每个来源默认最多保留 5 个。" \
+        "                   清理 ddns/client_ip/ssh_report/webauth 的过期和超量 IP；每个来源默认最多保留 5 个。" \
         "  --install-dynamic-allowlist-cleanup-cron [hourly|daily|weekly|monthly|CRON_EXPR]" \
         "                   安装/更新动态来源清理 cron，默认 daily。" \
         "  --remove-dynamic-allowlist-cleanup-cron" \
         "                   删除动态来源清理 cron。" \
         "  --show-client-deploy-commands" \
         "                   输出 LAN Worker、WebAuth、Egern 的可复制部署命令。" \
+        "  --show-report-keys [user]" \
+        "                   显示普通登录 key、PO0 受限上报 key、其它 restricted key 分类。" \
+        "  --install-report-key <egern|worker|all> '<public-key-line>' [user]" \
+        "                   追加或转换专用受限上报 public key；不接收私钥。" \
         "  --compat-check   只读检查旧配置/旧白名单/旧日志兼容状态。" \
         "  --cleanup-legacy --dry-run|--apply" \
         "                   清理旧文件候选；默认不删除 live state。" \
@@ -10327,6 +10738,14 @@ case "${1:-}" in
         do_check_client_ip_report_source "${2:-}" "${3:-}"
         exit $?
         ;;
+    --ssh-ip-report)
+        do_report_ssh_ip_source "${2:-}" "${3:-}" "${4:-}" "${5:-}" "${6:-}"
+        exit $?
+        ;;
+    --ssh-ip-report-check)
+        do_check_ssh_ip_report_source "${2:-}" "${3:-}"
+        exit $?
+        ;;
     --webauth-report)
         do_report_webauth_source "${2:-}" "${3:-}" "${4:-}" "${5:-}" "${6:-}" "${7:-}"
         exit $?
@@ -10357,6 +10776,14 @@ case "${1:-}" in
         ;;
     --show-client-deploy-commands)
         do_show_client_deploy_commands
+        exit $?
+        ;;
+    --show-report-keys)
+        do_show_report_keys_cli "${2:-root}"
+        exit $?
+        ;;
+    --install-report-key)
+        do_install_report_key_cli "${2:-}" "${3:-}" "${4:-root}"
         exit $?
         ;;
     --compat-check)

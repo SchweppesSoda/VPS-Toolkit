@@ -1,5 +1,5 @@
-const STORAGE_KEY = 'po0-client-ip-report:last';
-const IP_CHECK_INDEX_KEY = 'po0-client-ip-report:ip-check-index';
+const STORAGE_KEY = 'po0-ssh-ip-report:last';
+const IP_CHECK_INDEX_KEY = 'po0-ssh-ip-report:ip-check-index';
 
 function required(env, key) {
   const value = String(env[key] || '').trim();
@@ -50,6 +50,7 @@ function isPublicIPv4(ip) {
   if (o[0] === 169 && o[1] === 254) return false;
   if (o[0] === 172 && o[1] >= 16 && o[1] <= 31) return false;
   if (o[0] === 192 && o[1] === 168) return false;
+  if (o[0] === 198 && o[1] >= 18 && o[1] <= 19) return false;
   if (o[0] >= 224) return false;
   return true;
 }
@@ -238,11 +239,11 @@ function widgetPanel(title, content, ok, ctx) {
 function targetSummaryLines(state) {
   const targets = Array.isArray(state.targets) ? state.targets : [];
   if (targets.length === 0) {
-    if (state.expiresAt) return [`${state.reportName || 'egern'}@${state.po0Host || 'PO0'} TTL ${ttlRemaining(state.expiresAt)}`];
+    if (state.expiresAt) return [`${state.sourceId || 'egern'}@${state.po0Host || 'PO0'} TTL ${ttlRemaining(state.expiresAt)}`];
     return [];
   }
   return targets.slice(0, 4).map((target) => {
-    const name = `${target.reportName || 'egern'}@${target.host || 'PO0'}`;
+    const name = `${target.sourceId || 'egern'}@${target.host || 'PO0'}`;
     if (target.ok) return `${name} TTL ${ttlRemaining(target.expiresAt)}`;
     return `${name} failed: ${target.error || 'unknown'}`;
   });
@@ -250,7 +251,7 @@ function targetSummaryLines(state) {
 
 function widgetFromState(state, ctx) {
   if (!state) {
-    return widgetPanel('PO0 Client IP', ['No report state yet.', 'Tap refresh to report.'], false, ctx);
+    return widgetPanel('PO0 SSH Report', ['No report state yet.', 'Tap refresh to report.'], false, ctx);
   }
 
   if (!state.ok) {
@@ -258,7 +259,7 @@ function widgetFromState(state, ctx) {
     const successCount = state.successCount ?? targets.filter((target) => target.ok).length;
     const targetCount = state.targetCount ?? targets.length;
     return widgetPanel(
-      'PO0 Client IP',
+      'PO0 SSH Report',
       [
         `IP: ${state.ip || 'unknown'}`,
         `Last failure: ${formatTime(state.at)}`,
@@ -272,7 +273,7 @@ function widgetFromState(state, ctx) {
   }
 
   return widgetPanel(
-    'PO0 Client IP',
+    'PO0 SSH Report',
     [
       `IP: ${state.ip || 'unknown'}`,
       `Targets: ${state.successCount ?? 1}/${state.targetCount ?? 1} OK`,
@@ -336,12 +337,12 @@ function targetValue(target, env, keys, fallback = '') {
 
 function normalizeTarget(env, input, index) {
   const target = input || {};
-  const reportName = targetValue(target, env, ['reportName', 'REPORT_NAME', 'source', 'sourceId', 'name'], 'egern');
+  const sourceId = targetValue(target, env, ['sourceId', 'SSH_REPORT_SOURCE', 'source', 'sourceId', 'name'], 'egern');
   const host = targetValue(target, env, ['host', 'PO0_HOST', 'po0Host']);
   const port = Number(targetValue(target, env, ['port', 'PO0_PORT'], '22'));
   const username = targetValue(target, env, ['user', 'username', 'PO0_USER'], 'root');
   const script = targetValue(target, env, ['script', 'PO0_SCRIPT', 'po0Script'], '/root/nftables-relay-manager.sh');
-  const token = targetValue(target, env, ['token', 'REPORT_TOKEN', 'reportToken']);
+  const token = targetValue(target, env, ['token', 'SSH_REPORT_TOKEN', 'reportToken']);
   const identity = targetValue(target, env, ['identity', 'REPORT_IDENTITY'], 'egern');
   const ttl = Number(targetValue(target, env, ['ttl', 'ttlSeconds', 'TTL_SECONDS'], '3600'));
 
@@ -349,7 +350,7 @@ function normalizeTarget(env, input, index) {
   if (!token) throw new Error(`PO0 target #${index + 1} missing token`);
 
   return {
-    reportName,
+    sourceId,
     host,
     port: Number.isFinite(port) && port > 0 ? port : 22,
     username,
@@ -366,19 +367,19 @@ function normalizeTarget(env, input, index) {
 function parseTargetLine(env, line, index) {
   const parts = String(line || '').split('|').map((part) => part.trim());
   return normalizeTarget(env, {
-    REPORT_NAME: parts[0],
+    SSH_REPORT_SOURCE: parts[0],
     PO0_HOST: parts[1],
     PO0_PORT: parts[2],
     PO0_USER: parts[3],
     PO0_SCRIPT: parts[4],
-    REPORT_TOKEN: parts[5],
+    SSH_REPORT_TOKEN: parts[5],
     REPORT_IDENTITY: parts[6],
     TTL_SECONDS: parts[7],
   }, index);
 }
 
 function parseTargets(env) {
-  const raw = String(env.PO0_TARGETS || '').trim();
+  const raw = String(env.SSH_REPORT_TARGETS || '').trim();
   if (!raw) {
     return [normalizeTarget(env, {}, 0)];
   }
@@ -386,7 +387,7 @@ function parseTargets(env) {
   if (raw.startsWith('[')) {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed) || parsed.length === 0) {
-      throw new Error('PO0_TARGETS JSON must be a non-empty array');
+      throw new Error('SSH_REPORT_TARGETS JSON must be a non-empty array');
     }
     return parsed.map((target, index) => normalizeTarget(env, target, index));
   }
@@ -396,7 +397,7 @@ function parseTargets(env) {
     .map((line) => line.trim())
     .filter((line) => line && !line.startsWith('#'));
   if (lines.length === 0) {
-    throw new Error('PO0_TARGETS is empty');
+    throw new Error('SSH_REPORT_TARGETS is empty');
   }
   return lines.map((line, index) => parseTargetLine(env, line, index));
 }
@@ -415,7 +416,7 @@ function sshConfig(env, target) {
     }
   } else {
     if (!String(target.password || '').trim()) {
-      throw new Error(`PO0 target ${target.reportName}@${target.host} missing SSH password/private key`);
+      throw new Error(`PO0 target ${target.sourceId}@${target.host} missing SSH password/private key`);
     }
     config.password = target.password;
   }
@@ -428,8 +429,8 @@ async function reportToPO0(ctx, env, target, ip) {
     const command = [
       'bash',
       shQuote(target.script),
-      '--client-ip-report',
-      shQuote(target.reportName),
+      '--ssh-ip-report',
+      shQuote(target.sourceId),
       shQuote(ip),
       shQuote(target.token),
       shQuote(target.identity),
@@ -438,9 +439,9 @@ async function reportToPO0(ctx, env, target, ip) {
     const result = await session.exec(command);
     const code = result.code ?? result.exitCode ?? 0;
     if (code !== 0) {
-      throw new Error(`${target.reportName}@${target.host}: ${result.stderr || result.stdout || code}`);
+      throw new Error(`${target.sourceId}@${target.host}: ${result.stderr || result.stdout || code}`);
     }
-    return result.stdout || `OK ${target.reportName} ${ip}`;
+    return result.stdout || `OK ${target.sourceId} ${ip}`;
   } finally {
     await session.close();
   }
@@ -466,7 +467,7 @@ export default async function(ctx) {
         const output = await reportToPO0(ctx, env, target, ip);
         results.push({
           ok: true,
-          reportName: target.reportName,
+          sourceId: target.sourceId,
           host: target.host,
           port: target.port,
           identity: target.identity,
@@ -477,7 +478,7 @@ export default async function(ctx) {
       } catch (error) {
         failures.push({
           ok: false,
-          reportName: target.reportName,
+          sourceId: target.sourceId,
           host: target.host,
           port: target.port,
           error: error?.message || String(error),
@@ -487,7 +488,7 @@ export default async function(ctx) {
 
     const state = {
       ok: failures.length === 0,
-      reportName: targets.map((target) => target.reportName).join(','),
+      sourceId: targets.map((target) => target.sourceId).join(','),
       ip,
       po0Host: targets.map((target) => target.host).join(','),
       identity: targets.map((target) => target.identity).filter(Boolean).join(','),
@@ -501,21 +502,21 @@ export default async function(ctx) {
     await storageSet(ctx, STORAGE_KEY, JSON.stringify(state));
 
     if (failures.length > 0) {
-      const errorSummary = failures.map((failure) => `${failure.reportName}@${failure.host}: ${failure.error}`).join('; ');
+      const errorSummary = failures.map((failure) => `${failure.sourceId}@${failure.host}: ${failure.error}`).join('; ');
       if (notifyFailure) {
-        notify(ctx, 'PO0 Client IP Report Failed', `${ip}: ${results.length}/${targets.length} OK; ${errorSummary}`);
+        notify(ctx, 'PO0 SSH Report Failed', `${ip}: ${results.length}/${targets.length} OK; ${errorSummary}`);
       }
       return isWidgetRun(ctx) ? widgetFromState(state, ctx) : state;
     }
 
     if (notifySuccess) {
-      notify(ctx, 'PO0 Client IP Report', `${ip}: ${results.length}/${targets.length} PO0 updated`);
+      notify(ctx, 'PO0 SSH Report', `${ip}: ${results.length}/${targets.length} PO0 updated`);
     }
     return isWidgetRun(ctx) ? widgetFromState(state, ctx) : state;
   } catch (error) {
     const state = {
       ok: false,
-      reportName: targets.map((target) => target.reportName).join(',') || String(env.REPORT_NAME || 'egern').trim() || 'egern',
+      sourceId: targets.map((target) => target.sourceId).join(',') || String(env.SSH_REPORT_SOURCE || 'egern').trim() || 'egern',
       po0Host: targets.map((target) => target.host).join(',') || env.PO0_HOST || '',
       ip,
       network: networkLabel(ctx),
@@ -527,7 +528,7 @@ export default async function(ctx) {
     };
     await storageSet(ctx, STORAGE_KEY, JSON.stringify(state));
     if (notifyFailure) {
-      notify(ctx, 'PO0 Client IP Report Failed', state.error);
+      notify(ctx, 'PO0 SSH Report Failed', state.error);
     }
     if (isWidgetRun(ctx)) {
       return widgetFromState(state, ctx);

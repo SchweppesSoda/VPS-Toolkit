@@ -67,6 +67,7 @@ function Test-PublicIPv4 {
     if ($octets[0] -eq 169 -and $octets[1] -eq 254) { return $false }
     if ($octets[0] -eq 172 -and $octets[1] -ge 16 -and $octets[1] -le 31) { return $false }
     if ($octets[0] -eq 192 -and $octets[1] -eq 168) { return $false }
+    if ($octets[0] -eq 198 -and $octets[1] -ge 18 -and $octets[1] -le 19) { return $false }
     return $true
 }
 

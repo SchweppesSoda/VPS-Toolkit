@@ -12,7 +12,7 @@
 转发规则：告诉中转机，外面访问哪个端口，要转到内网或目标机器的哪个地址。
 白名单：告诉中转机，哪些来源 IP 被允许访问这些转发端口。
 动态来源：家里宽带、手机网络、当前 SSH 登录地址这类会变化的来源 IP。
-预览检查：真正应用前，先看脚本准备生成什么规则，避免把自己锁在外面。
+渲染检查：脚本应用前会先生成临时 nftables 配置并执行 nft -c 检查。
 日志：记录哪些来源 IP 被白名单挡掉，方便以后判断要不要放行。
 ```
 
@@ -29,7 +29,7 @@ bash nftables-relay-manager.sh
 新增或修改转发：规则管理 -> 新增 / 编辑转发规则
 管理来源白名单：系统维护 -> 管理源 IP 白名单
 看当前状态和自检：基础操作 -> 查看概览，或系统维护 -> 诊断 / 自检
-应用前预览：系统维护 -> 预览 / 试运行
+高级调试渲染：bash nftables-relay-manager.sh --render > /tmp/po0-relay.conf
 ```
 
 如果你只是想“让我当前 SSH 这个公网 IP 临时能访问转发端口”，进入：
@@ -45,7 +45,7 @@ bash nftables-relay-manager.sh
 客户端或路由器负责更新 DNS
 推荐由 LAN Worker、路由器、OpenWrt、NAS 或 Windows/Linux 小脚本解析 DDNS 域名
 外部机器通过 SSH 调 PO0 的 --ddns-report 上报解析出的公网 A 记录
-PO0 本机解析只作为兜底
+PO0 本机默认不做 DDNS 解析
 成功后把得到的公网 IP 写入白名单
 ```
 
@@ -62,11 +62,11 @@ PO0 本机解析只作为兜底
 
 ```text
 不要手动乱改 /etc/nftables.d 里的生成文件，尽量通过菜单操作。
-启用白名单前先用“预览 / 试运行”看一眼。
+重建应用时脚本会先生成临时配置并执行 nft -c 检查。
 DDNS 或动态来源解析失败时，脚本会保留旧结果，不会立刻清空白名单。
 DDNS 外部上报建议使用菜单生成的 token；如果 token 文件存在，上报命令必须携带正确 token。
 学习服务只给候选建议，不会自动放行陌生 IP。
-Egern Client IP 和 WebAuth 已实现，但都通过 SSH 调 PO0；PO0 不开放 HTTP / WebAuth / Secret URL。
+Egern SSH report 和 WebAuth 已实现，但都通过 SSH 调 PO0；PO0 不开放 HTTP / WebAuth / Secret URL。
 WebAuth 的 HTTP 入口只允许跑在 LAN Worker 上，推荐前置 Cloudflare Access/Tunnel。
 
 资源更新采用另一套“PO0 任务队列 + 内网 Worker 主动领取”协议，不属于 URL 白名单上报。PO0 只允许 `iplist` 和 `ipdb` 两种固定任务，不能通过该接口发送任意 Shell 命令。
@@ -96,8 +96,8 @@ SNAT / 回写
 DDNS
   动态域名。家里公网 IP 变化时，客户端先更新域名，PO0 再解析域名得到新 IP。
 
-预览 / 试运行
-  只预览和检查，不真正应用规则。
+--render
+  高级调试命令，只把 relay nftables 配置输出到 stdout，不应用规则。
 ```
 
 ## 0.2 出问题时先看哪里
@@ -106,8 +106,8 @@ DDNS
 
 ```text
 1. 基础操作 -> 查看概览与规则列表
-2. 系统维护 -> 预览 / 试运行
-3. 系统维护 -> 诊断 / 自检
+2. 系统维护 -> 诊断 / 自检
+3. 管理源 IP 白名单 -> 来源/IP 明细
 4. 管理源 IP 白名单 -> 采集被阻挡访问日志
 5. 管理源 IP 白名单 -> 查看被阻挡访问统计，确认自己的公网 IP 是否被挡住
 ```
@@ -117,8 +117,8 @@ DDNS
 ```text
 域名在外部 DNS 已经解析到正确公网 IP
 po0-relay-allowlist-sources.tsv 里 source enabled=1
-运行过“刷新 DDNS 来源”
-“预览 / 试运行”里能看到 DDNS 条目进入白名单
+LAN Worker / 外部脚本已经通过 --ddns-report 上报
+运行过“刷新 DDNS 来源”或外部上报已触发重建应用
 ```
 
 下面开始是维护者和排障用的技术细节。
@@ -151,7 +151,7 @@ blocked 来源日志
 高风险 /16 候选加入白名单时需要输入 YES
 ```
 
-脚本仍以交互菜单为主。少量非交互参数用于 systemd runner、预览、重定向渲染和定时维护。
+脚本仍以交互菜单为主。少量非交互参数用于 systemd runner、重定向渲染、上报入口和定时维护。
 
 ## 2. 文件与状态
 
@@ -282,15 +282,20 @@ region
 learned
 ssh_temp
 ddns
-url_report
+client_ip
+ssh_report
+webauth
 ```
 
 当前已进入实际生成链路的来源：
 
 ```text
 manual       菜单添加的手动 CIDR，同时继续兼容旧 custom 文件
-ssh_temp     当前 SSH 来源临时 /32
-ddns         DDNS 来源刷新结果
+ssh_temp     当前 SSH 来源临时 /32，默认不参与 trusted_dynamic，只作为手动救急
+ddns         LAN Worker / 外部解析 DDNS 后上报的结果
+client_ip    LAN Worker self-report server 代报访问设备 IP
+ssh_report   Egern / 直接 SSH 上报当前出口 IPv4
+webauth      LAN Worker WebAuth 验证后上报的访问设备 IP
 region       旧地区白名单文件直接进入缓存，不逐条写 entries
 ```
 
@@ -304,7 +309,7 @@ region       旧地区白名单文件直接进入缓存，不逐条写 entries
 set_id|source_type|name|value|enabled|ttl_seconds|last_resolved_at|last_result
 ```
 
-当前 `source_type` 支持 `ddns`：
+当前 `po0-relay-allowlist-sources.tsv` 只保存 DDNS 来源定义：
 
 ```text
 default|ddns|home|home.example.com|1|300||
@@ -314,11 +319,11 @@ default|ddns|home|home.example.com|1|300||
 
 ```text
 report:<ip_csv>      LAN Worker、路由器、OpenWrt、NAS 或 Windows/Linux 小脚本解析 DDNS 后，通过 --ddns-report 上报
-local:<ip_csv>       PO0 本机 DNS 兜底解析
+local:<ip_csv>       旧版本兼容记录；新版本不再主动做 PO0 本机 DNS 解析
 ERROR resolve_failed 本次没有拿到可用公网 IPv4
 ```
 
-DDNS 来源可以通过菜单添加、删除、启用/停用、测试解析、刷新应用和生成外部上报 token。外部上报成功时会立即把公网 IPv4 写为 `ddns` entries，并重建应用白名单；刷新时优先复用 TTL 内的 `report:` 结果，过期或没有外部上报时才用 PO0 本机 DNS 兜底。失败时保留旧 entries，不清空已生效结果。停用或删除 DDNS 来源时，会同步移除它对应的旧 `ddns` entries。
+DDNS 来源可以通过菜单添加、删除、启用/停用、刷新应用和生成外部上报 token。外部上报成功时会立即把公网 IPv4 写为 `ddns` entries，并重建应用白名单；刷新时只复用 TTL 内的 `report:` 结果，不再由 PO0 本机解析域名。失败时保留旧 entries，不清空已生效结果。停用或删除 DDNS 来源时，会同步移除它对应的旧 `ddns` entries。
 
 ## 4. 渲染与应用链路
 
@@ -350,7 +355,7 @@ write_nft_allowlist_set
 写 DNAT / SNAT / input_guard / mangle
 ```
 
-现在 `write_nft_conf` 和 `build_src_allowlist_cache` 支持可选输出路径，因此 `--preview` / `--render` 可以写临时文件而不触碰真实配置。
+现在 `write_nft_conf` 和 `build_src_allowlist_cache` 支持可选输出路径。`--render` 可以把计划生成的 relay nftables 配置输出到 stdout，用于高级调试或 diff，不触碰真实配置。
 
 ### 4.3 源白名单生成
 
@@ -359,7 +364,7 @@ write_nft_allowlist_set
 ```text
 1. region_only / region_plus_trusted / custom_sources 且来源包含 region：读取 iplist 离线包的地区 CIDR。
 2. manual_only / trusted_dynamic / region_plus_trusted / custom_sources：读取 entries.tsv 中 default set 的未过期条目。
-3. custom_sources 按 default set 的 sources 字段过滤 manual、ssh_temp、ddns、client_ip、webauth、learned、region 等来源。
+3. custom_sources 按 default set 的 sources 字段过滤 manual、ssh_temp、ddns、client_ip、ssh_report、webauth、learned、region 等来源。
 4. 旧 custom 文件继续兼容，按 manual 来源参与迁移。
 5. sort -u 去重。
 6. 原子替换 po0-relay-src-allowlist.txt。
@@ -395,7 +400,7 @@ ip saddr != @po0_src_default udp dport { ... } limit rate 10/minute burst 20 pac
 
 ## 5. 功能模块
 
-这一章按功能解释脚本。普通读者可以只看自己关心的模块，例如 SSH 临时来源、DDNS、预览 / 试运行、被阻挡访问日志。
+这一章按功能解释脚本。普通读者可以只看自己关心的模块，例如 SSH 临时来源、DDNS、Egern SSH report、被阻挡访问日志。
 
 ### 5.1 中转模式和 SNAT
 
@@ -497,7 +502,7 @@ CIDR|备注
 默认过期 24 小时，可输入 1-720 小时
 写 entries.tsv：source_type=ssh_temp，source_value=SSH_CONNECTION
 保存前创建 _last 快照
-写入后自动启用可信动态来源白名单路径
+写入后如果当前模式未包含 ssh_temp，会切换为高级自选来源并保留原来源组合再追加 ssh_temp
 重新 render 并应用
 ```
 
@@ -509,7 +514,6 @@ CIDR|备注
 管理源 IP 白名单 -> 管理 DDNS 来源
 查看 DDNS 来源和上报统计
 添加 / 编辑 / 删除 / 启用 / 停用 DDNS 来源
-测试 DDNS 来源本机解析兜底
 刷新并应用已启用 DDNS 来源
 显示 / 生成外部上报 Token
 ```
@@ -547,11 +551,11 @@ key|accepted_count|rejected_count|last_status|last_at|last_ips|last_error
 
 ```text
 读取 enabled=1 的 ddns source
-如果 last_result 是 TTL 内的 report:<ip_csv>，优先使用外部上报结果
-否则 PO0 本机解析 A 记录作为兜底
+如果 last_result 是 TTL 内的 report:<ip_csv>，使用外部上报结果
+否则标记为本次没有可用上报结果；PO0 不主动解析 DDNS
 只接受公网 IPv4
 成功后替换该 set_id + ddns + 域名 对应 entries
-外部结果写 report:<ip_csv>，本机兜底写 local:<ip_csv>
+外部结果写 report:<ip_csv>；local:<ip_csv> 只作为旧版本兼容记录读取
 失败时保留旧 entries
 停用或删除来源时移除对应旧 entries
 刷新或移除后重建并应用白名单
@@ -627,14 +631,14 @@ PO0 的基础 IPDB 格式校验使用常见的 `od`、`dd`、`grep` 检查文件
 
 Worker 的 `resource-stats.tsv` 每个 PO0 端点只保留一行累计统计，不会按任务无限追加。PO0 的任务文件保留全部活动任务和最近 500 条终态记录，管理员可以在菜单中查看结果，或把失败/执行中的任务重新排队。
 
-### 5.6.1 Egern Client IP 上报
+### 5.6.1 Egern SSH report 上报
 
 Egern 不再承担 DDNS 解析。它只做移动设备当前出口 IPv4 上报：
 
 ```text
 Egern 用 DIRECT 轮询 IP 查询接口，默认列表为 IP9/163/Bilibili/126/腾讯新闻/爱奇艺/央视/12306/myip.ipip；脚本会记住上次起点，下次从下一个接口开始，从响应里提取当前公网 IPv4
-Egern 通过一次性 SSH 调 PO0 --client-ip-report
-PO0 写 entries.tsv：source_type=client_ip
+Egern 通过一次性 SSH 调 PO0 --ssh-ip-report
+PO0 写 entries.tsv：source_type=ssh_report
 成功后重建并应用白名单
 Egern 把最近状态写入 ctx.storage，Widget 读取显示
 ```
@@ -642,10 +646,10 @@ Egern 把最近状态写入 ctx.storage，Widget 读取显示
 单 PO0 命令等价于：
 
 ```bash
-bash /root/nftables-relay-manager.sh --client-ip-report <source-id> <ipv4> <token> <identity> <ttl>
+bash /root/nftables-relay-manager.sh --ssh-ip-report <source-id> <ipv4> <token> <identity> <ttl>
 ```
 
-多 PO0 上报由模块环境变量 `PO0_TARGETS` 控制，一行一个目标：
+多 PO0 上报由模块环境变量 `SSH_REPORT_TARGETS` 控制，一行一个目标：
 
 ```text
 source|host|port|user|script|token|identity|ttl
@@ -660,31 +664,15 @@ iphone-us|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_U
 
 脚本只查询一次当前 IPv4，然后按目标列表依次 SSH 上报。全部目标成功时状态为成功；部分失败时保留每个目标的成功/失败明细并发出失败通知，但不会回滚已成功的 PO0。
 
-### 5.7 预览 / 试运行
+### 5.7 高级渲染调试
 
 入口：
 
 ```text
-系统维护 -> 预览 / 试运行
-bash nftables-relay-manager.sh --preview
 bash nftables-relay-manager.sh --render > /tmp/po0-relay.conf
 ```
 
-`--preview` 输出：
-
-```text
-托管规则数量
-中转模式和入站防火墙状态
-白名单模式
-sets 摘要
-sources 摘要
-entries 来源统计
-渲染临时文件路径
-allowlist cache CIDR 数量
-nft -c 结果（系统有 nft 时）
-```
-
-`--render` 只把计划生成的 relay nftables 配置输出到 stdout，适合重定向和 diff。
+`--render` 只把计划生成的 relay nftables 配置输出到 stdout，适合重定向和 diff。它不再作为普通菜单入口；日常应用规则仍通过菜单操作，脚本在应用前会自动做 nft -c 预检。
 
 ### 5.8 conntrack 学习服务
 
@@ -838,16 +826,17 @@ profile 目录：
  12) 管理源 IP 白名单
  13) 诊断 / 自检
  14) 可选开启 BBR + fq
- 15) 预览 / 试运行
 ```
 
 ### 7.2 非交互入口
 
 ```bash
-bash nftables-relay-manager.sh --preview
 bash nftables-relay-manager.sh --render > /tmp/po0-relay.conf
 bash nftables-relay-manager.sh --refresh-ddns
 bash nftables-relay-manager.sh --ddns-report-check home.example.com TOKEN
+bash nftables-relay-manager.sh --ssh-ip-report iphone 1.2.3.4 TOKEN egern 3600
+bash nftables-relay-manager.sh --client-ip-report self-report 1.2.3.4 TOKEN lan-worker 3600
+bash nftables-relay-manager.sh --webauth-report webauth 1.2.3.4 user@example.com 2026-06-16T12:00:00Z TOKEN
 bash nftables-relay-manager.sh --resource-task-create all
 bash nftables-relay-manager.sh --install-resource-task-cron all daily
 bash nftables-relay-manager.sh --resource-task-ping TOKEN
@@ -860,8 +849,10 @@ bash nftables-relay-manager.sh --learn-service
 ```text
 --learn-service  systemd runner 使用
 --render         输出到 stdout，天然适合重定向，不放进交互流程
---preview        预览 / 试运行入口的自动化形式
 --refresh-ddns   刷新 DDNS 来源入口的 cron/systemd timer 形式
+--ssh-ip-report  Egern / 直接 SSH 上报当前出口 IPv4，写 ssh_report
+--client-ip-report LAN Worker self-report server 代报访问设备 IP，写 client_ip
+--webauth-report LAN Worker WebAuth 验证后上报访问设备 IP，写 webauth
 --resource-task-create 创建一次 iplist/ipdb/all 资源任务
 --install-resource-task-cron 安装 PO0 端定时创建资源任务的 cron
 --collect-blocked 采集阻挡日志入口的 cron/systemd timer 形式
@@ -907,10 +898,9 @@ po0_src_default 公共集渲染：已实现
 entries.tsv 标准来源模型：已实现
 旧 custom 文件兼容并镜像 manual entries：已实现
 SSH 当前来源临时 /32：已实现
-预览 / 试运行：已实现
 DDNS 来源菜单和刷新应用：已实现
 DDNS 外部解析上报：已实现
-Egern 当前出口 IPv4 上报：已实现，支持单 PO0 和多 PO0
+Egern SSH report 当前出口 IPv4 上报：已实现，支持单 PO0 和多 PO0
 LAN Worker WebAuth 上报：已实现，HTTP 入口只跑在 LAN Worker
 attack mode 自动来源冻结：已实现
 兼容检查与 legacy 清理入口：已实现
@@ -927,7 +917,7 @@ PO0 HTTP / Secret URL 控制面：不实现
 PO0 不开放普通 HTTP/HTTPS 控制面，也不实现“打开隐藏链接就把当前 IP 加白”的 Secret URL。对应需求改为两条安全路径：
 
 ```text
-移动设备：Egern Client IP 通过 SSH 调 --client-ip-report
+移动设备：Egern SSH report 通过 SSH 调 --ssh-ip-report
 浏览器认证：Cloudflare Access -> cloudflared tunnel -> LAN Worker WebAuth -> SSH 调 --webauth-report
 ```
 
@@ -944,7 +934,8 @@ PO0 上提供 Secret URL
 ```text
 可信设备动态维护严格 /32
 PO0 只接受 SSH/本地命令入口
-source_type=client_ip / webauth
+source_type=client_ip / ssh_report / webauth
+ssh_report 只用于 Egern / 直接 SSH 上报
 更新 nftables 前必须 render + nft -c
 失败不能清空旧有效来源
 ```
