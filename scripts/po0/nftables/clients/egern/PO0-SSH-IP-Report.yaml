@@ -43,7 +43,7 @@ env_schema:
     description: "可选。多个目标可用换行、逗号、分号或空格分隔：source_id|host|port|user|script|token|identity|ttl。source_id 和 identity 支持 {device}，本机 ID 推荐通过 DEVICE_ID_SETUP + “保存本机设备 ID”写入。"
   DEVICE_ID_SETUP:
     name: 本机设备 ID 设置值
-    description: "只在手动运行“PO0 SSH 上报状态”或“保存本机设备 ID”时读取并写入本机 storage；定时/网络上报不会直接使用这个同步 env。示例：iphone15pm；填 clear 后运行状态可清除。"
+    description: "只在手动运行“保存本机设备 ID”时读取并写入本机 storage；定时/网络上报不会直接使用这个同步 env。示例：iphone15pm。"
   IP_CHECK_URL:
     name: IPv4 探测 URL
     default_value: "https://ip9.com.cn/get"
