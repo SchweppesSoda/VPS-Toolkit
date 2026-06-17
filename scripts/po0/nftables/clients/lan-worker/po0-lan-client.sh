@@ -777,6 +777,65 @@ ssh_extra_with_identity() {
     printf '%s\n' "${out}"
 }
 
+ssh_extra_warn_ignored() {
+    local context="$1"
+    local reason="$2"
+    printf '[WARN] %s: ignored SSH extra arg (%s).\n' "${context:-SSH extra args}" "${reason}" >&2
+}
+
+sanitize_ssh_extra_args() {
+    local extra="$1"
+    local context="${2:-SSH extra args}"
+    local -a parts=()
+    local token next
+    local i
+    SSH_EXTRA_ARGV=()
+    [[ -n "${extra}" ]] || return 0
+    read -r -a parts <<< "${extra}"
+    for ((i = 0; i < ${#parts[@]}; i++)); do
+        token="${parts[$i]}"
+        next="${parts[$((i + 1))]:-}"
+        [[ -n "${token}" ]] || continue
+        case "${token}" in
+            --|---*|-----BEGIN*|-----END*)
+                ssh_extra_warn_ignored "${context}" "invalid option/private-key marker"
+                continue
+                ;;
+            -p)
+                ssh_extra_warn_ignored "${context}" "port belongs in the PO0 SSH port field"
+                if [[ -n "${next}" && "${next}" != -* ]]; then
+                    ((i++))
+                fi
+                continue
+                ;;
+            -p?*)
+                ssh_extra_warn_ignored "${context}" "port belongs in the PO0 SSH port field"
+                continue
+                ;;
+            IdentityFile=*|BatchMode=*|StrictHostKeyChecking=*|UserKnownHostsFile=*|HostKeyAlias=*|ProxyJump=*|ProxyCommand=*)
+                SSH_EXTRA_ARGV+=(-o "${token}")
+                continue
+                ;;
+        esac
+        case "${token}" in
+            -B|-b|-c|-D|-E|-e|-F|-I|-i|-J|-L|-l|-m|-O|-o|-P|-Q|-R|-S|-W|-w)
+                if [[ -z "${next}" || "${next}" == -* ]]; then
+                    ssh_extra_warn_ignored "${context}" "missing value for ${token}"
+                    continue
+                fi
+                SSH_EXTRA_ARGV+=("${token}" "${next}")
+                ((i++))
+                ;;
+            -*)
+                SSH_EXTRA_ARGV+=("${token}")
+                ;;
+            *)
+                ssh_extra_warn_ignored "${context}" "bare value without an SSH option"
+                ;;
+        esac
+    done
+}
+
 build_batchmode_ssh_extra_args() {
     local key_path="$1"
     local extra="$2"
@@ -1816,8 +1875,8 @@ report_once() {
 
     ssh_args+=(-n -p "${po0_port}")
     if [[ -n "${ssh_extra_args}" ]]; then
-        read -r -a extra_args <<< "${ssh_extra_args}"
-        ssh_args+=("${extra_args[@]}")
+        sanitize_ssh_extra_args "${ssh_extra_args}" "DDNS ${source_key}@${po0_host}:${po0_port}"
+        ssh_args+=("${SSH_EXTRA_ARGV[@]}")
     fi
 
     printf '上报：DDNS %s -> %s -> %s@%s:%s，来源=%s\n' "${resolve_domain}" "${ip_csv}" "${po0_user}" "${po0_host}" "${po0_port}" "${report_key}"
@@ -1867,12 +1926,11 @@ remote_manager_call() {
     shift 5
     local remote_cmd arg
     local -a ssh_args=(-n -p "${port:-22}")
-    local -a extra_args=()
     [[ -n "${user}" ]] || user="root"
     [[ -n "${script}" ]] || script="${DEFAULT_PO0_SCRIPT}"
     if [[ -n "${extra}" ]]; then
-        read -r -a extra_args <<< "${extra}"
-        ssh_args+=("${extra_args[@]}")
+        sanitize_ssh_extra_args "${extra}" "PO0 manager ${user}@${host}:${port:-22}"
+        ssh_args+=("${SSH_EXTRA_ARGV[@]}")
     fi
     remote_cmd="bash $(sh_quote "${script}")"
     for arg in "$@"; do
@@ -1891,12 +1949,11 @@ remote_manager_call_timeout() {
     shift 6
     local remote_cmd arg
     local -a ssh_args=(-n -p "${port:-22}")
-    local -a extra_args=()
     [[ -n "${user}" ]] || user="root"
     [[ -n "${script}" ]] || script="${DEFAULT_PO0_SCRIPT}"
     if [[ -n "${extra}" ]]; then
-        read -r -a extra_args <<< "${extra}"
-        ssh_args+=("${extra_args[@]}")
+        sanitize_ssh_extra_args "${extra}" "PO0 manager ${user}@${host}:${port:-22}"
+        ssh_args+=("${SSH_EXTRA_ARGV[@]}")
     fi
     remote_cmd="bash $(sh_quote "${script}")"
     for arg in "$@"; do
@@ -2435,10 +2492,9 @@ report_resource_failure() {
     local task_id="$1" worker_id="$2" reason="$3" host="$4" port="$5" user="$6" script="$7" token="$8" extra="$9"
     local remote_cmd
     local -a ssh_args=(-n -p "${port}")
-    local -a extra_args=()
     if [[ -n "${extra}" ]]; then
-        read -r -a extra_args <<< "${extra}"
-        ssh_args+=("${extra_args[@]}")
+        sanitize_ssh_extra_args "${extra}" "resource fail ${user}@${host}:${port}"
+        ssh_args+=("${SSH_EXTRA_ARGV[@]}")
     fi
     remote_cmd="bash $(sh_quote "${script}") --resource-task-fail $(sh_quote "${task_id}") $(sh_quote "${worker_id}") $(sh_quote "${reason}") $(sh_quote "${token}")"
     run_with_optional_timeout "$(timeout_seconds "${RESOURCE_CONTROL_TIMEOUT_SECONDS}" 120)" ssh "${ssh_args[@]}" "${user}@${host}" "${remote_cmd}" >/dev/null 2>&1 || true
@@ -2473,14 +2529,13 @@ run_resource_endpoint() {
     local processed=0 failed=0 max_per_run upload_timeout complete_timeout control_timeout upload_rc complete_rc claim_rc
     local -a ssh_args=(-p "${port}")
     local -a control_ssh_args=(-n -p "${port}")
-    local -a extra_args=()
     worker_id="$(sanitize_field "${WORKER_ID}")"
     worker_id="${worker_id// /_}"
     endpoint_id="$(resource_endpoint_id_for "${host}" "${port}" "${user}")"
     if [[ -n "${extra}" ]]; then
-        read -r -a extra_args <<< "${extra}"
-        ssh_args+=("${extra_args[@]}")
-        control_ssh_args+=("${extra_args[@]}")
+        sanitize_ssh_extra_args "${extra}" "resource ${user}@${host}:${port}"
+        ssh_args+=("${SSH_EXTRA_ARGV[@]}")
+        control_ssh_args+=("${SSH_EXTRA_ARGV[@]}")
     fi
     max_per_run="$(resource_task_max_per_run)"
     upload_timeout="$(timeout_seconds "${RESOURCE_UPLOAD_TIMEOUT_SECONDS}" 900)"
@@ -2845,6 +2900,57 @@ def parse_targets(raw):
         })
     return targets
 
+def warn_ignored_extra(context, reason):
+    print(f"[WARN] {context}: ignored SSH extra arg ({reason}).", file=sys.stderr)
+
+def sanitized_extra_args(extra, context):
+    out = []
+    if not extra:
+        return out
+    try:
+        parts = shlex.split(extra)
+    except ValueError as exc:
+        warn_ignored_extra(context, f"parse error: {exc}")
+        return out
+    options_with_value = {
+        "-B", "-b", "-c", "-D", "-E", "-e", "-F", "-I", "-i", "-J", "-L",
+        "-l", "-m", "-O", "-o", "-P", "-Q", "-R", "-S", "-W", "-w",
+    }
+    option_assignments = (
+        "IdentityFile=", "BatchMode=", "StrictHostKeyChecking=",
+        "UserKnownHostsFile=", "HostKeyAlias=", "ProxyJump=", "ProxyCommand=",
+    )
+    i = 0
+    while i < len(parts):
+        token = parts[i]
+        next_token = parts[i + 1] if i + 1 < len(parts) else ""
+        if token in ("--",) or token.startswith("---") or token.startswith("-----BEGIN") or token.startswith("-----END"):
+            warn_ignored_extra(context, "invalid option/private-key marker")
+            i += 1
+        elif token == "-p":
+            warn_ignored_extra(context, "port belongs in the PO0 SSH port field")
+            i += 2 if next_token and not next_token.startswith("-") else 1
+        elif token.startswith("-p"):
+            warn_ignored_extra(context, "port belongs in the PO0 SSH port field")
+            i += 1
+        elif token.startswith(option_assignments):
+            out.extend(["-o", token])
+            i += 1
+        elif token in options_with_value:
+            if not next_token or next_token.startswith("-"):
+                warn_ignored_extra(context, f"missing value for {token}")
+                i += 1
+            else:
+                out.extend([token, next_token])
+                i += 2
+        elif token.startswith("-"):
+            out.append(token)
+            i += 1
+        else:
+            warn_ignored_extra(context, "bare value without an SSH option")
+            i += 1
+    return out
+
 TARGETS = parse_targets(os.environ.get('PO0_WEBAUTH_TARGETS', ''))
 if not TARGETS:
     raise SystemExit('missing PO0_WEBAUTH_TARGETS')
@@ -2868,7 +2974,7 @@ def report_target(target, ip, identity, note):
     ])
     cmd = ["ssh", "-p", target['port']]
     if target.get('extra'):
-        cmd.extend(shlex.split(target['extra']))
+        cmd.extend(sanitized_extra_args(target['extra'], f"WebAuth {target['user']}@{target['host']}:{target['port']}"))
     cmd.extend([f"{target['user']}@{target['host']}", remote])
     return subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
 
@@ -3127,6 +3233,57 @@ def parse_targets(raw):
         })
     return targets
 
+def warn_ignored_extra(context, reason):
+    print(f"[WARN] {context}: ignored SSH extra arg ({reason}).", file=sys.stderr)
+
+def sanitized_extra_args(extra, context):
+    out = []
+    if not extra:
+        return out
+    try:
+        parts = shlex.split(extra)
+    except ValueError as exc:
+        warn_ignored_extra(context, f"parse error: {exc}")
+        return out
+    options_with_value = {
+        "-B", "-b", "-c", "-D", "-E", "-e", "-F", "-I", "-i", "-J", "-L",
+        "-l", "-m", "-O", "-o", "-P", "-Q", "-R", "-S", "-W", "-w",
+    }
+    option_assignments = (
+        "IdentityFile=", "BatchMode=", "StrictHostKeyChecking=",
+        "UserKnownHostsFile=", "HostKeyAlias=", "ProxyJump=", "ProxyCommand=",
+    )
+    i = 0
+    while i < len(parts):
+        token = parts[i]
+        next_token = parts[i + 1] if i + 1 < len(parts) else ""
+        if token in ("--",) or token.startswith("---") or token.startswith("-----BEGIN") or token.startswith("-----END"):
+            warn_ignored_extra(context, "invalid option/private-key marker")
+            i += 1
+        elif token == "-p":
+            warn_ignored_extra(context, "port belongs in the PO0 SSH port field")
+            i += 2 if next_token and not next_token.startswith("-") else 1
+        elif token.startswith("-p"):
+            warn_ignored_extra(context, "port belongs in the PO0 SSH port field")
+            i += 1
+        elif token.startswith(option_assignments):
+            out.extend(["-o", token])
+            i += 1
+        elif token in options_with_value:
+            if not next_token or next_token.startswith("-"):
+                warn_ignored_extra(context, f"missing value for {token}")
+                i += 1
+            else:
+                out.extend([token, next_token])
+                i += 2
+        elif token.startswith("-"):
+            out.append(token)
+            i += 1
+        else:
+            warn_ignored_extra(context, "bare value without an SSH option")
+            i += 1
+    return out
+
 TARGETS = parse_targets(os.environ.get('PO0_SELF_REPORT_TARGETS', ''))
 if not TARGETS:
     raise SystemExit('missing PO0_SELF_REPORT_TARGETS')
@@ -3145,7 +3302,7 @@ def report_target(target, ip, identity, source_override):
     ])
     cmd = ["ssh", "-p", target['port']]
     if target.get('extra'):
-        cmd.extend(shlex.split(target['extra']))
+        cmd.extend(sanitized_extra_args(target['extra'], f"Self-report {target['user']}@{target['host']}:{target['port']}"))
     cmd.extend([f"{target['user']}@{target['host']}", remote])
     return subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
 
