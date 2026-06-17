@@ -89,12 +89,12 @@ rm -f "$tmp"
 
 ### PO0 Debian 重装
 
-这个脚本会重装系统盘，不写 raw 在线执行命令。只从已 checkout 的仓库里运行：
+这个脚本会重装系统盘，不写 raw 在线执行命令。推荐先上传重装脚本，再在 PO0 上运行：
 
 ```bash
-cd scripts/po0/reinstall
-sudo bash po0-debian-reinstall.sh
-sudo bash po0-debian-reinstall.sh -port 60022
+scp scripts/po0/reinstall/po0-debian-reinstall.sh root@<PO0_HOST>:/root/po0-debian-reinstall.sh
+ssh root@<PO0_HOST> 'chmod +x /root/po0-debian-reinstall.sh && bash /root/po0-debian-reinstall.sh'
+ssh root@<PO0_HOST> 'bash /root/po0-debian-reinstall.sh -port 60022'
 ```
 
 ### PO0 内网 Worker

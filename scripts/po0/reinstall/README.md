@@ -13,14 +13,16 @@
 
 ## 使用
 
+推荐先上传重装脚本，再在 PO0 上运行：
+
 ```bash
-cd scripts/po0/reinstall
+scp scripts/po0/reinstall/po0-debian-reinstall.sh root@<PO0_HOST>:/root/po0-debian-reinstall.sh
 
 # 自动生成 root 密码，SSH 使用 22 端口
-bash po0-debian-reinstall.sh
+ssh root@<PO0_HOST> 'chmod +x /root/po0-debian-reinstall.sh && bash /root/po0-debian-reinstall.sh'
 
 # 指定密码或 SSH 端口
-bash po0-debian-reinstall.sh -passwd 'YourStrongPassword' -port 60022
+ssh root@<PO0_HOST> 'bash /root/po0-debian-reinstall.sh -passwd "YourStrongPassword" -port 60022'
 ```
 
 ## 风险

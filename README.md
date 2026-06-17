@@ -89,12 +89,12 @@ rm -f "$tmp"
 
 ### PO0 Debian reinstall
 
-No raw online execution command is provided for this destructive reinstall script. Run it from a checked-out copy only:
+No raw online execution command is provided for this destructive reinstall script. Recommended: upload the reinstall script first, then run it on PO0.
 
 ```bash
-cd scripts/po0/reinstall
-sudo bash po0-debian-reinstall.sh
-sudo bash po0-debian-reinstall.sh -port 60022
+scp scripts/po0/reinstall/po0-debian-reinstall.sh root@<PO0_HOST>:/root/po0-debian-reinstall.sh
+ssh root@<PO0_HOST> 'chmod +x /root/po0-debian-reinstall.sh && bash /root/po0-debian-reinstall.sh'
+ssh root@<PO0_HOST> 'bash /root/po0-debian-reinstall.sh -port 60022'
 ```
 
 ### PO0 LAN Worker
