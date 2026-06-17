@@ -2,7 +2,7 @@
 set -uo pipefail
 
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh"
-SCRIPT_VERSION="2026-06-17-resource-stdin-fix"
+SCRIPT_VERSION="2026-06-17-ssh-extra-sanitize"
 RESOURCE_UPLOAD_MODE="manager-stdin"
 DEFAULT_PO0_SCRIPT="/root/nftables-relay-manager.sh"
 PO0_HOST="${PO0_HOST:-}"
@@ -797,7 +797,7 @@ sanitize_ssh_extra_args() {
         next="${parts[$((i + 1))]:-}"
         [[ -n "${token}" ]] || continue
         case "${token}" in
-            --|---*|-----BEGIN*|-----END*)
+            -|--*|-----BEGIN*|-----END*)
                 ssh_extra_warn_ignored "${context}" "invalid option/private-key marker"
                 continue
                 ;;
@@ -2561,6 +2561,7 @@ run_resource_endpoint() {
                 response="资源任务查询超时（${control_timeout} 秒）"
             fi
             printf '资源任务查询失败：%s@%s:%s\n' "${user}" "${host}" "${port}" >&2
+            [[ -n "${response}" ]] && printf '  %s\n' "$(sanitize_field "${response}")" >&2
             update_resource_stats "${endpoint_id}" "" "" "查询失败" "${response}" || true
             return 1
         fi
@@ -2924,7 +2925,7 @@ def sanitized_extra_args(extra, context):
     while i < len(parts):
         token = parts[i]
         next_token = parts[i + 1] if i + 1 < len(parts) else ""
-        if token in ("--",) or token.startswith("---") or token.startswith("-----BEGIN") or token.startswith("-----END"):
+        if token == "-" or token.startswith("--") or token.startswith("-----BEGIN") or token.startswith("-----END"):
             warn_ignored_extra(context, "invalid option/private-key marker")
             i += 1
         elif token == "-p":
@@ -3257,7 +3258,7 @@ def sanitized_extra_args(extra, context):
     while i < len(parts):
         token = parts[i]
         next_token = parts[i + 1] if i + 1 < len(parts) else ""
-        if token in ("--",) or token.startswith("---") or token.startswith("-----BEGIN") or token.startswith("-----END"):
+        if token == "-" or token.startswith("--") or token.startswith("-----BEGIN") or token.startswith("-----END"):
             warn_ignored_extra(context, "invalid option/private-key marker")
             i += 1
         elif token == "-p":
