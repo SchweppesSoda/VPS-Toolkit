@@ -28,6 +28,7 @@ RESOURCE_TASK_MAX_PER_RUN="${PO0_RESOURCE_TASK_MAX_PER_RUN:-10}"
 RESOURCE_UPLOAD_TIMEOUT_SECONDS="${PO0_RESOURCE_UPLOAD_TIMEOUT_SECONDS:-900}"
 RESOURCE_COMPLETE_TIMEOUT_SECONDS="${PO0_RESOURCE_COMPLETE_TIMEOUT_SECONDS:-600}"
 RESOURCE_CONTROL_TIMEOUT_SECONDS="${PO0_RESOURCE_CONTROL_TIMEOUT_SECONDS:-120}"
+REMOTE_STATUS_TIMEOUT_SECONDS="${PO0_REMOTE_STATUS_TIMEOUT_SECONDS:-8}"
 WORKER_ID="${PO0_WORKER_ID:-$(hostname 2>/dev/null || printf 'po0-worker')}"
 STATS_FILE_EXPLICIT="0"
 ACTION=""
@@ -1271,10 +1272,17 @@ remote_resource_task_cron_status() {
     local script="$4"
     local extra="$5"
     local response line key value status="unknown" detail="未读取到 PO0 状态"
-    response="$(remote_manager_call "${host}" "${port}" "${user}" "${script}" "${extra}" --resource-task-cron-status 2>&1)" || {
+    local timeout rc
+    timeout="$(timeout_seconds "${REMOTE_STATUS_TIMEOUT_SECONDS}" 8)"
+    response="$(remote_manager_call_timeout "${timeout}" "${host}" "${port}" "${user}" "${script}" "${extra}" --resource-task-cron-status 2>&1)"
+    rc=$?
+    if [[ "${rc}" -ne 0 ]]; then
+        if [[ "${rc}" == "124" ]]; then
+            response="远端查询超时（${timeout} 秒）"
+        fi
         printf '查询失败|%s\n' "$(sanitize_field "${response}")"
         return 1
-    }
+    fi
     while IFS= read -r line || [[ -n "${line}" ]]; do
         [[ "${line}" == *=* ]] || continue
         key="${line%%=*}"
@@ -1852,6 +1860,30 @@ remote_manager_call() {
         remote_cmd+=" $(sh_quote "${arg}")"
     done
     ssh "${ssh_args[@]}" "${user}@${host}" "${remote_cmd}"
+}
+
+remote_manager_call_timeout() {
+    local seconds="$1"
+    local host="$2"
+    local port="$3"
+    local user="$4"
+    local script="$5"
+    local extra="$6"
+    shift 6
+    local remote_cmd arg
+    local -a ssh_args=(-p "${port:-22}")
+    local -a extra_args=()
+    [[ -n "${user}" ]] || user="root"
+    [[ -n "${script}" ]] || script="${DEFAULT_PO0_SCRIPT}"
+    if [[ -n "${extra}" ]]; then
+        read -r -a extra_args <<< "${extra}"
+        ssh_args+=("${extra_args[@]}")
+    fi
+    remote_cmd="bash $(sh_quote "${script}")"
+    for arg in "$@"; do
+        remote_cmd+=" $(sh_quote "${arg}")"
+    done
+    run_with_optional_timeout "$(timeout_seconds "${seconds}" 8)" ssh "${ssh_args[@]}" "${user}@${host}" "${remote_cmd}"
 }
 
 fetch_worker_token_bundle() {
@@ -3536,7 +3568,8 @@ menu_loop() {
         print_menu_pair 1 "上报目标与 DDNS 统计" 10 "立即执行 DDNS 上报"
 
         print_menu_section "资源任务"
-        print_menu_pair 2 "资源统计 / PO0 创建计划" 11 "立即领取并执行资源任务"
+        print_menu_pair 2 "资源统计" 11 "立即领取并执行资源任务"
+        print_menu_item 23 "PO0 资源任务创建计划"
 
         print_menu_section "Self-report 自上报"
         print_menu_pair 12 "Self-report 连通性检查" 13 "启动 Self-report 服务"
@@ -3559,10 +3592,10 @@ menu_loop() {
         print_menu_section "退出"
         print_menu_item 0 "退出"
         print_menu_footer
-        read_menu_choice_or_return choice "请选择操作 [0-22]: " || return 0
+        read_menu_choice_or_return choice "请选择操作 [0-23]: " || return 0
         case "${choice}" in
             1) list_targets; pause_before_return ;;
-            2) list_resource_stats; echo ""; show_remote_resource_task_cron_status; pause_before_return ;;
+            2) list_resource_stats; pause_before_return ;;
             3) add_target_interactive; pause_before_return ;;
             4) edit_target_interactive; pause_before_return ;;
             5) manage_target_ssh_interactive; [[ "$?" -eq 2 ]] || pause_before_return ;;
@@ -3583,6 +3616,7 @@ menu_loop() {
             20) clear_stats_interactive; pause_before_return ;;
             21) show_local_script_status; pause_before_return ;;
             22) upgrade_self_from_raw; pause_before_return ;;
+            23) show_remote_resource_task_cron_status; pause_before_return ;;
             0) return 0 ;;
             *) printf '无效选择。\n' >&2 ;;
         esac

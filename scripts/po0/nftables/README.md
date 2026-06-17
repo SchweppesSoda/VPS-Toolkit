@@ -234,6 +234,8 @@ non-root: ~/.local/bin/po0-lan-client
 
 新版自检应显示 `版本` 为 `2026-06-17-resource-timeouts` 或更新，`资源上传` 为 `manager-stdin`，资源产物通过 PO0 manager stdin 上传，不再调用 `scp`。
 
+如果 LAN Worker 查询 PO0 创建计划时出现 `--resource-task-cron-status not allowed for scope worker`，说明 PO0 上的专用受限 SSH wrapper 还没刷新到新版；在 PO0 上用新版 manager 执行 `--refresh-report-key-wrapper` 即可。这个报错只影响创建计划只读查询，不影响 pending 资源任务领取、上传和完成。
+
 配置里旧的 `PO0_SCRIPT=/root/nftables-relay-manager.sh` 继续兼容。
 
 ## LAN Worker Self-report
