@@ -213,7 +213,7 @@ iplist
 ipdb
 ```
 
-同一轮资源轮询会持续领取 pending 任务，直到 PO0 返回无任务或达到本轮上限。默认上限是 `PO0_RESOURCE_TASK_MAX_PER_RUN=10`，设为 `0` 表示不设上限。`iplist` 的 txt 数据文件默认并发下载，默认 `PO0_IPLIST_JOBS=16`，可调范围 `1-50`。
+同一轮资源轮询会持续领取 pending 任务，直到 PO0 返回无任务或达到本轮上限。默认上限是 `PO0_RESOURCE_TASK_MAX_PER_RUN=10`，设为 `0` 表示不设上限。`iplist` 的 txt 数据文件默认并发下载，默认 `PO0_IPLIST_JOBS=16`，可调范围 `1-50`。资源下载后会通过 SSH stdin 上传到 PO0，上传默认超时 `PO0_RESOURCE_UPLOAD_TIMEOUT_SECONDS=900`，PO0 校验/导入默认超时 `PO0_RESOURCE_COMPLETE_TIMEOUT_SECONDS=600`。
 
 如果 LAN Worker 使用 PO0 端“专用受限 SSH 上报 key”，请使用 `scope=worker` 并确保 PO0 端 wrapper 已由新版脚本重新安装/刷新。`worker` scope 只允许上报和资源任务 Worker 动作：`--resource-task-ping/claim/upload/complete/fail` 以及只读 `--resource-task-cron-status`，不允许创建资源任务或安装 PO0 端 cron。资源产物通过 manager stdin 上传，不需要 SCP 权限。
 
@@ -232,7 +232,7 @@ non-root: ~/.local/bin/po0-lan-client
 /usr/local/sbin/po0-lan-client --install-cron 5
 ```
 
-新版自检应显示 `版本` 为 `2026-06-17-manager-upload`，`资源上传` 为 `manager-stdin`，资源产物通过 PO0 manager stdin 上传，不再调用 `scp`。
+新版自检应显示 `版本` 为 `2026-06-17-resource-timeouts` 或更新，`资源上传` 为 `manager-stdin`，资源产物通过 PO0 manager stdin 上传，不再调用 `scp`。
 
 配置里旧的 `PO0_SCRIPT=/root/nftables-relay-manager.sh` 继续兼容。
 

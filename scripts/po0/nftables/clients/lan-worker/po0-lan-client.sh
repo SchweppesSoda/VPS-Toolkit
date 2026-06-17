@@ -2,7 +2,7 @@
 set -uo pipefail
 
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh"
-SCRIPT_VERSION="2026-06-17-manager-upload"
+SCRIPT_VERSION="2026-06-17-resource-timeouts"
 RESOURCE_UPLOAD_MODE="manager-stdin"
 DEFAULT_PO0_SCRIPT="/root/nftables-relay-manager.sh"
 PO0_HOST="${PO0_HOST:-}"
@@ -25,6 +25,9 @@ INSTALL_PATH="${PO0_LAN_CLIENT_INSTALL_PATH:-}"
 IPDB_DOWNLOAD_URL="${PO0_IPDB_DOWNLOAD_URL:-https://raw.githubusercontent.com/nmgliangwei/qqwry.ipdb/main/qqwry.ipdb}"
 IPLIST_JOBS="${PO0_IPLIST_JOBS:-${IPLIST_JOBS:-16}}"
 RESOURCE_TASK_MAX_PER_RUN="${PO0_RESOURCE_TASK_MAX_PER_RUN:-10}"
+RESOURCE_UPLOAD_TIMEOUT_SECONDS="${PO0_RESOURCE_UPLOAD_TIMEOUT_SECONDS:-900}"
+RESOURCE_COMPLETE_TIMEOUT_SECONDS="${PO0_RESOURCE_COMPLETE_TIMEOUT_SECONDS:-600}"
+RESOURCE_CONTROL_TIMEOUT_SECONDS="${PO0_RESOURCE_CONTROL_TIMEOUT_SECONDS:-120}"
 WORKER_ID="${PO0_WORKER_ID:-$(hostname 2>/dev/null || printf 'po0-worker')}"
 STATS_FILE_EXPLICIT="0"
 ACTION=""
@@ -188,6 +191,8 @@ usage() {
         "                        资源任务创建周期在 PO0 nft manager 里设置，本机只定期领取已创建任务。" \
         "  PO0_IPLIST_JOBS=N   iplist txt 并发下载数，默认 16，范围 1-50。" \
         "  PO0_RESOURCE_TASK_MAX_PER_RUN=N 每轮最多处理资源任务数，默认 10；0 表示不设上限。" \
+        "  PO0_RESOURCE_UPLOAD_TIMEOUT_SECONDS=N 上传资源产物到 PO0 的超时秒数，默认 900；0 表示不设超时。" \
+        "  PO0_RESOURCE_COMPLETE_TIMEOUT_SECONDS=N PO0 校验/导入资源产物的超时秒数，默认 600。" \
         "  --source-key KEY     PO0 端来源 key/名称；脚本不会解析这个值。" \
         "  --ddns-domain DOMAIN LAN Worker 要解析的 DDNS 域名；结果通过 SSH 上报 PO0。" \
         "  --ddns-targets STR  DDNS 上报目标；格式 source_key|ddns_domain|host|port|user|script|token|ssh_args，多目标用分号或换行分隔。" \
@@ -2360,7 +2365,23 @@ report_resource_failure() {
         ssh_args+=("${extra_args[@]}")
     fi
     remote_cmd="bash $(sh_quote "${script}") --resource-task-fail $(sh_quote "${task_id}") $(sh_quote "${worker_id}") $(sh_quote "${reason}") $(sh_quote "${token}")"
-    ssh "${ssh_args[@]}" "${user}@${host}" "${remote_cmd}" >/dev/null 2>&1 || true
+    run_with_optional_timeout "$(timeout_seconds "${RESOURCE_CONTROL_TIMEOUT_SECONDS}" 120)" ssh "${ssh_args[@]}" "${user}@${host}" "${remote_cmd}" >/dev/null 2>&1 || true
+}
+
+timeout_seconds() {
+    local value="${1:-}" fallback="${2:-0}"
+    [[ "${value}" =~ ^[0-9]+$ ]] || value="${fallback}"
+    printf '%s\n' "${value}"
+}
+
+run_with_optional_timeout() {
+    local seconds="$1"
+    shift
+    if [[ "${seconds}" -gt 0 ]] && command -v timeout >/dev/null 2>&1; then
+        timeout "${seconds}" "$@"
+    else
+        "$@"
+    fi
 }
 
 resource_task_max_per_run() {
@@ -2373,7 +2394,7 @@ resource_task_max_per_run() {
 run_resource_endpoint() {
     local host="$1" port="$2" user="$3" script="$4" token="$5" extra="$6"
     local worker_id endpoint_id remote_cmd response protocol task_id task_type upload_path work output sha size upload_response complete_response reason
-    local processed=0 failed=0 max_per_run
+    local processed=0 failed=0 max_per_run upload_timeout complete_timeout control_timeout upload_rc complete_rc claim_rc
     local -a ssh_args=(-p "${port}")
     local -a extra_args=()
     worker_id="$(sanitize_field "${WORKER_ID}")"
@@ -2384,6 +2405,9 @@ run_resource_endpoint() {
         ssh_args+=("${extra_args[@]}")
     fi
     max_per_run="$(resource_task_max_per_run)"
+    upload_timeout="$(timeout_seconds "${RESOURCE_UPLOAD_TIMEOUT_SECONDS}" 900)"
+    complete_timeout="$(timeout_seconds "${RESOURCE_COMPLETE_TIMEOUT_SECONDS}" 600)"
+    control_timeout="$(timeout_seconds "${RESOURCE_CONTROL_TIMEOUT_SECONDS}" 120)"
     while true; do
         if [[ "${max_per_run}" -gt 0 && "${processed}" -ge "${max_per_run}" ]]; then
             printf '资源任务：%s 本轮已处理 %s 个，达到上限 %s。\n' "${host}" "${processed}" "${max_per_run}"
@@ -2397,7 +2421,12 @@ run_resource_endpoint() {
         upload_path=""
         output=""
         remote_cmd="bash $(sh_quote "${script}") --resource-task-claim $(sh_quote "${worker_id}") $(sh_quote "${token}")"
-        if ! response="$(ssh "${ssh_args[@]}" "${user}@${host}" "${remote_cmd}" 2>&1)"; then
+        response="$(run_with_optional_timeout "${control_timeout}" ssh "${ssh_args[@]}" "${user}@${host}" "${remote_cmd}" 2>&1)"
+        claim_rc=$?
+        if [[ "${claim_rc}" -ne 0 ]]; then
+            if [[ "${claim_rc}" == "124" ]]; then
+                response="资源任务查询超时（${control_timeout} 秒）"
+            fi
             printf '资源任务查询失败：%s@%s:%s\n' "${user}" "${host}" "${port}" >&2
             update_resource_stats "${endpoint_id}" "" "" "查询失败" "${response}" || true
             return 1
@@ -2457,6 +2486,7 @@ run_resource_endpoint() {
             ((failed++))
             continue
         fi
+        printf '资源任务 %s：计算 SHA-256 和文件大小...\n' "${task_id}"
         sha="$(sha256_file "${output}")" || reason="本机缺少 SHA-256 工具"
         size="$(wc -c < "${output}" | tr -d '[:space:]')"
         if [[ -n "${reason}" ]]; then
@@ -2468,8 +2498,15 @@ run_resource_endpoint() {
             continue
         fi
         remote_cmd="bash $(sh_quote "${script}") --resource-task-upload $(sh_quote "${task_id}") $(sh_quote "${worker_id}") $(sh_quote "${sha}") $(sh_quote "${size}") $(sh_quote "${token}")"
-        if ! upload_response="$(ssh "${ssh_args[@]}" "${user}@${host}" "${remote_cmd}" < "${output}" 2>&1)"; then
-            reason="PO0 上传资源文件失败：${upload_response}"
+        printf '资源任务 %s：上传到 PO0（%s bytes，超时 %s 秒）...\n' "${task_id}" "${size}" "${upload_timeout}"
+        upload_response="$(run_with_optional_timeout "${upload_timeout}" ssh "${ssh_args[@]}" "${user}@${host}" "${remote_cmd}" < "${output}" 2>&1)"
+        upload_rc=$?
+        if [[ "${upload_rc}" -ne 0 ]]; then
+            if [[ "${upload_rc}" == "124" ]]; then
+                reason="PO0 上传资源文件超时（${upload_timeout} 秒）"
+            else
+                reason="PO0 上传资源文件失败（退出码 ${upload_rc}）：${upload_response}"
+            fi
             report_resource_failure "${task_id}" "${worker_id}" "${reason}" "${host}" "${port}" "${user}" "${script}" "${token}" "${extra}"
             update_resource_stats "${endpoint_id}" "${task_id}" "${task_type}" "失败" "${reason}" || true
             rm -rf -- "${work}"
@@ -2488,9 +2525,16 @@ run_resource_endpoint() {
             ((failed++))
             continue
         fi
+        printf '资源任务 %s：PO0 已接收，开始校验/导入（超时 %s 秒）...\n' "${task_id}" "${complete_timeout}"
         remote_cmd="bash $(sh_quote "${script}") --resource-task-complete $(sh_quote "${task_id}") $(sh_quote "${worker_id}") $(sh_quote "${sha}") $(sh_quote "${size}") $(sh_quote "${token}")"
-        if ! complete_response="$(ssh "${ssh_args[@]}" "${user}@${host}" "${remote_cmd}" 2>&1)"; then
-            reason="PO0 校验或导入失败：${complete_response}"
+        complete_response="$(run_with_optional_timeout "${complete_timeout}" ssh "${ssh_args[@]}" "${user}@${host}" "${remote_cmd}" 2>&1)"
+        complete_rc=$?
+        if [[ "${complete_rc}" -ne 0 ]]; then
+            if [[ "${complete_rc}" == "124" ]]; then
+                reason="PO0 校验或导入超时（${complete_timeout} 秒）"
+            else
+                reason="PO0 校验或导入失败（退出码 ${complete_rc}）：${complete_response}"
+            fi
             report_resource_failure "${task_id}" "${worker_id}" "${reason}" "${host}" "${port}" "${user}" "${script}" "${token}" "${extra}"
             update_resource_stats "${endpoint_id}" "${task_id}" "${task_type}" "失败" "${reason}" || true
             rm -rf -- "${work}"
