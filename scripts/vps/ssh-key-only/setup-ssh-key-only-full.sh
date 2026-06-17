@@ -285,19 +285,54 @@ trim() {
   printf '%s' "${value}"
 }
 
+# When executed as "curl | bash", stdin is the script body. Interactive input
+# must come from the controlling terminal instead.
+read_from_terminal() {
+  local target="$1"
+
+  if { IFS= read -r "${target}" < /dev/tty; } 2>/dev/null; then
+    return 0
+  fi
+
+  IFS= read -r "${target}"
+}
+
+prompt_from_terminal() {
+  local target="$1"
+  local prompt="$2"
+
+  if { printf '%s' "${prompt}" > /dev/tty && IFS= read -r "${target}" < /dev/tty; } 2>/dev/null; then
+    return 0
+  fi
+
+  printf '%s' "${prompt}" >&2
+  IFS= read -r "${target}"
+}
+
+read_required() {
+  local target="$1"
+
+  read_from_terminal "${target}" || die "无法读取交互输入；请在带 TTY 的 SSH 终端中运行，或使用 bash -s -- 参数入口。"
+}
+
+prompt_required() {
+  local target="$1"
+  local prompt="$2"
+
+  prompt_from_terminal "${target}" "${prompt}" || die "无法读取交互输入；请在带 TTY 的 SSH 终端中运行，或使用 bash -s -- 参数入口。"
+}
+
 prompt_default() {
   local prompt="$1"
   local default="$2"
   local value
 
   if [[ -n "${default}" ]]; then
-    printf '%s [%s]: ' "${prompt}" "${default}" >&2
-    read -r value
+    prompt_required value "${prompt} [${default}]: "
     value="$(trim "${value}")"
     [[ -n "${value}" ]] || value="${default}"
   else
-    printf '%s: ' "${prompt}" >&2
-    read -r value
+    prompt_required value "${prompt}: "
     value="$(trim "${value}")"
   fi
 
@@ -466,8 +501,7 @@ prompt_port_selection() {
   info "2. 手动指定端口"
 
   while true; do
-    printf '请选择 1 或 2，直接回车默认 1 随机：'
-    read -r choice
+    prompt_required choice '请选择 1 或 2，直接回车默认 1 随机：'
     choice="$(trim "${choice}")"
     case "${choice}" in
       ""|1|random|RANDOM)
@@ -987,8 +1021,7 @@ show_account_state() {
 confirm_continue() {
   local answer
 
-  printf '确认继续修改 sshd 和 nft？请输入 yes 继续：'
-  read -r answer
+  prompt_required answer '确认继续修改 sshd 和 nft？请输入 yes 继续：'
   case "${answer}" in
     yes|YES|Yes|y|Y) ;;
     *) die "已取消，未修改 sshd/nft。" ;;
@@ -1000,8 +1033,7 @@ confirm_continue_without_nft() {
 
   warn "当前没有可操作的 nft，脚本无法自动放行新端口，也无法从 nft 里关闭旧端口。"
   warn "从当前监听看，旧端口会随着 sshd 切换端口而停止监听；如果云厂商安全组限制端口，请先在控制台放行新端口。"
-  printf '是否继续只修改 sshd 端口并跳过 nft 变更？请输入 yes 继续：'
-  read -r answer
+  prompt_required answer '是否继续只修改 sshd 端口并跳过 nft 变更？请输入 yes 继续：'
   case "${answer}" in
     yes|YES|Yes|y|Y) ;;
     *) die "已取消，未修改 sshd/nft。" ;;
@@ -1145,8 +1177,7 @@ prompt_key_install_mode() {
   info "请选择本次公钥写入方式："
   info "1. 新增：保留旧公钥，并追加/去重本次输入的公钥。"
   info "2. 替换：先备份 authorized_keys，然后只保留本次输入的新公钥。"
-  printf '请选择 1 或 2，直接回车默认 1 新增：'
-  read -r answer
+  prompt_required answer '请选择 1 或 2，直接回车默认 1 新增：'
 
   case "${answer}" in
     2|replace|REPLACE|Replace|yes|YES|Yes)
@@ -1201,7 +1232,7 @@ prompt_for_user_and_key() {
 
   info ""
   info "请粘贴 SSH 公钥，单行输入，然后回车："
-  read -r PUBKEY
+  read_required PUBKEY
   [[ -n "${PUBKEY}" ]] || die "公钥不能为空。"
 
   case "${PUBKEY}" in
@@ -1210,8 +1241,7 @@ prompt_for_user_and_key() {
     *)
       warn "这看起来不像标准 OpenSSH 公钥。"
       warn "请粘贴 .pub 文件内容，不要粘贴私钥。"
-      printf '如果仍要继续，请输入 yes：'
-      read -r FORCE_CONTINUE
+      prompt_required FORCE_CONTINUE '如果仍要继续，请输入 yes：'
       case "${FORCE_CONTINUE}" in
         yes|YES|Yes|y|Y) ;;
         *) die "已取消。" ;;
@@ -1252,15 +1282,13 @@ install_public_key() {
 
 pause_before_menu() {
   local _
-  printf '\n按回车返回菜单...'
-  read -r _ || true
+  prompt_from_terminal _ $'\n按回车返回菜单...' || true
 }
 
 confirm_key_install_only() {
   local answer
 
-  printf '确认只修改 authorized_keys，不修改 sshd/nft？请输入 yes 继续：'
-  read -r answer
+  prompt_required answer '确认只修改 authorized_keys，不修改 sshd/nft？请输入 yes 继续：'
   case "${answer}" in
     yes|YES|Yes|y|Y) ;;
     *) die "已取消，未修改 authorized_keys。" ;;
@@ -1314,8 +1342,7 @@ run_interactive_menu() {
     print_menu_footer
     print_menu_item 0 "退出"
     print_menu_footer
-    printf '请选择 [0-4]: '
-    read -r choice
+    prompt_required choice '请选择 [0-4]: '
     choice="$(trim "${choice}")"
 
     case "${choice}" in
