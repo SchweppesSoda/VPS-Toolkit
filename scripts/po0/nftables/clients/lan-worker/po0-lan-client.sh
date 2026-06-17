@@ -2,7 +2,7 @@
 set -uo pipefail
 
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh"
-SCRIPT_VERSION="2026-06-17-ssh-extra-noninteractive"
+SCRIPT_VERSION="2026-06-18-ssh-key-iplist-output"
 RESOURCE_UPLOAD_MODE="manager-stdin"
 DEFAULT_PO0_SCRIPT="/root/nftables-relay-manager.sh"
 PO0_HOST="${PO0_HOST:-}"
@@ -27,7 +27,7 @@ IPLIST_JOBS="${PO0_IPLIST_JOBS:-${IPLIST_JOBS:-16}}"
 RESOURCE_TASK_MAX_PER_RUN="${PO0_RESOURCE_TASK_MAX_PER_RUN:-10}"
 RESOURCE_UPLOAD_TIMEOUT_SECONDS="${PO0_RESOURCE_UPLOAD_TIMEOUT_SECONDS:-900}"
 RESOURCE_COMPLETE_TIMEOUT_SECONDS="${PO0_RESOURCE_COMPLETE_TIMEOUT_SECONDS:-600}"
-RESOURCE_CONTROL_TIMEOUT_SECONDS="${PO0_RESOURCE_CONTROL_TIMEOUT_SECONDS:-120}"
+RESOURCE_CONTROL_TIMEOUT_SECONDS="${PO0_RESOURCE_CONTROL_TIMEOUT_SECONDS:-30}"
 REMOTE_STATUS_TIMEOUT_SECONDS="${PO0_REMOTE_STATUS_TIMEOUT_SECONDS:-8}"
 SSH_CONNECT_TIMEOUT_SECONDS="${PO0_SSH_CONNECT_TIMEOUT_SECONDS:-15}"
 WORKER_ID="${PO0_WORKER_ID:-$(hostname 2>/dev/null || printf 'po0-worker')}"
@@ -692,6 +692,78 @@ prompt_ssh_key_path_or_paste() {
     printf '%s\n' "${value}"
 }
 
+ssh_extra_without_private_key_text() {
+    local extra="$1"
+    local -a parts=()
+    local out="" token private_key_words=0
+    local i
+    [[ -n "${extra}" ]] || { printf '\n'; return 0; }
+    read -r -a parts <<< "${extra}"
+    for ((i = 0; i < ${#parts[@]}; i++)); do
+        token="${parts[$i]}"
+        if [[ "${private_key_words}" == "1" ]]; then
+            case "${token}" in
+                OPENSSH|RSA|DSA|EC|ECDSA|ED25519|PRIVATE|KEY|KEY-----|*KEY-----|-----END*)
+                    [[ "${token}" == *KEY----- || "${token}" == -----END* ]] && private_key_words=0
+                    continue
+                    ;;
+            esac
+        fi
+        case "${token}" in
+            -----BEGIN*|-----END*)
+                private_key_words=1
+                [[ "${token}" == *KEY----- || "${token}" == -----END* ]] && private_key_words=0
+                continue
+                ;;
+        esac
+        out="${out:+${out} }${token}"
+    done
+    printf '%s\n' "${out}"
+}
+
+prompt_ssh_extra_args() {
+    local prompt="$1"
+    local default="$2"
+    local host="$3"
+    local port="$4"
+    local user="$5"
+    local value raw key key_path cleaned used_default=0
+    if [[ -n "${default}" ]]; then
+        raw="$(read_prompt "${prompt} [${default}]: ")" || raw=""
+        raw="$(trim "${raw}")"
+        if [[ -n "${raw}" ]]; then
+            value="${raw}"
+        else
+            value="${default}"
+            used_default=1
+        fi
+    else
+        raw="$(read_prompt "${prompt}: ")" || raw=""
+        value="$(trim "${raw}")"
+    fi
+    if [[ "${used_default}" == "0" ]] && is_private_key_begin_line "${value}"; then
+        printf '[WARN] 检测到你把私钥内容粘贴到了“额外 SSH 参数”输入框，正在保存为私钥文件。\n' >&2
+        key="$(read_private_key_from_first_line "${value}")" || { drain_tty_input_buffer; return 1; }
+        drain_tty_input_buffer
+        key_path="$(save_ssh_key_content "${host}" "${port}" "${user}" "${key}")" || return 1
+        cleaned="$(ssh_extra_without_identity "${default}")"
+        ssh_extra_with_identity "${cleaned}" "${key_path}"
+        return 0
+    fi
+    case "${value}" in
+        *"-----BEGIN "*"PRIVATE KEY-----"*|*"-----END "*"PRIVATE KEY-----"*)
+            if [[ "${used_default}" == "1" ]]; then
+                printf '[WARN] 清理旧配置中残留的私钥正文片段；请使用 -i /path/key 引用私钥文件。\n' >&2
+                ssh_extra_without_private_key_text "${value}"
+                return 0
+            fi
+            printf '额外 SSH 参数不能填写私钥正文；请选择“粘贴私钥并保存到本机”，或先保存私钥文件后填写 -i /path/key。\n' >&2
+            return 1
+            ;;
+    esac
+    printf '%s\n' "${value}"
+}
+
 ssh_extra_identity_path() {
     local extra="$1"
     local -a parts=()
@@ -733,7 +805,7 @@ ssh_extra_identity_path() {
 ssh_extra_without_identity() {
     local extra="$1"
     local -a parts=()
-    local out="" token next
+    local out="" token next private_key_words=0
     local i skip_next=0
     [[ -n "${extra}" ]] || { printf '\n'; return 0; }
     read -r -a parts <<< "${extra}"
@@ -744,7 +816,20 @@ ssh_extra_without_identity() {
         fi
         token="${parts[$i]}"
         next="${parts[$((i + 1))]:-}"
+        if [[ "${private_key_words}" == "1" ]]; then
+            case "${token}" in
+                OPENSSH|RSA|DSA|EC|ECDSA|ED25519|PRIVATE|KEY|KEY-----|*KEY-----|-----END*)
+                    [[ "${token}" == *KEY----- || "${token}" == -----END* ]] && private_key_words=0
+                    continue
+                    ;;
+            esac
+        fi
         case "${token}" in
+            -----BEGIN*|-----END*)
+                private_key_words=1
+                [[ "${token}" == *KEY----- || "${token}" == -----END* ]] && private_key_words=0
+                continue
+                ;;
             -i)
                 skip_next=1
                 continue
@@ -791,6 +876,8 @@ sanitize_ssh_extra_args() {
     local token next
     local i
     local has_batchmode=0 has_connect_timeout=0 has_strict_host=0 connect_timeout
+    local has_connection_attempts=0 has_number_prompts=0 has_preferred_auth=0 has_password_auth=0 has_kbd_auth=0 has_gssapi=0
+    local private_key_words=0 private_key_warned=0
     SSH_EXTRA_ARGV=()
     connect_timeout="$(timeout_seconds "${SSH_CONNECT_TIMEOUT_SECONDS}" 15)"
     if [[ -n "${extra}" ]]; then
@@ -800,8 +887,25 @@ sanitize_ssh_extra_args() {
         token="${parts[$i]}"
         next="${parts[$((i + 1))]:-}"
         [[ -n "${token}" ]] || continue
+        if [[ "${private_key_words}" == "1" ]]; then
+            case "${token}" in
+                OPENSSH|RSA|DSA|EC|ECDSA|ED25519|PRIVATE|KEY|KEY-----|*KEY-----|-----END*)
+                    [[ "${token}" == *KEY----- || "${token}" == -----END* ]] && private_key_words=0
+                    continue
+                    ;;
+            esac
+        fi
         case "${token}" in
-            -|--*|-----BEGIN*|-----END*)
+            -----BEGIN*|-----END*)
+                if [[ "${private_key_warned}" == "0" ]]; then
+                    ssh_extra_warn_ignored "${context}" "private key text is not an SSH option; save it to a file and use -i /path/key"
+                    private_key_warned=1
+                fi
+                private_key_words=1
+                [[ "${token}" == *KEY----- || "${token}" == -----END* ]] && private_key_words=0
+                continue
+                ;;
+            -|--*)
                 ssh_extra_warn_ignored "${context}" "invalid option/private-key marker"
                 continue
                 ;;
@@ -831,6 +935,36 @@ sanitize_ssh_extra_args() {
                 SSH_EXTRA_ARGV+=(-o "${token}")
                 continue
                 ;;
+            ConnectionAttempts=*)
+                has_connection_attempts=1
+                SSH_EXTRA_ARGV+=(-o "${token}")
+                continue
+                ;;
+            NumberOfPasswordPrompts=*)
+                has_number_prompts=1
+                SSH_EXTRA_ARGV+=(-o "${token}")
+                continue
+                ;;
+            PreferredAuthentications=*)
+                has_preferred_auth=1
+                SSH_EXTRA_ARGV+=(-o "${token}")
+                continue
+                ;;
+            PasswordAuthentication=*)
+                has_password_auth=1
+                SSH_EXTRA_ARGV+=(-o "${token}")
+                continue
+                ;;
+            KbdInteractiveAuthentication=*)
+                has_kbd_auth=1
+                SSH_EXTRA_ARGV+=(-o "${token}")
+                continue
+                ;;
+            GSSAPIAuthentication=*)
+                has_gssapi=1
+                SSH_EXTRA_ARGV+=(-o "${token}")
+                continue
+                ;;
             IdentityFile=*|UserKnownHostsFile=*|HostKeyAlias=*|ProxyJump=*|ProxyCommand=*)
                 SSH_EXTRA_ARGV+=(-o "${token}")
                 continue
@@ -850,6 +984,36 @@ sanitize_ssh_extra_args() {
                 SSH_EXTRA_ARGV+=("${token}")
                 continue
                 ;;
+            -oConnectionAttempts=*)
+                has_connection_attempts=1
+                SSH_EXTRA_ARGV+=("${token}")
+                continue
+                ;;
+            -oNumberOfPasswordPrompts=*)
+                has_number_prompts=1
+                SSH_EXTRA_ARGV+=("${token}")
+                continue
+                ;;
+            -oPreferredAuthentications=*)
+                has_preferred_auth=1
+                SSH_EXTRA_ARGV+=("${token}")
+                continue
+                ;;
+            -oPasswordAuthentication=*)
+                has_password_auth=1
+                SSH_EXTRA_ARGV+=("${token}")
+                continue
+                ;;
+            -oKbdInteractiveAuthentication=*)
+                has_kbd_auth=1
+                SSH_EXTRA_ARGV+=("${token}")
+                continue
+                ;;
+            -oGSSAPIAuthentication=*)
+                has_gssapi=1
+                SSH_EXTRA_ARGV+=("${token}")
+                continue
+                ;;
         esac
         case "${token}" in
             -B|-b|-c|-D|-E|-e|-F|-I|-i|-J|-L|-l|-m|-O|-o|-P|-Q|-R|-S|-W|-w)
@@ -862,6 +1026,12 @@ sanitize_ssh_extra_args() {
                         BatchMode=*) has_batchmode=1 ;;
                         ConnectTimeout=*) has_connect_timeout=1 ;;
                         StrictHostKeyChecking=*) has_strict_host=1 ;;
+                        ConnectionAttempts=*) has_connection_attempts=1 ;;
+                        NumberOfPasswordPrompts=*) has_number_prompts=1 ;;
+                        PreferredAuthentications=*) has_preferred_auth=1 ;;
+                        PasswordAuthentication=*) has_password_auth=1 ;;
+                        KbdInteractiveAuthentication=*) has_kbd_auth=1 ;;
+                        GSSAPIAuthentication=*) has_gssapi=1 ;;
                     esac
                 fi
                 SSH_EXTRA_ARGV+=("${token}" "${next}")
@@ -878,14 +1048,25 @@ sanitize_ssh_extra_args() {
     [[ "${has_batchmode}" == "1" ]] || SSH_EXTRA_ARGV+=(-o BatchMode=yes)
     [[ "${has_connect_timeout}" == "1" ]] || SSH_EXTRA_ARGV+=(-o "ConnectTimeout=${connect_timeout}")
     [[ "${has_strict_host}" == "1" ]] || SSH_EXTRA_ARGV+=(-o StrictHostKeyChecking=accept-new)
+    [[ "${has_connection_attempts}" == "1" ]] || SSH_EXTRA_ARGV+=(-o ConnectionAttempts=1)
+    [[ "${has_number_prompts}" == "1" ]] || SSH_EXTRA_ARGV+=(-o NumberOfPasswordPrompts=0)
+    [[ "${has_preferred_auth}" == "1" ]] || SSH_EXTRA_ARGV+=(-o PreferredAuthentications=publickey)
+    [[ "${has_password_auth}" == "1" ]] || SSH_EXTRA_ARGV+=(-o PasswordAuthentication=no)
+    [[ "${has_kbd_auth}" == "1" ]] || SSH_EXTRA_ARGV+=(-o KbdInteractiveAuthentication=no)
+    [[ "${has_gssapi}" == "1" ]] || SSH_EXTRA_ARGV+=(-o GSSAPIAuthentication=no)
 }
 
 build_batchmode_ssh_extra_args() {
     local key_path="$1"
     local extra="$2"
-    local out=""
+    local out="" raw_extra
     key_path="$(trim "${key_path}")"
     extra="$(trim "${extra}")"
+    raw_extra="${extra}"
+    extra="$(ssh_extra_without_private_key_text "${extra}")"
+    if [[ "${raw_extra}" != "${extra}" ]]; then
+        printf '[WARN] 已忽略额外 SSH 参数中的私钥正文片段；私钥必须保存为文件并通过 -i /path/key 引用。\n' >&2
+    fi
     if [[ -n "${key_path}" ]]; then
         case "${key_path}" in
             *" "*)
@@ -893,6 +1074,7 @@ build_batchmode_ssh_extra_args() {
                 return 1
                 ;;
         esac
+        extra="$(ssh_extra_without_identity "${extra}")"
         out="-i ${key_path}"
     fi
     [[ -n "${extra}" ]] && out="${out:+${out} }${extra}"
@@ -1116,6 +1298,8 @@ append_target() {
     local webauth_ttl="${19:-}"
     local report_ssh_extra_args="${20:-}"
     ensure_config_file || return 1
+    ssh_extra_args="$(ssh_extra_without_private_key_text "${ssh_extra_args}")"
+    report_ssh_extra_args="$(ssh_extra_without_private_key_text "${report_ssh_extra_args}")"
     report_mode="$(normalize_report_mode "${report_mode}")"
     if [[ "${report_mode}" == "auto" ]]; then
         [[ -n "${ddns_resolve_domain:-${domain}}" ]] && report_mode="ddns" || report_mode="none"
@@ -1167,6 +1351,8 @@ upsert_target() {
     local report_ssh_extra_args="${20:-}"
     local tmp line found=0
     ensure_config_file || return 1
+    ssh_extra_args="$(ssh_extra_without_private_key_text "${ssh_extra_args}")"
+    report_ssh_extra_args="$(ssh_extra_without_private_key_text "${report_ssh_extra_args}")"
     report_mode="$(normalize_report_mode "${report_mode}")"
     if [[ "${report_mode}" == "auto" ]]; then
         [[ -n "${ddns_resolve_domain:-${domain}}" ]] && report_mode="ddns" || report_mode="none"
@@ -1572,7 +1758,7 @@ add_target_interactive() {
     else
         report_key=""
     fi
-    ssh_extra_args="$(prompt_default "额外 SSH 参数，可空（不是私钥短语；例如 -J jump-host 或 -o StrictHostKeyChecking=accept-new）" "${SSH_EXTRA_ARGS}")"
+    ssh_extra_args="$(prompt_ssh_extra_args "额外 SSH 参数，可空（不是私钥短语；例如 -J jump-host 或 -o StrictHostKeyChecking=accept-new）" "${SSH_EXTRA_ARGS}" "${po0_host}" "${po0_port}" "${po0_user}")" || return 1
     append_target "1" "${label}" "${domain}" "${report_key}" "${po0_host}" "${po0_port}" "${po0_user}" "${po0_script}" "${token}" "${ssh_extra_args}" "${resource_token}" "${report_mode}" "${ddns_resolve_domain}" || return 1
     printf '已添加：%s -> %s\n' "${domain:-资源-only}" "${po0_host}"
 }
@@ -1694,7 +1880,7 @@ edit_target_interactive() {
     po0_script="$(prompt_default "PO0 管理脚本路径" "${po0_script:-${DEFAULT_PO0_SCRIPT}}")"
     token="$(prompt_default "DDNS 来源上报 Token，可空" "${token}")"
     resource_token="$(prompt_default "资源任务 Token，可空" "${resource_token}")"
-    ssh_extra_args="$(prompt_default "额外 SSH 参数，可空（不是私钥短语；例如 -J jump-host 或 -o StrictHostKeyChecking=accept-new）" "${ssh_extra_args}")"
+    ssh_extra_args="$(prompt_ssh_extra_args "额外 SSH 参数，可空（不是私钥短语；例如 -J jump-host 或 -o StrictHostKeyChecking=accept-new）" "${ssh_extra_args}" "${po0_host}" "${po0_port}" "${po0_user}")" || return 1
     [[ -n "${domain}" ]] || report_key=""
     [[ -n "${po0_host}" && ( -n "${domain}" || -n "${resource_token}" ) ]] || {
         printf 'PO0 SSH 地址不能为空；PO0 来源 key 和资源任务 Token 不能同时为空。\n' >&2
@@ -1704,6 +1890,8 @@ edit_target_interactive() {
         printf 'DDNS resolver 模式必须填写 DDNS 域名。\n' >&2
         return 1
     }
+    ssh_extra_args="$(ssh_extra_without_private_key_text "${ssh_extra_args}")"
+    report_ssh_extra_args="$(ssh_extra_without_private_key_text "${report_ssh_extra_args}")"
 
     tmp="${CONFIG_FILE}.tmp.$$"
     idx=0
@@ -1746,9 +1934,11 @@ update_target_ssh_args_by_index() {
         fi
         ((idx++))
         if [[ "${idx}" == "${selected}" ]]; then
-            TARGET_SSH_EXTRA_ARGS="$(sanitize_field "${new_extra}")"
+            TARGET_SSH_EXTRA_ARGS="$(sanitize_field "$(ssh_extra_without_private_key_text "${new_extra}")")"
             if [[ "${update_report_extra}" == "1" || -z "${TARGET_REPORT_SSH_EXTRA_ARGS}" || "${TARGET_REPORT_SSH_EXTRA_ARGS}" == "${old_extra}" ]]; then
                 TARGET_REPORT_SSH_EXTRA_ARGS="${TARGET_SSH_EXTRA_ARGS}"
+            else
+                TARGET_REPORT_SSH_EXTRA_ARGS="$(sanitize_field "$(ssh_extra_without_private_key_text "${TARGET_REPORT_SSH_EXTRA_ARGS}")")"
             fi
         fi
         printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
@@ -1809,7 +1999,7 @@ manage_target_ssh_interactive() {
                 break
                 ;;
             4)
-                new_extra="$(prompt_default "额外 SSH 参数，例如 -J jump-host 或 -o StrictHostKeyChecking=accept-new" "${extra}")"
+                new_extra="$(prompt_ssh_extra_args "额外 SSH 参数，例如 -J jump-host 或 -o StrictHostKeyChecking=accept-new" "${extra}" "${po0_host}" "${po0_port}" "${po0_user}")" || return 1
                 break
                 ;;
             0)
@@ -2053,7 +2243,7 @@ po0_lan_wizard() {
             key_path=""
             ;;
     esac
-    extra="$(prompt_default "额外 SSH 参数，可空（不是私钥短语；例如 -J jump-host 或 -o StrictHostKeyChecking=accept-new）" "${SSH_EXTRA_ARGS}")"
+    extra="$(prompt_ssh_extra_args "额外 SSH 参数，可空（不是私钥短语；例如 -J jump-host 或 -o StrictHostKeyChecking=accept-new）" "${SSH_EXTRA_ARGS}" "${PO0_HOST}" "${PO0_PORT}" "${PO0_USER}")" || return 1
     SSH_EXTRA_ARGS="$(build_batchmode_ssh_extra_args "${key_path}" "${extra}")" || return 1
 
     printf '\n检查密钥 SSH 和 PO0 管理脚本...\n'
@@ -2377,7 +2567,7 @@ list_resource_stats() {
 fetch_to_file() {
     local url="$1" output="$2"
     if command -v curl >/dev/null 2>&1; then
-        curl -fL --retry 3 --connect-timeout 15 --max-time 180 "${url}" -o "${output}"
+        curl -fsSL --retry 3 --connect-timeout 15 --max-time 180 "${url}" -o "${output}"
     elif command -v wget >/dev/null 2>&1; then
         wget -q --timeout=180 "${url}" -O "${output}"
     else
@@ -2483,7 +2673,7 @@ output="$4"
 mkdir -p "$(dirname "${output}")"
 printf "[%s/%s] %s\n" "${idx}" "${TOTAL_SUPPORTED}" "${rel}"
 if command -v curl >/dev/null 2>&1; then
-    curl -fL --retry 3 --connect-timeout 15 --max-time 180 "${url}" -o "${output}"
+    curl -fsSL --retry 3 --connect-timeout 15 --max-time 180 "${url}" -o "${output}"
 elif command -v wget >/dev/null 2>&1; then
     wget -q --timeout=180 "${url}" -O "${output}"
 else
@@ -2943,6 +3133,14 @@ def sanitized_extra_args(extra, context):
     has_batchmode = False
     has_connect_timeout = False
     has_strict_host = False
+    has_connection_attempts = False
+    has_number_prompts = False
+    has_preferred_auth = False
+    has_password_auth = False
+    has_kbd_auth = False
+    has_gssapi = False
+    private_key_words = False
+    private_key_warned = False
     connect_timeout = os.environ.get("PO0_SSH_CONNECT_TIMEOUT_SECONDS", "15") or "15"
     try:
         parts = shlex.split(extra or "")
@@ -2956,12 +3154,31 @@ def sanitized_extra_args(extra, context):
     option_assignments = (
         "IdentityFile=", "BatchMode=", "StrictHostKeyChecking=",
         "UserKnownHostsFile=", "HostKeyAlias=", "ProxyJump=", "ProxyCommand=",
+        "ConnectTimeout=", "ConnectionAttempts=", "NumberOfPasswordPrompts=",
+        "PreferredAuthentications=", "PasswordAuthentication=",
+        "KbdInteractiveAuthentication=", "GSSAPIAuthentication=",
     )
     i = 0
     while i < len(parts):
         token = parts[i]
         next_token = parts[i + 1] if i + 1 < len(parts) else ""
-        if token == "-" or token.startswith("--") or token.startswith("-----BEGIN") or token.startswith("-----END"):
+        if private_key_words and (
+            token in ("OPENSSH", "RSA", "DSA", "EC", "ECDSA", "ED25519", "PRIVATE", "KEY", "KEY-----")
+            or token.endswith("KEY-----")
+            or token.startswith("-----END")
+        ):
+            if token.endswith("KEY-----") or token.startswith("-----END"):
+                private_key_words = False
+            i += 1
+        elif token.startswith("-----BEGIN") or token.startswith("-----END"):
+            if not private_key_warned:
+                warn_ignored_extra(context, "private key text is not an SSH option; save it to a file and use -i /path/key")
+                private_key_warned = True
+            private_key_words = True
+            if token.endswith("KEY-----") or token.startswith("-----END"):
+                private_key_words = False
+            i += 1
+        elif token == "-" or token.startswith("--"):
             warn_ignored_extra(context, "invalid option/private-key marker")
             i += 1
         elif token == "-p":
@@ -2977,6 +3194,18 @@ def sanitized_extra_args(extra, context):
                 has_connect_timeout = True
             elif token.startswith("StrictHostKeyChecking="):
                 has_strict_host = True
+            elif token.startswith("ConnectionAttempts="):
+                has_connection_attempts = True
+            elif token.startswith("NumberOfPasswordPrompts="):
+                has_number_prompts = True
+            elif token.startswith("PreferredAuthentications="):
+                has_preferred_auth = True
+            elif token.startswith("PasswordAuthentication="):
+                has_password_auth = True
+            elif token.startswith("KbdInteractiveAuthentication="):
+                has_kbd_auth = True
+            elif token.startswith("GSSAPIAuthentication="):
+                has_gssapi = True
             out.extend(["-o", token])
             i += 1
         elif token in options_with_value:
@@ -2991,6 +3220,18 @@ def sanitized_extra_args(extra, context):
                         has_connect_timeout = True
                     elif next_token.startswith("StrictHostKeyChecking="):
                         has_strict_host = True
+                    elif next_token.startswith("ConnectionAttempts="):
+                        has_connection_attempts = True
+                    elif next_token.startswith("NumberOfPasswordPrompts="):
+                        has_number_prompts = True
+                    elif next_token.startswith("PreferredAuthentications="):
+                        has_preferred_auth = True
+                    elif next_token.startswith("PasswordAuthentication="):
+                        has_password_auth = True
+                    elif next_token.startswith("KbdInteractiveAuthentication="):
+                        has_kbd_auth = True
+                    elif next_token.startswith("GSSAPIAuthentication="):
+                        has_gssapi = True
                 out.extend([token, next_token])
                 i += 2
         elif token.startswith("-"):
@@ -3000,6 +3241,18 @@ def sanitized_extra_args(extra, context):
                 has_connect_timeout = True
             elif token.startswith("-oStrictHostKeyChecking="):
                 has_strict_host = True
+            elif token.startswith("-oConnectionAttempts="):
+                has_connection_attempts = True
+            elif token.startswith("-oNumberOfPasswordPrompts="):
+                has_number_prompts = True
+            elif token.startswith("-oPreferredAuthentications="):
+                has_preferred_auth = True
+            elif token.startswith("-oPasswordAuthentication="):
+                has_password_auth = True
+            elif token.startswith("-oKbdInteractiveAuthentication="):
+                has_kbd_auth = True
+            elif token.startswith("-oGSSAPIAuthentication="):
+                has_gssapi = True
             out.append(token)
             i += 1
         else:
@@ -3011,6 +3264,18 @@ def sanitized_extra_args(extra, context):
         out.extend(["-o", f"ConnectTimeout={connect_timeout}"])
     if not has_strict_host:
         out.extend(["-o", "StrictHostKeyChecking=accept-new"])
+    if not has_connection_attempts:
+        out.extend(["-o", "ConnectionAttempts=1"])
+    if not has_number_prompts:
+        out.extend(["-o", "NumberOfPasswordPrompts=0"])
+    if not has_preferred_auth:
+        out.extend(["-o", "PreferredAuthentications=publickey"])
+    if not has_password_auth:
+        out.extend(["-o", "PasswordAuthentication=no"])
+    if not has_kbd_auth:
+        out.extend(["-o", "KbdInteractiveAuthentication=no"])
+    if not has_gssapi:
+        out.extend(["-o", "GSSAPIAuthentication=no"])
     return out
 
 TARGETS = parse_targets(os.environ.get('PO0_WEBAUTH_TARGETS', ''))
@@ -3302,6 +3567,14 @@ def sanitized_extra_args(extra, context):
     has_batchmode = False
     has_connect_timeout = False
     has_strict_host = False
+    has_connection_attempts = False
+    has_number_prompts = False
+    has_preferred_auth = False
+    has_password_auth = False
+    has_kbd_auth = False
+    has_gssapi = False
+    private_key_words = False
+    private_key_warned = False
     connect_timeout = os.environ.get("PO0_SSH_CONNECT_TIMEOUT_SECONDS", "15") or "15"
     try:
         parts = shlex.split(extra or "")
@@ -3315,12 +3588,31 @@ def sanitized_extra_args(extra, context):
     option_assignments = (
         "IdentityFile=", "BatchMode=", "StrictHostKeyChecking=",
         "UserKnownHostsFile=", "HostKeyAlias=", "ProxyJump=", "ProxyCommand=",
+        "ConnectTimeout=", "ConnectionAttempts=", "NumberOfPasswordPrompts=",
+        "PreferredAuthentications=", "PasswordAuthentication=",
+        "KbdInteractiveAuthentication=", "GSSAPIAuthentication=",
     )
     i = 0
     while i < len(parts):
         token = parts[i]
         next_token = parts[i + 1] if i + 1 < len(parts) else ""
-        if token == "-" or token.startswith("--") or token.startswith("-----BEGIN") or token.startswith("-----END"):
+        if private_key_words and (
+            token in ("OPENSSH", "RSA", "DSA", "EC", "ECDSA", "ED25519", "PRIVATE", "KEY", "KEY-----")
+            or token.endswith("KEY-----")
+            or token.startswith("-----END")
+        ):
+            if token.endswith("KEY-----") or token.startswith("-----END"):
+                private_key_words = False
+            i += 1
+        elif token.startswith("-----BEGIN") or token.startswith("-----END"):
+            if not private_key_warned:
+                warn_ignored_extra(context, "private key text is not an SSH option; save it to a file and use -i /path/key")
+                private_key_warned = True
+            private_key_words = True
+            if token.endswith("KEY-----") or token.startswith("-----END"):
+                private_key_words = False
+            i += 1
+        elif token == "-" or token.startswith("--"):
             warn_ignored_extra(context, "invalid option/private-key marker")
             i += 1
         elif token == "-p":
@@ -3336,6 +3628,18 @@ def sanitized_extra_args(extra, context):
                 has_connect_timeout = True
             elif token.startswith("StrictHostKeyChecking="):
                 has_strict_host = True
+            elif token.startswith("ConnectionAttempts="):
+                has_connection_attempts = True
+            elif token.startswith("NumberOfPasswordPrompts="):
+                has_number_prompts = True
+            elif token.startswith("PreferredAuthentications="):
+                has_preferred_auth = True
+            elif token.startswith("PasswordAuthentication="):
+                has_password_auth = True
+            elif token.startswith("KbdInteractiveAuthentication="):
+                has_kbd_auth = True
+            elif token.startswith("GSSAPIAuthentication="):
+                has_gssapi = True
             out.extend(["-o", token])
             i += 1
         elif token in options_with_value:
@@ -3350,6 +3654,18 @@ def sanitized_extra_args(extra, context):
                         has_connect_timeout = True
                     elif next_token.startswith("StrictHostKeyChecking="):
                         has_strict_host = True
+                    elif next_token.startswith("ConnectionAttempts="):
+                        has_connection_attempts = True
+                    elif next_token.startswith("NumberOfPasswordPrompts="):
+                        has_number_prompts = True
+                    elif next_token.startswith("PreferredAuthentications="):
+                        has_preferred_auth = True
+                    elif next_token.startswith("PasswordAuthentication="):
+                        has_password_auth = True
+                    elif next_token.startswith("KbdInteractiveAuthentication="):
+                        has_kbd_auth = True
+                    elif next_token.startswith("GSSAPIAuthentication="):
+                        has_gssapi = True
                 out.extend([token, next_token])
                 i += 2
         elif token.startswith("-"):
@@ -3359,6 +3675,18 @@ def sanitized_extra_args(extra, context):
                 has_connect_timeout = True
             elif token.startswith("-oStrictHostKeyChecking="):
                 has_strict_host = True
+            elif token.startswith("-oConnectionAttempts="):
+                has_connection_attempts = True
+            elif token.startswith("-oNumberOfPasswordPrompts="):
+                has_number_prompts = True
+            elif token.startswith("-oPreferredAuthentications="):
+                has_preferred_auth = True
+            elif token.startswith("-oPasswordAuthentication="):
+                has_password_auth = True
+            elif token.startswith("-oKbdInteractiveAuthentication="):
+                has_kbd_auth = True
+            elif token.startswith("-oGSSAPIAuthentication="):
+                has_gssapi = True
             out.append(token)
             i += 1
         else:
@@ -3370,6 +3698,18 @@ def sanitized_extra_args(extra, context):
         out.extend(["-o", f"ConnectTimeout={connect_timeout}"])
     if not has_strict_host:
         out.extend(["-o", "StrictHostKeyChecking=accept-new"])
+    if not has_connection_attempts:
+        out.extend(["-o", "ConnectionAttempts=1"])
+    if not has_number_prompts:
+        out.extend(["-o", "NumberOfPasswordPrompts=0"])
+    if not has_preferred_auth:
+        out.extend(["-o", "PreferredAuthentications=publickey"])
+    if not has_password_auth:
+        out.extend(["-o", "PasswordAuthentication=no"])
+    if not has_kbd_auth:
+        out.extend(["-o", "KbdInteractiveAuthentication=no"])
+    if not has_gssapi:
+        out.extend(["-o", "GSSAPIAuthentication=no"])
     return out
 
 TARGETS = parse_targets(os.environ.get('PO0_SELF_REPORT_TARGETS', ''))
