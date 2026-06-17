@@ -323,9 +323,9 @@ function rowNode(icon, iconColor, label, value, valueColor = WIDGET_COLORS.text)
     type: 'stack',
     direction: 'row',
     alignItems: 'center',
-    gap: 5,
+    gap: 3,
     children: [
-      iconNode(icon, iconColor, 11),
+      iconNode(icon, iconColor, 10),
       textNode(label, 10, 'regular', WIDGET_COLORS.dim),
       spacerNode(),
       textNode(value || '未知', 10, 'medium', valueColor),
@@ -459,10 +459,9 @@ function widgetFromState(state, ctx, deviceId = '') {
     {
       type: 'stack',
       direction: 'row',
-      gap: 10,
+      gap: 6,
       children: [
         { type: 'stack', direction: 'column', gap: 5, flex: 1, children: [sectionTitleNode('公网出口'), ...publicRows] },
-        { type: 'stack', width: 0.5, backgroundColor: WIDGET_COLORS.line },
         { type: 'stack', direction: 'column', gap: 5, flex: 1, children: [sectionTitleNode('本机网络'), ...networkRows] },
       ],
     },
@@ -470,7 +469,7 @@ function widgetFromState(state, ctx, deviceId = '') {
     {
       type: 'stack',
       direction: 'row',
-      gap: 10,
+      gap: 6,
       children: [
         { type: 'stack', direction: 'column', flex: 1, children: [statusRows[0]] },
         { type: 'stack', direction: 'column', flex: 1, children: [statusRows[1]] },
@@ -486,7 +485,7 @@ function widgetFromState(state, ctx, deviceId = '') {
   return {
     type: 'widget',
     padding: 14,
-    gap: 8,
+    gap: 6,
     backgroundColor: WIDGET_COLORS.background,
     refreshAfter: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
     children: [
