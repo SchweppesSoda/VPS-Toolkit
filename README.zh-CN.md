@@ -62,7 +62,7 @@ chmod 755 /usr/local/sbin/po0-lan-client
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --source-key <DDNS_SOURCE_KEY> --ddns-domain <DDNS_DOMAIN> --token <DDNS_TOKEN> --resource-token <RESOURCE_TOKEN> --install-cron 5
 
 # PO0 内网 Worker：在 LAN Worker 机器上执行，只做资源任务轮询领取
-# PO0 端负责定时创建任务，Worker 只检查并领取 pending 任务
+# PO0 端负责定时创建任务，Worker 单轮会持续领取 pending 任务；iplist txt 默认并发 16，可用 PO0_IPLIST_JOBS 调整
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --resource-token <RESOURCE_TOKEN> --install-cron 5
 # 如果仍看到 scp: Connection closed，先确认实际运行脚本：/usr/local/sbin/po0-lan-client --version
 

@@ -213,6 +213,8 @@ iplist
 ipdb
 ```
 
+同一轮资源轮询会持续领取 pending 任务，直到 PO0 返回无任务或达到本轮上限。默认上限是 `PO0_RESOURCE_TASK_MAX_PER_RUN=10`，设为 `0` 表示不设上限。`iplist` 的 txt 数据文件默认并发下载，默认 `PO0_IPLIST_JOBS=16`，可调范围 `1-50`。
+
 如果 LAN Worker 使用 PO0 端“专用受限 SSH 上报 key”，请使用 `scope=worker` 并确保 PO0 端 wrapper 已由新版脚本重新安装/刷新。`worker` scope 只允许上报和资源任务 Worker 动作：`--resource-task-ping/claim/upload/complete/fail` 以及只读 `--resource-task-cron-status`，不允许创建资源任务或安装 PO0 端 cron。资源产物通过 manager stdin 上传，不需要 SCP 权限。
 
 Worker 交互向导、管道运行且需要本机轮询器或服务时，会自动落盘到：
