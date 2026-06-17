@@ -328,22 +328,36 @@ print_panel_action() {
     print_panel_row "$@"
 }
 
+read_prompt() {
+    local prompt="$1"
+    local value
+    if [[ -r /dev/tty && -w /dev/tty ]]; then
+        if { printf '%s' "${prompt}" > /dev/tty && IFS= read -r value < /dev/tty; } 2>/dev/null; then
+            printf '%s\n' "${value}"
+            return 0
+        fi
+    fi
+    printf '%s' "${prompt}" >&2
+    IFS= read -r value || return 1
+    printf '%s\n' "${value}"
+}
+
 read_menu_choice() {
     local prompt="$1"
     local choice
-    IFS= read -r -p "${prompt}" choice || return 1
+    choice="$(read_prompt "${prompt}")" || return 1
     printf '%s\n' "$(trim "${choice}")"
 }
 
 read_menu_choice_or_return() {
     local __target="$1"
     local prompt="$2"
-    local choice
-    if ! choice="$(read_menu_choice "${prompt}")"; then
+    local __choice_value
+    if ! __choice_value="$(read_menu_choice "${prompt}")"; then
         printf '\n输入结束，退出当前菜单。\n'
         return 1
     fi
-    printf -v "${__target}" '%s' "${choice}"
+    printf -v "${__target}" '%s' "${__choice_value}"
 }
 
 trim() {
@@ -362,13 +376,13 @@ check_root() {
 
 confirm_yes() {
     local ans
-    read -r -p "$1 [y/N]: " ans
+    ans="$(read_prompt "$1 [y/N]: ")" || return 1
     [[ "${ans}" =~ ^[Yy]$ ]]
 }
 
 confirm_strong_yes() {
     local ans
-    read -r -p "$1（输入 YES 确认）: " ans
+    ans="$(read_prompt "$1（输入 YES 确认）: ")" || return 1
     [[ "${ans}" == "YES" ]]
 }
 
@@ -377,17 +391,17 @@ prompt_with_default() {
     local default="${2-}"
     local value
     if [[ -n "${default}" ]]; then
-        read -r -p "${prompt} [当前: ${default}]: " value
+        value="$(read_prompt "${prompt} [当前: ${default}]: ")" || value=""
         printf '%s\n' "${value:-${default}}"
     else
-        read -r -p "${prompt}: " value
+        value="$(read_prompt "${prompt}: ")" || value=""
         printf '%s\n' "${value}"
     fi
 }
 
 pause_before_return() {
     echo ""
-    read -r -p "按回车返回菜单..." _
+    read_prompt "按回车返回菜单..." >/dev/null || true
 }
 
 validate_port() {
@@ -3384,7 +3398,7 @@ select_allowlist_profile() {
         printf '  %2d) %s\n' "${idx}" "${summary}"
         ((idx++))
     done
-    read -r -p "请选择配置档案 [1-${#names[@]}]: " choice
+    choice="$(read_prompt "请选择配置档案 [1-${#names[@]}]: ")" || return 1
     [[ "${choice}" =~ ^[0-9]+$ ]] || return 1
     (( choice >= 1 && choice <= ${#names[@]} )) || return 1
     SELECTED_ALLOWLIST_PROFILE="${names[$((choice - 1))]}"
@@ -4388,7 +4402,7 @@ select_learned_ip_candidate() {
         printf '      最近: %s | 中转机监听端口: %s\n' "$(format_learn_time "${last}")" "${ports}"
         ((idx++))
     done
-    read -r -p "请选择要加入自定义白名单的 IP [1-${#rows[@]}]: " choice
+    choice="$(read_prompt "请选择要加入自定义白名单的 IP [1-${#rows[@]}]: ")" || return 1
     [[ "${choice}" =~ ^[0-9]+$ ]] || return 1
     (( choice >= 1 && choice <= ${#rows[@]} )) || return 1
     IFS=$'\t' read -r ip count span first last ports <<< "${rows[$((choice - 1))]}"
@@ -4413,7 +4427,7 @@ select_learned_cidr24_candidate() {
             "${idx}" "${cidr}" "${unique}" "${total}" "$(format_seconds "${span}")" "$(format_learn_time "${last}")"
         ((idx++))
     done
-    read -r -p "请选择要加入自定义白名单的 /24 网段 [1-${#rows[@]}]: " choice
+    choice="$(read_prompt "请选择要加入自定义白名单的 /24 网段 [1-${#rows[@]}]: ")" || return 1
     [[ "${choice}" =~ ^[0-9]+$ ]] || return 1
     (( choice >= 1 && choice <= ${#rows[@]} )) || return 1
     IFS=$'\t' read -r cidr unique total span first last <<< "${rows[$((choice - 1))]}"
@@ -4438,7 +4452,7 @@ select_learned_cidr16_candidate() {
             "${idx}" "${cidr}" "${unique}" "${unique24}" "${total}" "$(format_seconds "${span}")" "$(format_learn_time "${last}")"
         ((idx++))
     done
-    read -r -p "请选择要加入自定义白名单的 /16 网段 [1-${#rows[@]}]: " choice
+    choice="$(read_prompt "请选择要加入自定义白名单的 /16 网段 [1-${#rows[@]}]: ")" || return 1
     [[ "${choice}" =~ ^[0-9]+$ ]] || return 1
     (( choice >= 1 && choice <= ${#rows[@]} )) || return 1
     IFS=$'\t' read -r cidr unique unique24 total span first last <<< "${rows[$((choice - 1))]}"
@@ -5082,11 +5096,15 @@ do_install_dynamic_allowlist_cleanup_cron_interactive() {
 do_install_resource_task_cron_interactive() {
     local choice type schedule
     print_title "安装 PO0 资源任务定时创建"
-    echo "此计划只在 PO0 端创建任务；LAN Worker 只按本机轮询器领取并执行已创建任务。"
-    echo "  1) iplist 地区库"
-    echo "  2) qqwry.ipdb"
-    echo "  3) 全部更新"
-    read -r -p "请选择要定时创建的任务 [1-3，默认 3]: " choice
+    print_panel_section "职责"
+    print_panel_row "创建位置" "只在 PO0 端创建任务"
+    print_panel_row "执行位置" "LAN Worker 只按本机轮询器领取并执行已创建任务"
+    print_menu_section "任务类型"
+    print_menu_item 1 "iplist 地区库"
+    print_menu_item 2 "qqwry.ipdb"
+    print_menu_item 3 "全部更新"
+    print_menu_footer
+    choice="$(read_menu_choice "请选择要定时创建的任务 [1-3，默认 3]: ")" || return 1
     case "${choice:-3}" in
         1) type="iplist" ;;
         2) type="ipdb" ;;
@@ -5096,8 +5114,8 @@ do_install_resource_task_cron_interactive() {
             return 1
             ;;
     esac
-    echo ""
-    echo "PO0 创建计划可填：hourly、daily、weekly、monthly，或标准 5 字段 cron 表达式。"
+    print_panel_section "计划"
+    print_panel_row "可填" "hourly、daily、weekly、monthly，或标准 5 字段 cron 表达式"
     schedule="$(prompt_with_default "请输入计划" "daily")"
     install_resource_task_cron "${type}" "${schedule}"
 }
@@ -5105,8 +5123,15 @@ do_install_resource_task_cron_interactive() {
 list_resource_tasks() {
     local line id type status created claimed finished worker artifact sha size message count=0
     ensure_resource_task_layout || return 1
-    printf '任务文件 : %s\n' "${RESOURCE_TASKS_FILE}"
-    printf '收件目录 : %s\n' "${RESOURCE_INBOX_DIR}"
+    print_panel_section "资源任务队列"
+    print_panel_row "任务文件" "${RESOURCE_TASKS_FILE}"
+    print_panel_row "收件目录" "${RESOURCE_INBOX_DIR}"
+    if resource_task_token_value >/dev/null 2>&1; then
+        print_panel_row "Worker Token" "已生成（菜单 [7] 可显示部署命令或重置）"
+    else
+        print_panel_row "Worker Token" "未生成（先执行菜单 [7] 生成任务 Token）"
+    fi
+    print_panel_section "任务列表"
     while IFS= read -r line || [[ -n "${line}" ]]; do
         [[ -n "${line}" && "${line}" != \#* ]] || continue
         IFS='|' read -r id type status created claimed finished worker artifact sha size message <<< "${line}"
@@ -5117,7 +5142,34 @@ list_resource_tasks() {
         [[ -n "${artifact}" ]] && printf '      文件=%s 大小=%s SHA256=%s\n' "${artifact}" "${size:-未知}" "${sha:-未知}"
         [[ -n "${message}" ]] && printf '      结果=%s\n' "${message}"
     done < "${RESOURCE_TASKS_FILE}"
-    [[ "${count}" -gt 0 ]] || printf '  (暂无任务)\n'
+    [[ "${count}" -gt 0 ]] || print_panel_row "记录" "暂无任务"
+}
+
+do_show_or_create_resource_task_token() {
+    local token
+    if token="$(resource_task_token_value 2>/dev/null)"; then
+        print_panel_section "资源任务 Token"
+        print_panel_row "状态" "已生成"
+        print_panel_row "Token" "${token}"
+        print_lan_worker_resource_bootstrap_example "${token}"
+        if confirm_yes "是否重置任务 Token（旧 Worker Token 将立即失效）"; then
+            token="$(generate_resource_task_token)" || return 1
+            success "新任务 Token：${token}"
+            print_lan_worker_resource_bootstrap_example "${token}"
+        else
+            info "已保留现有任务 Token。"
+        fi
+        return 0
+    fi
+
+    warn "资源任务 Token 尚未生成；LAN Worker 需要这个 Token 才能领取任务。"
+    if confirm_yes "是否现在生成任务 Token"; then
+        token="$(generate_resource_task_token)" || return 1
+        success "任务 Token：${token}"
+        print_lan_worker_resource_bootstrap_example "${token}"
+    else
+        info "已取消生成任务 Token。"
+    fi
 }
 
 claim_resource_task() {
@@ -5591,13 +5643,13 @@ do_show_allowlist_source_entries() {
     ensure_layout || return 1
     load_settings 1
     print_title "白名单来源 / IP 明细"
-    printf '当前模式       : %s\n' "$(src_allowlist_mode_to_label "${SRC_ALLOWLIST_MODE}")"
-    printf '当前允许来源   : %s\n' "$(allowlist_sources_label "$(src_allowlist_mode_default_sources "${SRC_ALLOWLIST_MODE}")")"
-    printf '自动来源安全模式: %s\n' "$([[ "${AUTOMATION_MODE}" == "attack" ]] && printf 'attack（新自动 IP 进入待审核）' || printf 'regular（新自动 IP 直接生效）')"
-    printf 'entries 文件    : %s\n' "${ALLOWLIST_ENTRIES_FILE}"
-    echo ""
-    echo "说明：这里显示手动 CIDR、SSH 临时、DDNS、Client IP、SSH report、WebAuth、学习提升等条目。地区库的海量 CIDR 不逐条存在 entries 文件，最终展开结果看“最终 CIDR 缓存”。"
-    echo ""
+    print_panel_section "当前配置"
+    print_panel_row "当前模式" "$(src_allowlist_mode_to_label "${SRC_ALLOWLIST_MODE}")"
+    print_panel_row "允许来源" "$(allowlist_sources_label "$(src_allowlist_mode_default_sources "${SRC_ALLOWLIST_MODE}")")"
+    print_panel_row "安全模式" "$([[ "${AUTOMATION_MODE}" == "attack" ]] && printf 'attack（新自动 IP 进入待审核）' || printf 'regular（新自动 IP 直接生效）')"
+    print_panel_row "entries 文件" "${ALLOWLIST_ENTRIES_FILE}"
+    print_panel_note "手动 CIDR、SSH 临时、DDNS、Client IP、SSH report、WebAuth、学习提升等条目显示在下方"
+    print_panel_note "地区库的海量 CIDR 不逐条存在 entries 文件，最终展开结果看“最终 CIDR 缓存”"
     show_allowlist_entry_table
 }
 
@@ -5650,43 +5702,41 @@ EOF
 
 print_src_allowlist_details() {
     local cache_count custom_count
+    print_panel_section "白名单数据"
     if iplist_ready; then
-        printf 'iplist 数据 : 已导入（%s）\n' "${IPLIST_DIR}"
+        print_panel_row "iplist 数据" "已导入（${IPLIST_DIR}）"
     else
-        printf 'iplist 数据 : 未导入\n'
+        print_panel_row "iplist 数据" "未导入"
     fi
 
     if [[ -s "${SRC_ALLOWLIST_CACHE}" ]]; then
         cache_count="$(wc -l < "${SRC_ALLOWLIST_CACHE}" 2>/dev/null | tr -d '[:space:]' || true)"
-        printf '白名单缓存 : 已生成（%s 条 CIDR，%s）\n' "${cache_count:-0}" "${SRC_ALLOWLIST_CACHE}"
+        print_panel_row "白名单缓存" "已生成（${cache_count:-0} 条 CIDR，${SRC_ALLOWLIST_CACHE}）"
     else
-        printf '白名单缓存 : 未生成\n'
+        print_panel_row "白名单缓存" "未生成"
     fi
 
     custom_count="$(custom_allowlist_count)"
     if src_allowlist_enabled; then
-        printf '白名单状态 : 开启（%s）\n' "$(src_allowlist_mode_to_label "${SRC_ALLOWLIST_MODE}")"
+        print_panel_row "白名单状态" "开启（$(src_allowlist_mode_to_label "${SRC_ALLOWLIST_MODE}")）"
     elif [[ "${ENABLE_SRC_ALLOWLIST}" == "1" ]]; then
-        printf '白名单状态 : 配置不完整（%s）\n' "$(src_allowlist_mode_to_label "${SRC_ALLOWLIST_MODE}")"
+        print_panel_row "白名单状态" "配置不完整（$(src_allowlist_mode_to_label "${SRC_ALLOWLIST_MODE}")）"
     else
-        printf '白名单状态 : 关闭\n'
+        print_panel_row "白名单状态" "关闭"
     fi
-    printf '自动白名单 : %s\n' "$([[ "${AUTOMATION_MODE}" == "attack" ]] && printf 'attack（新自动 IP 进入待审核）' || printf 'regular')"
-    printf '允许来源   : %s\n' "$(allowlist_sources_label "$(src_allowlist_mode_default_sources "${SRC_ALLOWLIST_MODE}")")"
-    printf '来源条目   : %s 条（%s）\n' "$(allowlist_entries_count)" "${ALLOWLIST_ENTRIES_FILE}"
-    printf '动态缓存   : %s；过期条目不进入最终缓存\n' "$(dynamic_allowlist_limits_label)"
-    printf '待审核 IP  : %s 条（%s）\n' "$(allowlist_pending_count)" "${AUTO_PENDING_FILE}"
-    printf '地区数量   : %s\n' "$(src_allowlist_region_count)"
-    printf '手动 CIDR  : %s 条（%s）\n' "${custom_count}" "${CUSTOM_SRC_ALLOWLIST_FILE}"
-    printf '阻挡日志   : %s 条，%s；summary %s 行\n' \
-        "$(block_log_count)" \
-        "$(format_bytes "$(block_log_size_bytes)")" \
-        "$(block_summary_count)"
-    printf '学习服务   : %s\n' "$(learning_service_status_label)"
-    printf 'IPDB 数据  : %s\n' "$(ipdb_status_label)"
-    echo "白名单地区 :"
+    print_panel_row "自动白名单" "$([[ "${AUTOMATION_MODE}" == "attack" ]] && printf 'attack（新自动 IP 进入待审核）' || printf 'regular')"
+    print_panel_row "允许来源" "$(allowlist_sources_label "$(src_allowlist_mode_default_sources "${SRC_ALLOWLIST_MODE}")")"
+    print_panel_row "来源条目" "$(allowlist_entries_count) 条（${ALLOWLIST_ENTRIES_FILE}）"
+    print_panel_row "动态缓存" "$(dynamic_allowlist_limits_label)；过期条目不进入最终缓存"
+    print_panel_row "待审核 IP" "$(allowlist_pending_count) 条（${AUTO_PENDING_FILE}）"
+    print_panel_row "地区数量" "$(src_allowlist_region_count)"
+    print_panel_row "手动 CIDR" "${custom_count} 条（${CUSTOM_SRC_ALLOWLIST_FILE}）"
+    print_panel_row "阻挡日志" "$(block_log_count) 条，$(format_bytes "$(block_log_size_bytes)")；summary $(block_summary_count) 行"
+    print_panel_row "学习服务" "$(learning_service_status_label)"
+    print_panel_row "IPDB 数据" "$(ipdb_status_label)"
+    print_panel_section "白名单地区"
     show_selected_allowlist_regions
-    echo "手动 CIDR:"
+    print_panel_section "手动 CIDR"
     show_custom_allowlist_entries
 }
 
@@ -6532,7 +6582,7 @@ prompt_ipdb_pip_index() {
     echo "  3) 阿里云 PyPI 镜像" >&2
     echo "  4) 官方 PyPI" >&2
     echo "  5) 自定义源" >&2
-    read -r -p "请选择 [1-5，默认: 腾讯云 PyPI 镜像]: " choice
+    choice="$(read_prompt "请选择 [1-5，默认: 腾讯云 PyPI 镜像]: ")" || return 1
     case "${choice:-1}" in
         1) printf '%s\n' "https://mirrors.cloud.tencent.com/pypi/simple" ;;
         2) printf '%s\n' "https://pypi.tuna.tsinghua.edu.cn/simple" ;;
@@ -7103,7 +7153,7 @@ prompt_relay_mode() {
         echo "  1) 纯内网/无感内网转发：默认使用内网回源" >&2
         echo "  2) 公网转发：默认使用公网出口" >&2
         echo "  3) 内网/公网混合转发：新增规则时逐条选择" >&2
-        read -r -p "请选择转发模式 [1=纯内网/无感内网转发, 2=公网转发, 3=内网/公网混合转发；当前: $(relay_mode_to_label "${current}")]: " choice
+        choice="$(read_prompt "请选择转发模式 [1=纯内网/无感内网转发, 2=公网转发, 3=内网/公网混合转发；当前: $(relay_mode_to_label "${current}")]: ")" || return 1
         choice="$(trim "${choice}")"
         case "${choice,,}" in
             "")
@@ -7147,7 +7197,7 @@ refresh_cached_ips_for_mode() {
 }
 
 prompt_settings() {
-    local input ans
+    local input ans relay_ip_prompt input_lower
     load_settings
     RELAY_MODE="$(prompt_relay_mode "${RELAY_MODE}")" || return
     refresh_cached_ips_for_mode || true
@@ -7158,11 +7208,37 @@ prompt_settings() {
     fi
     if relay_mode_uses_lan; then
         while true; do
-            input="$(prompt_with_default "请输入中转机内网 IP（输入 none 可跳过）" "${RELAY_LAN_IP}")"
+            if [[ "${RELAY_MODE}" == "lan" ]]; then
+                if validate_host_ipv4 "${RELAY_LAN_IP}"; then
+                    relay_ip_prompt="请输入中转机内网 IP（回车保留，输入 auto 或 none 自动探测）"
+                else
+                    relay_ip_prompt="请输入中转机内网 IP（必填，输入 auto 或 none 自动探测）"
+                fi
+            elif validate_host_ipv4 "${RELAY_LAN_IP}"; then
+                relay_ip_prompt="请输入中转机内网 IP（回车保留，输入 auto 自动探测，输入 none 清空/跳过）"
+            else
+                relay_ip_prompt="请输入中转机内网 IP（回车或 none 跳过，输入 auto 自动探测）"
+            fi
+            input="$(prompt_with_default "${relay_ip_prompt}" "${RELAY_LAN_IP}")"
             input="$(trim "${input}")"
-            if [[ -z "${input}" || "${input,,}" == "none" ]]; then
+            input_lower="${input,,}"
+            if [[ "${input_lower}" == "auto" || "${input_lower}" == "detect" || "${input_lower}" == "refresh" || ( "${RELAY_MODE}" == "lan" && ( -z "${input}" || "${input_lower}" == "none" ) ) ]]; then
+                if refresh_relay_lan_ip; then
+                    info "已自动探测并使用中转机内网 IP：${RELAY_LAN_IP}"
+                    break
+                fi
                 if [[ "${RELAY_MODE}" == "lan" ]]; then
-                    err "纯内网/无感内网模式必须设置中转机内网 IP。"
+                    err "自动探测中转机内网 IP 失败；纯内网/无感内网模式必须手动输入有效内网 IP。"
+                    continue
+                fi
+                warn "自动探测中转机内网 IP 失败，已跳过内网 IP。"
+                RELAY_LAN_IP=""
+                RELAY_LAN_IP_SOURCE="none"
+                break
+            fi
+            if [[ -z "${input}" || "${input_lower}" == "none" ]]; then
+                if [[ "${RELAY_MODE}" == "lan" ]]; then
+                    err "纯内网/无感内网模式必须设置中转机内网 IP；可输入 auto 自动探测，或手动输入有效内网 IP。"
                     continue
                 fi
                 RELAY_LAN_IP=""
@@ -7181,13 +7257,13 @@ prompt_settings() {
         RELAY_LAN_IP_SOURCE="none"
     fi
     if [[ "${ENABLE_MSS_CLAMP}" == "1" ]]; then
-        read -r -p "是否保留 MSS 修正（默认开启）[Y/n]: " ans
+        ans="$(read_prompt "是否保留 MSS 修正（默认开启）[Y/n]: ")" || ans=""
         [[ "${ans}" =~ ^[Nn]$ ]] && {
             ENABLE_MSS_CLAMP="0"
             return 0
         }
     else
-        read -r -p "是否开启 MSS 修正 [y/N]: " ans
+        ans="$(read_prompt "是否开启 MSS 修正 [y/N]: ")" || ans=""
         [[ "${ans}" =~ ^[Yy]$ ]] || {
             ENABLE_MSS_CLAMP="0"
             return 0
@@ -7211,10 +7287,10 @@ prompt_input_firewall_settings() {
     SSH_PORTS="$(normalize_port_list "${SSH_PORTS}")"
 
     if [[ "${MANAGE_INPUT_FIREWALL}" == "1" ]]; then
-        read -r -p "是否接管入站防火墙（保留 SSH，其它未托管端口默认 drop）[Y/n]: " ans
+        ans="$(read_prompt "是否接管入站防火墙（保留 SSH，其它未托管端口默认 drop）[Y/n]: ")" || ans=""
         [[ "${ans}" =~ ^[Nn]$ ]] && MANAGE_INPUT_FIREWALL="0" || MANAGE_INPUT_FIREWALL="1"
     else
-        read -r -p "是否接管入站防火墙（保留 SSH，其它未托管端口默认 drop）[y/N]: " ans
+        ans="$(read_prompt "是否接管入站防火墙（保留 SSH，其它未托管端口默认 drop）[y/N]: ")" || ans=""
         [[ "${ans}" =~ ^[Yy]$ ]] && MANAGE_INPUT_FIREWALL="1" || MANAGE_INPUT_FIREWALL="0"
     fi
 
@@ -7235,7 +7311,7 @@ prompt_protocol() {
     local current="${1:-both}"
     local choice
     while true; do
-        read -r -p "选择协议 [1=tcp+udp, 2=tcp, 3=udp，当前: $(proto_to_label "${current}")] : " choice
+        choice="$(read_prompt "选择协议 [1=tcp+udp, 2=tcp, 3=udp，当前: $(proto_to_label "${current}")] : ")" || return 1
         choice="$(trim "${choice}")"
         case "${choice,,}" in
             "" )
@@ -7268,7 +7344,7 @@ prompt_snat_mode() {
         echo "  1) 内网回源：适合内网/无感内网目标" >&2
         echo "  2) 公网出口：适合普通公网目标" >&2
         echo "  3) 透明转发：保留客户端真实来源，要求目标机已有回程路由" >&2
-        read -r -p "请选择回程模式 [1=内网回源, 2=公网出口, 3=透明转发；当前: $(snat_mode_to_label "${current}")]: " choice
+        choice="$(read_prompt "请选择回程模式 [1=内网回源, 2=公网出口, 3=透明转发；当前: $(snat_mode_to_label "${current}")]: ")" || return 1
         choice="$(trim "${choice}")"
         case "${choice,,}" in
             "")
@@ -7306,14 +7382,28 @@ select_rule_snat_mode() {
 
 prompt_relay_lan_ip_if_needed() {
     local snat_mode="$1"
-    local input
+    local input input_lower
     [[ "${snat_mode}" == "relay_lan" ]] || return 0
     validate_host_ipv4 "${RELAY_LAN_IP}" && return 0
 
     warn "内网/无感内网 SNAT 模式需要中转机内网 IP。"
+    if refresh_relay_lan_ip; then
+        info "已自动探测并使用中转机内网 IP：${RELAY_LAN_IP}"
+        return 0
+    fi
+    warn "自动探测中转机内网 IP 失败，请手动输入。"
     while true; do
-        input="$(prompt_with_default "请输入中转机内网 IP" "${RELAY_LAN_IP}")"
+        input="$(prompt_with_default "请输入中转机内网 IP（输入 auto 或 none 重新自动探测）" "${RELAY_LAN_IP}")"
         input="$(trim "${input}")"
+        input_lower="${input,,}"
+        if [[ -z "${input}" || "${input_lower}" == "auto" || "${input_lower}" == "none" || "${input_lower}" == "detect" || "${input_lower}" == "refresh" ]]; then
+            if refresh_relay_lan_ip; then
+                info "已自动探测并使用中转机内网 IP：${RELAY_LAN_IP}"
+                return 0
+            fi
+            err "自动探测中转机内网 IP 失败；请手动输入有效内网 IP。"
+            continue
+        fi
         validate_host_ipv4 "${input}" && {
             RELAY_LAN_IP="${input}"
             RELAY_LAN_IP_SOURCE="settings"
@@ -7327,7 +7417,7 @@ prompt_enabled_flag() {
     local current="${1:-1}"
     local choice
     while true; do
-        read -r -p "规则状态 [1=启用, 2=停用，当前: $([[ "${current}" == "1" ]] && printf '启用' || printf '停用')] : " choice
+        choice="$(read_prompt "规则状态 [1=启用, 2=停用，当前: $([[ "${current}" == "1" ]] && printf '启用' || printf '停用')] : ")" || return 1
         choice="$(trim "${choice}")"
         case "${choice}" in
             "")
@@ -7507,7 +7597,7 @@ select_single_rule_index() {
     local max="$1"
     local choice
     while true; do
-        read -r -p "请输入规则序号 [1-${max}, 0 取消]: " choice
+        choice="$(read_prompt "请输入规则序号 [1-${max}, 0 取消]: ")" || return 1
         choice="$(trim "${choice}")"
         if [[ -z "${choice}" || "${choice}" == "0" ]]; then
             return 1
@@ -7925,7 +8015,7 @@ create_import_template_interactive() {
 prompt_import_mode() {
     local choice
     while true; do
-        read -r -p "导入模式 [1=追加导入, 2=覆盖现有规则]: " choice
+        choice="$(read_prompt "导入模式 [1=追加导入, 2=覆盖现有规则]: ")" || return 1
         case "${choice}" in
             1)
                 printf 'append\n'
@@ -8258,13 +8348,13 @@ do_toggle_rules() {
     }
 
     print_rules_table
-    read -r -p "请输入规则序号，支持 1,3,5-7: " selection
+    selection="$(read_prompt "请输入规则序号，支持 1,3,5-7: ")" || return 1
     parse_selection "${selection}" "${#RULES[@]}" || {
         err "序号格式无效。"
         return
     }
 
-    read -r -p "操作类型 [1=启用, 2=停用, 3=切换]: " action
+    action="$(read_prompt "操作类型 [1=启用, 2=停用, 3=切换]: ")" || return 1
     case "${action}" in
         1) action="enable" ;;
         2) action="disable" ;;
@@ -8334,7 +8424,7 @@ do_delete() {
     }
 
     print_rules_table
-    read -r -p "请输入要删除的规则序号，支持 1,3,5-7: " selection
+    selection="$(read_prompt "请输入要删除的规则序号，支持 1,3,5-7: ")" || return 1
     parse_selection "${selection}" "${#RULES[@]}" || {
         err "序号格式无效。"
         return
@@ -8628,7 +8718,7 @@ select_iplist_region_interactive() {
     local -a matches=()
     SELECTED_REGION_ID=""
     ensure_iplist_ready || return 1
-    read -r -p "请输入地区关键词或代码（例如 深圳 / 440300）: " keyword
+    keyword="$(read_prompt "请输入地区关键词或代码（例如 深圳 / 440300）: ")" || return 1
     keyword="$(trim "${keyword}")"
     [[ -n "${keyword}" ]] || return 1
     mapfile -t matches < <(
@@ -8647,7 +8737,7 @@ select_iplist_region_interactive() {
         printf '  %2d) %s (%s)\n' "${idx}" "${name}" "${id}"
         ((idx++))
     done
-    read -r -p "请选择地区序号 [1-${#matches[@]}]: " choice
+    choice="$(read_prompt "请选择地区序号 [1-${#matches[@]}]: ")" || return 1
     [[ "${choice}" =~ ^[0-9]+$ ]] || return 1
     (( choice >= 1 && choice <= ${#matches[@]} )) || return 1
     IFS=$'\t' read -r id name rel url <<< "${matches[$((choice - 1))]}"
@@ -8670,7 +8760,7 @@ select_selected_allowlist_region() {
         printf '  %2d) %s\n' "${idx}" "$(iplist_region_label "${id}")"
         ((idx++))
     done
-    read -r -p "请选择要删除的地区序号 [1-${#ids[@]}]: " choice
+    choice="$(read_prompt "请选择要删除的地区序号 [1-${#ids[@]}]: ")" || return 1
     [[ "${choice}" =~ ^[0-9]+$ ]] || return 1
     (( choice >= 1 && choice <= ${#ids[@]} )) || return 1
     SELECTED_REGION_ID="${ids[$((choice - 1))]}"
@@ -8686,7 +8776,7 @@ prompt_src_allowlist_mode() {
         echo "  3) 地区 + 可信动态来源"
         echo "  4) 仅地区库"
         echo "  5) 高级自选来源组合"
-        read -r -p "请选择 [0-5，当前: $([[ "${ENABLE_SRC_ALLOWLIST}" == "1" ]] && src_allowlist_mode_to_label "${SRC_ALLOWLIST_MODE}" || printf '关闭')]: " choice
+        choice="$(read_prompt "请选择 [0-5，当前: $([[ "${ENABLE_SRC_ALLOWLIST}" == "1" ]] && src_allowlist_mode_to_label "${SRC_ALLOWLIST_MODE}" || printf '关闭')]: ")" || return 1
         case "${choice}" in
             0)
                 ENABLE_SRC_ALLOWLIST="0"
@@ -8822,7 +8912,7 @@ select_custom_allowlist_entry() {
         fi
         ((idx++))
     done
-    read -r -p "请选择要删除的自定义 CIDR [1-${#entries[@]}]: " choice
+    choice="$(read_prompt "请选择要删除的自定义 CIDR [1-${#entries[@]}]: ")" || return 1
     [[ "${choice}" =~ ^[0-9]+$ ]] || return 1
     (( choice >= 1 && choice <= ${#entries[@]} )) || return 1
     IFS='|' read -r SELECTED_LEARN_CIDR SELECTED_LEARN_NOTE <<< "${entries[$((choice - 1))]}"
@@ -9318,24 +9408,23 @@ do_manage_report_keys() {
     while true; do
         print_title "专用受限上报 key"
         print_menu_section "查看"
-        print_menu_pair 1 "显示已有 key 分类" 3 "查看拒绝日志"
+        print_menu_pair 1 "显示已有 key 分类" 2 "查看拒绝日志"
         print_menu_section "维护"
-        print_menu_pair 2 "新增 / 转换 public key" 4 "刷新 wrapper"
+        print_menu_pair 3 "新增 / 转换 public key" 4 "刷新 wrapper"
         print_menu_section "退出"
         print_menu_item 0 "返回"
         print_menu_footer
         read_menu_choice_or_return choice "请选择操作 [0-4]: " || return
         case "${choice}" in
             1) user="$(prompt_with_default "系统用户" "root")"; show_report_keys_for_user "${user}"; pause_before_return ;;
-            2)
+            2) show_report_key_denials 80; pause_before_return ;;
+            3)
                 user="$(prompt_with_default "系统用户" "root")"
                 scope="$(prompt_with_default "scope: egern / worker / all" "egern")"
-                echo "请粘贴 public key（.pub 内容），不要粘贴私钥："
-                read -r pubkey
+                pubkey="$(read_prompt "请粘贴 public key（.pub 内容），不要粘贴私钥：")" || return
                 install_report_public_key "${user}" "${scope}" "${pubkey}"
                 pause_before_return
                 ;;
-            3) show_report_key_denials 80; pause_before_return ;;
             4) ensure_report_key_wrapper && success "已刷新 wrapper：${REPORT_KEY_WRAPPER_PATH}"; pause_before_return ;;
             0) return ;;
             *) err "无效选择。" ;;
@@ -9516,21 +9605,25 @@ do_check_ddns_report_source() {
 
 print_lan_worker_ddns_bootstrap_example() {
     local ddns_token="${1:-<SOURCE_TOKEN>}"
-    echo "LAN Worker DDNS 解析部署示例："
-    echo "说明：--install-cron 5 安装的是 Worker 本机轮询器/自动运行器。"
-    printf '  curl -fsSL %s | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script %s --source-key <DDNS_SOURCE_KEY> --ddns-domain <DDNS_DOMAIN> --token %s --install-cron 5\n' \
+    local install_cmd
+    printf -v install_cmd 'curl -fsSL %s | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script %s --source-key <DDNS_SOURCE_KEY> --ddns-domain <DDNS_DOMAIN> --token %s --install-cron 5' \
         "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "${ddns_token}"
+    print_panel_section "LAN Worker DDNS 部署"
+    print_panel_row "说明" "--install-cron 5 安装的是 Worker 本机轮询器/自动运行器"
+    print_panel_row "安装命令" "${install_cmd}"
 }
 
 print_lan_worker_resource_bootstrap_example() {
     local resource_token="${1:-<RESOURCE_TOKEN>}"
-    echo "LAN Worker 资源任务部署示例："
-    echo "说明：资源创建周期在 PO0 端设置；--install-cron 5 只安装 Worker 本机轮询器。"
-    printf '  curl -fsSL %s | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script %s --resource-token %s --install-cron 5\n' \
+    local install_cmd probe_cmd
+    printf -v install_cmd 'curl -fsSL %s | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script %s --resource-token %s --install-cron 5' \
         "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "${resource_token}"
-    echo "只探测资源任务 token，不写配置、不安装 Worker 轮询器："
-    printf '  curl -fsSL %s | bash -s -- --probe --po0-host <PO0_HOST> --po0-script %s --resource-token %s\n' \
+    printf -v probe_cmd 'curl -fsSL %s | bash -s -- --probe --po0-host <PO0_HOST> --po0-script %s --resource-token %s' \
         "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "${resource_token}"
+    print_panel_section "LAN Worker 资源任务部署"
+    print_panel_row "说明" "资源创建周期在 PO0 端设置；--install-cron 5 只安装 Worker 本机轮询器"
+    print_panel_row "安装命令" "${install_cmd}"
+    print_panel_row "探测命令" "${probe_cmd}"
 }
 
 deploy_token_values() {
@@ -9542,29 +9635,29 @@ deploy_token_values() {
 }
 
 deploy_ensure_resource_token() {
-    DEPLOY_RESOURCE_TOKEN="$(resource_task_token_value 2>/dev/null || generate_resource_task_token 2>/dev/null || printf '<RESOURCE_TOKEN>')"
+    DEPLOY_RESOURCE_TOKEN="$(resource_task_token_value 2>/dev/null || printf '<RESOURCE_TOKEN>')"
 }
 
 do_show_client_deploy_index() {
     ensure_layout || return 1
     print_title "LAN Worker / 客户端 / Egern 分场景部署"
-    printf 'PO0 主控路径 : %s\n' "${MANAGER_INSTALL_PATH}"
-    printf 'LAN Worker RAW   : %s\n' "${LAN_WORKER_RAW_URL}"
-    printf '自上报 Client RAW: %s\n' "${OUTBOUND_IP_REPORTER_RAW_URL}"
-    echo ""
-    echo "进入具体菜单后，只显示对应场景的命令："
-    echo "  1) PO0 主控脚本上传命令"
-    echo "  2) LAN Worker 资源任务 Worker"
-    echo "  3) LAN Worker DDNS 解析 Worker"
-    echo "  4) LAN Worker self-report server"
-    echo "  5) Self-report client"
-    echo "  6) LAN Worker WebAuth worker"
-    echo "  7) Egern SSH report"
-    echo ""
-    echo "CLI 示例："
-    echo "  bash nftables-relay-manager.sh --show-client-deploy-commands lan-resource"
-    echo "  bash nftables-relay-manager.sh --show-client-deploy-commands lan-ddns"
-    echo "  bash nftables-relay-manager.sh --show-client-deploy-commands egern"
+    print_panel_section "路径"
+    print_panel_row "PO0 主控路径" "${MANAGER_INSTALL_PATH}"
+    print_panel_row "LAN Worker RAW" "${LAN_WORKER_RAW_URL}"
+    print_panel_row "自上报 Client RAW" "${OUTBOUND_IP_REPORTER_RAW_URL}"
+    print_panel_section "交互菜单"
+    print_panel_row "1" "显示简短索引"
+    print_panel_row "2" "PO0 主控脚本上传命令"
+    print_panel_row "3" "LAN Worker 资源任务 Worker"
+    print_panel_row "4" "LAN Worker DDNS 解析 Worker"
+    print_panel_row "5" "LAN Worker self-report server"
+    print_panel_row "6" "LAN Worker WebAuth worker"
+    print_panel_row "7" "Self-report client"
+    print_panel_row "8" "Egern SSH report"
+    print_panel_section "CLI 示例"
+    print_panel_row "资源任务" "bash nftables-relay-manager.sh --show-client-deploy-commands lan-resource"
+    print_panel_row "DDNS" "bash nftables-relay-manager.sh --show-client-deploy-commands lan-ddns"
+    print_panel_row "Egern" "bash nftables-relay-manager.sh --show-client-deploy-commands egern"
 }
 
 do_show_po0_manager_deploy_commands() {
@@ -9588,6 +9681,9 @@ do_show_lan_worker_tokens() {
     printf 'WEBAUTH_TOKEN     : %s\n' "${DEPLOY_WEBAUTH_TOKEN}"
     printf 'SSH_REPORT_TOKEN  : %s\n' "${DEPLOY_SSH_TOKEN}"
     printf 'PO0_SCRIPT        : %s\n' "${MANAGER_INSTALL_PATH}"
+    if [[ "${DEPLOY_RESOURCE_TOKEN}" == "<RESOURCE_TOKEN>" ]]; then
+        warn "RESOURCE_TOKEN 尚未生成；请进入 [13] 内网资源更新任务 -> [7] 生成任务 Token。"
+    fi
     echo ""
     echo "可直接复制的 LAN Worker token bundle："
     printf 'DDNS_TOKEN=%s\n' "${DEPLOY_DDNS_TOKEN}"
@@ -9605,20 +9701,26 @@ do_show_lan_worker_tokens() {
 }
 
 do_show_lan_resource_worker_commands() {
+    local install_cmd probe_cmd
     ensure_layout || return 1
     deploy_token_values
     deploy_ensure_resource_token
+    printf -v install_cmd 'curl -fsSL %s | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script %s --resource-token %s --install-cron 5' \
+        "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${DEPLOY_RESOURCE_TOKEN}")"
+    printf -v probe_cmd 'curl -fsSL %s | bash -s -- --probe --po0-host <PO0_HOST> --po0-script %s --resource-token %s' \
+        "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${DEPLOY_RESOURCE_TOKEN}")"
     print_title "LAN Worker 资源任务 Worker"
-    echo "在 LAN Worker 机器上执行；只负责轮询、领取和上传 iplist/ipdb 资源任务。"
-    echo "资源任务创建周期在 PO0 端设置：内网资源更新任务 -> 安装 / 更新 PO0 定时创建。"
-    echo "--install-cron 5 只安装 Worker 本机轮询器，不决定资源更新频率。"
-    echo ""
-    printf '  curl -fsSL %s | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script %s --resource-token %s --install-cron 5\n' \
-        "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${DEPLOY_RESOURCE_TOKEN}")"
-    echo ""
-    echo "只探测，不写配置、不安装 Worker 轮询器："
-    printf '  curl -fsSL %s | bash -s -- --probe --po0-host <PO0_HOST> --po0-script %s --resource-token %s\n' \
-        "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${DEPLOY_RESOURCE_TOKEN}")"
+    print_panel_section "职责"
+    print_panel_row "执行位置" "LAN Worker 机器"
+    print_panel_row "任务范围" "只负责轮询、领取和上传 iplist/ipdb 资源任务"
+    print_panel_row "资源周期" "在 PO0 端设置：内网资源更新任务 -> 安装 / 更新 PO0 定时创建"
+    print_panel_row "轮询器" "--install-cron 5 只安装 Worker 本机轮询器，不决定资源更新频率"
+    if [[ "${DEPLOY_RESOURCE_TOKEN}" == "<RESOURCE_TOKEN>" ]]; then
+        print_panel_row "Token 状态" "未生成；请进入 [13] 内网资源更新任务 -> [7] 生成任务 Token"
+    fi
+    print_panel_section "命令"
+    print_panel_row "安装命令" "${install_cmd}"
+    print_panel_row "探测命令" "${probe_cmd}"
 }
 
 do_show_lan_ddns_worker_commands() {
@@ -9739,25 +9841,25 @@ do_manage_client_deploy_commands() {
     while true; do
         print_title "LAN Worker / 客户端 / Egern 分场景部署"
         print_menu_section "主控与索引"
-        print_menu_pair 1 "PO0 主控脚本上传" 8 "显示简短索引"
+        print_menu_pair 1 "显示简短索引" 2 "PO0 主控脚本上传"
         print_menu_section "LAN Worker 侧"
-        print_menu_pair 2 "资源任务 Worker" 3 "DDNS 解析 Worker"
-        print_menu_pair 4 "Self-report 接收服务" 6 "WebAuth 接收服务"
+        print_menu_pair 3 "资源任务 Worker" 4 "DDNS 解析 Worker"
+        print_menu_pair 5 "Self-report 接收服务" 6 "WebAuth 接收服务"
         print_menu_section "访问端客户端"
-        print_menu_pair 5 "Self-report 客户端" 7 "Egern SSH report"
+        print_menu_pair 7 "Self-report 客户端" 8 "Egern SSH report"
         print_menu_section "退出"
         print_menu_item 0 "返回"
         print_menu_footer
         read_menu_choice_or_return choice "请选择操作 [0-8]: " || return
         case "${choice}" in
-            1) do_show_po0_manager_deploy_commands; pause_before_return ;;
-            2) do_show_lan_resource_worker_commands; pause_before_return ;;
-            3) do_show_lan_ddns_worker_commands; pause_before_return ;;
-            4) do_show_self_report_server_commands; pause_before_return ;;
-            5) do_show_self_report_client_commands; pause_before_return ;;
+            1) do_show_client_deploy_index; pause_before_return ;;
+            2) do_show_po0_manager_deploy_commands; pause_before_return ;;
+            3) do_show_lan_resource_worker_commands; pause_before_return ;;
+            4) do_show_lan_ddns_worker_commands; pause_before_return ;;
+            5) do_show_self_report_server_commands; pause_before_return ;;
             6) do_show_webauth_worker_commands; pause_before_return ;;
-            7) do_show_egern_deploy_commands; pause_before_return ;;
-            8) do_show_client_deploy_index; pause_before_return ;;
+            7) do_show_self_report_client_commands; pause_before_return ;;
+            8) do_show_egern_deploy_commands; pause_before_return ;;
             0) return ;;
             *) err "无效选择。" ;;
         esac
@@ -9867,7 +9969,7 @@ select_ddns_allowlist_source() {
         return 1
     }
     show_ddns_allowlist_sources
-    read -r -p "请选择 DDNS 来源 [1-${#sources[@]}]: " choice
+    choice="$(read_prompt "请选择 DDNS 来源 [1-${#sources[@]}]: ")" || return 1
     [[ "${choice}" =~ ^[0-9]+$ ]] || return 1
     (( choice >= 1 && choice <= ${#sources[@]} )) || return 1
     parse_allowlist_source_line "${sources[$((choice - 1))]}"
@@ -9939,8 +10041,8 @@ disable_src_allowlist_if_no_custom_entries() {
 
 do_add_ddns_allowlist_source() {
     local name domain ttl enabled answer
-    read -r -p "请输入 DDNS 显示名（例如 home，可空）: " name
-    read -r -p "请输入 DDNS 域名（例如 home.example.com）: " domain
+    name="$(read_prompt "请输入 DDNS 显示名（例如 home，可空）: ")" || name=""
+    domain="$(read_prompt "请输入 DDNS 域名（例如 home.example.com）: ")" || return 1
     domain="$(trim "${domain}")"
     validate_ddns_domain "${domain}" || {
         err "DDNS 域名无效：${domain}"
@@ -9949,7 +10051,7 @@ do_add_ddns_allowlist_source() {
     [[ -n "$(trim "${name}")" ]] || name="${domain}"
     ttl="$(prompt_with_default "请输入刷新 TTL 秒数（60-86400）" "300")"
     ttl="$(normalize_source_ttl_seconds "${ttl}")"
-    read -r -p "是否启用这个 DDNS 来源 [Y/n]: " answer
+    answer="$(read_prompt "是否启用这个 DDNS 来源 [Y/n]: ")" || answer=""
     case "${answer,,}" in
         n|no)
             enabled="0"
@@ -10243,7 +10345,7 @@ do_save_allowlist_profile() {
         err "白名单配置档案最多保存 ${ALLOWLIST_PROFILE_MAX_COUNT} 个，请先删除不用的配置档案。"
         return 1
     fi
-    read -r -p "请输入白名单配置档案显示名: " label
+    label="$(read_prompt "请输入白名单配置档案显示名: ")" || return 1
     label="$(sanitize_profile_label "${label}")"
     [[ -n "${label}" ]] || {
         err "显示名不能为空。"
@@ -10325,10 +10427,10 @@ do_manage_allowlist_profiles() {
 
 do_add_custom_allowlist_entry() {
     local cidr note
-    read -r -p "请输入自定义来源 IP 或 CIDR（例如 1.2.3.4 或 1.2.3.0/24）: " cidr
+    cidr="$(read_prompt "请输入自定义来源 IP 或 CIDR（例如 1.2.3.4 或 1.2.3.0/24）: ")" || return 1
     cidr="$(trim "${cidr}")"
     [[ -n "${cidr}" ]] || return 1
-    read -r -p "备注（可空）: " note
+    note="$(read_prompt "备注（可空）: ")" || note=""
     save_allowlist_last_snapshot || return 1
     add_custom_allowlist_entry "${cidr}" "${note}" || return 1
     enable_allowlist_for_custom_add
@@ -10627,18 +10729,19 @@ do_manage_ipdb_tools() {
 
 do_cancel_unfinished_resource_tasks_interactive() {
     local choice type
-    echo "取消未完成的资源任务（等待领取 / 执行中）："
+    print_panel_section "取消未完成任务"
+    print_panel_row "范围" "等待领取 / 执行中"
     print_menu_item 1 "iplist 地区库"
     print_menu_item 2 "qqwry.ipdb"
     print_menu_item 3 "全部未完成任务"
     print_menu_item 0 "取消"
     print_menu_footer
-    read -r -p "请选择取消范围 [0-3]: " choice
+    choice="$(read_menu_choice "请选择取消范围 [0-3]: ")" || return 1
     case "${choice}" in
         1) type="iplist" ;;
         2) type="ipdb" ;;
         3) type="all" ;;
-        0) return 0 ;;
+        0) info "已取消。"; return 0 ;;
         *) err "无效选择。"; return 1 ;;
     esac
     confirm_yes "确认取消 ${type} 的未完成资源任务" || return 1
@@ -10646,20 +10749,21 @@ do_cancel_unfinished_resource_tasks_interactive() {
 }
 
 print_resource_data_overview() {
+    print_panel_section "资源数据"
     if iplist_ready; then
-        printf 'iplist 数据 : 已导入\n'
-        printf 'iplist 目录 : %s\n' "${IPLIST_DIR}"
-        printf 'iplist 索引 : %s\n' "${IPLIST_MANIFEST}"
+        print_panel_row "iplist 数据" "已导入"
+        print_panel_row "iplist 目录" "${IPLIST_DIR}"
+        print_panel_row "iplist 索引" "${IPLIST_MANIFEST}"
     else
-        printf 'iplist 数据 : 未导入\n'
-        printf 'iplist 目录 : %s\n' "${IPLIST_DIR}"
+        print_panel_row "iplist 数据" "未导入"
+        print_panel_row "iplist 目录" "${IPLIST_DIR}"
     fi
     if [[ -s "${IPDB_FILE}" ]]; then
-        printf 'IPDB 文件  : 已导入（%s）\n' "${IPDB_FILE}"
+        print_panel_row "IPDB 文件" "已导入（${IPDB_FILE}）"
     else
-        printf 'IPDB 文件  : 未导入（%s）\n' "${IPDB_FILE}"
+        print_panel_row "IPDB 文件" "未导入（${IPDB_FILE}）"
     fi
-    printf 'IPDB 下载源: %s\n' "${IPDB_DOWNLOAD_URL}"
+    print_panel_row "IPDB 下载源" "${IPDB_DOWNLOAD_URL}"
 }
 
 do_manage_resource_tasks() {
@@ -10668,22 +10772,24 @@ do_manage_resource_tasks() {
     while true; do
         print_title "内网资源更新任务"
         print_resource_data_overview
-        printf '职责说明 : PO0 端定时创建任务；LAN Worker 定期轮询、领取、执行并回传结果。\n'
+        print_panel_section "任务状态"
+        print_panel_row "职责说明" "PO0 端定时创建任务；LAN Worker 定期轮询、领取、执行并回传结果"
         if token="$(resource_task_token_value 2>/dev/null)"; then
-            printf '任务 Token : %s\n' "${token}"
-            print_lan_worker_resource_bootstrap_example "${token}"
+            print_panel_row "任务 Token" "${token}"
         else
-            printf '任务 Token : 未生成\n'
+            print_panel_row "任务 Token" "未生成（执行 [7] 生成任务 Token）"
         fi
-        printf 'PO0 定时创建 : '
-        print_resource_task_cron_summary
+        print_panel_row "PO0 定时创建" "$(print_resource_task_cron_summary)"
+        if [[ -n "${token:-}" ]]; then
+            print_lan_worker_resource_bootstrap_example "${token}"
+        fi
         print_menu_section "查看与创建"
         print_menu_pair 1 "查看任务和结果" 2 "创建 iplist 更新任务"
         print_menu_pair 3 "创建 qqwry.ipdb 更新任务" 4 "创建全部更新任务"
         print_menu_section "队列维护"
         print_menu_pair 5 "重新排队失败 / 执行中任务" 6 "取消未完成任务"
         print_menu_section "Token 与 PO0 定时创建"
-        print_menu_pair 7 "生成 / 重置任务 Token" 8 "安装 / 更新 PO0 定时创建"
+        print_menu_pair 7 "任务 Token（显示/生成/重置）" 8 "安装 / 更新 PO0 定时创建"
         print_menu_item 9 "删除 PO0 定时创建"
         print_menu_section "退出"
         print_menu_item 0 "返回"
@@ -10708,7 +10814,11 @@ do_manage_resource_tasks() {
                 pause_before_return
                 ;;
             5)
-                confirm_yes "确认重新排队所有失败或执行中的任务" && retry_resource_tasks
+                if confirm_yes "确认重新排队所有失败或执行中的任务"; then
+                    retry_resource_tasks
+                else
+                    info "已取消重新排队。"
+                fi
                 pause_before_return
                 ;;
             6)
@@ -10716,14 +10826,7 @@ do_manage_resource_tasks() {
                 pause_before_return
                 ;;
             7)
-                confirm_yes "确认生成新 Token（旧客户端 Token 将立即失效）" && {
-                    token="$(generate_resource_task_token)" || {
-                        pause_before_return
-                        continue
-                    }
-                    success "新任务 Token：${token}"
-                    print_lan_worker_resource_bootstrap_example "${token}"
-                }
+                do_show_or_create_resource_task_token
                 pause_before_return
                 ;;
             8)
@@ -10731,7 +10834,11 @@ do_manage_resource_tasks() {
                 pause_before_return
                 ;;
             9)
-                confirm_yes "确认删除 PO0 资源任务定时创建 cron" && remove_resource_task_cron
+                if confirm_yes "确认删除 PO0 资源任务定时创建 cron"; then
+                    remove_resource_task_cron
+                else
+                    info "已取消删除 PO0 定时创建。"
+                fi
                 pause_before_return
                 ;;
             0)
