@@ -332,6 +332,101 @@ async function storageIndex(ctx, key, length) {
   return index % length;
 }
 
+function parseStoredState(raw) {
+  if (!raw) return null;
+  if (typeof raw === 'object') return raw;
+  try {
+    return JSON.parse(String(raw));
+  } catch (_) {
+    return null;
+  }
+}
+
+function targetSignature(target) {
+  return [
+    target.sourceId || '',
+    target.host || '',
+    String(target.port || ''),
+    target.identity || '',
+    String(target.ttlSeconds || ''),
+  ].join('|');
+}
+
+function targetSignatures(targets) {
+  return (targets || []).map(targetSignature).sort().join('\n');
+}
+
+function shortHash(value) {
+  const text = String(value || '');
+  let hash = 2166136261;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16);
+}
+
+function targetConfigSignature(target) {
+  return [
+    target.sourceId || '',
+    target.host || '',
+    String(target.port || ''),
+    target.username || '',
+    target.script || '',
+    target.identity || '',
+    String(target.ttlSeconds || ''),
+    shortHash(target.token || ''),
+  ].join('|');
+}
+
+function targetConfigSignatures(targets) {
+  return (targets || []).map(targetConfigSignature).sort().join('\n');
+}
+
+function minTargetTtlSeconds(targets) {
+  const ttls = (targets || [])
+    .map((target) => Number(target.ttlSeconds))
+    .filter((ttl) => Number.isFinite(ttl) && ttl > 0);
+  if (ttls.length === 0) return 3600;
+  return Math.min(...ttls);
+}
+
+function automaticRefreshAfterSeconds(targets) {
+  const ttl = minTargetTtlSeconds(targets);
+  const twoThirdsTtl = Math.floor(ttl * 2 / 3);
+  const beforeExpiryMargin = ttl - 10 * 60;
+  return Math.max(60, Math.min(twoThirdsTtl, beforeExpiryMargin));
+}
+
+async function shouldSkipUnchangedAutoReport(ctx, targets, ip) {
+  if (isManualRun(ctx) || isWidgetRun(ctx)) return { skip: false };
+
+  const previous = parseStoredState(await storageGet(ctx, STORAGE_KEY));
+  if (!previous || !previous.ok || previous.ip !== ip) return { skip: false };
+
+  const currentConfigSignature = targetConfigSignatures(targets);
+  if (previous.targetConfigSignature) {
+    if (previous.targetConfigSignature !== currentConfigSignature) return { skip: false };
+  } else if (targetSignatures(previous.targets || []) !== targetSignatures(targets)) {
+    return { skip: false };
+  }
+
+  const lastSuccessAt = new Date(previous.at || '').getTime();
+  if (!Number.isFinite(lastSuccessAt)) return { skip: false };
+
+  const refreshAfter = automaticRefreshAfterSeconds(targets);
+  const ageSeconds = Math.floor((Date.now() - lastSuccessAt) / 1000);
+  if (ageSeconds < 0 || ageSeconds >= refreshAfter) return { skip: false, ageSeconds, refreshAfter };
+
+  return {
+    skip: true,
+    previous,
+    ageSeconds,
+    refreshAfter,
+    currentConfigSignature,
+  };
+}
+
 function notify(ctx, title, body) {
   if (!ctx || typeof ctx.notify !== 'function') return;
   ctx.notify({ title, body });
@@ -522,6 +617,21 @@ export default async function(ctx) {
   try {
     targets = parseTargets(env);
     ip = await detectCurrentIPv4WithFallback(ctx, env, policy);
+    const skipDecision = await shouldSkipUnchangedAutoReport(ctx, targets, ip);
+    if (skipDecision.skip) {
+      const state = {
+        ...skipDecision.previous,
+        skipped: true,
+        checkedAt: new Date().toISOString(),
+        targetConfigSignature: skipDecision.currentConfigSignature,
+        skipReason: `IP 未变化，距离上次成功 ${skipDecision.ageSeconds}s，小于自动刷新间隔 ${skipDecision.refreshAfter}s`,
+        network: networkLabel(ctx),
+      };
+      await storageSet(ctx, STORAGE_KEY, JSON.stringify(state));
+      logMessage(ctx, 'info', '跳过 SSH 上报', state.skipReason);
+      return state;
+    }
+
     const results = [];
     const failures = [];
 
@@ -562,6 +672,7 @@ export default async function(ctx) {
       targetCount: targets.length,
       successCount: results.length,
       failureCount: failures.length,
+      targetConfigSignature: targetConfigSignatures(targets),
       targets: [...results, ...failures],
     };
     await storageSet(ctx, STORAGE_KEY, JSON.stringify(state));
