@@ -176,6 +176,10 @@ function expandDevicePlaceholder(value, deviceId) {
   return text.replace(/\{device\}/g, deviceId || DEVICE_ID_FALLBACK);
 }
 
+function isDeviceClearCommand(value) {
+  return /^(clear|delete|reset|unset|none|null|__clear__|清除)$/i.test(String(value || '').trim());
+}
+
 function escapeHtml(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -306,6 +310,7 @@ function targetSummaryLines(state) {
 
 function widgetFromState(state, ctx, deviceId = '') {
   const deviceLine = `设备: ${deviceDisplayName(deviceId || state?.deviceId || '')}`;
+  const setupLines = state?.deviceSetupMessage ? [`设置: ${state.deviceSetupMessage}`] : [];
   if (!state) {
     return widgetPanel(REPORT_TITLE, [deviceLine, '暂无上报状态。', '点按刷新即可立即上报。'], false, ctx);
   }
@@ -319,6 +324,7 @@ function widgetFromState(state, ctx, deviceId = '') {
       REPORT_TITLE,
       [
         deviceLine,
+        ...setupLines,
         `IP: ${state.ip || '未知'}`,
         `目标: ${successCount}/${targetCount || 1} 成功`,
         ...(targetLines.length ? targetLines : [`原因: ${state.error || '未知错误'}`]),
@@ -334,6 +340,7 @@ function widgetFromState(state, ctx, deviceId = '') {
     REPORT_TITLE,
     [
       deviceLine,
+      ...setupLines,
       `IP: ${state.ip || '未知'}`,
       `目标: ${state.successCount ?? 1}/${state.targetCount ?? 1} 成功`,
       ...targetSummaryLines(state),
@@ -658,6 +665,24 @@ async function handleDeviceClearScript(ctx) {
   ], true, ctx);
 }
 
+async function applyDeviceSetupEnvOnStatus(ctx, env) {
+  const raw = String(env.DEVICE_ID_SETUP || env.LOCAL_DEVICE_ID || '').trim();
+  if (!raw || !isStatusRun(ctx)) {
+    return { deviceId: await storedDeviceId(ctx), message: '' };
+  }
+
+  if (isDeviceClearCommand(raw)) {
+    await storageDelete(ctx, DEVICE_ID_KEY);
+    notify(ctx, 'PO0 Egern Device', '设备 ID 已清除');
+    return { deviceId: '', message: '已清除本机设备 ID' };
+  }
+
+  const deviceId = normalizeDeviceId(raw);
+  await storageSet(ctx, DEVICE_ID_KEY, deviceId);
+  notify(ctx, 'PO0 Egern Device', `设备 ID 已保存为 ${deviceId}`);
+  return { deviceId, message: `已保存 ${deviceId}` };
+}
+
 function targetValue(target, env, keys, fallback = '') {
   for (const key of keys) {
     const value = target?.[key] ?? env?.[key];
@@ -803,11 +828,15 @@ export default async function(ctx) {
   const notifySuccess = boolEnv(env.NOTIFY_SUCCESS, false) || isManualRun(ctx);
   const notifyFailure = boolEnv(env.NOTIFY_FAILURE, true) || isManualRun(ctx);
   const startedAt = new Date();
-  const deviceId = await storedDeviceId(ctx);
+  let deviceId = '';
+  let deviceSetupMessage = '';
   let targets = [];
   let ip = '';
 
   try {
+    const deviceSetup = await applyDeviceSetupEnvOnStatus(ctx, env);
+    deviceId = deviceSetup.deviceId;
+    deviceSetupMessage = deviceSetup.message;
     targets = parseTargets(env, deviceId);
     ip = await detectCurrentIPv4WithFallback(ctx, env, policy);
     const skipDecision = await shouldSkipUnchangedAutoReport(ctx, targets, ip);
@@ -820,6 +849,7 @@ export default async function(ctx) {
         skipReason: `IP 未变化，距离上次成功 ${skipDecision.ageSeconds}s，小于自动刷新间隔 ${skipDecision.refreshAfter}s`,
         network: networkLabel(ctx),
         deviceId,
+        deviceSetupMessage,
       };
       await storageSet(ctx, STORAGE_KEY, JSON.stringify(state));
       logMessage(ctx, 'info', '跳过 SSH 上报', state.skipReason);
@@ -864,6 +894,7 @@ export default async function(ctx) {
       network: networkLabel(ctx),
       at: startedAt.toISOString(),
       deviceId,
+      deviceSetupMessage,
       targetCount: targets.length,
       successCount: results.length,
       failureCount: failures.length,
@@ -894,6 +925,7 @@ export default async function(ctx) {
       network: networkLabel(ctx),
       at: new Date().toISOString(),
       deviceId,
+      deviceSetupMessage,
       targetCount: targets.length,
       successCount: 0,
       failureCount: targets.length || 1,

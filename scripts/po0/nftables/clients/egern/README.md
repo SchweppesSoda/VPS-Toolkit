@@ -34,7 +34,7 @@ https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nft
 - `TTL_SECONDS`：默认 `3600`。
 - `IP_CHECK_URL` / `IP_CHECK_URLS`：公网 IPv4 查询接口；默认从 IP9 和国内接口轮询。
 - `POLICY`：默认 `DIRECT`，用于尽量获取当前真实出口 IP。
-- `DEVICE_ID_SETUP`：只在手动运行 `保存本机设备 ID` 时读取，用于把本机设备 ID 写入 `ctx.storage`。定时/网络上报不会直接使用这个同步 env。
+- `DEVICE_ID_SETUP`：只在手动运行 `PO0 SSH 上报状态` 或 `保存本机设备 ID` 时读取，用于把本机设备 ID 写入 `ctx.storage`。定时/网络上报不会直接使用这个同步 env。
 
 ## 本机设备 ID
 
@@ -43,11 +43,11 @@ Egern 配置会通过 iCloud 同步，模块环境变量不适合直接写每台
 推荐设置方式不依赖浏览器 HTTP，也不需要 MITM：
 
 1. 在模块环境变量 `DEVICE_ID_SETUP` 填入这台设备的 ID，例如 `iphone15pm`。
-2. 在 Egern 里手动运行 `保存本机设备 ID`。
-3. 打开 `PO0 SSH 上报状态`，确认显示 `设备: iphone15pm`。
+2. 在 Egern 里手动运行 `PO0 SSH 上报状态`。
+3. 状态页应显示 `设备: iphone15pm` 和 `设置: 已保存 iphone15pm`。
 4. 可选：保存后把 `DEVICE_ID_SETUP` 清空，避免以后误操作。已经写入的本机 `ctx.storage` 不受影响。
 
-设备 ID 只能包含英文、数字、`.`、`_`、`-`。写错时重新填写 `DEVICE_ID_SETUP` 并再次运行 `保存本机设备 ID` 即可覆盖。清除本机 ID 可手动运行 `清除本机设备 ID`。
+设备 ID 只能包含英文、数字、`.`、`_`、`-`。写错时重新填写 `DEVICE_ID_SETUP` 并再次运行 `PO0 SSH 上报状态` 即可覆盖。清除本机 ID 可把 `DEVICE_ID_SETUP` 填成 `clear`，再运行 `PO0 SSH 上报状态`；如果 Egern UI 能看到 `保存本机设备 ID` / `清除本机设备 ID`，也可以直接用这两个辅助脚本。
 
 模块也保留了 HTTP request 设置入口，但 iOS/Safari 可能把手输的 HTTP 自动升级成 HTTPS，因此只作为可选兼容方式：
 
@@ -89,9 +89,9 @@ source_id|host|port|user|script|token|identity|ttl
 - `schedule`：默认每 10 分钟自动上报一次。
 - `network`：网络变化时触发一次。
 - `generic`：在 Egern 手动执行 `PO0 SSH IP Report Now`。
-- `保存本机设备 ID`：把 `DEVICE_ID_SETUP` 写入本机 `ctx.storage`，不做 SSH 上报。
-- `清除本机设备 ID`：清除本机 `ctx.storage` 里的设备 ID。
-- `PO0 SSH 上报状态` / `widget`：显示本机设备 ID、每个 PO0 target 的成功/失败、IP、时间、TTL 和错误原因。
+- `保存本机设备 ID`：把 `DEVICE_ID_SETUP` 写入本机 `ctx.storage`，不做 SSH 上报；如果 Egern UI 不显示该脚本，使用 `PO0 SSH 上报状态` 保存。
+- `清除本机设备 ID`：清除本机 `ctx.storage` 里的设备 ID；如果 Egern UI 不显示该脚本，填 `DEVICE_ID_SETUP=clear` 后运行 `PO0 SSH 上报状态`。
+- `PO0 SSH 上报状态` / `widget`：显示本机设备 ID、每个 PO0 target 的成功/失败、IP、时间、TTL 和错误原因；状态页也会保存 `DEVICE_ID_SETUP`。
 
 自动触发会先探测当前出口 IPv4。如果 IP 和上次成功记录一致、PO0 target 配置未变化，并且距离上次成功还小于自动续期窗口，脚本会跳过 SSH 上报。自动续期窗口按当前最短 TTL 动态计算：`min(最短 TTL 的 2/3, 最短 TTL - 10 分钟)`，下限 60 秒。IP 变化、target 配置变化（含 TTL、脚本路径、用户、token 指纹等）、续期窗口到达、手动执行和 Widget 刷新都会继续执行 SSH 上报。
 
