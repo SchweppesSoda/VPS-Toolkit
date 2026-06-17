@@ -11388,11 +11388,11 @@ main_menu() {
         print_menu_item 13 "内网资源更新任务"
         print_menu_section "系统维护"
         print_menu_pair 14 "中转机参数" 15 "诊断 / 自检"
-        print_menu_item 16 "可选开启 BBR + fq"
+        print_menu_pair 16 "查看脚本版本" 17 "可选开启 BBR + fq"
         print_menu_section "退出"
         print_menu_item 0 "退出"
         print_menu_footer
-        read_menu_choice_or_return choice "请选择操作 [0-16]: " || exit 0
+        read_menu_choice_or_return choice "请选择操作 [0-17]: " || exit 0
         case "${choice}" in
             1) do_install; pause_before_return ;;
             2) do_refresh_public_ip ;;
@@ -11409,13 +11409,14 @@ main_menu() {
             13) do_manage_resource_tasks ;;
             14) do_edit_settings; pause_before_return ;;
             15) do_diagnose; pause_before_return ;;
-            16) do_enable_bbr; pause_before_return ;;
+            16) do_show_version; pause_before_return ;;
+            17) do_enable_bbr; pause_before_return ;;
             0)
                 info "再见。"
                 exit 0
                 ;;
             *)
-                err "无效选择，请输入 0-16。"
+                err "无效选择，请输入 0-17。"
                 ;;
         esac
     done

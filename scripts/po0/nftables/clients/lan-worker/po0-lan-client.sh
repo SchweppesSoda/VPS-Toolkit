@@ -4230,7 +4230,7 @@ menu_loop() {
 
         print_menu_section "维护"
         print_menu_pair 19 "安装 / 更新本机轮询器" 20 "删除本机轮询器"
-        print_menu_pair 21 "查看本机轮询器状态" 22 "本机脚本自检"
+        print_menu_pair 21 "查看本机轮询器状态" 22 "查看脚本版本 / 本机状态"
         print_menu_item 23 "从 GitHub 更新脚本"
 
         print_menu_section "退出"
