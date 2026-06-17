@@ -2,7 +2,7 @@
 set -uo pipefail
 
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh"
-SCRIPT_VERSION="2026-06-17-ssh-extra-sanitize"
+SCRIPT_VERSION="2026-06-17-ssh-extra-noninteractive"
 RESOURCE_UPLOAD_MODE="manager-stdin"
 DEFAULT_PO0_SCRIPT="/root/nftables-relay-manager.sh"
 PO0_HOST="${PO0_HOST:-}"
@@ -29,6 +29,7 @@ RESOURCE_UPLOAD_TIMEOUT_SECONDS="${PO0_RESOURCE_UPLOAD_TIMEOUT_SECONDS:-900}"
 RESOURCE_COMPLETE_TIMEOUT_SECONDS="${PO0_RESOURCE_COMPLETE_TIMEOUT_SECONDS:-600}"
 RESOURCE_CONTROL_TIMEOUT_SECONDS="${PO0_RESOURCE_CONTROL_TIMEOUT_SECONDS:-120}"
 REMOTE_STATUS_TIMEOUT_SECONDS="${PO0_REMOTE_STATUS_TIMEOUT_SECONDS:-8}"
+SSH_CONNECT_TIMEOUT_SECONDS="${PO0_SSH_CONNECT_TIMEOUT_SECONDS:-15}"
 WORKER_ID="${PO0_WORKER_ID:-$(hostname 2>/dev/null || printf 'po0-worker')}"
 STATS_FILE_EXPLICIT="0"
 ACTION=""
@@ -789,9 +790,12 @@ sanitize_ssh_extra_args() {
     local -a parts=()
     local token next
     local i
+    local has_batchmode=0 has_connect_timeout=0 has_strict_host=0 connect_timeout
     SSH_EXTRA_ARGV=()
-    [[ -n "${extra}" ]] || return 0
-    read -r -a parts <<< "${extra}"
+    connect_timeout="$(timeout_seconds "${SSH_CONNECT_TIMEOUT_SECONDS}" 15)"
+    if [[ -n "${extra}" ]]; then
+        read -r -a parts <<< "${extra}"
+    fi
     for ((i = 0; i < ${#parts[@]}; i++)); do
         token="${parts[$i]}"
         next="${parts[$((i + 1))]:-}"
@@ -812,8 +816,38 @@ sanitize_ssh_extra_args() {
                 ssh_extra_warn_ignored "${context}" "port belongs in the PO0 SSH port field"
                 continue
                 ;;
-            IdentityFile=*|BatchMode=*|StrictHostKeyChecking=*|UserKnownHostsFile=*|HostKeyAlias=*|ProxyJump=*|ProxyCommand=*)
+            BatchMode=*)
+                has_batchmode=1
                 SSH_EXTRA_ARGV+=(-o "${token}")
+                continue
+                ;;
+            ConnectTimeout=*)
+                has_connect_timeout=1
+                SSH_EXTRA_ARGV+=(-o "${token}")
+                continue
+                ;;
+            StrictHostKeyChecking=*)
+                has_strict_host=1
+                SSH_EXTRA_ARGV+=(-o "${token}")
+                continue
+                ;;
+            IdentityFile=*|UserKnownHostsFile=*|HostKeyAlias=*|ProxyJump=*|ProxyCommand=*)
+                SSH_EXTRA_ARGV+=(-o "${token}")
+                continue
+                ;;
+            -oBatchMode=*)
+                has_batchmode=1
+                SSH_EXTRA_ARGV+=("${token}")
+                continue
+                ;;
+            -oConnectTimeout=*)
+                has_connect_timeout=1
+                SSH_EXTRA_ARGV+=("${token}")
+                continue
+                ;;
+            -oStrictHostKeyChecking=*)
+                has_strict_host=1
+                SSH_EXTRA_ARGV+=("${token}")
                 continue
                 ;;
         esac
@@ -822,6 +856,13 @@ sanitize_ssh_extra_args() {
                 if [[ -z "${next}" || "${next}" == -* ]]; then
                     ssh_extra_warn_ignored "${context}" "missing value for ${token}"
                     continue
+                fi
+                if [[ "${token}" == "-o" ]]; then
+                    case "${next}" in
+                        BatchMode=*) has_batchmode=1 ;;
+                        ConnectTimeout=*) has_connect_timeout=1 ;;
+                        StrictHostKeyChecking=*) has_strict_host=1 ;;
+                    esac
                 fi
                 SSH_EXTRA_ARGV+=("${token}" "${next}")
                 ((i++))
@@ -834,6 +875,9 @@ sanitize_ssh_extra_args() {
                 ;;
         esac
     done
+    [[ "${has_batchmode}" == "1" ]] || SSH_EXTRA_ARGV+=(-o BatchMode=yes)
+    [[ "${has_connect_timeout}" == "1" ]] || SSH_EXTRA_ARGV+=(-o "ConnectTimeout=${connect_timeout}")
+    [[ "${has_strict_host}" == "1" ]] || SSH_EXTRA_ARGV+=(-o StrictHostKeyChecking=accept-new)
 }
 
 build_batchmode_ssh_extra_args() {
@@ -1874,10 +1918,8 @@ report_once() {
     fi
 
     ssh_args+=(-n -p "${po0_port}")
-    if [[ -n "${ssh_extra_args}" ]]; then
-        sanitize_ssh_extra_args "${ssh_extra_args}" "DDNS ${source_key}@${po0_host}:${po0_port}"
-        ssh_args+=("${SSH_EXTRA_ARGV[@]}")
-    fi
+    sanitize_ssh_extra_args "${ssh_extra_args}" "DDNS ${source_key}@${po0_host}:${po0_port}"
+    ssh_args+=("${SSH_EXTRA_ARGV[@]}")
 
     printf '上报：DDNS %s -> %s -> %s@%s:%s，来源=%s\n' "${resolve_domain}" "${ip_csv}" "${po0_user}" "${po0_host}" "${po0_port}" "${report_key}"
     if ! ssh "${ssh_args[@]}" "${po0_user}@${po0_host}" "${remote_cmd}"; then
@@ -1928,10 +1970,8 @@ remote_manager_call() {
     local -a ssh_args=(-n -p "${port:-22}")
     [[ -n "${user}" ]] || user="root"
     [[ -n "${script}" ]] || script="${DEFAULT_PO0_SCRIPT}"
-    if [[ -n "${extra}" ]]; then
-        sanitize_ssh_extra_args "${extra}" "PO0 manager ${user}@${host}:${port:-22}"
-        ssh_args+=("${SSH_EXTRA_ARGV[@]}")
-    fi
+    sanitize_ssh_extra_args "${extra}" "PO0 manager ${user}@${host}:${port:-22}"
+    ssh_args+=("${SSH_EXTRA_ARGV[@]}")
     remote_cmd="bash $(sh_quote "${script}")"
     for arg in "$@"; do
         remote_cmd+=" $(sh_quote "${arg}")"
@@ -1951,10 +1991,8 @@ remote_manager_call_timeout() {
     local -a ssh_args=(-n -p "${port:-22}")
     [[ -n "${user}" ]] || user="root"
     [[ -n "${script}" ]] || script="${DEFAULT_PO0_SCRIPT}"
-    if [[ -n "${extra}" ]]; then
-        sanitize_ssh_extra_args "${extra}" "PO0 manager ${user}@${host}:${port:-22}"
-        ssh_args+=("${SSH_EXTRA_ARGV[@]}")
-    fi
+    sanitize_ssh_extra_args "${extra}" "PO0 manager ${user}@${host}:${port:-22}"
+    ssh_args+=("${SSH_EXTRA_ARGV[@]}")
     remote_cmd="bash $(sh_quote "${script}")"
     for arg in "$@"; do
         remote_cmd+=" $(sh_quote "${arg}")"
@@ -2492,10 +2530,8 @@ report_resource_failure() {
     local task_id="$1" worker_id="$2" reason="$3" host="$4" port="$5" user="$6" script="$7" token="$8" extra="$9"
     local remote_cmd
     local -a ssh_args=(-n -p "${port}")
-    if [[ -n "${extra}" ]]; then
-        sanitize_ssh_extra_args "${extra}" "resource fail ${user}@${host}:${port}"
-        ssh_args+=("${SSH_EXTRA_ARGV[@]}")
-    fi
+    sanitize_ssh_extra_args "${extra}" "resource fail ${user}@${host}:${port}"
+    ssh_args+=("${SSH_EXTRA_ARGV[@]}")
     remote_cmd="bash $(sh_quote "${script}") --resource-task-fail $(sh_quote "${task_id}") $(sh_quote "${worker_id}") $(sh_quote "${reason}") $(sh_quote "${token}")"
     run_with_optional_timeout "$(timeout_seconds "${RESOURCE_CONTROL_TIMEOUT_SECONDS}" 120)" ssh "${ssh_args[@]}" "${user}@${host}" "${remote_cmd}" >/dev/null 2>&1 || true
 }
@@ -2532,11 +2568,9 @@ run_resource_endpoint() {
     worker_id="$(sanitize_field "${WORKER_ID}")"
     worker_id="${worker_id// /_}"
     endpoint_id="$(resource_endpoint_id_for "${host}" "${port}" "${user}")"
-    if [[ -n "${extra}" ]]; then
-        sanitize_ssh_extra_args "${extra}" "resource ${user}@${host}:${port}"
-        ssh_args+=("${SSH_EXTRA_ARGV[@]}")
-        control_ssh_args+=("${SSH_EXTRA_ARGV[@]}")
-    fi
+    sanitize_ssh_extra_args "${extra}" "resource ${user}@${host}:${port}"
+    ssh_args+=("${SSH_EXTRA_ARGV[@]}")
+    control_ssh_args+=("${SSH_EXTRA_ARGV[@]}")
     max_per_run="$(resource_task_max_per_run)"
     upload_timeout="$(timeout_seconds "${RESOURCE_UPLOAD_TIMEOUT_SECONDS}" 900)"
     complete_timeout="$(timeout_seconds "${RESOURCE_COMPLETE_TIMEOUT_SECONDS}" 600)"
@@ -2906,13 +2940,15 @@ def warn_ignored_extra(context, reason):
 
 def sanitized_extra_args(extra, context):
     out = []
-    if not extra:
-        return out
+    has_batchmode = False
+    has_connect_timeout = False
+    has_strict_host = False
+    connect_timeout = os.environ.get("PO0_SSH_CONNECT_TIMEOUT_SECONDS", "15") or "15"
     try:
-        parts = shlex.split(extra)
+        parts = shlex.split(extra or "")
     except ValueError as exc:
         warn_ignored_extra(context, f"parse error: {exc}")
-        return out
+        parts = []
     options_with_value = {
         "-B", "-b", "-c", "-D", "-E", "-e", "-F", "-I", "-i", "-J", "-L",
         "-l", "-m", "-O", "-o", "-P", "-Q", "-R", "-S", "-W", "-w",
@@ -2935,6 +2971,12 @@ def sanitized_extra_args(extra, context):
             warn_ignored_extra(context, "port belongs in the PO0 SSH port field")
             i += 1
         elif token.startswith(option_assignments):
+            if token.startswith("BatchMode="):
+                has_batchmode = True
+            elif token.startswith("ConnectTimeout="):
+                has_connect_timeout = True
+            elif token.startswith("StrictHostKeyChecking="):
+                has_strict_host = True
             out.extend(["-o", token])
             i += 1
         elif token in options_with_value:
@@ -2942,14 +2984,33 @@ def sanitized_extra_args(extra, context):
                 warn_ignored_extra(context, f"missing value for {token}")
                 i += 1
             else:
+                if token == "-o":
+                    if next_token.startswith("BatchMode="):
+                        has_batchmode = True
+                    elif next_token.startswith("ConnectTimeout="):
+                        has_connect_timeout = True
+                    elif next_token.startswith("StrictHostKeyChecking="):
+                        has_strict_host = True
                 out.extend([token, next_token])
                 i += 2
         elif token.startswith("-"):
+            if token.startswith("-oBatchMode="):
+                has_batchmode = True
+            elif token.startswith("-oConnectTimeout="):
+                has_connect_timeout = True
+            elif token.startswith("-oStrictHostKeyChecking="):
+                has_strict_host = True
             out.append(token)
             i += 1
         else:
             warn_ignored_extra(context, "bare value without an SSH option")
             i += 1
+    if not has_batchmode:
+        out.extend(["-o", "BatchMode=yes"])
+    if not has_connect_timeout:
+        out.extend(["-o", f"ConnectTimeout={connect_timeout}"])
+    if not has_strict_host:
+        out.extend(["-o", "StrictHostKeyChecking=accept-new"])
     return out
 
 TARGETS = parse_targets(os.environ.get('PO0_WEBAUTH_TARGETS', ''))
@@ -2974,8 +3035,7 @@ def report_target(target, ip, identity, note):
         shlex.quote(note or "lan-webauth"),
     ])
     cmd = ["ssh", "-p", target['port']]
-    if target.get('extra'):
-        cmd.extend(sanitized_extra_args(target['extra'], f"WebAuth {target['user']}@{target['host']}:{target['port']}"))
+    cmd.extend(sanitized_extra_args(target.get('extra', ''), f"WebAuth {target['user']}@{target['host']}:{target['port']}"))
     cmd.extend([f"{target['user']}@{target['host']}", remote])
     return subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
 
@@ -3239,13 +3299,15 @@ def warn_ignored_extra(context, reason):
 
 def sanitized_extra_args(extra, context):
     out = []
-    if not extra:
-        return out
+    has_batchmode = False
+    has_connect_timeout = False
+    has_strict_host = False
+    connect_timeout = os.environ.get("PO0_SSH_CONNECT_TIMEOUT_SECONDS", "15") or "15"
     try:
-        parts = shlex.split(extra)
+        parts = shlex.split(extra or "")
     except ValueError as exc:
         warn_ignored_extra(context, f"parse error: {exc}")
-        return out
+        parts = []
     options_with_value = {
         "-B", "-b", "-c", "-D", "-E", "-e", "-F", "-I", "-i", "-J", "-L",
         "-l", "-m", "-O", "-o", "-P", "-Q", "-R", "-S", "-W", "-w",
@@ -3268,6 +3330,12 @@ def sanitized_extra_args(extra, context):
             warn_ignored_extra(context, "port belongs in the PO0 SSH port field")
             i += 1
         elif token.startswith(option_assignments):
+            if token.startswith("BatchMode="):
+                has_batchmode = True
+            elif token.startswith("ConnectTimeout="):
+                has_connect_timeout = True
+            elif token.startswith("StrictHostKeyChecking="):
+                has_strict_host = True
             out.extend(["-o", token])
             i += 1
         elif token in options_with_value:
@@ -3275,14 +3343,33 @@ def sanitized_extra_args(extra, context):
                 warn_ignored_extra(context, f"missing value for {token}")
                 i += 1
             else:
+                if token == "-o":
+                    if next_token.startswith("BatchMode="):
+                        has_batchmode = True
+                    elif next_token.startswith("ConnectTimeout="):
+                        has_connect_timeout = True
+                    elif next_token.startswith("StrictHostKeyChecking="):
+                        has_strict_host = True
                 out.extend([token, next_token])
                 i += 2
         elif token.startswith("-"):
+            if token.startswith("-oBatchMode="):
+                has_batchmode = True
+            elif token.startswith("-oConnectTimeout="):
+                has_connect_timeout = True
+            elif token.startswith("-oStrictHostKeyChecking="):
+                has_strict_host = True
             out.append(token)
             i += 1
         else:
             warn_ignored_extra(context, "bare value without an SSH option")
             i += 1
+    if not has_batchmode:
+        out.extend(["-o", "BatchMode=yes"])
+    if not has_connect_timeout:
+        out.extend(["-o", f"ConnectTimeout={connect_timeout}"])
+    if not has_strict_host:
+        out.extend(["-o", "StrictHostKeyChecking=accept-new"])
     return out
 
 TARGETS = parse_targets(os.environ.get('PO0_SELF_REPORT_TARGETS', ''))
@@ -3302,8 +3389,7 @@ def report_target(target, ip, identity, source_override):
         shlex.quote(target['ttl']),
     ])
     cmd = ["ssh", "-p", target['port']]
-    if target.get('extra'):
-        cmd.extend(sanitized_extra_args(target['extra'], f"Self-report {target['user']}@{target['host']}:{target['port']}"))
+    cmd.extend(sanitized_extra_args(target.get('extra', ''), f"Self-report {target['user']}@{target['host']}:{target['port']}"))
     cmd.extend([f"{target['user']}@{target['host']}", remote])
     return subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
 
