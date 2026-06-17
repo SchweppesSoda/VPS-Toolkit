@@ -239,7 +239,18 @@ function ttlRemaining(expiresAt) {
   return `${hours}h ${rest}m`;
 }
 
-function textNode(text, size = 'caption1', weight = 'regular', color = '#E6EAF0') {
+const WIDGET_COLORS = {
+  background: '#111318',
+  text: '#F4F7FB',
+  dim: '#8E8E93',
+  line: '#2A2D34',
+  blue: '#0A84FF',
+  green: '#30D158',
+  red: '#FF453A',
+  yellow: '#FFD60A',
+};
+
+function textNode(text, size = 'caption1', weight = 'regular', color = WIDGET_COLORS.text) {
   return {
     type: 'text',
     text: String(text),
@@ -247,6 +258,35 @@ function textNode(text, size = 'caption1', weight = 'regular', color = '#E6EAF0'
     textColor: color,
     maxLines: 1,
     minScale: 0.55,
+  };
+}
+
+function iconNode(symbol, color, size = 12) {
+  return {
+    type: 'image',
+    src: `sf-symbol:${symbol}`,
+    width: size,
+    height: size,
+    color,
+  };
+}
+
+function spacerNode(length) {
+  return Number.isFinite(length) ? { type: 'spacer', length } : { type: 'spacer' };
+}
+
+function rowNode(icon, iconColor, label, value, valueColor = WIDGET_COLORS.text) {
+  return {
+    type: 'stack',
+    direction: 'row',
+    alignItems: 'center',
+    gap: 5,
+    children: [
+      iconNode(icon, iconColor, 11),
+      textNode(label, 10, 'regular', WIDGET_COLORS.dim),
+      spacerNode(),
+      textNode(value || '未知', 10, 'medium', valueColor),
+    ],
   };
 }
 
@@ -261,7 +301,7 @@ function widgetPanel(title, content, ok, ctx) {
     type: 'widget',
     padding: 14,
     gap: 7,
-    backgroundColor: '#111318',
+    backgroundColor: WIDGET_COLORS.background,
     refreshAfter: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
     children: [
       {
@@ -270,19 +310,18 @@ function widgetPanel(title, content, ok, ctx) {
         alignItems: 'center',
         gap: 6,
         children: [
-          {
-            type: 'image',
-            src: ok ? 'sf-symbol:checkmark.shield.fill' : 'sf-symbol:exclamationmark.triangle.fill',
-            width: 18,
-            height: 18,
-            color: accent,
-          },
-          textNode(title, 'headline', 'semibold', '#FFFFFF'),
+          iconNode(ok ? 'checkmark.shield.fill' : 'exclamationmark.triangle.fill', accent, 18),
+          textNode(title, 'headline', 'semibold', WIDGET_COLORS.text),
         ],
       },
       ...shownLines.map((line) => textNode(line)),
     ],
   };
+}
+
+function shortHost(host) {
+  const text = String(host || 'PO0');
+  return text.length > 18 ? `${text.slice(0, 17)}...` : text;
 }
 
 function targetName(target) {
@@ -291,82 +330,194 @@ function targetName(target) {
   return `${target.sourceId || 'egern'}@${host}${port}`;
 }
 
-function targetSummaryLines(state) {
+function targetDisplayValue(target) {
+  const name = `${target.sourceId || 'egern'}@${shortHost(target.host)}`;
+  if (target.ok) return `${name} TTL ${ttlRemaining(target.expiresAt)}`;
+  return `${name} 失败: ${target.error || '未知错误'}`;
+}
+
+function targetSummaryRows(state, ctx) {
   const targets = Array.isArray(state.targets) ? state.targets : [];
   if (targets.length === 0) {
-    if (state.expiresAt) return [`${state.sourceId || 'egern'}@${state.po0Host || 'PO0'} TTL ${ttlRemaining(state.expiresAt)}`];
+    if (state.expiresAt) {
+      return [rowNode('server.rack', WIDGET_COLORS.green, '目标1', `${state.sourceId || 'egern'} TTL ${ttlRemaining(state.expiresAt)}`)];
+    }
     return [];
   }
-  return targets.slice(0, 4).map((target) => {
-    const name = targetName(target);
-    if (target.ok) return `${name} TTL ${ttlRemaining(target.expiresAt)}`;
-    return `${name} 失败: ${target.error || '未知错误'}`;
+  const family = String(ctx?.widgetFamily || '').toLowerCase();
+  const maxTargets = family.includes('small') ? 1 : 2;
+  const rows = targets.slice(0, maxTargets).map((target, index) => {
+    const ok = Boolean(target.ok);
+    return rowNode(
+      ok ? 'server.rack' : 'exclamationmark.triangle.fill',
+      ok ? WIDGET_COLORS.green : WIDGET_COLORS.red,
+      `目标${index + 1}`,
+      targetDisplayValue(target),
+      ok ? WIDGET_COLORS.text : WIDGET_COLORS.red,
+    );
   });
+  if (targets.length > maxTargets && !family.includes('small')) {
+    rows.push(rowNode('ellipsis.circle', WIDGET_COLORS.dim, '更多', `还有 ${targets.length - maxTargets} 个目标未显示`, WIDGET_COLORS.dim));
+  }
+  return rows;
 }
 
 function widgetFromState(state, ctx, deviceId = '') {
-  const deviceLine = `设备: ${deviceDisplayName(deviceId || state?.deviceId || '')}`;
+  const ok = Boolean(state?.ok);
+  const family = String(ctx?.widgetFamily || '').toLowerCase();
+  const isSmall = family.includes('small');
+  const network = normalizeNetworkInfo(state?.network);
+  const deviceName = deviceDisplayName(deviceId || state?.deviceId || '');
+  const targets = Array.isArray(state?.targets) ? state.targets : [];
+  const successCount = state?.successCount ?? targets.filter((target) => target.ok).length;
+  const targetCount = state?.targetCount ?? targets.length;
+  const statusColor = ok ? WIDGET_COLORS.green : WIDGET_COLORS.red;
+  const statusIcon = ok ? 'checkmark.shield.fill' : 'exclamationmark.triangle.fill';
+  const statusText = ok ? '已更新' : '上报异常';
+  const timeText = formatTime(state?.at || state?.checkedAt);
+
   if (!state) {
-    return widgetPanel(REPORT_TITLE, [deviceLine, '暂无上报状态。', '点按刷新即可立即上报。'], false, ctx);
+    return widgetPanel(REPORT_TITLE, [`设备: ${deviceName}`, '暂无上报状态。', '点按刷新即可立即上报。'], false, ctx);
   }
 
-  if (!state.ok) {
-    const targets = Array.isArray(state.targets) ? state.targets : [];
-    const successCount = state.successCount ?? targets.filter((target) => target.ok).length;
-    const targetCount = state.targetCount ?? targets.length;
-    const targetLines = targetSummaryLines(state);
-    return widgetPanel(
-      REPORT_TITLE,
-      [
-        deviceLine,
-        `IP: ${state.ip || '未知'}`,
-        `目标: ${successCount}/${targetCount || 1} 成功`,
-        ...(targetLines.length ? targetLines : [`原因: ${state.error || '未知错误'}`]),
-        `上次失败: ${formatTime(state.at)}`,
-        `网络: ${state.network || '未知'}`,
+  const coreRows = [
+    rowNode('globe.asia.australia.fill', WIDGET_COLORS.blue, '公网', state.ip || '未知'),
+    rowNode('iphone', WIDGET_COLORS.blue, '设备', deviceName),
+    rowNode(ok ? 'checkmark.circle.fill' : 'xmark.circle.fill', statusColor, '目标', `${successCount}/${targetCount || 1} 成功`, statusColor),
+  ];
+  const networkRows = [
+    rowNode(network.icon, WIDGET_COLORS.blue, network.label, network.value),
+  ];
+  if (network.localIp) networkRows.push(rowNode('iphone', WIDGET_COLORS.blue, '本机', network.localIp));
+  if (network.gateway) networkRows.push(rowNode('wifi.router.fill', WIDGET_COLORS.blue, '网关', network.gateway));
+
+  const detailChildren = isSmall ? [
+    ...coreRows.slice(0, 2),
+    ...networkRows.slice(0, 2),
+  ] : [
+    {
+      type: 'stack',
+      direction: 'row',
+      gap: 10,
+      children: [
+        { type: 'stack', direction: 'column', gap: 5, flex: 1, children: coreRows },
+        { type: 'stack', width: 0.5, backgroundColor: WIDGET_COLORS.line },
+        { type: 'stack', direction: 'column', gap: 5, flex: 1, children: networkRows },
       ],
-      false,
-      ctx,
-    );
+    },
+  ];
+
+  const targetRows = targetSummaryRows(state, ctx);
+  if (!ok && targetRows.length === 0) {
+    targetRows.push(rowNode('exclamationmark.triangle.fill', WIDGET_COLORS.red, '原因', state.error || '未知错误', WIDGET_COLORS.red));
   }
 
-  return widgetPanel(
-    REPORT_TITLE,
-    [
-      deviceLine,
-      `IP: ${state.ip || '未知'}`,
-      `目标: ${state.successCount ?? 1}/${state.targetCount ?? 1} 成功`,
-      ...targetSummaryLines(state),
-      `上次成功: ${formatTime(state.at)}`,
-      `网络: ${state.network || '未知'}`,
+  return {
+    type: 'widget',
+    padding: 14,
+    gap: 8,
+    backgroundColor: WIDGET_COLORS.background,
+    refreshAfter: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+    children: [
+      {
+        type: 'stack',
+        direction: 'row',
+        alignItems: 'center',
+        gap: 6,
+        children: [
+          iconNode(statusIcon, statusColor, 16),
+          textNode(REPORT_TITLE, 'headline', 'semibold', WIDGET_COLORS.text),
+          spacerNode(),
+          textNode(statusText, 10, 'semibold', statusColor),
+        ],
+      },
+      textNode(timeText, 10, 'regular', WIDGET_COLORS.dim),
+      ...detailChildren,
+      { type: 'stack', height: 0.5, backgroundColor: WIDGET_COLORS.line },
+      ...targetRows,
     ],
-    true,
-    ctx,
-  );
+  };
 }
 
-function networkLabel(ctx) {
+function carrierLabel(carrier) {
+  const text = String(carrier || '').trim();
+  if (!text) return '';
+  if (/cmcc|china mobile|中国移动/i.test(text)) return '中国移动';
+  if (/cucc|china unicom|中国联通/i.test(text)) return '中国联通';
+  if (/ctcc|china telecom|中国电信/i.test(text)) return '中国电信';
+  return text;
+}
+
+function radioLabel(radio) {
+  const key = String(radio || '').toUpperCase().replace(/\s+/g, '');
+  const labels = {
+    NRNSA: '5G',
+    NR: '5G',
+    LTE: '4G',
+    WCDMA: '3G',
+    HSDPA: '3G',
+    HSUPA: '3G',
+    EDGE: '2G',
+    GPRS: '2G',
+  };
+  return labels[key] || radio || '';
+}
+
+function networkInfo(ctx) {
   const device = ctx?.device || {};
   const runtimeNetwork = (typeof $network !== 'undefined') ? $network : (ctx?.network || {});
   const localIp = runtimeNetwork?.v4?.primaryAddress || device?.ipv4?.address || '';
   const gateway = runtimeNetwork?.v4?.primaryRouter || device?.ipv4?.gateway || '';
-  const iface = runtimeNetwork?.v4?.primaryInterface || device?.ipv4?.interface || '';
   const wifiName = device?.wifi?.ssid || '';
-  const carrier = device?.cellular?.carrier || '';
-  const radio = device?.cellular?.radio || '';
+  const carrier = carrierLabel(device?.cellular?.carrier || '');
+  const radio = radioLabel(device?.cellular?.radio || '');
 
-  const parts = [];
   if (wifiName) {
-    parts.push(`Wi-Fi ${wifiName}`);
-  } else if (radio || carrier) {
-    parts.push(`蜂窝 ${[carrier, radio].filter(Boolean).join(' ')}`);
+    return {
+      label: 'Wi-Fi',
+      value: wifiName,
+      icon: 'wifi',
+      localIp,
+      gateway,
+    };
   }
 
-  if (iface) parts.push(iface);
-  if (localIp) parts.push(localIp);
-  if (gateway) parts.push(`gw ${gateway}`);
+  if (radio || carrier) {
+    return {
+      label: '蜂窝',
+      value: [carrier, radio].filter(Boolean).join(' ') || '未知',
+      icon: 'antenna.radiowaves.left.and.right',
+      localIp,
+      gateway,
+    };
+  }
 
-  return parts.length ? parts.join(' / ') : '未知';
+  return {
+    label: '网络',
+    value: '未知',
+    icon: 'network',
+    localIp,
+    gateway,
+  };
+}
+
+function normalizeNetworkInfo(value) {
+  if (value && typeof value === 'object') {
+    return {
+      label: value.label || '网络',
+      value: value.value || '未知',
+      icon: value.icon || 'network',
+      localIp: value.localIp || '',
+      gateway: value.gateway || '',
+    };
+  }
+  return {
+    label: '网络',
+    value: String(value || '未知'),
+    icon: 'network',
+    localIp: '',
+    gateway: '',
+  };
 }
 
 async function storageSet(ctx, key, value) {
@@ -831,7 +982,7 @@ export default async function(ctx) {
         checkedAt: new Date().toISOString(),
         targetConfigSignature: skipDecision.currentConfigSignature,
         skipReason: `IP 未变化，距离上次成功 ${skipDecision.ageSeconds}s，小于自动刷新间隔 ${skipDecision.refreshAfter}s`,
-        network: networkLabel(ctx),
+        network: networkInfo(ctx),
         deviceId,
       };
       await storageSet(ctx, STORAGE_KEY, JSON.stringify(state));
@@ -841,11 +992,12 @@ export default async function(ctx) {
 
     const results = [];
     const failures = [];
+    const targetReports = [];
 
     for (const target of targets) {
       try {
         const output = await reportToPO0(ctx, env, target, ip);
-        results.push({
+        const report = {
           ok: true,
           sourceId: target.sourceId,
           host: target.host,
@@ -854,17 +1006,21 @@ export default async function(ctx) {
           ttlSeconds: target.ttlSeconds,
           expiresAt: new Date(startedAt.getTime() + Math.max(60, target.ttlSeconds) * 1000).toISOString(),
           output: String(output || '').trim(),
-        });
+        };
+        results.push(report);
+        targetReports.push(report);
       } catch (error) {
         const errorText = error?.message || String(error);
         logMessage(ctx, 'error', `${targetName(target)} 失败`, errorText);
-        failures.push({
+        const report = {
           ok: false,
           sourceId: target.sourceId,
           host: target.host,
           port: target.port,
           error: errorText,
-        });
+        };
+        failures.push(report);
+        targetReports.push(report);
       }
     }
 
@@ -874,14 +1030,14 @@ export default async function(ctx) {
       ip,
       po0Host: targets.map((target) => target.host).join(','),
       identity: targets.map((target) => target.identity).filter(Boolean).join(','),
-      network: networkLabel(ctx),
+      network: networkInfo(ctx),
       at: startedAt.toISOString(),
       deviceId,
       targetCount: targets.length,
       successCount: results.length,
       failureCount: failures.length,
       targetConfigSignature: targetConfigSignatures(targets),
-      targets: [...results, ...failures],
+      targets: targetReports,
     };
     await storageSet(ctx, STORAGE_KEY, JSON.stringify(state));
 
@@ -904,7 +1060,7 @@ export default async function(ctx) {
       sourceId: targets.map((target) => target.sourceId).join(',') || String(env.SSH_REPORT_SOURCE || 'egern').trim() || 'egern',
       po0Host: targets.map((target) => target.host).join(',') || env.PO0_HOST || '',
       ip,
-      network: networkLabel(ctx),
+      network: networkInfo(ctx),
       at: new Date().toISOString(),
       deviceId,
       targetCount: targets.length,
