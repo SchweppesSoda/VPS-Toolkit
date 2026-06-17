@@ -91,7 +91,7 @@ source_id|host|port|user|script|token|identity|ttl
 - `generic`：在 Egern 手动执行 `PO0 SSH IP Report Now`。
 - `保存本机设备 ID`：把 `DEVICE_ID_SETUP` 写入本机 `ctx.storage`，不做 SSH 上报。
 - `清除本机设备 ID`：清除本机 `ctx.storage` 里的设备 ID。
-- `PO0 SSH 上报状态` / `widget`：显示本机设备 ID、每个 PO0 target 的成功/失败、IP、时间、TTL 和错误原因。
+- `PO0 SSH 上报状态` / `widget`：显示本机设备 ID、公网 IP、IP 归属地、运营商、每个 PO0 target 的成功/失败、时间、TTL 和错误原因。
 
 自动触发会先探测当前出口 IPv4。如果 IP 和上次成功记录一致、PO0 target 配置未变化，并且距离上次成功还小于自动续期窗口，脚本会跳过 SSH 上报。自动续期窗口按当前最短 TTL 动态计算：`min(最短 TTL 的 2/3, 最短 TTL - 10 分钟)`，下限 60 秒。IP 变化、target 配置变化（含 TTL、脚本路径、用户、token 指纹等）、续期窗口到达、手动执行和 Widget 刷新都会继续执行 SSH 上报。
 

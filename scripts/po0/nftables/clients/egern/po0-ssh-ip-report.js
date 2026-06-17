@@ -151,6 +151,49 @@ async function detectCurrentIPv4WithFallback(ctx, env, policy) {
   throw new Error(`所有公网 IPv4 探测地址均失败：${errors.join('; ')}`);
 }
 
+function normalizeIpProfile(value) {
+  if (!value || typeof value !== 'object') return { location: '', isp: '' };
+  return {
+    location: String(value.location || '').trim(),
+    isp: String(value.isp || value.org || '').trim(),
+  };
+}
+
+function trimDisplayText(value, maxLength = 18) {
+  const text = String(value || '').trim();
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength - 1)}...`;
+}
+
+async function fetchIpProfile(ctx, ip, policy) {
+  if (!isPublicIPv4(ip)) return { location: '', isp: '' };
+  try {
+    const fields = 'status,message,country,regionName,city,isp,org,query';
+    const url = `http://ip-api.com/json/${encodeURIComponent(ip)}?lang=zh-CN&fields=${fields}`;
+    const resp = await ctx.http.get(url, { timeout: 5000, policy });
+    if (resp.status < 200 || resp.status >= 300) return { location: '', isp: '' };
+    let data = null;
+    try {
+      data = await resp.json();
+    } catch (_) {
+      const text = await responseText(resp);
+      data = JSON.parse(text);
+    }
+    if (!data || data.status === 'fail') return { location: '', isp: '' };
+    const location = [data.country, data.regionName, data.city]
+      .map((part) => String(part || '').trim())
+      .filter(Boolean)
+      .join(' ');
+    const isp = String(data.isp || data.org || '').trim();
+    return {
+      location,
+      isp,
+    };
+  } catch (_) {
+    return { location: '', isp: '' };
+  }
+}
+
 function boolEnv(value, fallback) {
   const raw = String(value || '').trim().toLowerCase();
   if (!raw) return fallback;
@@ -367,6 +410,7 @@ function widgetFromState(state, ctx, deviceId = '') {
   const family = String(ctx?.widgetFamily || '').toLowerCase();
   const isSmall = family.includes('small');
   const network = normalizeNetworkInfo(state?.network);
+  const ipProfile = normalizeIpProfile(state?.ipProfile);
   const deviceName = deviceDisplayName(deviceId || state?.deviceId || '');
   const targets = Array.isArray(state?.targets) ? state.targets : [];
   const successCount = state?.successCount ?? targets.filter((target) => target.ok).length;
@@ -380,8 +424,12 @@ function widgetFromState(state, ctx, deviceId = '') {
     return widgetPanel(REPORT_TITLE, [`设备: ${deviceName}`, '暂无上报状态。', '点按刷新即可立即上报。'], false, ctx);
   }
 
-  const coreRows = [
+  const publicRows = [
     rowNode('globe.asia.australia.fill', WIDGET_COLORS.blue, '公网', state.ip || '未知'),
+    rowNode('mappin.and.ellipse', WIDGET_COLORS.blue, '位置', trimDisplayText(ipProfile.location || '未知', 28)),
+    rowNode('building.2.fill', WIDGET_COLORS.blue, '运营商', trimDisplayText(ipProfile.isp || '未知', 28)),
+  ];
+  const statusRows = [
     rowNode('iphone', WIDGET_COLORS.blue, '设备', deviceName),
     rowNode(ok ? 'checkmark.circle.fill' : 'xmark.circle.fill', statusColor, '目标', `${successCount}/${targetCount || 1} 成功`, statusColor),
   ];
@@ -392,7 +440,8 @@ function widgetFromState(state, ctx, deviceId = '') {
   if (network.gateway) networkRows.push(rowNode('wifi.router.fill', WIDGET_COLORS.blue, '网关', network.gateway));
 
   const detailChildren = isSmall ? [
-    ...coreRows.slice(0, 2),
+    ...publicRows.slice(0, 2),
+    statusRows[0],
     ...networkRows.slice(0, 2),
   ] : [
     {
@@ -400,7 +449,7 @@ function widgetFromState(state, ctx, deviceId = '') {
       direction: 'row',
       gap: 10,
       children: [
-        { type: 'stack', direction: 'column', gap: 5, flex: 1, children: coreRows },
+        { type: 'stack', direction: 'column', gap: 5, flex: 1, children: [...publicRows, ...statusRows] },
         { type: 'stack', width: 0.5, backgroundColor: WIDGET_COLORS.line },
         { type: 'stack', direction: 'column', gap: 5, flex: 1, children: networkRows },
       ],
@@ -970,12 +1019,18 @@ export default async function(ctx) {
   const deviceId = await storedDeviceId(ctx);
   let targets = [];
   let ip = '';
+  let ipProfile = { location: '', isp: '' };
 
   try {
     targets = parseTargets(env, deviceId);
     ip = await detectCurrentIPv4WithFallback(ctx, env, policy);
+    ipProfile = await fetchIpProfile(ctx, ip, policy);
     const skipDecision = await shouldSkipUnchangedAutoReport(ctx, targets, ip);
     if (skipDecision.skip) {
+      const previousIpProfile = normalizeIpProfile(skipDecision.previous?.ipProfile);
+      if (!ipProfile.location && !ipProfile.isp && (previousIpProfile.location || previousIpProfile.isp)) {
+        ipProfile = previousIpProfile;
+      }
       const state = {
         ...skipDecision.previous,
         skipped: true,
@@ -983,6 +1038,7 @@ export default async function(ctx) {
         targetConfigSignature: skipDecision.currentConfigSignature,
         skipReason: `IP 未变化，距离上次成功 ${skipDecision.ageSeconds}s，小于自动刷新间隔 ${skipDecision.refreshAfter}s`,
         network: networkInfo(ctx),
+        ipProfile,
         deviceId,
       };
       await storageSet(ctx, STORAGE_KEY, JSON.stringify(state));
@@ -1028,6 +1084,7 @@ export default async function(ctx) {
       ok: failures.length === 0,
       sourceId: targets.map((target) => target.sourceId).join(','),
       ip,
+      ipProfile,
       po0Host: targets.map((target) => target.host).join(','),
       identity: targets.map((target) => target.identity).filter(Boolean).join(','),
       network: networkInfo(ctx),
@@ -1060,6 +1117,7 @@ export default async function(ctx) {
       sourceId: targets.map((target) => target.sourceId).join(',') || String(env.SSH_REPORT_SOURCE || 'egern').trim() || 'egern',
       po0Host: targets.map((target) => target.host).join(',') || env.PO0_HOST || '',
       ip,
+      ipProfile,
       network: networkInfo(ctx),
       at: new Date().toISOString(),
       deviceId,
