@@ -3565,29 +3565,32 @@ menu_loop() {
     while true; do
         print_dashboard
         print_menu_section "DDNS 解析上报"
-        print_menu_pair 1 "上报目标与 DDNS 统计" 10 "立即执行 DDNS 上报"
+        print_menu_pair 1 "上报目标与 DDNS 统计" 2 "立即执行 DDNS 上报"
+        print_menu_item 3 "清空 DDNS 统计"
 
         print_menu_section "资源任务"
-        print_menu_pair 2 "资源统计" 11 "立即领取并执行资源任务"
-        print_menu_item 23 "PO0 资源任务创建计划"
+        print_menu_pair 4 "资源统计" 5 "PO0 资源任务创建计划"
+        print_menu_item 6 "立即领取并执行资源任务"
 
         print_menu_section "Self-report 自上报"
-        print_menu_pair 12 "Self-report 连通性检查" 13 "启动 Self-report 服务"
+        print_menu_pair 7 "Self-report 连通性检查" 8 "启动 Self-report 服务"
 
         print_menu_section "WebAuth 放行"
-        print_menu_pair 14 "WebAuth 连通性检查" 15 "启动 WebAuth 服务"
-        print_menu_item 16 "WebAuth / Cloudflare Access 配置提示"
+        print_menu_pair 9 "WebAuth 连通性检查" 10 "启动 WebAuth 服务"
+        print_menu_item 11 "WebAuth / Cloudflare Access 配置提示"
 
         print_menu_section "PO0 目标、SSH 与 Token"
-        print_menu_pair 3 "添加 PO0 目标" 4 "编辑 PO0 目标"
-        print_menu_pair 5 "SSH 私钥 / 参数" 6 "目标 Token"
-        print_menu_pair 7 "启用 / 停用目标" 8 "删除 PO0 目标"
+        print_menu_pair 12 "添加 PO0 目标" 13 "编辑 PO0 目标"
+        print_menu_pair 14 "SSH 私钥 / 参数" 15 "目标 Token"
+        print_menu_pair 16 "启用 / 停用目标" 17 "删除 PO0 目标"
+
+        print_menu_section "全局操作"
+        print_menu_item 18 "执行全部任务"
 
         print_menu_section "维护"
-        print_menu_pair 9 "执行全部任务" 17 "安装 / 更新本机轮询器"
-        print_menu_pair 18 "删除本机轮询器" 19 "查看本机轮询器状态"
-        print_menu_pair 20 "清空 DDNS 统计" 21 "本机脚本自检"
-        print_menu_item 22 "从 GitHub 更新脚本"
+        print_menu_pair 19 "安装 / 更新本机轮询器" 20 "删除本机轮询器"
+        print_menu_pair 21 "查看本机轮询器状态" 22 "本机脚本自检"
+        print_menu_item 23 "从 GitHub 更新脚本"
 
         print_menu_section "退出"
         print_menu_item 0 "退出"
@@ -3595,28 +3598,28 @@ menu_loop() {
         read_menu_choice_or_return choice "请选择操作 [0-23]: " || return 0
         case "${choice}" in
             1) list_targets; pause_before_return ;;
-            2) list_resource_stats; pause_before_return ;;
-            3) add_target_interactive; pause_before_return ;;
-            4) edit_target_interactive; pause_before_return ;;
-            5) manage_target_ssh_interactive; [[ "$?" -eq 2 ]] || pause_before_return ;;
-            6) manage_target_tokens_interactive; pause_before_return ;;
-            7) toggle_target_interactive; pause_before_return ;;
-            8) delete_target_interactive; pause_before_return ;;
-            9) run_all_client_jobs; pause_before_return ;;
-            10) run_config_targets; pause_before_return ;;
-            11) run_resource_targets; pause_before_return ;;
-            12) probe_self_report_target; pause_before_return ;;
-            13) run_self_report_server ;;
-            14) probe_webauth_target; pause_before_return ;;
-            15) run_webauth_server ;;
-            16) show_webauth_cloudflare_guide; pause_before_return ;;
-            17) install_cron_interactive; pause_before_return ;;
-            18) remove_cron_interactive; pause_before_return ;;
-            19) show_cron_status; pause_before_return ;;
-            20) clear_stats_interactive; pause_before_return ;;
-            21) show_local_script_status; pause_before_return ;;
-            22) upgrade_self_from_raw; pause_before_return ;;
-            23) show_remote_resource_task_cron_status; pause_before_return ;;
+            2) run_config_targets; pause_before_return ;;
+            3) clear_stats_interactive; pause_before_return ;;
+            4) list_resource_stats; pause_before_return ;;
+            5) show_remote_resource_task_cron_status; pause_before_return ;;
+            6) run_resource_targets; pause_before_return ;;
+            7) probe_self_report_target; pause_before_return ;;
+            8) run_self_report_server ;;
+            9) probe_webauth_target; pause_before_return ;;
+            10) run_webauth_server ;;
+            11) show_webauth_cloudflare_guide; pause_before_return ;;
+            12) add_target_interactive; pause_before_return ;;
+            13) edit_target_interactive; pause_before_return ;;
+            14) manage_target_ssh_interactive; [[ "$?" -eq 2 ]] || pause_before_return ;;
+            15) manage_target_tokens_interactive; pause_before_return ;;
+            16) toggle_target_interactive; pause_before_return ;;
+            17) delete_target_interactive; pause_before_return ;;
+            18) run_all_client_jobs; pause_before_return ;;
+            19) install_cron_interactive; pause_before_return ;;
+            20) remove_cron_interactive; pause_before_return ;;
+            21) show_cron_status; pause_before_return ;;
+            22) show_local_script_status; pause_before_return ;;
+            23) upgrade_self_from_raw; pause_before_return ;;
             0) return 0 ;;
             *) printf '无效选择。\n' >&2 ;;
         esac
