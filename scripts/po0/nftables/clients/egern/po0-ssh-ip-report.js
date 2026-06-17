@@ -346,14 +346,27 @@ function widgetFromState(state, ctx, deviceId = '') {
 }
 
 function networkLabel(ctx) {
-  const network = ctx?.network || ctx?.networks || ctx?.environment?.network;
-  if (!network) return '未知';
-  if (typeof network === 'string') return network;
-  try {
-    return JSON.stringify(network);
-  } catch (_) {
-    return '未知';
+  const device = ctx?.device || {};
+  const runtimeNetwork = (typeof $network !== 'undefined') ? $network : (ctx?.network || {});
+  const localIp = runtimeNetwork?.v4?.primaryAddress || device?.ipv4?.address || '';
+  const gateway = runtimeNetwork?.v4?.primaryRouter || device?.ipv4?.gateway || '';
+  const iface = runtimeNetwork?.v4?.primaryInterface || device?.ipv4?.interface || '';
+  const wifiName = device?.wifi?.ssid || '';
+  const carrier = device?.cellular?.carrier || '';
+  const radio = device?.cellular?.radio || '';
+
+  const parts = [];
+  if (wifiName) {
+    parts.push(`Wi-Fi ${wifiName}`);
+  } else if (radio || carrier) {
+    parts.push(`蜂窝 ${[carrier, radio].filter(Boolean).join(' ')}`);
   }
+
+  if (iface) parts.push(iface);
+  if (localIp) parts.push(localIp);
+  if (gateway) parts.push(`gw ${gateway}`);
+
+  return parts.length ? parts.join(' / ') : '未知';
 }
 
 async function storageSet(ctx, key, value) {
