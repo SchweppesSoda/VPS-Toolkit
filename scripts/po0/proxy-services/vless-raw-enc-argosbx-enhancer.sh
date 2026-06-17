@@ -65,6 +65,7 @@ C_GREEN=""
 C_YELLOW=""
 C_RED=""
 C_CYAN=""
+C_PANEL=""
 
 setup_colors() {
   if [[ -t 1 ]]; then
@@ -74,7 +75,8 @@ setup_colors() {
     C_GREEN=$'\033[32m'
     C_YELLOW=$'\033[33m'
     C_RED=$'\033[31m'
-    C_CYAN=$'\033[36m'
+    C_CYAN=$'\033[96m'
+    C_PANEL=$'\033[38;5;208m'
   fi
 }
 
@@ -92,6 +94,56 @@ print_title() {
   print_divider
   printf '%b%s%b\n' "${C_BOLD}${C_CYAN}" "$1" "${C_RESET}"
   print_divider
+}
+
+print_menu_divider() {
+  printf '%b%s%b\n' "${C_CYAN}" "------------------------" "${C_RESET}"
+}
+
+print_menu_section() {
+  print_menu_divider
+  printf '%b%s%b\n' "${C_BOLD}${C_CYAN}" "$1" "${C_RESET}"
+}
+
+print_menu_item() {
+  local number="$1"
+  local label="$2"
+  printf '  %b%2s%b) %s\n' "${C_CYAN}" "${number}" "${C_RESET}" "${label}"
+}
+
+print_menu_footer() {
+  print_menu_divider
+}
+
+print_panel_divider() {
+  printf '%b%s%b\n' "${C_PANEL}" "------------------------" "${C_RESET}"
+}
+
+print_panel_section() {
+  print_panel_divider
+  printf '%b%s%b\n' "${C_BOLD}${C_PANEL}" "$1" "${C_RESET}"
+}
+
+print_panel_value_column() {
+  if [[ -t 1 ]]; then
+    printf '\033[24G'
+  else
+    printf '    '
+  fi
+}
+
+print_panel_row() {
+  local label="$1"
+  shift
+  printf '  %b%s%b' "${C_PANEL}" "${label}" "${C_RESET}"
+  print_panel_value_column
+  printf ': %s\n' "$*"
+}
+
+print_panel_note() {
+  printf '  '
+  print_panel_value_column
+  printf '  %s\n' "$*"
 }
 
 pause_before_return() {
@@ -437,50 +489,46 @@ print_dashboard() {
   load_state
 
   print_title "Agsbx Extra 管理器"
-  printf '根目录: %s\n' "${APP_ROOT}"
-  printf '功能: %s\n' "${FEATURE_NAME}"
-  printf '运行模式: %s\n' "$(service_mode_label)"
-  printf 'Argosbx: %s\n' "$(argosbx_status_label)"
-  printf '本服务: %s\n' "$(service_status_label)"
-  printf 'Xray: %s\n' "$([[ -x "${XRAY_BIN}" ]] && echo "${XRAY_BIN}" || echo "未安装")"
-  printf '%s: %s / UUID %s / Flow %s / ENC %s\n' \
-    "${VLESS_NAME}" \
-    "${PORT:-未设置}" \
-    "$([[ -n "${UUID:-}" ]] && echo "已设置" || echo "未设置")" \
-    "$(flow_label "${FLOW:-none}")" \
-    "$([[ -n "${ENCRYPTION:-}" && -n "${DECRYPTION:-}" ]] && echo "已生成" || echo "未生成")"
+  print_panel_section "基础信息"
+  print_panel_row "根目录" "${APP_ROOT}"
+  print_panel_row "功能" "${FEATURE_NAME}"
+  print_panel_row "运行模式" "$(service_mode_label)"
+  print_panel_row "Argosbx" "$(argosbx_status_label)"
+  print_panel_row "本服务" "$(service_status_label)"
+  print_panel_row "Xray" "$([[ -x "${XRAY_BIN}" ]] && echo "${XRAY_BIN}" || echo "未安装")"
+
+  print_panel_section "协议概览"
+  print_panel_row "${VLESS_NAME}" "${PORT:-未设置} / UUID $([[ -n "${UUID:-}" ]] && echo "已设置" || echo "未设置") / Flow $(flow_label "${FLOW:-none}") / ENC $([[ -n "${ENCRYPTION:-}" && -n "${DECRYPTION:-}" ]] && echo "已生成" || echo "未生成")"
   if [[ "${SS_ENABLED:-0}" == "1" ]]; then
-    printf '%s: %s / %s / 密钥 %s\n' \
-      "${SS_NAME}" \
-      "${SS_PORT:-未设置}" \
-      "${SS_METHOD:-${DEFAULT_SS_METHOD}}" \
-      "$([[ -n "${SS_PASSWORD:-}" ]] && echo "已设置" || echo "未设置")"
+    print_panel_row "${SS_NAME}" "${SS_PORT:-未设置} / ${SS_METHOD:-${DEFAULT_SS_METHOD}} / 密钥 $([[ -n "${SS_PASSWORD:-}" ]] && echo "已设置" || echo "未设置")"
   else
-    printf '%s: 未启用\n' "${SS_NAME}"
+    print_panel_row "${SS_NAME}" "未启用"
   fi
-  printf '配置: %s\n' "$([[ -f "${CONFIG_FILE}" ]] && echo "${CONFIG_FILE}" || echo "未生成")"
-  print_divider
+  print_panel_row "配置" "$([[ -f "${CONFIG_FILE}" ]] && echo "${CONFIG_FILE}" || echo "未生成")"
 }
 
 print_main_menu() {
-  cat <<EOF
-1. 系统预检 / 环境判断
-2. 安装 / 修复 Xray core
-3. 从 argosbx 同步 Xray core
-4. 安装 / 修复 ${VLESS_NAME}
-5. 安装 / 修复 ${SS_NAME}
-6. 显示节点链接
-7. 查看详细状态
-8. VLESS 设置（端口 / 名称 / Flow / UUID / ENC）
-9. SS2022 设置（端口 / 名称 / 方法 / 密钥）
-10. 重写配置并重启
-11. 启动 / 停止 / 重启服务
-12. 连接测试
-13. 查看日志
-14. 防火墙 / 安全组提示
-15. 卸载本功能
-0. 退出
-EOF
+  print_menu_section "部署与修复"
+  print_menu_item 1 "系统预检 / 环境判断"
+  print_menu_item 2 "安装 / 修复 Xray core"
+  print_menu_item 3 "从 argosbx 同步 Xray core"
+  print_menu_item 4 "安装 / 修复 ${VLESS_NAME}"
+  print_menu_item 5 "安装 / 修复 ${SS_NAME}"
+  print_menu_section "配置与服务"
+  print_menu_item 8 "VLESS 设置（端口 / 名称 / Flow / UUID / ENC）"
+  print_menu_item 9 "SS2022 设置（端口 / 名称 / 方法 / 密钥）"
+  print_menu_item 10 "重写配置并重启"
+  print_menu_item 11 "启动 / 停止 / 重启服务"
+  print_menu_item 15 "卸载本功能"
+  print_menu_section "查看与诊断"
+  print_menu_item 6 "显示节点链接"
+  print_menu_item 7 "查看详细状态"
+  print_menu_item 12 "连接测试"
+  print_menu_item 13 "查看日志"
+  print_menu_item 14 "防火墙 / 安全组提示"
+  print_menu_footer
+  print_menu_item 0 "退出"
+  print_menu_footer
 }
 
 choose_free_port() {
@@ -1631,17 +1679,19 @@ vless_settings_menu() {
   local choice
   while true; do
     print_title "VLESS 设置"
-    printf '端口: %s\n' "${PORT:-未设置}"
-    printf '节点名称: %s\n' "${NODE_NAME:-未设置}"
-    printf 'Flow: %s\n' "$(flow_label "${FLOW:-none}")"
-    cat <<EOF
-1. 修改端口
-2. 修改节点名称
-3. 修改 Flow 模式
-4. 重新生成 UUID
-5. 重新生成 VLESS ENC key
-0. 返回
-EOF
+    print_panel_section "当前参数"
+    print_panel_row "端口" "${PORT:-未设置}"
+    print_panel_row "节点名称" "${NODE_NAME:-未设置}"
+    print_panel_row "Flow" "$(flow_label "${FLOW:-none}")"
+    print_menu_section "操作"
+    print_menu_item 1 "修改端口"
+    print_menu_item 2 "修改节点名称"
+    print_menu_item 3 "修改 Flow 模式"
+    print_menu_item 4 "重新生成 UUID"
+    print_menu_item 5 "重新生成 VLESS ENC key"
+    print_menu_footer
+    print_menu_item 0 "返回"
+    print_menu_footer
     read -r -p "请选择: " choice
     case "${choice}" in
       1) change_port; pause_before_return ;;
@@ -1754,20 +1804,22 @@ ss_settings_menu() {
   local choice
   while true; do
     print_title "SS2022 设置"
-    printf '状态: %s\n' "$([[ "${SS_ENABLED:-0}" == "1" ]] && echo "已启用" || echo "未启用")"
-    printf '端口: %s\n' "${SS_PORT:-未设置}"
-    printf '方法: %s\n' "${SS_METHOD:-${DEFAULT_SS_METHOD}}"
-    printf '节点名称: %s\n' "${SS_NODE_NAME:-未设置}"
-    cat <<EOF
-1. 安装 / 修复 SS2022
-2. 修改端口
-3. 修改节点名称
-4. 修改加密方法（会重置密钥）
-5. 重新生成密钥
-6. 修改公网入口 / 防火墙来源
-7. 禁用 SS2022
-0. 返回
-EOF
+    print_panel_section "当前参数"
+    print_panel_row "状态" "$([[ "${SS_ENABLED:-0}" == "1" ]] && echo "已启用" || echo "未启用")"
+    print_panel_row "端口" "${SS_PORT:-未设置}"
+    print_panel_row "方法" "${SS_METHOD:-${DEFAULT_SS_METHOD}}"
+    print_panel_row "节点名称" "${SS_NODE_NAME:-未设置}"
+    print_menu_section "操作"
+    print_menu_item 1 "安装 / 修复 SS2022"
+    print_menu_item 2 "修改端口"
+    print_menu_item 3 "修改节点名称"
+    print_menu_item 4 "修改加密方法（会重置密钥）"
+    print_menu_item 5 "重新生成密钥"
+    print_menu_item 6 "修改公网入口 / 防火墙来源"
+    print_menu_item 7 "禁用 SS2022"
+    print_menu_footer
+    print_menu_item 0 "返回"
+    print_menu_footer
     read -r -p "请选择: " choice
     case "${choice}" in
       1) install_or_repair_ss; pause_before_return ;;
@@ -1799,14 +1851,16 @@ service_control_menu() {
   local choice
   while true; do
     print_title "服务控制"
-    printf '当前状态: %s\n' "$(service_status_label)"
-    cat <<EOF
-1. 启动
-2. 停止
-3. 重启
-4. 查看状态
-0. 返回
-EOF
+    print_panel_section "当前状态"
+    print_panel_row "服务" "$(service_status_label)"
+    print_menu_section "操作"
+    print_menu_item 1 "启动"
+    print_menu_item 2 "停止"
+    print_menu_item 3 "重启"
+    print_menu_item 4 "查看状态"
+    print_menu_footer
+    print_menu_item 0 "返回"
+    print_menu_footer
     read -r -p "请选择: " choice
     case "${choice}" in
       1) start_service; pause_before_return ;;
@@ -1925,12 +1979,13 @@ test_menu() {
   local choice host port
   while true; do
     print_title "连接测试"
-    cat <<EOF
-1. Xray 配置语法测试
-2. SS2022 本机测试（127.0.0.1:${SS_PORT:-未设置}）
-3. SS2022 公网入口测试
-0. 返回
-EOF
+    print_menu_section "测试项目"
+    print_menu_item 1 "Xray 配置语法测试"
+    print_menu_item 2 "SS2022 本机测试（127.0.0.1:${SS_PORT:-未设置}）"
+    print_menu_item 3 "SS2022 公网入口测试"
+    print_menu_footer
+    print_menu_item 0 "返回"
+    print_menu_footer
     read -r -p "请选择: " choice
     case "${choice}" in
       1)
@@ -1973,21 +2028,21 @@ firewall_menu() {
   local choice
   load_state
   print_title "防火墙 / 安全组"
-
-  cat <<EOF
-VLESS端口: ${PORT:-未设置}/tcp
-SS2022端口: ${SS_PORT:-未设置}/tcp,udp
-
-说明:
-  这里处理的是 VPS 系统内防火墙。云厂商安全组 / 面板防火墙仍需在控制台单独放行实际端口。
-  如果系统防火墙默认放行，本菜单无需执行自动放行。
-
-1. 检查本机防火墙并显示 VLESS 建议
-2. 自动尝试放行 VLESS 端口
-3. 检查本机防火墙并显示 SS2022 建议
-4. 自动尝试放行 SS2022 端口
-0. 返回
-EOF
+  print_panel_section "端口"
+  print_panel_row "VLESS" "${PORT:-未设置}/tcp"
+  print_panel_row "SS2022" "${SS_PORT:-未设置}/tcp,udp"
+  print_panel_section "说明"
+  print_panel_note "这里处理的是 VPS 系统内防火墙。"
+  print_panel_note "云厂商安全组 / 面板防火墙仍需在控制台单独放行实际端口。"
+  print_panel_note "如果系统防火墙默认放行，本菜单无需执行自动放行。"
+  print_menu_section "操作"
+  print_menu_item 1 "检查本机防火墙并显示 VLESS 建议"
+  print_menu_item 2 "自动尝试放行 VLESS 端口"
+  print_menu_item 3 "检查本机防火墙并显示 SS2022 建议"
+  print_menu_item 4 "自动尝试放行 SS2022 端口"
+  print_menu_footer
+  print_menu_item 0 "返回"
+  print_menu_footer
   read -r -p "请选择: " choice
   case "${choice}" in
     1)

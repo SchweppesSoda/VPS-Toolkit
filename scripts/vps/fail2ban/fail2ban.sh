@@ -10,9 +10,56 @@ DEFAULT_FINDTIME="10m"
 DEFAULT_MAXRETRY="3"
 DEFAULT_NGINX_LOGPATH="/var/log/nginx/error.log"
 
-info() { printf '\033[32m[信息]\033[0m %s\n' "$1" >&2; }
-warn() { printf '\033[33m[警告]\033[0m %s\n' "$1" >&2; }
-err() { printf '\033[31m[错误]\033[0m %s\n' "$1" >&2; }
+C_RESET=""
+C_BOLD=""
+C_GREEN=""
+C_YELLOW=""
+C_RED=""
+C_CYAN=""
+C_PANEL=""
+
+setup_colors() {
+  if [[ -t 1 ]]; then
+    C_RESET=$'\033[0m'
+    C_BOLD=$'\033[1m'
+    C_GREEN=$'\033[32m'
+    C_YELLOW=$'\033[33m'
+    C_RED=$'\033[31m'
+    C_CYAN=$'\033[96m'
+    C_PANEL=$'\033[38;5;208m'
+  fi
+}
+
+setup_colors
+
+info() { printf '%b[信息]%b %s\n' "${C_GREEN}" "${C_RESET}" "$1" >&2; }
+warn() { printf '%b[警告]%b %s\n' "${C_YELLOW}" "${C_RESET}" "$1" >&2; }
+err() { printf '%b[错误]%b %s\n' "${C_RED}" "${C_RESET}" "$1" >&2; }
+
+print_menu_divider() {
+  printf '%b%s%b\n' "${C_CYAN}" "------------------------" "${C_RESET}"
+}
+
+print_menu_section() {
+  print_menu_divider
+  printf '%b%s%b\n' "${C_BOLD}${C_CYAN}" "$1" "${C_RESET}"
+}
+
+print_menu_item() {
+  local number="$1"
+  local label="$2"
+  printf '  %b%2s%b) %s\n' "${C_CYAN}" "${number}" "${C_RESET}" "${label}"
+}
+
+print_menu_footer() {
+  print_menu_divider
+}
+
+pause_before_return() {
+  local _
+  echo ""
+  read -r -p "按回车返回菜单..." _ || true
+}
 
 check_root() {
   if [[ "${EUID}" -ne 0 ]]; then
@@ -643,25 +690,25 @@ EOF
 
 advanced_menu() {
   while true; do
-    cat <<'EOF'
-
-Fail2ban 高级模式
-1) 自定义推荐配置（保留默认值，可逐项修改）
-2) 查看状态
-3) 解封 IP
-4) 查看最近日志
-5) 重启 Fail2ban
-6) 恢复上一次配置备份
-0) 退出
-EOF
+    echo ""
+    print_menu_section "Fail2ban 高级模式"
+    print_menu_item 1 "自定义推荐配置（保留默认值，可逐项修改）"
+    print_menu_item 2 "查看状态"
+    print_menu_item 3 "解封 IP"
+    print_menu_item 4 "查看最近日志"
+    print_menu_item 5 "重启 Fail2ban"
+    print_menu_item 6 "恢复上一次配置备份"
+    print_menu_footer
+    print_menu_item 0 "退出"
+    print_menu_footer
     read -r -p "请选择: " choice
     case "${choice}" in
-      1) install_and_configure || true ;;
-      2) show_status || true ;;
-      3) unban_ip || true ;;
-      4) show_logs || true ;;
-      5) restart_fail2ban || true ;;
-      6) restore_latest_backup || true ;;
+      1) install_and_configure || true; pause_before_return ;;
+      2) show_status || true; pause_before_return ;;
+      3) unban_ip || true; pause_before_return ;;
+      4) show_logs || true; pause_before_return ;;
+      5) restart_fail2ban || true; pause_before_return ;;
+      6) restore_latest_backup || true; pause_before_return ;;
       0) exit 0 ;;
       *) warn "无效选择。" ;;
     esac
@@ -670,16 +717,16 @@ EOF
 
 mode_menu() {
   while true; do
-    cat <<'EOF'
-
-Fail2ban 模式选择
-1) 默认模式（一键推荐配置，自动探测，只在最后确认）
-2) 高级模式（逐项自定义，含状态/解封/回滚等维护功能）
-0) 退出
-EOF
+    echo ""
+    print_menu_section "Fail2ban 模式选择"
+    print_menu_item 1 "默认模式（一键推荐配置，自动探测，只在最后确认）"
+    print_menu_item 2 "高级模式（逐项自定义，含状态/解封/回滚等维护功能）"
+    print_menu_footer
+    print_menu_item 0 "退出"
+    print_menu_footer
     read -r -p "请选择: " choice
     case "${choice}" in
-      1) default_install_and_configure || true ;;
+      1) default_install_and_configure || true; pause_before_return ;;
       2) advanced_menu ;;
       0) exit 0 ;;
       *) warn "无效选择。" ;;

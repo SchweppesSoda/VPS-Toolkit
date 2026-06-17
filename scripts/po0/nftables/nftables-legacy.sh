@@ -17,9 +17,56 @@ ENABLE_MSS_CLAMP="1"
 MSS_VALUE="1452"
 declare -a RULES=()
 
-info() { printf '\033[32m[信息]\033[0m %s\n' "$1"; }
-warn() { printf '\033[33m[警告]\033[0m %s\n' "$1"; }
-err() { printf '\033[31m[错误]\033[0m %s\n' "$1"; }
+C_RESET=""
+C_BOLD=""
+C_GREEN=""
+C_YELLOW=""
+C_RED=""
+C_CYAN=""
+C_PANEL=""
+
+setup_colors() {
+    if [[ -t 1 ]]; then
+        C_RESET=$'\033[0m'
+        C_BOLD=$'\033[1m'
+        C_GREEN=$'\033[32m'
+        C_YELLOW=$'\033[33m'
+        C_RED=$'\033[31m'
+        C_CYAN=$'\033[96m'
+        C_PANEL=$'\033[38;5;208m'
+    fi
+}
+
+setup_colors
+
+info() { printf '%b[信息]%b %s\n' "${C_GREEN}" "${C_RESET}" "$1"; }
+warn() { printf '%b[警告]%b %s\n' "${C_YELLOW}" "${C_RESET}" "$1"; }
+err() { printf '%b[错误]%b %s\n' "${C_RED}" "${C_RESET}" "$1"; }
+
+print_menu_divider() {
+    printf '%b%s%b\n' "${C_CYAN}" "------------------------" "${C_RESET}"
+}
+
+print_menu_section() {
+    print_menu_divider
+    printf '%b%s%b\n' "${C_BOLD}${C_CYAN}" "$1" "${C_RESET}"
+}
+
+print_menu_item() {
+    local number="$1"
+    local label="$2"
+    printf '  %b%2s%b) %s\n' "${C_CYAN}" "${number}" "${C_RESET}" "${label}"
+}
+
+print_menu_footer() {
+    print_menu_divider
+}
+
+pause_before_return() {
+    local _
+    echo ""
+    read -r -p "按回车返回菜单..." _ || true
+}
 
 check_root() {
     if [[ ${EUID} -ne 0 ]]; then
@@ -471,31 +518,31 @@ main_menu() {
     local choice
     while true; do
         echo ""
-        echo "========================================"
-        echo "     PO0 nftables relay manager"
-        echo "========================================"
-        echo "  1) 安装 / 初始化 nftables"
-        echo "  2) 查看当前配置与转发"
-        echo "  3) 新增端口转发"
-        echo "  4) 删除端口转发"
-        echo "  5) 一键清空所有转发"
-        echo "  6) 诊断 / 自检"
-        echo "  7) 修改 PO0 参数"
-        echo "  8) 可选开启 BBR + fq"
-        echo "  9) 退出"
-        echo "========================================"
-        read -rp "请选择操作 [1-9]: " choice
+        print_menu_section "PO0 nftables relay manager"
+        print_menu_item 1 "安装 / 初始化 nftables"
+        print_menu_item 2 "查看当前配置与转发"
+        print_menu_item 3 "新增端口转发"
+        print_menu_item 4 "删除端口转发"
+        print_menu_item 5 "一键清空所有转发"
+        print_menu_section "维护"
+        print_menu_item 6 "诊断 / 自检"
+        print_menu_item 7 "修改 PO0 参数"
+        print_menu_item 8 "可选开启 BBR + fq"
+        print_menu_footer
+        print_menu_item 0 "退出"
+        print_menu_footer
+        read -rp "请选择操作 [0-8]: " choice
         case "${choice}" in
-            1) do_install ;;
-            2) do_list ;;
-            3) do_add ;;
-            4) do_delete ;;
-            5) do_clear_all ;;
-            6) do_diagnose ;;
-            7) do_edit_settings ;;
-            8) do_enable_bbr ;;
-            9) info "再见。"; exit 0 ;;
-            *) err "无效选择，请输入 1-9。" ;;
+            1) do_install; pause_before_return ;;
+            2) do_list; pause_before_return ;;
+            3) do_add; pause_before_return ;;
+            4) do_delete; pause_before_return ;;
+            5) do_clear_all; pause_before_return ;;
+            6) do_diagnose; pause_before_return ;;
+            7) do_edit_settings; pause_before_return ;;
+            8) do_enable_bbr; pause_before_return ;;
+            0) info "再见。"; exit 0 ;;
+            *) err "无效选择，请输入 0-8。" ;;
         esac
     done
 }

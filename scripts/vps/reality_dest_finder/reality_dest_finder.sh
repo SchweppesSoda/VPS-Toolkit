@@ -39,12 +39,56 @@ HAD_LAST_CONFIG=false
 
 # ==================== 颜色 ====================
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
-CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
+CYAN='\033[96m'; PANEL='\033[38;5;208m'; BOLD='\033[1m'; NC='\033[0m'
 
 log()  { echo -e "${CYAN}[INFO]${NC} $*"; }
 ok()   { echo -e "${GREEN}[OK]${NC} $*"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 err()  { echo -e "${RED}[ERR]${NC} $*"; }
+
+print_menu_divider() {
+    echo -e "${CYAN}------------------------${NC}"
+}
+
+print_menu_section() {
+    print_menu_divider
+    echo -e "${BOLD}${CYAN}$1${NC}"
+}
+
+print_menu_item() {
+    printf '  %b%2s%b) %s\n' "${CYAN}" "$1" "${NC}" "$2"
+}
+
+print_menu_footer() {
+    print_menu_divider
+}
+
+print_panel_divider() {
+    echo -e "${PANEL}------------------------${NC}"
+}
+
+print_panel_section() {
+    print_panel_divider
+    echo -e "${BOLD}${PANEL}$1${NC}"
+}
+
+print_panel_row() {
+    local label="$1"
+    shift
+    printf '  %b%s%b' "${PANEL}" "${label}" "${NC}"
+    if [ -t 1 ]; then
+        printf '\033[24G'
+    else
+        printf '    '
+    fi
+    printf ': %s\n' "$*"
+}
+
+pause_before_return() {
+    local _
+    echo ""
+    read -r -p "按回车返回菜单..." _ || true
+}
 
 mkdir -p "$OUTPUT_DIR"
 
@@ -127,17 +171,17 @@ save_last_config() {
 }
 
 show_last_config() {
-    echo "上一次配置："
+    print_panel_section "上一次配置"
     case "$LAST_ACTION" in
-        1) echo "  操作      : 完整扫描（严格模式）" ;;
-        2) echo "  操作      : 完整扫描（宽松模式）" ;;
-        3) echo "  操作      : 单域名深度检测" ;;
-        *) echo "  操作      : 未知" ;;
+        1) print_panel_row "操作" "完整扫描（严格模式）" ;;
+        2) print_panel_row "操作" "完整扫描（宽松模式）" ;;
+        3) print_panel_row "操作" "单域名深度检测" ;;
+        *) print_panel_row "操作" "未知" ;;
     esac
-    echo "  只导出 CSV: $(bool_to_zh "$CSV_ONLY")"
-    echo "  跳过 nmap : $(bool_to_zh "$SKIP_NMAP")"
+    print_panel_row "只导出 CSV" "$(bool_to_zh "$CSV_ONLY")"
+    print_panel_row "跳过 nmap" "$(bool_to_zh "$SKIP_NMAP")"
     if [ -n "$CHECK_DOMAIN" ]; then
-        echo "  深查域名  : $CHECK_DOMAIN"
+        print_panel_row "深查域名" "$CHECK_DOMAIN"
     fi
     echo ""
 }
@@ -177,15 +221,21 @@ interactive_config() {
     fi
 
     while :; do
-        echo "1. 完整扫描（严格模式，推荐）"
-        echo "2. 完整扫描（宽松模式）"
-        echo "3. 单域名深度检测"
-        echo "4. 查看帮助"
-        echo ""
+        print_menu_section "操作"
+        print_menu_item 1 "完整扫描（严格模式，推荐）"
+        print_menu_item 2 "完整扫描（宽松模式）"
+        print_menu_item 3 "单域名深度检测"
+        print_menu_item 4 "查看帮助"
+        print_menu_footer
+        print_menu_item 0 "退出"
+        print_menu_footer
 
-        read -r -p "请选择操作 [1-4，默认 ${default_action}]: " action
+        read -r -p "请选择操作 [0-4，默认 ${default_action}]: " action
         action=${action:-$default_action}
         case "$action" in
+            0)
+                exit 0
+                ;;
             1)
                 LAST_ACTION="1"
                 CHECK_DOMAIN=""
@@ -222,9 +272,10 @@ interactive_config() {
             4)
                 print_usage
                 echo ""
+                pause_before_return
                 ;;
             *)
-                warn "请输入 1 到 4 之间的数字。"
+                warn "请输入 0 到 4 之间的数字。"
                 ;;
         esac
     done

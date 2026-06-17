@@ -46,6 +46,7 @@ C_GREEN=""
 C_YELLOW=""
 C_RED=""
 C_CYAN=""
+C_PANEL=""
 
 [[ -n "${STATS_FILE}" ]] && STATS_FILE_EXPLICIT="1"
 
@@ -58,6 +59,7 @@ setup_colors() {
         C_YELLOW=$'\033[33m'
         C_RED=$'\033[31m'
         C_CYAN=$'\033[96m'
+        C_PANEL=$'\033[38;5;208m'
     fi
 }
 
@@ -109,6 +111,41 @@ print_menu_pair() {
         printf '%b%2s%b) %s' "${C_CYAN}" "${right_number}" "${C_RESET}" "${right_label}"
     fi
     printf '\n'
+}
+
+print_panel_divider() {
+    printf '%b%s%b\n' "${C_PANEL}" "------------------------" "${C_RESET}"
+}
+
+print_panel_section() {
+    print_panel_divider
+    printf '%b%s%b\n' "${C_BOLD}${C_PANEL}" "$1" "${C_RESET}"
+}
+
+print_panel_value_column() {
+    if [[ -t 1 ]]; then
+        printf '\033[24G'
+    else
+        printf '    '
+    fi
+}
+
+print_panel_row() {
+    local label="$1"
+    shift
+    printf '  %b%s%b' "${C_PANEL}" "${label}" "${C_RESET}"
+    print_panel_value_column
+    printf ': %s\n' "$*"
+}
+
+print_panel_note() {
+    printf '  '
+    print_panel_value_column
+    printf '  %s\n' "$*"
+}
+
+print_panel_action() {
+    print_panel_row "$@"
 }
 
 default_config_file() {
@@ -1286,24 +1323,26 @@ print_dashboard() {
     done < "${CONFIG_FILE}"
     dashboard_stat_totals
     print_title "PO0 内网 Worker"
-    printf '%b基础信息%b\n' "${C_BOLD}" "${C_RESET}"
-    printf '  配置文件 : %s\n' "${CONFIG_FILE}"
-    printf '  统计文件 : %s\n' "${STATS_FILE}"
-    printf '  资源统计 : %s\n' "${RESOURCE_STATS_FILE}"
-    printf '  Worker ID: %s\n' "${WORKER_ID}"
-    printf '\n%b目标概览%b\n' "${C_BOLD}" "${C_RESET}"
-    printf '  目标数量 : 总计 %s，启用 %s，停用 %s\n' "${total}" "${enabled}" "${disabled}"
-    printf '  DDNS 上报: %s 个目标\n' "${ddns}"
-    printf '  资源任务 : %s 个目标（PO0 创建计划，本机只轮询领取）\n' "${resource}"
-    printf '  自上报   : %s 个目标，监听 %s\n' "${self_report}" "${SELF_REPORT_LISTEN}"
-    printf '  WebAuth  : %s 个目标，监听 %s\n' "${webauth}" "${WEBAUTH_LISTEN}"
-    printf '  本机轮询器: %s\n' "$(cron_status_summary)"
-    printf '\n%b最近 DDNS 统计%b\n' "${C_BOLD}" "${C_RESET}"
-    printf '  成功=%s 失败=%s 最近=%s 状态=%s IP=%s\n' \
-        "${DASH_SUCCESS_TOTAL}" "${DASH_FAIL_TOTAL}" "${DASH_LAST_AT:-无}" "${DASH_LAST_STATUS:-无}" "${DASH_LAST_IP_CSV:-无}"
-    [[ -n "${DASH_LAST_ERROR}" && "${DASH_LAST_ERROR}" != "无" ]] && printf '  最近错误 : %s\n' "${DASH_LAST_ERROR}"
-    printf '\n%b链路提示%b\n' "${C_BOLD}" "${C_RESET}"
-    printf '  WebAuth: Cloudflare Access/Tunnel -> LAN Worker -> SSH -> PO0\n'
+    print_panel_section "基础信息"
+    print_panel_row "配置文件" "${CONFIG_FILE}"
+    print_panel_row "统计文件" "${STATS_FILE}"
+    print_panel_row "资源统计" "${RESOURCE_STATS_FILE}"
+    print_panel_row "Worker ID" "${WORKER_ID}"
+
+    print_panel_section "目标概览"
+    print_panel_row "目标数量" "总计 ${total}，启用 ${enabled}，停用 ${disabled}"
+    print_panel_row "DDNS 上报" "${ddns} 个目标"
+    print_panel_row "资源任务" "${resource} 个目标（PO0 创建计划，本机只轮询领取）"
+    print_panel_row "自上报" "${self_report} 个目标，监听 ${SELF_REPORT_LISTEN}"
+    print_panel_row "WebAuth" "${webauth} 个目标，监听 ${WEBAUTH_LISTEN}"
+    print_panel_row "本机轮询器" "$(cron_status_summary)"
+
+    print_panel_section "最近 DDNS 统计"
+    print_panel_row "汇总" "成功=${DASH_SUCCESS_TOTAL} 失败=${DASH_FAIL_TOTAL} 最近=${DASH_LAST_AT:-无} 状态=${DASH_LAST_STATUS:-无} IP=${DASH_LAST_IP_CSV:-无}"
+    [[ -n "${DASH_LAST_ERROR}" && "${DASH_LAST_ERROR}" != "无" ]] && print_panel_row "最近错误" "${DASH_LAST_ERROR}"
+
+    print_panel_section "链路提示"
+    print_panel_action "WebAuth" "Cloudflare Access/Tunnel -> LAN Worker -> SSH -> PO0"
 }
 
 update_target_stats() {

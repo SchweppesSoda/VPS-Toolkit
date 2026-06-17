@@ -37,6 +37,28 @@ RANDOM_REQUESTED=0
 KEY_INSTALL_MODE="prompt"
 WIZARD_MODE=0
 
+C_RESET=""
+C_BOLD=""
+C_GREEN=""
+C_YELLOW=""
+C_RED=""
+C_CYAN=""
+C_PANEL=""
+
+setup_colors() {
+  if [[ -t 1 ]]; then
+    C_RESET=$'\033[0m'
+    C_BOLD=$'\033[1m'
+    C_GREEN=$'\033[32m'
+    C_YELLOW=$'\033[33m'
+    C_RED=$'\033[31m'
+    C_CYAN=$'\033[96m'
+    C_PANEL=$'\033[38;5;208m'
+  fi
+}
+
+setup_colors
+
 info() {
   printf '%s\n' "$*"
 }
@@ -51,7 +73,27 @@ die() {
 }
 
 section() {
-  printf '\n========== %s ==========\n' "$*"
+  printf '\n%b%s%b\n' "${C_PANEL}" "------------------------" "${C_RESET}"
+  printf '%b%s%b\n' "${C_BOLD}${C_PANEL}" "$*" "${C_RESET}"
+}
+
+print_menu_divider() {
+  printf '%b%s%b\n' "${C_CYAN}" "------------------------" "${C_RESET}"
+}
+
+print_menu_section() {
+  print_menu_divider
+  printf '%b%s%b\n' "${C_BOLD}${C_CYAN}" "$1" "${C_RESET}"
+}
+
+print_menu_item() {
+  local number="$1"
+  local label="$2"
+  printf '  %b%2s%b) %s\n' "${C_CYAN}" "${number}" "${C_RESET}" "${label}"
+}
+
+print_menu_footer() {
+  print_menu_divider
 }
 
 has_cmd() {
@@ -1264,13 +1306,14 @@ run_interactive_menu() {
 
   need_root
   while true; do
-    section "SSH 公钥登录加固菜单"
-    info "请选择本次要执行的任务："
-    info "1. 查看当前 SSH / nft 状态（只读）"
-    info "2. 只安装 / 更新登录公钥（不改端口）"
-    info "3. 完整加固：安装公钥 + 切换 SSH 端口 + 新端口强制公钥登录"
-    info "4. 显示高级兼容参数帮助"
-    info "0. 退出"
+    print_menu_section "SSH 公钥登录加固菜单"
+    print_menu_item 1 "查看当前 SSH / nft 状态（只读）"
+    print_menu_item 2 "只安装 / 更新登录公钥（不改端口）"
+    print_menu_item 3 "完整加固：安装公钥 + 切换 SSH 端口 + 新端口强制公钥登录"
+    print_menu_item 4 "显示高级兼容参数帮助"
+    print_menu_footer
+    print_menu_item 0 "退出"
+    print_menu_footer
     printf '请选择 [0-4]: '
     read -r choice
     choice="$(trim "${choice}")"
@@ -1292,7 +1335,7 @@ run_interactive_menu() {
         usage
         pause_before_menu
         ;;
-      0|"")
+      0)
         info "已退出。"
         return 0
         ;;

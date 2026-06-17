@@ -23,6 +23,7 @@ C_GREEN=""
 C_YELLOW=""
 C_RED=""
 C_CYAN=""
+C_PANEL=""
 
 setup_colors() {
   if [[ "${NO_COLOR}" == "0" && -t 1 ]]; then
@@ -32,7 +33,8 @@ setup_colors() {
     C_GREEN=$'\033[32m'
     C_YELLOW=$'\033[33m'
     C_RED=$'\033[31m'
-    C_CYAN=$'\033[36m'
+    C_CYAN=$'\033[96m'
+    C_PANEL=$'\033[38;5;208m'
   fi
 }
 
@@ -50,6 +52,25 @@ print_title() {
   print_divider
   printf '%b%s%b\n' "${C_BOLD}${C_CYAN}" "$1" "${C_RESET}"
   print_divider
+}
+
+print_menu_divider() {
+  printf '%b%s%b\n' "${C_CYAN}" "------------------------" "${C_RESET}"
+}
+
+print_menu_section() {
+  print_menu_divider
+  printf '%b%s%b\n' "${C_BOLD}${C_CYAN}" "$1" "${C_RESET}"
+}
+
+print_menu_item() {
+  local number="$1"
+  local label="$2"
+  printf '  %b%2s%b) %s\n' "${C_CYAN}" "${number}" "${C_RESET}" "${label}"
+}
+
+print_menu_footer() {
+  print_menu_divider
 }
 
 has_tty() {
@@ -905,13 +926,16 @@ prompt_addr_and_export() {
 
 print_main_menu() {
   print_title "3x-ui 节点导出工具"
-  echo "1) 一键导出订阅/节点链接"
-  echo "2) 指定域名/IP 后导出"
-  echo "3) 只导出原始 inbound 配置"
-  echo "4) 环境诊断"
-  echo "5) 查看帮助和一行命令"
-  echo "0) 退出"
-  echo ""
+  print_menu_section "导出"
+  print_menu_item 1 "一键导出订阅/节点链接"
+  print_menu_item 2 "指定域名/IP 后导出"
+  print_menu_item 3 "只导出原始 inbound 配置"
+  print_menu_section "工具"
+  print_menu_item 4 "环境诊断"
+  print_menu_item 5 "查看帮助和一行命令"
+  print_menu_footer
+  print_menu_item 0 "退出"
+  print_menu_footer
 }
 
 main_menu() {
@@ -943,7 +967,7 @@ main_menu() {
         show_help_screen
         pause_before_return
         ;;
-      0|q|Q)
+      0)
         exit 0
         ;;
       *)

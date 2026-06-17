@@ -99,6 +99,7 @@ C_GREEN=""
 C_YELLOW=""
 C_RED=""
 C_CYAN=""
+C_PANEL=""
 
 RULE_ID=""
 RULE_NAME=""
@@ -199,6 +200,7 @@ setup_colors() {
         C_YELLOW=$'\033[33m'
         C_RED=$'\033[31m'
         C_CYAN=$'\033[96m'
+        C_PANEL=$'\033[38;5;208m'
     fi
 }
 
@@ -289,6 +291,41 @@ print_menu_pair() {
         printf '%b%2s%b) %s' "${C_CYAN}" "${right_number}" "${C_RESET}" "${right_label}"
     fi
     printf '\n'
+}
+
+print_panel_divider() {
+    printf '%b%s%b\n' "${C_PANEL}" "------------------------" "${C_RESET}"
+}
+
+print_panel_section() {
+    print_panel_divider
+    printf '%b%s%b\n' "${C_BOLD}${C_PANEL}" "$1" "${C_RESET}"
+}
+
+print_panel_value_column() {
+    if [[ -t 1 ]]; then
+        printf '\033[24G'
+    else
+        printf '    '
+    fi
+}
+
+print_panel_row() {
+    local label="$1"
+    shift
+    printf '  %b%s%b' "${C_PANEL}" "${label}" "${C_RESET}"
+    print_panel_value_column
+    printf ': %s\n' "$*"
+}
+
+print_panel_note() {
+    printf '  '
+    print_panel_value_column
+    printf '  %s\n' "$*"
+}
+
+print_panel_action() {
+    print_panel_row "$@"
 }
 
 read_menu_choice() {
@@ -6999,62 +7036,61 @@ print_status_panel() {
         ip_forward_status="${C_YELLOW}未开启${C_RESET}"
     fi
 
-    printf '%b当前状态%b\n' "${C_BOLD}" "${C_RESET}"
-    printf '  nftables   : %b\n' "${nft_status}"
-    printf '  IPv4 转发 : %b\n' "${ip_forward_status}"
+    print_panel_section "系统状态"
+    print_panel_row "nftables" "${nft_status}"
+    print_panel_row "IPv4 转发" "${ip_forward_status}"
     if manager_controls_main_conf; then
-        printf '  接管状态   : 已接管\n'
+        print_panel_row "接管状态" "已接管"
     else
-        printf '  接管状态   : 未接管（仅管理配置文件）\n'
+        print_panel_row "接管状态" "未接管（仅管理配置文件）"
     fi
-    printf '  中转模式   : %s\n' "$(relay_mode_to_label "${RELAY_MODE}")"
+
+    print_panel_section "网络与转发"
+    print_panel_row "中转模式" "$(relay_mode_to_label "${RELAY_MODE}")"
     if validate_host_ipv4 "${RELAY_LAN_IP}"; then
-        printf '  中转机内网IP : %s\n' "${RELAY_LAN_IP}"
+        print_panel_row "中转机内网 IP" "${RELAY_LAN_IP}"
         if [[ "${RELAY_LAN_IP_SOURCE}" != "settings" ]]; then
-            printf '               %s\n' "$(relay_ip_source_label)"
+            print_panel_note "$(relay_ip_source_label)"
         fi
     else
-        printf '  中转机内网IP : 未设置\n'
+        print_panel_row "中转机内网 IP" "未设置"
     fi
     if is_public_ipv4 "${PUBLIC_IP}"; then
-        printf '  公网 IP    : %s\n' "${PUBLIC_IP}"
-        printf '               %s\n' "$(public_ip_source_label)"
+        print_panel_row "公网 IP" "${PUBLIC_IP}"
+        print_panel_note "$(public_ip_source_label)"
     else
-        printf '  公网 IP    : 未探测到（可用 [2] 手动刷新）\n'
+        print_panel_row "公网 IP" "未探测到（可用 [2] 手动刷新）"
     fi
     if [[ ${RULE_TOTAL} -gt 0 && "${RULES_SOURCE}" != "rules_file" ]]; then
-        printf '  规则来源   : %s\n' "$(rules_source_label)"
+        print_panel_row "规则来源" "$(rules_source_label)"
     fi
     if [[ "${ENABLE_MSS_CLAMP}" == "1" ]]; then
-        printf '  MSS 修正   : 开启 (%s)\n' "${MSS_VALUE}"
+        print_panel_row "MSS 修正" "开启 (${MSS_VALUE})"
     else
-        printf '  MSS 修正   : 关闭\n'
+        print_panel_row "MSS 修正" "关闭"
     fi
+
+    print_panel_section "安全与来源"
     if [[ "${MANAGE_INPUT_FIREWALL}" == "1" ]]; then
-        printf '  入站防火墙 : 接管（SSH: %s，其它未托管端口默认 drop）\n' "${SSH_PORTS:-未探测}"
+        print_panel_row "入站防火墙" "接管（SSH: ${SSH_PORTS:-未探测}，其它未托管端口默认 drop）"
     else
-        printf '  入站防火墙 : 不接管\n'
+        print_panel_row "入站防火墙" "不接管"
     fi
     if src_allowlist_enabled; then
-        printf '  源 IP 白名单 : 开启（%s，地区 %s / 自定义 %s）\n' \
-            "$(src_allowlist_mode_to_label "${SRC_ALLOWLIST_MODE}")" \
-            "$(src_allowlist_region_count)" \
-            "$(custom_allowlist_count)"
+        print_panel_row "源 IP 白名单" "开启（$(src_allowlist_mode_to_label "${SRC_ALLOWLIST_MODE}")，地区 $(src_allowlist_region_count) / 自定义 $(custom_allowlist_count)）"
     elif [[ "${ENABLE_SRC_ALLOWLIST}" == "1" ]]; then
-        printf '  源 IP 白名单 : 配置不完整（%s）\n' "$(src_allowlist_mode_to_label "${SRC_ALLOWLIST_MODE}")"
+        print_panel_row "源 IP 白名单" "配置不完整（$(src_allowlist_mode_to_label "${SRC_ALLOWLIST_MODE}")）"
     else
-        printf '  源 IP 白名单 : 关闭\n'
+        print_panel_row "源 IP 白名单" "关闭"
     fi
-    printf '  学习服务   : %s（%s 条记录，%s；每日汇总 %s 天）\n' \
-        "$(learning_service_status_label)" \
-        "$(learning_log_count)" \
-        "$(format_bytes "$(learning_log_size_bytes)")" \
-        "$(learning_summary_count)"
-    printf '  规则总数   : %s（启用 %s / 停用 %s）\n' "${RULE_TOTAL}" "${RULE_ENABLED_COUNT}" "${RULE_DISABLED_COUNT}"
+
+    print_panel_section "运行数据"
+    print_panel_row "学习服务" "$(learning_service_status_label)（$(learning_log_count) 条记录，$(format_bytes "$(learning_log_size_bytes)")；每日汇总 $(learning_summary_count) 天）"
+    print_panel_row "规则总数" "${RULE_TOTAL}（启用 ${RULE_ENABLED_COUNT} / 停用 ${RULE_DISABLED_COUNT}）"
     if [[ -n "${runtime_drift_count}" ]]; then
-        printf '  额外生效规则 : %s 条脚本未管理的 DNAT 转发\n' "${runtime_drift_count}"
-        [[ -n "${runtime_drift_tables}" ]] && printf '               所在 nft 表: %s\n' "${runtime_drift_tables}"
-        printf '               说明: 这些规则正在生效，但修改脚本列表不会影响它们\n'
+        print_panel_row "额外生效规则" "${runtime_drift_count} 条脚本未管理的 DNAT 转发"
+        [[ -n "${runtime_drift_tables}" ]] && print_panel_note "所在 nft 表: ${runtime_drift_tables}"
+        print_panel_note "说明: 这些规则正在生效，但修改脚本列表不会影响它们"
     fi
 }
 
@@ -10898,11 +10934,11 @@ do_enable_bbr() {
 }
 
 print_recommended_operations() {
-    printf '%b推荐操作%b\n' "${C_BOLD}" "${C_RESET}"
-    printf '  首次部署: 安装/初始化 -> 新增或导入转发规则 -> 管理源 IP 白名单 -> 诊断/自检\n'
-    printf '  日常维护: 查看概览与规则列表；按需新增/编辑规则；管理源 IP 白名单\n'
-    printf '  白名单收紧: 管理源 IP 白名单 -> 学习服务与候选提升 -> 手动加入自定义白名单\n'
-    printf '  安全基线: 保持入站防火墙接管开启；SSH 端口会自动例外放行\n'
+    print_panel_section "推荐操作"
+    print_panel_action "首次部署" "安装/初始化 -> 新增或导入转发规则 -> 管理源 IP 白名单 -> 诊断/自检"
+    print_panel_action "日常维护" "查看概览与规则列表；按需新增/编辑规则；管理源 IP 白名单"
+    print_panel_action "白名单收紧" "管理源 IP 白名单 -> 学习服务与候选提升 -> 手动加入自定义白名单"
+    print_panel_action "安全基线" "保持入站防火墙接管开启；SSH 端口会自动例外放行"
     echo ""
 }
 
