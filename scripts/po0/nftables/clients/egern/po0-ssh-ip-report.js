@@ -333,6 +333,17 @@ function rowNode(icon, iconColor, label, value, valueColor = WIDGET_COLORS.text)
   };
 }
 
+function sectionTitleNode(text) {
+  return {
+    type: 'stack',
+    direction: 'row',
+    alignItems: 'center',
+    children: [
+      textNode(text, 10, 'semibold', WIDGET_COLORS.dim),
+    ],
+  };
+}
+
 function widgetPanel(title, content, ok, ctx) {
   const lines = Array.isArray(content) ? content : String(content || '').split('\n').filter(Boolean);
   const family = String(ctx?.widgetFamily || '').toLowerCase();
@@ -429,29 +440,40 @@ function widgetFromState(state, ctx, deviceId = '') {
     rowNode('mappin.and.ellipse', WIDGET_COLORS.blue, '位置', trimDisplayText(ipProfile.location || '未知', 28)),
     rowNode('building.2.fill', WIDGET_COLORS.blue, '运营商', trimDisplayText(ipProfile.isp || '未知', 28)),
   ];
+  const networkRows = [
+    rowNode(network.icon, WIDGET_COLORS.blue, network.label, network.value),
+    rowNode('iphone', WIDGET_COLORS.blue, '本机', network.localIp || '未知'),
+    rowNode('wifi.router.fill', WIDGET_COLORS.blue, '网关', network.gateway || '不适用'),
+  ];
   const statusRows = [
     rowNode('iphone', WIDGET_COLORS.blue, '设备', deviceName),
     rowNode(ok ? 'checkmark.circle.fill' : 'xmark.circle.fill', statusColor, '目标', `${successCount}/${targetCount || 1} 成功`, statusColor),
   ];
-  const networkRows = [
-    rowNode(network.icon, WIDGET_COLORS.blue, network.label, network.value),
-  ];
-  if (network.localIp) networkRows.push(rowNode('iphone', WIDGET_COLORS.blue, '本机', network.localIp));
-  if (network.gateway) networkRows.push(rowNode('wifi.router.fill', WIDGET_COLORS.blue, '网关', network.gateway));
 
   const detailChildren = isSmall ? [
-    ...publicRows.slice(0, 2),
-    statusRows[0],
-    ...networkRows.slice(0, 2),
+    publicRows[0],
+    publicRows[1],
+    networkRows[0],
+    statusRows[1],
   ] : [
     {
       type: 'stack',
       direction: 'row',
       gap: 10,
       children: [
-        { type: 'stack', direction: 'column', gap: 5, flex: 1, children: [...publicRows, ...statusRows] },
+        { type: 'stack', direction: 'column', gap: 5, flex: 1, children: [sectionTitleNode('公网出口'), ...publicRows] },
         { type: 'stack', width: 0.5, backgroundColor: WIDGET_COLORS.line },
-        { type: 'stack', direction: 'column', gap: 5, flex: 1, children: networkRows },
+        { type: 'stack', direction: 'column', gap: 5, flex: 1, children: [sectionTitleNode('本机网络'), ...networkRows] },
+      ],
+    },
+    { type: 'stack', height: 0.5, backgroundColor: WIDGET_COLORS.line },
+    {
+      type: 'stack',
+      direction: 'row',
+      gap: 10,
+      children: [
+        { type: 'stack', direction: 'column', flex: 1, children: [statusRows[0]] },
+        { type: 'stack', direction: 'column', flex: 1, children: [statusRows[1]] },
       ],
     },
   ];
@@ -483,7 +505,7 @@ function widgetFromState(state, ctx, deviceId = '') {
       textNode(timeText, 10, 'regular', WIDGET_COLORS.dim),
       ...detailChildren,
       { type: 'stack', height: 0.5, backgroundColor: WIDGET_COLORS.line },
-      ...targetRows,
+      ...(isSmall ? [] : targetRows),
     ],
   };
 }
