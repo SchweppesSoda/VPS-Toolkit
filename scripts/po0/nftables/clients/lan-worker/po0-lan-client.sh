@@ -180,8 +180,8 @@ usage() {
         "  po0-lan-client --self-report-server --self-report-listen 127.0.0.1:8788 --po0-host HOST --client-ip-token TOKEN" \
         "" \
         "常用命令:" \
-        "  --probe              只检测依赖、DDNS 解析、SSH、PO0 token，不修改 PO0 白名单。" \
-        "  --bootstrap          写入本机目标配置，默认先 probe，再执行一次 --run。" \
+        "  --probe              只做依赖、DDNS 解析、SSH、PO0 token 连通性/权限检查，不修改 PO0 白名单。" \
+        "  --bootstrap          写入本机目标配置，默认先做连通性/权限检查，再执行一次 --run。" \
         "  --install-cron [N]   安装/更新本机 Worker 轮询器；管道运行时会自动落盘。" \
         "                        资源任务创建周期在 PO0 nft manager 里设置，本机只定期领取已创建任务。" \
         "  --source-key KEY     PO0 端来源 key/名称；脚本不会解析这个值。" \
@@ -1983,7 +1983,7 @@ po0_lan_wizard() {
 
     if (( ssh_ok == 1 )); then
         if (( use_ddns == 1 || use_resource == 1 )); then
-            probe_worker_target || printf '[WARN] DDNS/资源任务 probe 未全部通过，请按上方错误修正后再安装本机 Worker 轮询器。\n' >&2
+            probe_worker_target || printf '[WARN] DDNS/资源任务连通性/权限检查未全部通过，请按上方错误修正后再安装本机 Worker 轮询器。\n' >&2
         fi
         (( use_self_report == 1 )) && probe_self_report_target || true
         (( use_webauth == 1 )) && probe_webauth_target || true
@@ -3286,7 +3286,7 @@ bootstrap_worker() {
     if [[ "${BOOTSTRAP_PROBE}" == "1" ]]; then
         probe_worker_target || return 1
     else
-        probe_warn "已跳过 probe，仅写入本机配置。"
+        probe_warn "已跳过连通性/权限检查，仅写入本机配置。"
     fi
 
     upsert_target "1" "${label}" "${DDNS_DOMAIN}" "${REPORT_KEY}" "${PO0_HOST}" "${PO0_PORT}" "${PO0_USER}" "${PO0_SCRIPT}" "${DDNS_TOKEN}" "${SSH_EXTRA_ARGS}" "${RESOURCE_TOKEN}" "${mode}" "${ddns_resolve_domain}" "${CLIENT_IP_TOKEN}" "${SELF_REPORT_SOURCE}" "${SELF_REPORT_TTL_SECONDS}" "${WEBAUTH_TOKEN}" "${WEBAUTH_SOURCE}" "${WEBAUTH_TTL_SECONDS}" "${SSH_EXTRA_ARGS}" || return 1
@@ -3383,23 +3383,30 @@ menu_loop() {
     local choice
     while true; do
         print_dashboard
-        print_menu_section "查看"
-        print_menu_pair 1 "上报目标与 DDNS 统计" 2 "资源统计 / PO0 创建计划"
+        print_menu_section "DDNS 解析上报"
+        print_menu_pair 1 "上报目标与 DDNS 统计" 10 "立即执行 DDNS 上报"
+
+        print_menu_section "资源任务"
+        print_menu_pair 2 "资源统计 / PO0 创建计划" 11 "立即领取并执行资源任务"
+
+        print_menu_section "Self-report 自上报"
+        print_menu_pair 12 "Self-report 连通性检查" 13 "启动 Self-report 服务"
+
+        print_menu_section "WebAuth 放行"
+        print_menu_pair 14 "WebAuth 连通性检查" 15 "启动 WebAuth 服务"
+        print_menu_item 16 "WebAuth / Cloudflare Access 配置提示"
+
         print_menu_section "PO0 目标、SSH 与 Token"
         print_menu_pair 3 "添加 PO0 目标" 4 "编辑 PO0 目标"
         print_menu_pair 5 "SSH 私钥 / 参数" 6 "目标 Token"
         print_menu_pair 7 "启用 / 停用目标" 8 "删除 PO0 目标"
-        print_menu_section "立即执行"
-        print_menu_pair 9 "执行全部任务" 10 "仅执行 DDNS 上报"
-        print_menu_item 11 "仅领取并执行资源任务"
-        print_menu_section "本地接收服务"
-        print_menu_pair 12 "Self-report probe" 13 "启动 Self-report 服务"
-        print_menu_pair 14 "WebAuth probe" 15 "启动 WebAuth 服务"
-        print_menu_item 16 "WebAuth / Cloudflare Access 配置提示"
+
         print_menu_section "维护"
-        print_menu_pair 17 "安装 / 更新本机轮询器" 18 "删除本机轮询器"
-        print_menu_pair 19 "查看本机轮询器状态" 20 "清空 DDNS 统计"
-        print_menu_pair 21 "本机脚本自检" 22 "从 GitHub 更新脚本"
+        print_menu_pair 9 "执行全部任务" 17 "安装 / 更新本机轮询器"
+        print_menu_pair 18 "删除本机轮询器" 19 "查看本机轮询器状态"
+        print_menu_pair 20 "清空 DDNS 统计" 21 "本机脚本自检"
+        print_menu_item 22 "从 GitHub 更新脚本"
+
         print_menu_section "退出"
         print_menu_item 0 "退出"
         print_menu_footer
