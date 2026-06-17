@@ -212,6 +212,14 @@ function shouldReturnWidget(ctx) {
   return isWidgetRun(ctx) || isStatusRun(ctx);
 }
 
+function isDeviceSetupRun(ctx) {
+  return /保存本机设备|设置本机设备|save device|set device/i.test(scriptLabel(ctx));
+}
+
+function isDeviceClearRun(ctx) {
+  return /清除本机设备|clear device/i.test(scriptLabel(ctx));
+}
+
 function formatTime(value) {
   if (!value) return 'never';
   const date = new Date(value);
@@ -621,6 +629,35 @@ async function handleDeviceHttpRequest(ctx) {
   ]);
 }
 
+async function handleDeviceSetupScript(ctx, env) {
+  try {
+    const deviceId = normalizeDeviceId(env.DEVICE_ID_SETUP || env.LOCAL_DEVICE_ID || '');
+    await storageSet(ctx, DEVICE_ID_KEY, deviceId);
+    notify(ctx, 'PO0 Egern Device', `设备 ID 已保存为 ${deviceId}`);
+    return widgetPanel(REPORT_TITLE, [
+      `设备: ${deviceId}`,
+      '已保存到本机 storage。',
+      '后续上报会用它展开 {device}。',
+    ], true, ctx);
+  } catch (error) {
+    return widgetPanel(REPORT_TITLE, [
+      '设备: 未设置',
+      error?.message || String(error),
+      '请在 DEVICE_ID_SETUP 填入如 iphone15pm 后再运行本脚本。',
+    ], false, ctx);
+  }
+}
+
+async function handleDeviceClearScript(ctx) {
+  await storageDelete(ctx, DEVICE_ID_KEY);
+  notify(ctx, 'PO0 Egern Device', '设备 ID 已清除');
+  return widgetPanel(REPORT_TITLE, [
+    '设备: 未设置',
+    '本机设备 ID 已清除。',
+    `后续 {device} 会回退为 ${DEVICE_ID_FALLBACK}。`,
+  ], true, ctx);
+}
+
 function targetValue(target, env, keys, fallback = '') {
   for (const key of keys) {
     const value = target?.[key] ?? env?.[key];
@@ -759,6 +796,9 @@ export default async function(ctx) {
   if (deviceHttpResponse) return deviceHttpResponse;
 
   const env = ctx.env || {};
+  if (isDeviceSetupRun(ctx)) return await handleDeviceSetupScript(ctx, env);
+  if (isDeviceClearRun(ctx)) return await handleDeviceClearScript(ctx);
+
   const policy = env.POLICY || 'DIRECT';
   const notifySuccess = boolEnv(env.NOTIFY_SUCCESS, false) || isManualRun(ctx);
   const notifyFailure = boolEnv(env.NOTIFY_FAILURE, true) || isManualRun(ctx);
