@@ -62,6 +62,24 @@ rm -f "$tmp"
 
 Run on the PO0 host to deploy the argosbx/Xray sidecar for VLESS RAW ENC and Shadowsocks 2022:
 
+Recommended persistent command install:
+
+```bash
+tmp="$(mktemp)"
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/proxy-services/vless-raw-enc-argosbx-enhancer.sh -o "$tmp"
+sudo install -m 0755 "$tmp" /usr/local/sbin/vless-raw-enc-argosbx-enhancer
+rm -f "$tmp"
+sudo /usr/local/sbin/vless-raw-enc-argosbx-enhancer
+```
+
+Later runs:
+
+```bash
+sudo /usr/local/sbin/vless-raw-enc-argosbx-enhancer
+```
+
+One-shot run without installing the command:
+
 ```bash
 tmp="$(mktemp)" &&
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/proxy-services/vless-raw-enc-argosbx-enhancer.sh -o "$tmp" &&

@@ -62,6 +62,24 @@ rm -f "$tmp"
 
 在 PO0 主机上执行，用于部署 argosbx/Xray sidecar，支持 VLESS RAW ENC 和 Shadowsocks 2022：
 
+推荐永久安装命令入口：
+
+```bash
+tmp="$(mktemp)"
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/proxy-services/vless-raw-enc-argosbx-enhancer.sh -o "$tmp"
+sudo install -m 0755 "$tmp" /usr/local/sbin/vless-raw-enc-argosbx-enhancer
+rm -f "$tmp"
+sudo /usr/local/sbin/vless-raw-enc-argosbx-enhancer
+```
+
+以后直接运行：
+
+```bash
+sudo /usr/local/sbin/vless-raw-enc-argosbx-enhancer
+```
+
+只临时运行、不安装命令入口：
+
 ```bash
 tmp="$(mktemp)" &&
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/proxy-services/vless-raw-enc-argosbx-enhancer.sh -o "$tmp" &&
