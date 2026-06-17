@@ -19,6 +19,12 @@ scp scripts/po0/nftables/nftables-relay-manager.sh root@<PO0_HOST>:/root/nftable
 ssh root@<PO0_HOST> 'chmod +x /root/nftables-relay-manager.sh && bash /root/nftables-relay-manager.sh'
 ```
 
+检查 PO0 上已安装的主控脚本版本：
+
+```bash
+ssh root@<PO0_HOST> 'bash /root/nftables-relay-manager.sh --version'
+```
+
 LAN Worker 命令在内网 Worker 机器上执行，不在 PO0 上执行。DDNS 解析上报 + 资源任务轮询领取：
 
 推荐先用交互向导。向导会检查到 PO0 的密钥 SSH；密钥 SSH 可用时，会自动调用 PO0 主控读取所需 token，然后写入本机配置、安装本机 `po0-lan-client` 命令，并按选择安装本机 Worker 轮询器 / systemd 服务。首次向导里的 PO0 SSH 地址一次只填一个；多个 PO0 目标后续进入菜单添加：
@@ -35,6 +41,12 @@ SSH 认证按向导选择：系统默认 SSH 配置/agent、已有私钥路径�
 po0-lan-client --menu
 po0-lan-client --run
 po0-lan-client --probe
+```
+
+检查 LAN Worker 上已安装的 client 版本：
+
+```bash
+po0-lan-client --version
 ```
 
 也可以显式进入向导：

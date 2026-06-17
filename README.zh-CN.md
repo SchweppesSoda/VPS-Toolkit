@@ -49,6 +49,12 @@ scp scripts/po0/nftables/nftables-relay-manager.sh root@<PO0_HOST>:/root/nftable
 ssh root@<PO0_HOST> 'chmod +x /root/nftables-relay-manager.sh && bash /root/nftables-relay-manager.sh'
 ```
 
+检查 PO0 上已安装的主控脚本版本：
+
+```bash
+ssh root@<PO0_HOST> 'bash /root/nftables-relay-manager.sh --version'
+```
+
 如果 PO0 可以访问 `raw.githubusercontent.com`，也可以直接在线拉取运行：
 
 ```bash
@@ -105,6 +111,12 @@ ssh root@<PO0_HOST> 'bash /root/po0-debian-reinstall.sh -port 60022'
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash
 po0-lan-client --menu
 po0-lan-client --run
+```
+
+检查 LAN Worker 上已安装的 client 版本：
+
+```bash
+po0-lan-client --version
 ```
 
 如果旧版本安装后没有 `po0-lan-client` 命令，可手动补装：

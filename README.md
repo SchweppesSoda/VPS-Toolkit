@@ -49,6 +49,12 @@ scp scripts/po0/nftables/nftables-relay-manager.sh root@<PO0_HOST>:/root/nftable
 ssh root@<PO0_HOST> 'chmod +x /root/nftables-relay-manager.sh && bash /root/nftables-relay-manager.sh'
 ```
 
+Check the installed manager version on PO0:
+
+```bash
+ssh root@<PO0_HOST> 'bash /root/nftables-relay-manager.sh --version'
+```
+
 If the PO0 host can reach `raw.githubusercontent.com`, you can run it directly:
 
 ```bash
@@ -105,6 +111,12 @@ Recommended interactive setup on the LAN Worker host. The wizard can fetch token
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash
 po0-lan-client --menu
 po0-lan-client --run
+```
+
+Check the installed LAN Worker client version:
+
+```bash
+po0-lan-client --version
 ```
 
 If an older install did not create `po0-lan-client`, install the command manually:

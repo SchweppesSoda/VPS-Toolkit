@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
+SCRIPT_VERSION="2026-06-18-version-command"
 CONF_DIR="${PO0_CONF_DIR:-/etc/nftables.d}"
 MAIN_CONF="/etc/nftables.conf"
 NFT_CONF="${CONF_DIR}/po0-relay.conf"
@@ -11263,6 +11264,12 @@ do_render() {
     cat "${render_conf}"
 }
 
+do_show_version() {
+    printf '%s\n' \
+        "nftables-relay-manager ${SCRIPT_VERSION}" \
+        "install_path=${MANAGER_INSTALL_PATH}"
+}
+
 print_cli_usage() {
     printf '%s\n' \
         "用法: nftables-relay-manager.sh [命令]" \
@@ -11279,6 +11286,7 @@ print_cli_usage() {
         "  bash ${MANAGER_INSTALL_PATH} --show-client-deploy-commands egern" \
         "" \
         "常用命令:" \
+        "  --version        显示当前脚本版本。" \
         "  --render         将计划生成的 nftables 配置输出到标准输出。" \
         "  --refresh-ddns   按 LAN Worker/路由器已上报且仍在 TTL 内的 DDNS 结果重建/应用；PO0 不做本地 DNS 解析，也不延长原上报 TTL。" \
         "  --collect-blocked [since]" \
@@ -11415,6 +11423,10 @@ main_menu() {
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
     print_cli_usage
+    exit 0
+fi
+if [[ "${1:-}" == "--version" || "${1:-}" == "-V" ]]; then
+    do_show_version
     exit 0
 fi
 
