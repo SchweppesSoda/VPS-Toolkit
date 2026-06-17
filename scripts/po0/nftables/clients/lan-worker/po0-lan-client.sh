@@ -1305,9 +1305,9 @@ remote_resource_task_cron_status() {
 show_remote_resource_task_cron_status() {
     local line any=0 status detail label
     ensure_config_file || return 1
-    print_panel_section "PO0 资源任务创建计划"
+    print_panel_section "PO0 资源更新计划"
     print_panel_row "读取模式" "只读"
-    print_panel_row "说明" "资源更新周期在 PO0 nft manager 设置；本机 Worker 只按自己的轮询器领取已创建任务"
+    print_panel_row "说明" "显示 PO0 何时自动生成 iplist/ipdb 更新任务；本机 Worker 只领取并执行"
     while IFS= read -r line || [[ -n "${line}" ]]; do
         parse_target_line "${line}" || continue
         [[ "${TARGET_ENABLED}" == "1" && -n "${TARGET_RESOURCE_TOKEN}" ]] || continue
@@ -3596,7 +3596,7 @@ menu_loop() {
         print_menu_item 3 "清空 DDNS 统计"
 
         print_menu_section "资源任务"
-        print_menu_pair 4 "资源统计" 5 "PO0 资源任务创建计划"
+        print_menu_pair 4 "资源统计" 5 "PO0 资源更新计划"
         print_menu_item 6 "立即领取并执行资源任务"
 
         print_menu_section "Self-report 自上报"
