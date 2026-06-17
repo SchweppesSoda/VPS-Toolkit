@@ -1279,6 +1279,8 @@ remote_resource_task_cron_status() {
     if [[ "${rc}" -ne 0 ]]; then
         if [[ "${rc}" == "124" ]]; then
             response="远端查询超时（${timeout} 秒）"
+        elif [[ "${response}" == *"action --resource-task-cron-status not allowed for scope worker"* ]]; then
+            response="PO0 受限 SSH wrapper 未刷新；请在 PO0 上执行：bash ${script} --refresh-report-key-wrapper"
         fi
         printf '查询失败|%s\n' "$(sanitize_field "${response}")"
         return 1
