@@ -2,7 +2,7 @@
 set -uo pipefail
 
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh"
-SCRIPT_VERSION="2026-06-17-resource-timeouts"
+SCRIPT_VERSION="2026-06-17-resource-first-menu"
 RESOURCE_UPLOAD_MODE="manager-stdin"
 DEFAULT_PO0_SCRIPT="/root/nftables-relay-manager.sh"
 PO0_HOST="${PO0_HOST:-}"
@@ -470,6 +470,14 @@ read_menu_choice() {
     printf '%s\n' "$(trim "${choice}")"
 }
 
+drain_tty_input_buffer() {
+    local line
+    [[ -r /dev/tty ]] || return 0
+    while IFS= read -r -t 0.05 line < /dev/tty 2>/dev/null; do
+        :
+    done
+}
+
 read_menu_choice_or_return() {
     local __target="$1"
     local prompt="$2"
@@ -597,7 +605,7 @@ validate_ssh_private_key_file() {
 }
 
 read_private_key_paste() {
-    local line
+    local line key
     if [[ -w /dev/tty ]]; then
         printf '请粘贴 SSH 私钥，粘贴到 END ... PRIVATE KEY 行后会自动结束；空输入取消。\n' > /dev/tty
     else
@@ -608,7 +616,13 @@ read_private_key_paste() {
     else
         IFS= read -r line || return 1
     fi
-    read_private_key_from_first_line "${line}"
+    if key="$(read_private_key_from_first_line "${line}")"; then
+        drain_tty_input_buffer
+        printf '%s' "${key}"
+        return 0
+    fi
+    drain_tty_input_buffer
+    return 1
 }
 
 save_ssh_key_content() {
@@ -669,7 +683,8 @@ prompt_ssh_key_path_or_paste() {
     value="$(prompt_default "${prompt}" "${default}")"
     if is_private_key_begin_line "${value}"; then
         printf '[WARN] 检测到你把私钥内容粘贴到了“路径”输入框，正在继续读取剩余私钥内容并保存。\n' >&2
-        key="$(read_private_key_from_first_line "${value}")" || return 1
+        key="$(read_private_key_from_first_line "${value}")" || { drain_tty_input_buffer; return 1; }
+        drain_tty_input_buffer
         save_ssh_key_content "${host}" "${port}" "${user}" "${key}"
         return 0
     fi
@@ -1357,8 +1372,8 @@ print_dashboard() {
 
     print_panel_section "目标概览"
     print_panel_row "目标数量" "总计 ${total}，启用 ${enabled}，停用 ${disabled}"
-    print_panel_row "DDNS 上报" "${ddns} 个目标"
     print_panel_row "资源任务" "${resource} 个目标（PO0 创建计划，本机只轮询领取）"
+    print_panel_row "DDNS 上报" "${ddns} 个目标"
     print_panel_row "自上报" "${self_report} 个目标，监听 ${SELF_REPORT_LISTEN}"
     print_panel_row "WebAuth" "${webauth} 个目标，监听 ${WEBAUTH_LISTEN}"
     print_panel_row "本机轮询器" "$(cron_status_summary)"
@@ -1696,6 +1711,8 @@ manage_target_ssh_interactive() {
                 ;;
             0)
                 return 2
+                ;;
+            "")
                 ;;
             *)
                 printf '无效选择。\n' >&2
@@ -3591,13 +3608,13 @@ menu_loop() {
     local choice
     while true; do
         print_dashboard
-        print_menu_section "DDNS 解析上报"
-        print_menu_pair 1 "上报目标与 DDNS 统计" 2 "立即执行 DDNS 上报"
-        print_menu_item 3 "清空 DDNS 统计"
-
         print_menu_section "资源任务"
-        print_menu_pair 4 "资源统计" 5 "PO0 资源更新计划"
-        print_menu_item 6 "立即领取并执行资源任务"
+        print_menu_pair 1 "资源统计" 2 "PO0 资源更新计划"
+        print_menu_item 3 "立即领取并执行资源任务"
+
+        print_menu_section "DDNS 解析上报"
+        print_menu_pair 4 "上报目标与 DDNS 统计" 5 "立即执行 DDNS 上报"
+        print_menu_item 6 "清空 DDNS 统计"
 
         print_menu_section "Self-report 自上报"
         print_menu_pair 7 "Self-report 连通性检查" 8 "启动 Self-report 服务"
@@ -3624,12 +3641,12 @@ menu_loop() {
         print_menu_footer
         read_menu_choice_or_return choice "请选择操作 [0-23]: " || return 0
         case "${choice}" in
-            1) list_targets; pause_before_return ;;
-            2) run_config_targets; pause_before_return ;;
-            3) clear_stats_interactive; pause_before_return ;;
-            4) list_resource_stats; pause_before_return ;;
-            5) show_remote_resource_task_cron_status; pause_before_return ;;
-            6) run_resource_targets; pause_before_return ;;
+            1) list_resource_stats; pause_before_return ;;
+            2) show_remote_resource_task_cron_status; pause_before_return ;;
+            3) run_resource_targets; pause_before_return ;;
+            4) list_targets; pause_before_return ;;
+            5) run_config_targets; pause_before_return ;;
+            6) clear_stats_interactive; pause_before_return ;;
             7) probe_self_report_target; pause_before_return ;;
             8) run_self_report_server ;;
             9) probe_webauth_target; pause_before_return ;;
@@ -3648,6 +3665,7 @@ menu_loop() {
             22) show_local_script_status; pause_before_return ;;
             23) upgrade_self_from_raw; pause_before_return ;;
             0) return 0 ;;
+            "") ;;
             *) printf '无效选择。\n' >&2 ;;
         esac
     done
