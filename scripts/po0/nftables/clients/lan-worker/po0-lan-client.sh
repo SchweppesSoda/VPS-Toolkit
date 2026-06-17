@@ -46,7 +46,6 @@ C_GREEN=""
 C_YELLOW=""
 C_RED=""
 C_CYAN=""
-C_MAGENTA=""
 
 [[ -n "${STATS_FILE}" ]] && STATS_FILE_EXPLICIT="1"
 
@@ -58,8 +57,7 @@ setup_colors() {
         C_GREEN=$'\033[32m'
         C_YELLOW=$'\033[33m'
         C_RED=$'\033[31m'
-        C_CYAN=$'\033[36m'
-        C_MAGENTA=$'\033[35m'
+        C_CYAN=$'\033[96m'
     fi
 }
 
@@ -76,8 +74,17 @@ print_title() {
     print_divider
 }
 
+print_menu_divider() {
+    printf '%b%s%b\n' "${C_CYAN}" "------------------------" "${C_RESET}"
+}
+
+print_menu_footer() {
+    print_menu_divider
+}
+
 print_menu_section() {
-    printf '\n%b%s%b\n' "${C_BOLD}${C_MAGENTA}" "$1" "${C_RESET}"
+    print_menu_divider
+    printf '%b%s%b\n' "${C_BOLD}${C_CYAN}" "$1" "${C_RESET}"
 }
 
 print_menu_item() {
@@ -91,9 +98,15 @@ print_menu_pair() {
     local left_label="$2"
     local right_number="${3:-}"
     local right_label="${4:-}"
-    printf '  %b%2s%b) %-30s' "${C_CYAN}" "${left_number}" "${C_RESET}" "${left_label}"
+    local right_column=46
+    printf '  %b%2s%b) %s' "${C_CYAN}" "${left_number}" "${C_RESET}" "${left_label}"
     if [[ -n "${right_number}" ]]; then
-        printf '  %b%2s%b) %s' "${C_CYAN}" "${right_number}" "${C_RESET}" "${right_label}"
+        if [[ -t 1 ]]; then
+            printf '\033[%sG' "${right_column}"
+        else
+            printf '    '
+        fi
+        printf '%b%2s%b) %s' "${C_CYAN}" "${right_number}" "${C_RESET}" "${right_label}"
     fi
     printf '\n'
 }
@@ -397,6 +410,24 @@ read_prompt() {
     printf '%s' "${prompt}" >&2
     IFS= read -r value || return 1
     printf '%s\n' "${value}"
+}
+
+read_menu_choice() {
+    local prompt="$1"
+    local choice
+    choice="$(read_prompt "${prompt}")" || return 1
+    printf '%s\n' "$(trim "${choice}")"
+}
+
+read_menu_choice_or_return() {
+    local __target="$1"
+    local prompt="$2"
+    local choice
+    if ! choice="$(read_menu_choice "${prompt}")"; then
+        printf '\n输入结束，退出当前菜单。\n'
+        return 1
+    fi
+    printf -v "${__target}" '%s' "${choice}"
 }
 
 pause_before_return() {
@@ -1570,36 +1601,42 @@ manage_target_ssh_interactive() {
     if [[ -n "${current_report_extra}" && "${current_report_extra}" != "${extra}" ]]; then
         printf 'Self-report/WebAuth 上报 SSH 参数覆盖：%s\n' "${current_report_extra}"
     fi
-    printf '%s\n' "  1) 设置/更换私钥路径"
-    printf '%s\n' "  2) 粘贴私钥并保存到本机"
-    printf '%s\n' "  3) 清除私钥路径（保留其它 SSH 参数）"
-    printf '%s\n' "  4) 编辑额外 SSH 参数（不是私钥短语）"
-    printf '%s\n' "  0) 返回"
-    choice="$(prompt_default "请选择" "0")"
-    case "${choice}" in
-        1)
-            new_key_path="$(prompt_ssh_key_path_or_paste "SSH 私钥路径（路径不要含空格；如要粘贴私钥请选 2）" "${key_path}" "${po0_host}" "${po0_port}" "${po0_user}")"
-            new_extra="$(ssh_extra_with_identity "${extra}" "${new_key_path}")"
-            ;;
-        2)
-            new_key_path="$(save_pasted_ssh_key "${po0_host}" "${po0_port}" "${po0_user}")" || return 1
-            printf '[OK] 已保存 SSH 私钥：%s\n' "${new_key_path}"
-            new_extra="$(ssh_extra_with_identity "${extra}" "${new_key_path}")"
-            ;;
-        3)
-            new_extra="$(ssh_extra_without_identity "${extra}")"
-            ;;
-        4)
-            new_extra="$(prompt_default "额外 SSH 参数，例如 -J jump-host 或 -o StrictHostKeyChecking=accept-new" "${extra}")"
-            ;;
-        0|"")
-            return 0
-            ;;
-        *)
-            printf '无效选择。\n' >&2
-            return 1
-            ;;
-    esac
+    while true; do
+        print_menu_item 1 "设置 / 更换私钥路径"
+        print_menu_item 2 "粘贴私钥并保存到本机"
+        print_menu_item 3 "清除私钥路径（保留其它 SSH 参数）"
+        print_menu_item 4 "编辑额外 SSH 参数（不是私钥短语）"
+        print_menu_item 0 "返回"
+        print_menu_footer
+        read_menu_choice_or_return choice "请选择操作 [0-4]: " || return 2
+        case "${choice}" in
+            1)
+                new_key_path="$(prompt_ssh_key_path_or_paste "SSH 私钥路径（路径不要含空格；如要粘贴私钥请选 2）" "${key_path}" "${po0_host}" "${po0_port}" "${po0_user}")"
+                new_extra="$(ssh_extra_with_identity "${extra}" "${new_key_path}")"
+                break
+                ;;
+            2)
+                new_key_path="$(save_pasted_ssh_key "${po0_host}" "${po0_port}" "${po0_user}")" || return 1
+                printf '[OK] 已保存 SSH 私钥：%s\n' "${new_key_path}"
+                new_extra="$(ssh_extra_with_identity "${extra}" "${new_key_path}")"
+                break
+                ;;
+            3)
+                new_extra="$(ssh_extra_without_identity "${extra}")"
+                break
+                ;;
+            4)
+                new_extra="$(prompt_default "额外 SSH 参数，例如 -J jump-host 或 -o StrictHostKeyChecking=accept-new" "${extra}")"
+                break
+                ;;
+            0)
+                return 2
+                ;;
+            *)
+                printf '无效选择。\n' >&2
+                ;;
+        esac
+    done
     if [[ -n "${current_report_extra}" && "${current_report_extra}" != "${old_extra}" ]]; then
         prompt_yes_no "Self-report/WebAuth 上报 SSH 参数有单独覆盖，是否同步更新" "n" && update_report_extra=1
     fi
@@ -1802,6 +1839,7 @@ po0_lan_wizard() {
     print_menu_item 1 "使用系统默认 SSH 配置 / agent"
     print_menu_item 2 "填写私钥文件路径"
     print_menu_item 3 "粘贴私钥并保存到本机"
+    print_menu_footer
     case "$(prompt_default "请选择" "1")" in
         2)
             key_path="$(prompt_ssh_key_path_or_paste "SSH 私钥路径（路径不要含空格）" "" "${PO0_HOST}" "${PO0_PORT}" "${PO0_USER}")"
@@ -3255,17 +3293,14 @@ menu_loop() {
         print_menu_pair 19 "查看本机轮询器状态" 20 "清空 DDNS 统计"
         print_menu_section "退出"
         print_menu_item 0 "退出"
-        if ! choice="$(read_prompt "请选择操作 [0-20]: ")"; then
-            printf '\n输入结束，退出菜单。\n'
-            return 0
-        fi
-        choice="$(trim "${choice}")"
+        print_menu_footer
+        read_menu_choice_or_return choice "请选择操作 [0-20]: " || return 0
         case "${choice}" in
             1) list_targets; pause_before_return ;;
             2) list_resource_stats; echo ""; show_remote_resource_task_cron_status; pause_before_return ;;
             3) add_target_interactive; pause_before_return ;;
             4) edit_target_interactive; pause_before_return ;;
-            5) manage_target_ssh_interactive; pause_before_return ;;
+            5) manage_target_ssh_interactive; [[ "$?" -eq 2 ]] || pause_before_return ;;
             6) manage_target_tokens_interactive; pause_before_return ;;
             7) toggle_target_interactive; pause_before_return ;;
             8) delete_target_interactive; pause_before_return ;;

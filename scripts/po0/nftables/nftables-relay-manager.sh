@@ -99,7 +99,6 @@ C_GREEN=""
 C_YELLOW=""
 C_RED=""
 C_CYAN=""
-C_MAGENTA=""
 
 RULE_ID=""
 RULE_NAME=""
@@ -199,8 +198,7 @@ setup_colors() {
         C_GREEN=$'\033[32m'
         C_YELLOW=$'\033[33m'
         C_RED=$'\033[31m'
-        C_CYAN=$'\033[36m'
-        C_MAGENTA=$'\033[35m'
+        C_CYAN=$'\033[96m'
     fi
 }
 
@@ -256,8 +254,17 @@ print_title() {
     print_divider
 }
 
+print_menu_divider() {
+    printf '%b%s%b\n' "${C_CYAN}" "------------------------" "${C_RESET}"
+}
+
+print_menu_footer() {
+    print_menu_divider
+}
+
 print_menu_section() {
-    printf '\n%b%s%b\n' "${C_BOLD}${C_MAGENTA}" "$1" "${C_RESET}"
+    print_menu_divider
+    printf '%b%s%b\n' "${C_BOLD}${C_CYAN}" "$1" "${C_RESET}"
 }
 
 print_menu_item() {
@@ -271,11 +278,35 @@ print_menu_pair() {
     local left_label="$2"
     local right_number="${3:-}"
     local right_label="${4:-}"
-    printf '  %b%2s%b) %-30s' "${C_CYAN}" "${left_number}" "${C_RESET}" "${left_label}"
+    local right_column=46
+    printf '  %b%2s%b) %s' "${C_CYAN}" "${left_number}" "${C_RESET}" "${left_label}"
     if [[ -n "${right_number}" ]]; then
-        printf '  %b%2s%b) %s' "${C_CYAN}" "${right_number}" "${C_RESET}" "${right_label}"
+        if [[ -t 1 ]]; then
+            printf '\033[%sG' "${right_column}"
+        else
+            printf '    '
+        fi
+        printf '%b%2s%b) %s' "${C_CYAN}" "${right_number}" "${C_RESET}" "${right_label}"
     fi
     printf '\n'
+}
+
+read_menu_choice() {
+    local prompt="$1"
+    local choice
+    IFS= read -r -p "${prompt}" choice || return 1
+    printf '%s\n' "$(trim "${choice}")"
+}
+
+read_menu_choice_or_return() {
+    local __target="$1"
+    local prompt="$2"
+    local choice
+    if ! choice="$(read_menu_choice "${prompt}")"; then
+        printf '\n输入结束，退出当前菜单。\n'
+        return 1
+    fi
+    printf -v "${__target}" '%s' "${choice}"
 }
 
 trim() {
@@ -319,7 +350,7 @@ prompt_with_default() {
 
 pause_before_return() {
     echo ""
-    read -r -p "按回车返回主菜单..." _
+    read -r -p "按回车返回菜单..." _
 }
 
 validate_port() {
@@ -5826,7 +5857,7 @@ print_runtime_drift_hint() {
     warn "发现 ${count} 条脚本未管理的 DNAT 转发规则：它们正在系统里生效，但不在本脚本的规则列表中。"
     [[ -n "${tables}" ]] && info "所在 nft 表：${tables}"
     info "常见原因：旧脚本、手动 nft 命令、其它面板或防火墙工具留下了转发规则。"
-    info "处理方式：想保留就可以先不管；想交给本脚本管理，用 [7] 导入当前 nft 运行时规则；确认不要了，再用 [1] 初始化接管或手动删除对应表。"
+    info "处理方式：想保留就可以先不管；想交给本脚本管理，用 [9] 导入当前 nft 运行时规则；确认不要了，再用 [1] 初始化接管或手动删除对应表。"
 }
 
 public_ip_source_label() {
@@ -6890,7 +6921,7 @@ settings_ready() {
         return 0
     fi
     validate_host_ipv4 "${RELAY_LAN_IP}" || {
-        err "当前存在内网/无感内网 SNAT 规则，但中转机内网 IP 尚未设置。请先执行【10】修改中转机参数。"
+        err "当前存在内网/无感内网 SNAT 规则，但中转机内网 IP 尚未设置。请先执行 [14] 中转机参数。"
         return 1
     }
 }
@@ -6901,7 +6932,7 @@ print_runtime_rule_hint() {
     printf '  现有 nft 规则 : %s 条（%s）\n' \
         "${DISCOVERED_RULE_COUNT}" \
         "$(rules_source_label "${DISCOVERED_RULES_SOURCE}")"
-    printf '               可用 [1] 初始化接管或 [8] 导入托管配置。\n'
+    printf '               可用 [1] 初始化接管或 [9] 导入托管配置。\n'
 }
 
 print_settings() {
@@ -6916,7 +6947,7 @@ print_settings() {
     if is_public_ipv4 "${PUBLIC_IP}"; then
         printf '公网 IP     : %s (%s)\n' "${PUBLIC_IP}" "$(public_ip_source_label)"
     else
-        printf '公网 IP     : 未探测到（可用菜单 [14] 手动刷新）\n'
+        printf '公网 IP     : 未探测到（可用菜单 [2] 手动刷新）\n'
     fi
     if [[ ${#RULES[@]} -gt 0 && "${RULES_SOURCE}" != "rules_file" ]]; then
         printf '规则来源    : %s\n' "$(rules_source_label)"
@@ -6989,7 +7020,7 @@ print_status_panel() {
         printf '  公网 IP    : %s\n' "${PUBLIC_IP}"
         printf '               %s\n' "$(public_ip_source_label)"
     else
-        printf '  公网 IP    : 未探测到（可用 [14] 手动刷新）\n'
+        printf '  公网 IP    : 未探测到（可用 [2] 手动刷新）\n'
     fi
     if [[ ${RULE_TOTAL} -gt 0 && "${RULES_SOURCE}" != "rules_file" ]]; then
         printf '  规则来源   : %s\n' "$(rules_source_label)"
@@ -8303,47 +8334,52 @@ do_import_rules() {
     ensure_layout || return
     load_rules
 
-    show_import_format_hint
-    echo ""
-    echo "导入助手:"
-    echo "  1) 直接导入规则文件"
-    echo "  2) 先生成导入模板"
-    echo "  3) 导入当前 nft 运行时规则"
-    echo "  0) 返回"
-    read -r -p "请选择操作 [0-3]: " choice
-    case "${choice}" in
-        1)
-            mode="$(prompt_import_mode)" || return
-            ;;
-        2)
-            create_import_template_interactive || {
+    while true; do
+        show_import_format_hint
+        echo ""
+        echo "导入助手:"
+        print_menu_item 1 "直接导入规则文件"
+        print_menu_item 2 "先生成导入模板"
+        print_menu_item 3 "导入当前 nft 运行时规则"
+        print_menu_item 0 "返回"
+        print_menu_footer
+        read_menu_choice_or_return choice "请选择操作 [0-3]: " || return 2
+        case "${choice}" in
+            1)
+                mode="$(prompt_import_mode)" || return
+                break
+                ;;
+            2)
+                create_import_template_interactive || {
+                    info "已取消。"
+                    return
+                }
+                echo ""
+                confirm_yes "是否继续导入刚生成的模板文件" || {
+                    info "已返回上级菜单。"
+                    return
+                }
+                path="${TEMPLATE_OUTPUT_PATH}"
+                mode="$(prompt_import_mode)" || return
+                break
+                ;;
+            3)
+                source_kind="runtime"
+                mode="replace"
+                echo ""
+                info "开始扫描当前 nft 运行时规则。"
+                load_runtime_import_rules || return
+                break
+                ;;
+            0)
                 info "已取消。"
-                return
-            }
-            echo ""
-            confirm_yes "是否继续导入刚生成的模板文件" || {
-                info "已返回上级菜单。"
-                return
-            }
-            path="${TEMPLATE_OUTPUT_PATH}"
-            mode="$(prompt_import_mode)" || return
-            ;;
-        3)
-            source_kind="runtime"
-            mode="replace"
-            echo ""
-            info "开始扫描当前 nft 运行时规则。"
-            load_runtime_import_rules || return
-            ;;
-        0|"")
-            info "已取消。"
-            return
-            ;;
-        *)
-            err "无效选择。"
-            return
-            ;;
-    esac
+                return 2
+                ;;
+            *)
+                err "无效选择。"
+                ;;
+        esac
+    done
 
     if [[ "${source_kind}" == "file" ]]; then
         if [[ -z "${path:-}" ]]; then
@@ -9251,7 +9287,8 @@ do_manage_report_keys() {
         print_menu_pair 2 "新增 / 转换 public key" 4 "刷新 wrapper"
         print_menu_section "退出"
         print_menu_item 0 "返回"
-        read -r -p "请选择操作 [0-4]: " choice
+        print_menu_footer
+        read_menu_choice_or_return choice "请选择操作 [0-4]: " || return
         case "${choice}" in
             1) user="$(prompt_with_default "系统用户" "root")"; show_report_keys_for_user "${user}"; pause_before_return ;;
             2)
@@ -9674,7 +9711,8 @@ do_manage_client_deploy_commands() {
         print_menu_pair 5 "Self-report 客户端" 7 "Egern SSH report"
         print_menu_section "退出"
         print_menu_item 0 "返回"
-        read -r -p "请选择操作 [0-8]: " choice
+        print_menu_footer
+        read_menu_choice_or_return choice "请选择操作 [0-8]: " || return
         case "${choice}" in
             1) do_show_po0_manager_deploy_commands; pause_before_return ;;
             2) do_show_lan_resource_worker_commands; pause_before_return ;;
@@ -9724,11 +9762,12 @@ do_manage_automation_mode() {
     while true; do
         print_title "自动白名单安全模式"
         printf '当前模式 : %s\n' "${AUTOMATION_MODE}"
-        echo "  1) regular：自动来源新 IP 可直接进入白名单"
-        echo "  2) attack：新自动 IP 只进入待审核，不直接放行"
-        echo "  3) 查看自动来源待审核 IP"
-        echo "  0) 返回"
-        read -r -p "请选择操作 [0-3]: " choice
+        print_menu_item 1 "regular：自动来源新 IP 可直接进入白名单"
+        print_menu_item 2 "attack：新自动 IP 只进入待审核，不直接放行"
+        print_menu_item 3 "查看自动来源待审核 IP"
+        print_menu_item 0 "返回"
+        print_menu_footer
+        read_menu_choice_or_return choice "请选择操作 [0-3]: " || return
         case "${choice}" in
             1) set_automation_mode regular; pause_before_return ;;
             2) set_automation_mode attack; pause_before_return ;;
@@ -10046,29 +10085,36 @@ do_manage_ddns_allowlist_sources() {
         print_menu_item 7 "显示 / 生成外部上报 Token"
         print_menu_section "退出"
         print_menu_item 0 "返回"
-        read -r -p "请选择操作 [0-7]: " choice
+        print_menu_footer
+        read_menu_choice_or_return choice "请选择操作 [0-7]: " || return
         case "${choice}" in
             1)
                 show_ddns_allowlist_sources
                 pause_before_return
                 ;;
             2)
-                do_add_ddns_allowlist_source || pause_before_return
+                do_add_ddns_allowlist_source
+                pause_before_return
                 ;;
             3)
-                do_edit_ddns_allowlist_source || pause_before_return
+                do_edit_ddns_allowlist_source
+                pause_before_return
                 ;;
             4)
-                do_delete_ddns_allowlist_source || pause_before_return
+                do_delete_ddns_allowlist_source
+                pause_before_return
                 ;;
             5)
-                do_toggle_ddns_allowlist_source || pause_before_return
+                do_toggle_ddns_allowlist_source
+                pause_before_return
                 ;;
             6)
-                do_refresh_ddns_allowlist_sources || pause_before_return
+                do_refresh_ddns_allowlist_sources
+                pause_before_return
                 ;;
             7)
-                do_show_ddns_report_token || pause_before_return
+                do_show_ddns_report_token
+                pause_before_return
                 ;;
             0)
                 return
@@ -10207,24 +10253,29 @@ do_manage_allowlist_profiles() {
         print_title "白名单配置档案"
         show_allowlist_profiles
         echo ""
-        echo "  1) 保存当前白名单为配置档案"
-        echo "  2) 应用配置档案"
-        echo "  3) 恢复上一次白名单快照"
-        echo "  4) 删除配置档案"
-        echo "  0) 返回"
-        read -r -p "请选择操作 [0-4]: " choice
+        print_menu_item 1 "保存当前白名单为配置档案"
+        print_menu_item 2 "应用配置档案"
+        print_menu_item 3 "恢复上一次白名单快照"
+        print_menu_item 4 "删除配置档案"
+        print_menu_item 0 "返回"
+        print_menu_footer
+        read_menu_choice_or_return choice "请选择操作 [0-4]: " || return
         case "${choice}" in
             1)
-                do_save_allowlist_profile || pause_before_return
+                do_save_allowlist_profile
+                pause_before_return
                 ;;
             2)
-                do_apply_allowlist_profile || pause_before_return
+                do_apply_allowlist_profile
+                pause_before_return
                 ;;
             3)
-                do_restore_last_allowlist_profile || pause_before_return
+                do_restore_last_allowlist_profile
+                pause_before_return
                 ;;
             4)
-                do_delete_allowlist_profile || pause_before_return
+                do_delete_allowlist_profile
+                pause_before_return
                 ;;
             0)
                 return
@@ -10369,10 +10420,11 @@ do_manage_region_allowlist() {
         echo "已选地区："
         show_selected_allowlist_regions
         echo ""
-        echo "  1) 添加地区"
-        echo "  2) 删除地区"
-        echo "  0) 返回"
-        read -r -p "请选择操作 [0-2]: " choice
+        print_menu_item 1 "添加地区"
+        print_menu_item 2 "删除地区"
+        print_menu_item 0 "返回"
+        print_menu_footer
+        read_menu_choice_or_return choice "请选择操作 [0-2]: " || return
         case "${choice}" in
             1)
                 select_iplist_region_interactive || {
@@ -10390,7 +10442,8 @@ do_manage_region_allowlist() {
                     continue
                 }
                 enable_allowlist_for_region_add
-                apply_src_allowlist_changes || pause_before_return
+                apply_src_allowlist_changes
+                pause_before_return
                 ;;
             2)
                 select_selected_allowlist_region || {
@@ -10404,7 +10457,8 @@ do_manage_region_allowlist() {
                 }
                 remove_allowlist_region_id "${id}"
                 disable_src_allowlist_if_no_custom_entries
-                apply_src_allowlist_changes || pause_before_return
+                apply_src_allowlist_changes
+                pause_before_return
                 ;;
             0)
                 return
@@ -10422,16 +10476,19 @@ do_manage_custom_allowlist() {
         print_title "自定义 CIDR 白名单"
         show_custom_allowlist_entries
         echo ""
-        echo "  1) 添加自定义 IP/CIDR"
-        echo "  2) 删除自定义 IP/CIDR"
-        echo "  0) 返回"
-        read -r -p "请选择操作 [0-2]: " choice
+        print_menu_item 1 "添加自定义 IP/CIDR"
+        print_menu_item 2 "删除自定义 IP/CIDR"
+        print_menu_item 0 "返回"
+        print_menu_footer
+        read_menu_choice_or_return choice "请选择操作 [0-2]: " || return
         case "${choice}" in
             1)
-                do_add_custom_allowlist_entry || pause_before_return
+                do_add_custom_allowlist_entry
+                pause_before_return
                 ;;
             2)
-                do_delete_custom_allowlist_entry || pause_before_return
+                do_delete_custom_allowlist_entry
+                pause_before_return
                 ;;
             0)
                 return
@@ -10453,37 +10510,44 @@ do_manage_learning_allowlist() {
         printf '每日汇总 : %s（%s 天）\n' "${LEARN_SUMMARY_FILE}" "$(learning_summary_count)"
         printf 'IPDB 数据: %s\n' "$(ipdb_status_label)"
         echo ""
-        echo "  1) 启动 / 停止学习服务"
-        echo "  2) 查看学习记录统计"
-        echo "  3) 清空学习记录"
-        echo "  4) 将学习到的单 IP 加入自定义白名单"
-        echo "  5) 将学习到的 /24 候选加入自定义白名单"
-        echo "  6) 将学习到的 /16 候选加入自定义白名单（高风险）"
-        echo "  7) 立即压缩学习日志"
-        echo "  0) 返回"
-        read -r -p "请选择操作 [0-7]: " choice
+        print_menu_item 1 "启动 / 停止学习服务"
+        print_menu_item 2 "查看学习记录统计"
+        print_menu_item 3 "清空学习记录"
+        print_menu_item 4 "将学习到的单 IP 加入自定义白名单"
+        print_menu_item 5 "将学习到的 /24 候选加入自定义白名单"
+        print_menu_item 6 "将学习到的 /16 候选加入自定义白名单（高风险）"
+        print_menu_item 7 "立即压缩学习日志"
+        print_menu_item 0 "返回"
+        print_menu_footer
+        read_menu_choice_or_return choice "请选择操作 [0-7]: " || return
         case "${choice}" in
             1)
-                do_toggle_learning_service || pause_before_return
+                do_toggle_learning_service
+                pause_before_return
                 ;;
             2)
                 print_learning_stats
                 pause_before_return
                 ;;
             3)
-                do_clear_learning_log || pause_before_return
+                do_clear_learning_log
+                pause_before_return
                 ;;
             4)
-                do_promote_learned_ip || pause_before_return
+                do_promote_learned_ip
+                pause_before_return
                 ;;
             5)
-                do_promote_learned_cidr24 || pause_before_return
+                do_promote_learned_cidr24
+                pause_before_return
                 ;;
             6)
-                do_promote_learned_cidr16 || pause_before_return
+                do_promote_learned_cidr16
+                pause_before_return
                 ;;
             7)
-                do_compact_learning_log || pause_before_return
+                do_compact_learning_log
+                pause_before_return
                 ;;
             0)
                 return
@@ -10501,17 +10565,19 @@ do_manage_ipdb_tools() {
         print_title "IPDB 数据与解析"
         printf 'IPDB 状态 : %s\n' "$(ipdb_status_label)"
         echo ""
-        echo "  1) 查看 IPDB 状态"
-        echo "  2) 安装 IPDB 解析依赖"
-        echo "  0) 返回"
-        read -r -p "请选择操作 [0-2]: " choice
+        print_menu_item 1 "查看 IPDB 状态"
+        print_menu_item 2 "安装 IPDB 解析依赖"
+        print_menu_item 0 "返回"
+        print_menu_footer
+        read_menu_choice_or_return choice "请选择操作 [0-2]: " || return
         case "${choice}" in
             1)
                 printf 'IPDB 状态 : %s\n' "$(ipdb_status_label)"
                 pause_before_return
                 ;;
             2)
-                do_install_ipdb_parser || pause_before_return
+                do_install_ipdb_parser
+                pause_before_return
                 ;;
             0)
                 return
@@ -10526,10 +10592,11 @@ do_manage_ipdb_tools() {
 do_cancel_unfinished_resource_tasks_interactive() {
     local choice type
     echo "取消未完成的资源任务（等待领取 / 执行中）："
-    echo "  1) iplist 地区库"
-    echo "  2) qqwry.ipdb"
-    echo "  3) 全部未完成任务"
-    echo "  0) 取消"
+    print_menu_item 1 "iplist 地区库"
+    print_menu_item 2 "qqwry.ipdb"
+    print_menu_item 3 "全部未完成任务"
+    print_menu_item 0 "取消"
+    print_menu_footer
     read -r -p "请选择取消范围 [0-3]: " choice
     case "${choice}" in
         1) type="iplist" ;;
@@ -10584,7 +10651,8 @@ do_manage_resource_tasks() {
         print_menu_item 9 "删除 PO0 定时创建"
         print_menu_section "退出"
         print_menu_item 0 "返回"
-        read -r -p "请选择操作 [0-9]: " choice
+        print_menu_footer
+        read_menu_choice_or_return choice "请选择操作 [0-9]: " || return
         case "${choice}" in
             1)
                 list_resource_tasks
@@ -10695,7 +10763,8 @@ do_manage_src_allowlist() {
         print_menu_item 27 "管理内网资源更新任务"
         print_menu_section "退出"
         print_menu_item 0 "返回"
-        read -r -p "请选择操作 [0-27]: " choice
+        print_menu_footer
+        read_menu_choice_or_return choice "请选择操作 [0-27]: " || return
         case "${choice}" in
             1)
                 do_explain_src_allowlist_fields
@@ -10722,7 +10791,8 @@ do_manage_src_allowlist() {
                     pause_before_return
                     continue
                 }
-                apply_src_allowlist_changes || pause_before_return
+                apply_src_allowlist_changes
+                pause_before_return
                 ;;
             6)
                 do_manage_region_allowlist
@@ -10731,10 +10801,12 @@ do_manage_src_allowlist() {
                 do_manage_custom_allowlist
                 ;;
             8)
-                do_add_ssh_temp_allowlist_entry || pause_before_return
+                do_add_ssh_temp_allowlist_entry
+                pause_before_return
                 ;;
             9)
-                do_manage_allowlist_source_switches || pause_before_return
+                do_manage_allowlist_source_switches
+                pause_before_return
                 ;;
             10)
                 do_manage_ddns_allowlist_sources
@@ -10763,6 +10835,7 @@ do_manage_src_allowlist() {
                 ;;
             17)
                 do_install_dynamic_allowlist_cleanup_cron_interactive
+                pause_before_return
                 ;;
             18)
                 confirm_yes "确认删除动态来源清理 cron" && remove_dynamic_allowlist_cleanup_cron
@@ -10788,6 +10861,7 @@ do_manage_src_allowlist() {
                 ;;
             24)
                 do_import_iplist_package
+                pause_before_return
                 ;;
             25)
                 src_allowlist_enabled || {
@@ -10795,7 +10869,8 @@ do_manage_src_allowlist() {
                     pause_before_return
                     continue
                 }
-                apply_src_allowlist_changes || pause_before_return
+                apply_src_allowlist_changes
+                pause_before_return
                 ;;
             26)
                 do_manage_allowlist_profiles
@@ -11165,25 +11240,25 @@ main_menu() {
         print_menu_item 16 "可选开启 BBR + fq"
         print_menu_section "退出"
         print_menu_item 0 "退出"
-        print_divider
-        read -r -p "请选择操作 [0-16]: " choice
+        print_menu_footer
+        read_menu_choice_or_return choice "请选择操作 [0-16]: " || exit 0
         case "${choice}" in
-            1) do_install ;;
+            1) do_install; pause_before_return ;;
             2) do_refresh_public_ip ;;
             3) do_list ;;
-            4) do_add ;;
-            5) do_edit_rule ;;
-            6) do_reorder_rules ;;
-            7) do_toggle_rules ;;
-            8) do_delete ;;
-            9) do_import_rules ;;
-            10) do_export_rules ;;
+            4) do_add; pause_before_return ;;
+            5) do_edit_rule; pause_before_return ;;
+            6) do_reorder_rules; pause_before_return ;;
+            7) do_toggle_rules; pause_before_return ;;
+            8) do_delete; pause_before_return ;;
+            9) do_import_rules; [[ "$?" -eq 2 ]] || pause_before_return ;;
+            10) do_export_rules; pause_before_return ;;
             11) do_manage_src_allowlist ;;
             12) do_manage_client_deploy_commands ;;
             13) do_manage_resource_tasks ;;
-            14) do_edit_settings ;;
-            15) do_diagnose ;;
-            16) do_enable_bbr ;;
+            14) do_edit_settings; pause_before_return ;;
+            15) do_diagnose; pause_before_return ;;
+            16) do_enable_bbr; pause_before_return ;;
             0)
                 info "再见。"
                 exit 0
