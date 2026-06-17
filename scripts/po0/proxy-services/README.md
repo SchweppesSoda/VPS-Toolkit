@@ -12,6 +12,17 @@
 
 ## 使用入口
 
+在线拉取运行（在 PO0 主机上执行）：
+
+```bash
+tmp="$(mktemp)" &&
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/proxy-services/vless-raw-enc-argosbx-enhancer.sh -o "$tmp" &&
+sudo bash "$tmp"
+rm -f "$tmp"
+```
+
+本地仓库运行：
+
 ```bash
 cd scripts/po0/proxy-services
 bash vless-raw-enc-argosbx-enhancer.sh
