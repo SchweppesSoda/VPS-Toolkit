@@ -285,6 +285,7 @@ function ttlRemaining(expiresAt) {
 const WIDGET_COLORS = {
   background: '#111318',
   text: '#F4F7FB',
+  heading: '#C9D7EA',
   dim: '#8E8E93',
   line: '#2A2D34',
   blue: '#0A84FF',
@@ -339,7 +340,7 @@ function sectionTitleNode(text) {
     direction: 'row',
     alignItems: 'center',
     children: [
-      textNode(text, 10, 'semibold', WIDGET_COLORS.dim),
+      textNode(text, 12, 'semibold', WIDGET_COLORS.heading),
     ],
   };
 }
@@ -469,12 +470,27 @@ function widgetFromState(state, ctx, deviceId = '') {
     rowNode('wifi.router.fill', WIDGET_COLORS.blue, '网关', network.gateway || '不适用'),
   ];
   const summaryRow = summaryRowNode(deviceName, `${successCount}/${targetCount || 1} 成功`, statusColor);
+  const targetRows = targetSummaryRows(state, ctx);
+  if (!isSmall && !ok && targetRows.length === 0) {
+    targetRows.push(rowNode('exclamationmark.triangle.fill', WIDGET_COLORS.red, '原因', state.error || '未知错误', WIDGET_COLORS.red));
+  }
+  const bottomBlock = isSmall ? summaryRow : {
+    type: 'stack',
+    direction: 'column',
+    gap: 3,
+    children: [
+      { type: 'stack', height: 0.5, backgroundColor: WIDGET_COLORS.line },
+      summaryRow,
+      { type: 'stack', height: 0.5, backgroundColor: WIDGET_COLORS.line },
+      ...targetRows,
+    ],
+  };
 
   const detailChildren = isSmall ? [
     publicRows[0],
     publicRows[1],
     networkRows[0],
-    summaryRow,
+    bottomBlock,
   ] : [
     {
       type: 'stack',
@@ -485,14 +501,8 @@ function widgetFromState(state, ctx, deviceId = '') {
         { type: 'stack', direction: 'column', gap: 5, flex: 1, children: [sectionTitleNode('本机网络'), ...networkRows] },
       ],
     },
-    { type: 'stack', height: 0.5, backgroundColor: WIDGET_COLORS.line },
-    summaryRow,
+    bottomBlock,
   ];
-
-  const targetRows = targetSummaryRows(state, ctx);
-  if (!ok && targetRows.length === 0) {
-    targetRows.push(rowNode('exclamationmark.triangle.fill', WIDGET_COLORS.red, '原因', state.error || '未知错误', WIDGET_COLORS.red));
-  }
 
   return {
     type: 'widget',
@@ -514,8 +524,6 @@ function widgetFromState(state, ctx, deviceId = '') {
         ],
       },
       ...detailChildren,
-      { type: 'stack', height: 0.5, backgroundColor: WIDGET_COLORS.line },
-      ...(isSmall ? [] : targetRows),
     ],
   };
 }
