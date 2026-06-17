@@ -10,7 +10,7 @@ bash /root/nftables-relay-manager.sh --ssh-ip-report <SSH_REPORT_SOURCE> <ipv4> 
 
 ## 文件
 
-- `PO0-SSH-IP-Report.yaml`：Egern 模块，包含定时、网络变化、手动执行和 Widget。
+- `PO0-SSH-IP-Report.yaml`：Egern 模块，包含本机设备 ID 设置、定时、网络变化、手动执行和 Widget。
 - `po0-ssh-ip-report.js`：获取当前出口 IPv4，并通过 SSH 上报 PO0。
 
 ## 导入
@@ -35,9 +35,28 @@ https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nft
 - `IP_CHECK_URL` / `IP_CHECK_URLS`：公网 IPv4 查询接口；默认从 IP9 和国内接口轮询。
 - `POLICY`：默认 `DIRECT`，用于尽量获取当前真实出口 IP。
 
+## 本机设备 ID
+
+Egern 配置会通过 iCloud 同步，模块环境变量不适合直接写每台设备不同的 `source_id`。模块支持在本机 `ctx.storage` 保存设备 ID，并在上报时展开 `SSH_REPORT_TARGETS` 里的 `{device}`。
+
+每台 iPhone / iPad 只需要单独打开一次：
+
+```text
+http://po0-egern.local/set-device?id=iphone15pm
+```
+
+设备 ID 只能包含英文、数字、`.`、`_`、`-`。写错时重新打开 `set-device?id=新ID` 即可覆盖。查看或清除本机 ID：
+
+```text
+http://po0-egern.local/device
+http://po0-egern.local/clear-device
+```
+
+这些 URL 是普通 HTTP request 脚本拦截，不需要 MITM。设备 ID 不会显示在模块设置表单里；请在 Egern 的 `PO0 SSH 上报状态` / Widget 里查看 `设备: ...`。
+
 ## 多 PO0
 
-多个 PO0 不要重复导入模块。只导入一份，然后填写 `SSH_REPORT_TARGETS`。可以一行一个目标，也可以用逗号或分号分隔：
+多个 PO0 不要重复导入模块。只导入一份，然后填写 `SSH_REPORT_TARGETS`。可以一行一个目标，也可以用逗号或分号分隔。`source_id` 和 `identity` 支持 `{device}` 占位符：
 
 ```text
 source_id|host|port|user|script|token|identity|ttl
@@ -46,15 +65,17 @@ source_id|host|port|user|script|token|identity|ttl
 示例：
 
 ```text
-iphone-sg|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|egern-iphone|3600
-iphone-us|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|egern-iphone|3600
+{device}-sg|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|{device}-egern|3600
+{device}-us|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|{device}-egern|3600
 ```
 
 如果 Egern 输入框会把换行折叠成空格，建议直接用逗号：
 
 ```text
-iphone-sg|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|egern-iphone|3600,iphone-us|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|egern-iphone|3600
+{device}-sg|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|{device}-egern|3600,{device}-us|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|{device}-egern|3600
 ```
+
+如果当前设备 ID 是 `iphone15pm`，上面的配置会上报为 `iphone15pm-sg`、`iphone15pm-us`。未设置设备 ID 时，`{device}` 会回退为 `egern`。
 
 填写 `SSH_REPORT_TARGETS` 后，单目标字段 `PO0_HOST`、`SSH_REPORT_SOURCE`、`SSH_REPORT_TOKEN` 可以留空。多个 PO0 建议共用同一把 Egern 专用上报私钥，并在 PO0 端安装 scope=`egern` 的受限 key。
 
@@ -63,7 +84,7 @@ iphone-sg|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_S
 - `schedule`：默认每 10 分钟自动上报一次。
 - `network`：网络变化时触发一次。
 - `generic`：在 Egern 手动执行 `PO0 SSH IP Report Now`。
-- `widget`：点击系统“更新小组件”会立即执行一次上报，并显示每个 PO0 target 的成功/失败、IP、时间、TTL 和错误原因。
+- `widget`：点击系统“更新小组件”会立即执行一次上报，并显示本机设备 ID、每个 PO0 target 的成功/失败、IP、时间、TTL 和错误原因。
 
 自动触发会先探测当前出口 IPv4。如果 IP 和上次成功记录一致、PO0 target 配置未变化，并且距离上次成功还小于自动续期窗口，脚本会跳过 SSH 上报。自动续期窗口按当前最短 TTL 动态计算：`min(最短 TTL 的 2/3, 最短 TTL - 10 分钟)`，下限 60 秒。IP 变化、target 配置变化（含 TTL、脚本路径、用户、token 指纹等）、续期窗口到达、手动执行和 Widget 刷新都会继续执行 SSH 上报。
 

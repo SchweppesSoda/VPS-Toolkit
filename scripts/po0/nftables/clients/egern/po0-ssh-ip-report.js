@@ -1,6 +1,8 @@
 const STORAGE_KEY = 'po0-ssh-ip-report:last';
 const ERROR_STORAGE_KEY = 'po0-ssh-ip-report:last-error';
 const IP_CHECK_INDEX_KEY = 'po0-ssh-ip-report:ip-check-index';
+const DEVICE_ID_KEY = 'po0-ssh-ip-report:device-id';
+const DEVICE_ID_FALLBACK = 'egern';
 const REPORT_TITLE = 'PO0 SSH IP 上报';
 const REPORT_FAILED_TITLE = 'PO0 SSH IP 上报失败';
 
@@ -155,6 +157,34 @@ function boolEnv(value, fallback) {
   return ['1', 'true', 'yes', 'on'].includes(raw);
 }
 
+function normalizeDeviceId(value) {
+  const id = String(value || '').trim();
+  if (!id) return '';
+  if (!/^[A-Za-z0-9._-]{1,64}$/.test(id)) {
+    throw new Error('设备 ID 只能包含英文、数字、点号、下划线和短横线，长度 1-64。');
+  }
+  return id;
+}
+
+function deviceDisplayName(deviceId) {
+  return deviceId || '未设置';
+}
+
+function expandDevicePlaceholder(value, deviceId) {
+  const text = String(value || '');
+  if (!text.includes('{device}')) return text;
+  return text.replace(/\{device\}/g, deviceId || DEVICE_ID_FALLBACK);
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function scriptLabel(ctx) {
   return [
     ctx?.name,
@@ -172,6 +202,14 @@ function isManualRun(ctx) {
 
 function isWidgetRun(ctx) {
   return Boolean(ctx?.widgetFamily);
+}
+
+function isStatusRun(ctx) {
+  return /状态|status/i.test(scriptLabel(ctx));
+}
+
+function shouldReturnWidget(ctx) {
+  return isWidgetRun(ctx) || isStatusRun(ctx);
 }
 
 function formatTime(value) {
@@ -258,9 +296,10 @@ function targetSummaryLines(state) {
   });
 }
 
-function widgetFromState(state, ctx) {
+function widgetFromState(state, ctx, deviceId = '') {
+  const deviceLine = `设备: ${deviceDisplayName(deviceId || state?.deviceId || '')}`;
   if (!state) {
-    return widgetPanel(REPORT_TITLE, ['暂无上报状态。', '点按刷新即可立即上报。'], false, ctx);
+    return widgetPanel(REPORT_TITLE, [deviceLine, '暂无上报状态。', '点按刷新即可立即上报。'], false, ctx);
   }
 
   if (!state.ok) {
@@ -271,6 +310,7 @@ function widgetFromState(state, ctx) {
     return widgetPanel(
       REPORT_TITLE,
       [
+        deviceLine,
         `IP: ${state.ip || '未知'}`,
         `目标: ${successCount}/${targetCount || 1} 成功`,
         ...(targetLines.length ? targetLines : [`原因: ${state.error || '未知错误'}`]),
@@ -285,6 +325,7 @@ function widgetFromState(state, ctx) {
   return widgetPanel(
     REPORT_TITLE,
     [
+      deviceLine,
       `IP: ${state.ip || '未知'}`,
       `目标: ${state.successCount ?? 1}/${state.targetCount ?? 1} 成功`,
       ...targetSummaryLines(state),
@@ -322,6 +363,24 @@ async function storageGet(ctx, key) {
   if (typeof storage.getItem === 'function') return await storage.getItem(key);
   if (typeof storage.read === 'function') return await storage.read(key);
   return null;
+}
+
+async function storageDelete(ctx, key) {
+  const storage = ctx?.storage;
+  if (!storage) return;
+  if (typeof storage.delete === 'function') return await storage.delete(key);
+  if (typeof storage.remove === 'function') return await storage.remove(key);
+  if (typeof storage.removeItem === 'function') return await storage.removeItem(key);
+  return await storageSet(ctx, key, '');
+}
+
+async function storedDeviceId(ctx) {
+  const raw = await storageGet(ctx, DEVICE_ID_KEY);
+  try {
+    return normalizeDeviceId(raw);
+  } catch (_) {
+    return '';
+  }
 }
 
 async function storageIndex(ctx, key, length) {
@@ -472,6 +531,96 @@ function logMessage(ctx, level, message, detail = '') {
   } catch (_) {}
 }
 
+function htmlResponse(ctx, status, title, lines) {
+  const bodyLines = (Array.isArray(lines) ? lines : [lines])
+    .filter((line) => line !== undefined && line !== null)
+    .map((line) => `<p>${escapeHtml(line)}</p>`)
+    .join('\n');
+  const body = `<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escapeHtml(title)}</title>
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:24px;line-height:1.5;color:#111}
+code{background:#f1f3f5;border-radius:4px;padding:2px 4px}
+</style>
+</head>
+<body>
+<h1>${escapeHtml(title)}</h1>
+${bodyLines}
+</body>
+</html>`;
+  const response = {
+    status,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store',
+    },
+    body,
+  };
+  if (typeof ctx?.respond === 'function') return ctx.respond(response);
+  return response;
+}
+
+function parseRequestUrl(ctx) {
+  const raw = String(ctx?.request?.url || '');
+  if (!raw) return null;
+  try {
+    return new URL(raw);
+  } catch (_) {
+    return null;
+  }
+}
+
+async function handleDeviceHttpRequest(ctx) {
+  const url = parseRequestUrl(ctx);
+  if (!url || url.protocol !== 'http:' || url.hostname !== 'po0-egern.local') return null;
+
+  if (url.pathname === '/set-device') {
+    try {
+      const deviceId = normalizeDeviceId(url.searchParams.get('id') || '');
+      await storageSet(ctx, DEVICE_ID_KEY, deviceId);
+      notify(ctx, 'PO0 Egern Device', `设备 ID 已设置为 ${deviceId}`);
+      return htmlResponse(ctx, 200, 'PO0 Egern Device', [
+        `设备 ID 已设置为: ${deviceId}`,
+        '以后自动上报会用这个本机 ID 展开 {device}。',
+        '写错时重新打开 /set-device?id=新ID 即可覆盖。',
+      ]);
+    } catch (error) {
+      return htmlResponse(ctx, 400, 'PO0 Egern Device', [
+        error?.message || String(error),
+        '示例: http://po0-egern.local/set-device?id=iphone15pm',
+      ]);
+    }
+  }
+
+  if (url.pathname === '/clear-device') {
+    await storageDelete(ctx, DEVICE_ID_KEY);
+    notify(ctx, 'PO0 Egern Device', '设备 ID 已清除');
+    return htmlResponse(ctx, 200, 'PO0 Egern Device', [
+      '设备 ID 已清除。',
+      `未设置时，上报里的 {device} 会回退为 ${DEVICE_ID_FALLBACK}。`,
+    ]);
+  }
+
+  if (url.pathname === '/' || url.pathname === '/device') {
+    const deviceId = await storedDeviceId(ctx);
+    return htmlResponse(ctx, 200, 'PO0 Egern Device', [
+      `当前设备 ID: ${deviceDisplayName(deviceId)}`,
+      '设置示例: http://po0-egern.local/set-device?id=iphone15pm',
+      '清除: http://po0-egern.local/clear-device',
+      '设备 ID 不显示在模块设置表单里；请在 PO0 SSH 上报状态里确认。',
+    ]);
+  }
+
+  return htmlResponse(ctx, 404, 'PO0 Egern Device', [
+    '未知路径。',
+    '可用路径: /device, /set-device?id=iphone15pm, /clear-device',
+  ]);
+}
+
 function targetValue(target, env, keys, fallback = '') {
   for (const key of keys) {
     const value = target?.[key] ?? env?.[key];
@@ -480,15 +629,15 @@ function targetValue(target, env, keys, fallback = '') {
   return fallback;
 }
 
-function normalizeTarget(env, input, index) {
+function normalizeTarget(env, input, index, deviceId = '') {
   const target = input || {};
-  const sourceId = targetValue(target, env, ['sourceId', 'SSH_REPORT_SOURCE', 'source', 'sourceId', 'name'], 'egern');
+  const sourceId = expandDevicePlaceholder(targetValue(target, env, ['sourceId', 'SSH_REPORT_SOURCE', 'source', 'sourceId', 'name'], 'egern'), deviceId);
   const host = targetValue(target, env, ['host', 'PO0_HOST', 'po0Host']);
   const port = Number(targetValue(target, env, ['port', 'PO0_PORT'], '22'));
   const username = targetValue(target, env, ['user', 'username', 'PO0_USER'], 'root');
   const script = targetValue(target, env, ['script', 'PO0_SCRIPT', 'po0Script'], '/root/nftables-relay-manager.sh');
   const token = targetValue(target, env, ['token', 'SSH_REPORT_TOKEN', 'reportToken']);
-  const identity = targetValue(target, env, ['identity', 'REPORT_IDENTITY'], 'egern');
+  const identity = expandDevicePlaceholder(targetValue(target, env, ['identity', 'REPORT_IDENTITY'], 'egern'), deviceId);
   const ttl = Number(targetValue(target, env, ['ttl', 'ttlSeconds', 'TTL_SECONDS'], '3600'));
 
   if (!host) throw new Error(`PO0 目标 #${index + 1} 缺少主机`);
@@ -509,7 +658,7 @@ function normalizeTarget(env, input, index) {
   };
 }
 
-function parseTargetLine(env, line, index) {
+function parseTargetLine(env, line, index, deviceId = '') {
   const parts = String(line || '').split('|').map((part) => part.trim());
   return normalizeTarget(env, {
     SSH_REPORT_SOURCE: parts[0],
@@ -520,7 +669,7 @@ function parseTargetLine(env, line, index) {
     SSH_REPORT_TOKEN: parts[5],
     REPORT_IDENTITY: parts[6],
     TTL_SECONDS: parts[7],
-  }, index);
+  }, index, deviceId);
 }
 
 function splitTargetLines(raw) {
@@ -539,10 +688,10 @@ function splitTargetLines(raw) {
     });
 }
 
-function parseTargets(env) {
+function parseTargets(env, deviceId = '') {
   const raw = String(env.SSH_REPORT_TARGETS || '').trim();
   if (!raw) {
-    return [normalizeTarget(env, {}, 0)];
+    return [normalizeTarget(env, {}, 0, deviceId)];
   }
 
   if (raw.startsWith('[')) {
@@ -550,14 +699,14 @@ function parseTargets(env) {
     if (!Array.isArray(parsed) || parsed.length === 0) {
       throw new Error('SSH_REPORT_TARGETS JSON 必须是非空数组');
     }
-    return parsed.map((target, index) => normalizeTarget(env, target, index));
+    return parsed.map((target, index) => normalizeTarget(env, target, index, deviceId));
   }
 
   const lines = splitTargetLines(raw);
   if (lines.length === 0) {
     throw new Error('SSH_REPORT_TARGETS 为空');
   }
-  return lines.map((line, index) => parseTargetLine(env, line, index));
+  return lines.map((line, index) => parseTargetLine(env, line, index, deviceId));
 }
 
 function sshConfig(env, target) {
@@ -606,16 +755,20 @@ async function reportToPO0(ctx, env, target, ip) {
 }
 
 export default async function(ctx) {
+  const deviceHttpResponse = await handleDeviceHttpRequest(ctx);
+  if (deviceHttpResponse) return deviceHttpResponse;
+
   const env = ctx.env || {};
   const policy = env.POLICY || 'DIRECT';
   const notifySuccess = boolEnv(env.NOTIFY_SUCCESS, false) || isManualRun(ctx);
   const notifyFailure = boolEnv(env.NOTIFY_FAILURE, true) || isManualRun(ctx);
   const startedAt = new Date();
+  const deviceId = await storedDeviceId(ctx);
   let targets = [];
   let ip = '';
 
   try {
-    targets = parseTargets(env);
+    targets = parseTargets(env, deviceId);
     ip = await detectCurrentIPv4WithFallback(ctx, env, policy);
     const skipDecision = await shouldSkipUnchangedAutoReport(ctx, targets, ip);
     if (skipDecision.skip) {
@@ -626,6 +779,7 @@ export default async function(ctx) {
         targetConfigSignature: skipDecision.currentConfigSignature,
         skipReason: `IP 未变化，距离上次成功 ${skipDecision.ageSeconds}s，小于自动刷新间隔 ${skipDecision.refreshAfter}s`,
         network: networkLabel(ctx),
+        deviceId,
       };
       await storageSet(ctx, STORAGE_KEY, JSON.stringify(state));
       logMessage(ctx, 'info', '跳过 SSH 上报', state.skipReason);
@@ -669,6 +823,7 @@ export default async function(ctx) {
       identity: targets.map((target) => target.identity).filter(Boolean).join(','),
       network: networkLabel(ctx),
       at: startedAt.toISOString(),
+      deviceId,
       targetCount: targets.length,
       successCount: results.length,
       failureCount: failures.length,
@@ -683,13 +838,13 @@ export default async function(ctx) {
       if (notifyFailure) {
         notifyLong(ctx, REPORT_FAILED_TITLE, `${ip}: ${results.length}/${targets.length} 成功；${errorSummary}`);
       }
-      return isWidgetRun(ctx) ? widgetFromState(state, ctx) : state;
+      return shouldReturnWidget(ctx) ? widgetFromState(state, ctx, deviceId) : state;
     }
 
     if (notifySuccess) {
       notify(ctx, REPORT_TITLE, `${ip}: ${results.length}/${targets.length} 个 PO0 已更新`);
     }
-    return isWidgetRun(ctx) ? widgetFromState(state, ctx) : state;
+    return shouldReturnWidget(ctx) ? widgetFromState(state, ctx, deviceId) : state;
   } catch (error) {
     const state = {
       ok: false,
@@ -698,6 +853,7 @@ export default async function(ctx) {
       ip,
       network: networkLabel(ctx),
       at: new Date().toISOString(),
+      deviceId,
       targetCount: targets.length,
       successCount: 0,
       failureCount: targets.length || 1,
@@ -709,8 +865,8 @@ export default async function(ctx) {
     if (notifyFailure) {
       notifyLong(ctx, REPORT_FAILED_TITLE, state.error);
     }
-    if (isWidgetRun(ctx)) {
-      return widgetFromState(state, ctx);
+    if (shouldReturnWidget(ctx)) {
+      return widgetFromState(state, ctx, deviceId);
     }
     throw error;
   }

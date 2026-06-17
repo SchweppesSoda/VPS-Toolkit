@@ -40,7 +40,7 @@ env_schema:
     default_value: "3600"
   SSH_REPORT_TARGETS:
     name: 多个 PO0 目标
-    description: "可选。多个目标可用换行、逗号、分号或空格分隔：source_id|host|port|user|script|token|identity|ttl。设置后会把同一个当前 IPv4 上报到每个目标。"
+    description: "可选。多个目标可用换行、逗号、分号或空格分隔：source_id|host|port|user|script|token|identity|ttl。source_id 和 identity 支持 {device}，本机 ID 用 http://po0-egern.local/set-device?id=iphone15pm 设置。"
   IP_CHECK_URL:
     name: IPv4 探测 URL
     default_value: "https://ip9.com.cn/get"
@@ -65,6 +65,14 @@ env_schema:
       - "false"
 
 scriptings:
+  - http_request:
+      name: PO0 SSH 本机设备 ID
+      match: "^http://po0-egern\\.local/"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js"
+      update_interval: 86400
+      timeout: 10
+      body_required: false
+      debug: true
   - schedule:
       name: PO0 SSH IP 定时上报
       cron: "*/10 * * * *"
