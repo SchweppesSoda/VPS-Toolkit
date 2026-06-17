@@ -119,6 +119,13 @@ Check the installed LAN Worker client version:
 po0-lan-client --version
 ```
 
+Update the installed LAN Worker client:
+
+```bash
+po0-lan-client --upgrade-self
+po0-lan-client --version
+```
+
 If an older install did not create `po0-lan-client`, install the command manually:
 
 ```bash

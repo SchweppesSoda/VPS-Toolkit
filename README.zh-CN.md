@@ -119,6 +119,13 @@ po0-lan-client --run
 po0-lan-client --version
 ```
 
+更新 LAN Worker 上已安装的 client：
+
+```bash
+po0-lan-client --upgrade-self
+po0-lan-client --version
+```
+
 如果旧版本安装后没有 `po0-lan-client` 命令，可手动补装：
 
 ```bash

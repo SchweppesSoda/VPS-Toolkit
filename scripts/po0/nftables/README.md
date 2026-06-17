@@ -49,6 +49,13 @@ po0-lan-client --probe
 po0-lan-client --version
 ```
 
+更新 LAN Worker 上已安装的 client：
+
+```bash
+po0-lan-client --upgrade-self
+po0-lan-client --version
+```
+
 也可以显式进入向导：
 
 ```bash
