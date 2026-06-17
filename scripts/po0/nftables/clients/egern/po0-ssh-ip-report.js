@@ -267,7 +267,7 @@ function formatTime(value) {
   if (!value) return 'never';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
-  return date.toLocaleString();
+  return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
 function ttlRemaining(expiresAt) {
@@ -344,6 +344,33 @@ function sectionTitleNode(text) {
   };
 }
 
+function summaryItemNode(label, value, valueColor = WIDGET_COLORS.text) {
+  return {
+    type: 'stack',
+    direction: 'row',
+    alignItems: 'center',
+    gap: 4,
+    flex: 1,
+    children: [
+      textNode(label, 9, 'regular', WIDGET_COLORS.dim),
+      textNode(value || '未知', 11, 'semibold', valueColor),
+    ],
+  };
+}
+
+function summaryRowNode(deviceName, targetText, targetColor) {
+  return {
+    type: 'stack',
+    direction: 'row',
+    alignItems: 'center',
+    gap: 6,
+    children: [
+      summaryItemNode('设备', deviceName),
+      summaryItemNode('目标', targetText, targetColor),
+    ],
+  };
+}
+
 function widgetPanel(title, content, ok, ctx) {
   const lines = Array.isArray(content) ? content : String(content || '').split('\n').filter(Boolean);
   const family = String(ctx?.widgetFamily || '').toLowerCase();
@@ -392,15 +419,16 @@ function targetDisplayValue(target) {
 
 function targetSummaryRows(state, ctx) {
   const targets = Array.isArray(state.targets) ? state.targets : [];
+  const family = String(ctx?.widgetFamily || '').toLowerCase();
+  const maxTargets = family.includes('small') ? 0 : family.includes('large') ? 4 : 2;
+  if (maxTargets === 0) return [];
   if (targets.length === 0) {
     if (state.expiresAt) {
       return [rowNode('server.rack', WIDGET_COLORS.green, '目标1', `${state.sourceId || 'egern'} TTL ${ttlRemaining(state.expiresAt)}`)];
     }
     return [];
   }
-  const family = String(ctx?.widgetFamily || '').toLowerCase();
-  const maxTargets = family.includes('small') ? 1 : 2;
-  const rows = targets.slice(0, maxTargets).map((target, index) => {
+  return targets.slice(0, maxTargets).map((target, index) => {
     const ok = Boolean(target.ok);
     return rowNode(
       ok ? 'server.rack' : 'exclamationmark.triangle.fill',
@@ -410,10 +438,6 @@ function targetSummaryRows(state, ctx) {
       ok ? WIDGET_COLORS.text : WIDGET_COLORS.red,
     );
   });
-  if (targets.length > maxTargets && !family.includes('small')) {
-    rows.push(rowNode('ellipsis.circle', WIDGET_COLORS.dim, '更多', `还有 ${targets.length - maxTargets} 个目标未显示`, WIDGET_COLORS.dim));
-  }
-  return rows;
 }
 
 function widgetFromState(state, ctx, deviceId = '') {
@@ -428,7 +452,6 @@ function widgetFromState(state, ctx, deviceId = '') {
   const targetCount = state?.targetCount ?? targets.length;
   const statusColor = ok ? WIDGET_COLORS.green : WIDGET_COLORS.red;
   const statusIcon = ok ? 'checkmark.shield.fill' : 'exclamationmark.triangle.fill';
-  const statusText = ok ? '已更新' : '上报异常';
   const timeText = formatTime(state?.at || state?.checkedAt);
 
   if (!state) {
@@ -445,16 +468,13 @@ function widgetFromState(state, ctx, deviceId = '') {
     rowNode('iphone', WIDGET_COLORS.blue, '本机', network.localIp || '未知'),
     rowNode('wifi.router.fill', WIDGET_COLORS.blue, '网关', network.gateway || '不适用'),
   ];
-  const statusRows = [
-    rowNode('iphone', WIDGET_COLORS.blue, '设备', deviceName),
-    rowNode(ok ? 'checkmark.circle.fill' : 'xmark.circle.fill', statusColor, '目标', `${successCount}/${targetCount || 1} 成功`, statusColor),
-  ];
+  const summaryRow = summaryRowNode(deviceName, `${successCount}/${targetCount || 1} 成功`, statusColor);
 
   const detailChildren = isSmall ? [
     publicRows[0],
     publicRows[1],
     networkRows[0],
-    statusRows[1],
+    summaryRow,
   ] : [
     {
       type: 'stack',
@@ -466,15 +486,7 @@ function widgetFromState(state, ctx, deviceId = '') {
       ],
     },
     { type: 'stack', height: 0.5, backgroundColor: WIDGET_COLORS.line },
-    {
-      type: 'stack',
-      direction: 'row',
-      gap: 6,
-      children: [
-        { type: 'stack', direction: 'column', flex: 1, children: [statusRows[0]] },
-        { type: 'stack', direction: 'column', flex: 1, children: [statusRows[1]] },
-      ],
-    },
+    summaryRow,
   ];
 
   const targetRows = targetSummaryRows(state, ctx);
@@ -498,10 +510,9 @@ function widgetFromState(state, ctx, deviceId = '') {
           iconNode(statusIcon, statusColor, 16),
           textNode(REPORT_TITLE, 'headline', 'semibold', WIDGET_COLORS.text),
           spacerNode(),
-          textNode(statusText, 10, 'semibold', statusColor),
+          textNode(timeText, 10, 'regular', WIDGET_COLORS.dim),
         ],
       },
-      textNode(timeText, 10, 'regular', WIDGET_COLORS.dim),
       ...detailChildren,
       { type: 'stack', height: 0.5, backgroundColor: WIDGET_COLORS.line },
       ...(isSmall ? [] : targetRows),
