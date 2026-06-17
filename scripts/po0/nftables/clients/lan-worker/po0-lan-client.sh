@@ -2274,6 +2274,31 @@ fetch_to_file() {
     fi
 }
 
+progress_cat() {
+    local file="$1"
+    local total="${2:-0}"
+    local block_size=262144 blocks idx sent percent
+    if command -v pv >/dev/null 2>&1 && [[ "${total}" =~ ^[0-9]+$ && "${total}" -gt 0 ]]; then
+        pv -f -p -t -e -r -b -s "${total}" "${file}"
+        return $?
+    fi
+    if ! [[ "${total}" =~ ^[0-9]+$ ]] || [[ "${total}" -le 0 ]]; then
+        cat "${file}"
+        return $?
+    fi
+    blocks=$(((total + block_size - 1) / block_size))
+    idx=0
+    while [[ "${idx}" -lt "${blocks}" ]]; do
+        dd if="${file}" bs="${block_size}" skip="${idx}" count=1 2>/dev/null || return 1
+        sent=$(((idx + 1) * block_size))
+        [[ "${sent}" -gt "${total}" ]] && sent="${total}"
+        percent=$((sent * 100 / total))
+        printf '\r上传进度：%3s%% %s/%s bytes' "${percent}" "${sent}" "${total}" >&2
+        idx=$((idx + 1))
+    done
+    printf '\n' >&2
+}
+
 iplist_parallel_jobs() {
     local jobs="${IPLIST_JOBS:-16}"
     [[ "${jobs}" =~ ^[0-9]+$ ]] || jobs=16
@@ -2533,7 +2558,7 @@ run_resource_endpoint() {
         fi
         remote_cmd="bash $(sh_quote "${script}") --resource-task-upload $(sh_quote "${task_id}") $(sh_quote "${worker_id}") $(sh_quote "${sha}") $(sh_quote "${size}") $(sh_quote "${token}")"
         printf '资源任务 %s：上传到 PO0（%s bytes，超时 %s 秒）...\n' "${task_id}" "${size}" "${upload_timeout}"
-        upload_response="$(run_with_optional_timeout "${upload_timeout}" ssh "${ssh_args[@]}" "${user}@${host}" "${remote_cmd}" < "${output}" 2>&1)"
+        upload_response="$(progress_cat "${output}" "${size}" | run_with_optional_timeout "${upload_timeout}" ssh "${ssh_args[@]}" "${user}@${host}" "${remote_cmd}" 2>&1)"
         upload_rc=$?
         if [[ "${upload_rc}" -ne 0 ]]; then
             if [[ "${upload_rc}" == "124" ]]; then
