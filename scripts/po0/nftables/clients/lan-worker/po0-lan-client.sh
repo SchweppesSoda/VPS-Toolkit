@@ -2,6 +2,8 @@
 set -uo pipefail
 
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh"
+SCRIPT_VERSION="2026-06-17-manager-upload"
+RESOURCE_UPLOAD_MODE="manager-stdin"
 DEFAULT_PO0_SCRIPT="/root/nftables-relay-manager.sh"
 PO0_HOST="${PO0_HOST:-}"
 PO0_PORT="${PO0_PORT:-22}"
@@ -197,6 +199,8 @@ usage() {
         "  --self-report-server 在 LAN Worker 本地运行自上报接收服务；访问设备先报 LAN Worker，再由 LAN Worker SSH 上报 PO0。" \
         "  --self-report-targets STR 设备自上报目标；格式 source|host|port|user|script|token|ttl|ssh_args，多目标用分号或换行分隔。" \
         "  --self-report-probe  检查自上报接收端依赖和 PO0 client-ip token。" \
+        "  --version            显示当前脚本版本、路径和资源上传模式。" \
+        "  --upgrade-self       从 ${RAW_URL} 覆盖更新本机 po0-lan-client 命令。" \
         "  --wizard             进入交互式安装向导。" \
         "  --menu               进入高级菜单。" \
         "" \
@@ -459,12 +463,12 @@ read_menu_choice() {
 read_menu_choice_or_return() {
     local __target="$1"
     local prompt="$2"
-    local choice
-    if ! choice="$(read_menu_choice "${prompt}")"; then
+    local __choice_value
+    if ! __choice_value="$(read_menu_choice "${prompt}")"; then
         printf '\n输入结束，退出当前菜单。\n'
         return 1
     fi
-    printf -v "${__target}" '%s' "${choice}"
+    printf -v "${__target}" '%s' "${__choice_value}"
 }
 
 pause_before_return() {
@@ -1282,8 +1286,9 @@ remote_resource_task_cron_status() {
 show_remote_resource_task_cron_status() {
     local line any=0 status detail label
     ensure_config_file || return 1
-    printf 'PO0 资源任务创建计划（只读）\n'
-    printf '说明：资源更新周期在 PO0 nft manager 设置；本机 Worker 只按自己的轮询器领取已创建任务。\n'
+    print_panel_section "PO0 资源任务创建计划"
+    print_panel_row "读取模式" "只读"
+    print_panel_row "说明" "资源更新周期在 PO0 nft manager 设置；本机 Worker 只按自己的轮询器领取已创建任务"
     while IFS= read -r line || [[ -n "${line}" ]]; do
         parse_target_line "${line}" || continue
         [[ "${TARGET_ENABLED}" == "1" && -n "${TARGET_RESOURCE_TOKEN}" ]] || continue
@@ -1295,12 +1300,12 @@ show_remote_resource_task_cron_status() {
             "${TARGET_PO0_USER:-root}" \
             "${TARGET_PO0_SCRIPT:-${DEFAULT_PO0_SCRIPT}}" \
             "${TARGET_SSH_EXTRA_ARGS}"); then
-            printf '  %s: %s - %s\n' "${label}" "${status}" "${detail}"
+            print_panel_row "${label}" "${status} - ${detail}"
         else
-            printf '  %s: %s - %s\n' "${label}" "${status:-查询失败}" "${detail:-无法连接 PO0}"
+            print_panel_row "${label}" "${status:-查询失败} - ${detail:-无法连接 PO0}"
         fi
     done < "${CONFIG_FILE}"
-    [[ "${any}" == "1" ]] || printf '  (没有启用的资源任务目标)\n'
+    [[ "${any}" == "1" ]] || print_panel_row "目标" "没有启用的资源任务目标"
 }
 
 print_dashboard() {
@@ -1324,6 +1329,8 @@ print_dashboard() {
     dashboard_stat_totals
     print_title "PO0 内网 Worker"
     print_panel_section "基础信息"
+    print_panel_row "当前脚本" "$(script_source_path)"
+    print_panel_row "版本 / 上传" "${SCRIPT_VERSION} / ${RESOURCE_UPLOAD_MODE}"
     print_panel_row "配置文件" "${CONFIG_FILE}"
     print_panel_row "统计文件" "${STATS_FILE}"
     print_panel_row "资源统计" "${RESOURCE_STATS_FILE}"
@@ -2195,16 +2202,16 @@ update_resource_stats() {
 list_resource_stats() {
     local line endpoint success fail task type status at message count=0
     ensure_resource_stats_file || return 1
-    printf '资源任务统计：%s\n' "${RESOURCE_STATS_FILE}"
+    print_panel_section "资源任务统计"
+    print_panel_row "统计文件" "${RESOURCE_STATS_FILE}"
     while IFS= read -r line || [[ -n "${line}" ]]; do
         [[ -n "$(trim "${line}")" && "$(trim "${line}")" != \#* ]] || continue
         IFS='|' read -r endpoint success fail task type status at message <<< "${line}"
         ((count++))
-        printf '  %s 成功=%s 失败=%s 上次=%s 任务=%s/%s 时间=%s\n' \
-            "${endpoint}" "${success:-0}" "${fail:-0}" "${status:-未知}" "${task:-无}" "${type:-无}" "${at:-未知}"
-        [[ -n "${message}" ]] && printf '      %s\n' "${message}"
+        print_panel_row "${endpoint}" "成功=${success:-0} 失败=${fail:-0} 上次=${status:-未知} 任务=${task:-无}/${type:-无} 时间=${at:-未知}"
+        [[ -n "${message}" ]] && print_panel_note "${message}"
     done < "${RESOURCE_STATS_FILE}"
-    [[ "${count}" -gt 0 ]] || printf '  (尚无资源任务记录)\n'
+    [[ "${count}" -gt 0 ]] || print_panel_row "记录" "尚无资源任务记录"
 }
 
 fetch_to_file() {
@@ -3102,6 +3109,44 @@ install_self() {
     printf '%s\n' "${dest}"
 }
 
+upgrade_self_from_raw() {
+    local dest dir tmp legacy_scp_cmd legacy_scp_var
+    dest="$(default_install_path)"
+    dir="$(path_dirname "${dest}")"
+    mkdir -p "${dir}" || return 1
+    tmp="${dest}.tmp.$$"
+    if have_cmd curl; then
+        curl -fsSL "${RAW_URL}" -o "${tmp}" || {
+            rm -f -- "${tmp}" 2>/dev/null || true
+            return 1
+        }
+    elif have_cmd wget; then
+        wget -qO "${tmp}" "${RAW_URL}" || {
+            rm -f -- "${tmp}" 2>/dev/null || true
+            return 1
+        }
+    else
+        printf '无法更新：系统缺少 curl/wget。\n' >&2
+        return 1
+    fi
+    legacy_scp_cmd="scp .*"
+    legacy_scp_cmd+="upload_path"
+    legacy_scp_var="scp"
+    legacy_scp_var+="_args"
+    if grep -q -- "${legacy_scp_cmd}" "${tmp}" || grep -q -- "${legacy_scp_var}" "${tmp}" || ! grep -q -- '--resource-task-upload' "${tmp}"; then
+        rm -f -- "${tmp}" 2>/dev/null || true
+        printf '更新文件校验失败：下载到的脚本不是 manager stdin 上传版。\n' >&2
+        return 1
+    fi
+    chmod 755 "${tmp}" 2>/dev/null || true
+    mv -f "${tmp}" "${dest}" || {
+        rm -f -- "${tmp}" 2>/dev/null || true
+        return 1
+    }
+    printf '已更新本机命令：%s\n' "${dest}"
+    printf '当前资源上传模式：%s\n' "${RESOURCE_UPLOAD_MODE}"
+}
+
 ensure_persistent_script() {
     local script
     script="$(script_source_path)"
@@ -3110,6 +3155,28 @@ ensure_persistent_script() {
         return 0
     fi
     install_self
+}
+
+show_local_script_status() {
+    local current install_path cron_summary marker_status legacy_scp_cmd legacy_scp_var
+    current="$(script_source_path)"
+    install_path="$(default_install_path)"
+    marker_status="当前脚本声明为 ${RESOURCE_UPLOAD_MODE}"
+    legacy_scp_cmd="scp .*"
+    legacy_scp_cmd+="upload_path"
+    legacy_scp_var="scp"
+    legacy_scp_var+="_args"
+    if [[ -r "${current}" ]] && { grep -q -- "${legacy_scp_cmd}" "${current}" || grep -q -- "${legacy_scp_var}" "${current}"; }; then
+        marker_status="警告：当前脚本内容仍包含 legacy SCP 上传逻辑"
+    fi
+    print_panel_section "本机脚本"
+    print_panel_row "当前脚本" "${current}"
+    print_panel_row "默认安装路径" "${install_path}"
+    print_panel_row "版本" "${SCRIPT_VERSION}"
+    print_panel_row "资源上传" "${marker_status}"
+    print_panel_row "raw URL" "${RAW_URL}"
+    cron_summary="$(cron_status_summary)"
+    print_panel_row "本机轮询器" "${cron_summary}"
 }
 
 cron_begin_marker() {
@@ -3141,8 +3208,9 @@ write_cron_without_managed_block() {
 install_cron_interactive() {
     local minutes script_path
     ensure_config_file || return 1
-    printf '本机 Worker 轮询器只负责定期执行 DDNS 上报、检查并领取 PO0 已创建的资源任务。\n'
-    printf '资源任务创建周期请在 PO0 nft manager 的“内网资源更新任务”里设置。\n'
+    print_panel_section "本机 Worker 轮询器"
+    print_panel_row "职责" "定期执行 DDNS 上报、检查并领取 PO0 已创建的资源任务"
+    print_panel_row "资源周期" "在 PO0 nft manager 的“内网资源更新任务”里设置"
     minutes="$(prompt_default "本机每几分钟轮询一次（1-59）" "${CRON_MINUTES}")"
     minutes="$(trim "${minutes}")"
     script_path="$(ensure_persistent_script)" || return 1
@@ -3256,8 +3324,9 @@ remove_cron_interactive() {
 
 show_cron_status() {
     local begin end line in_block=0 found=0
+    print_panel_section "本机 Worker 轮询器"
     command -v crontab >/dev/null 2>&1 || {
-        printf '当前系统没有 crontab 命令。\n'
+        print_panel_row "当前计划" "当前系统没有 crontab 命令"
         return 0
     }
     begin="$(cron_begin_marker)"
@@ -3273,10 +3342,10 @@ show_cron_status() {
             continue
         fi
         if [[ "${in_block}" == "1" ]]; then
-            printf '当前本机 Worker 轮询器：%s\n' "${line}"
+            print_panel_row "当前计划" "${line}"
         fi
     done < <(crontab -l 2>/dev/null || true)
-    [[ "${found}" == "1" ]] || printf '当前没有本脚本管理的 Worker 轮询器。\n'
+    [[ "${found}" == "1" ]] || print_panel_row "当前计划" "未安装本脚本管理的 Worker 轮询器"
 }
 
 show_webauth_cloudflare_guide() {
@@ -3330,10 +3399,11 @@ menu_loop() {
         print_menu_section "维护"
         print_menu_pair 17 "安装 / 更新本机轮询器" 18 "删除本机轮询器"
         print_menu_pair 19 "查看本机轮询器状态" 20 "清空 DDNS 统计"
+        print_menu_pair 21 "本机脚本自检" 22 "从 GitHub 更新脚本"
         print_menu_section "退出"
         print_menu_item 0 "退出"
         print_menu_footer
-        read_menu_choice_or_return choice "请选择操作 [0-20]: " || return 0
+        read_menu_choice_or_return choice "请选择操作 [0-22]: " || return 0
         case "${choice}" in
             1) list_targets; pause_before_return ;;
             2) list_resource_stats; echo ""; show_remote_resource_task_cron_status; pause_before_return ;;
@@ -3355,6 +3425,8 @@ menu_loop() {
             18) remove_cron_interactive; pause_before_return ;;
             19) show_cron_status; pause_before_return ;;
             20) clear_stats_interactive; pause_before_return ;;
+            21) show_local_script_status; pause_before_return ;;
+            22) upgrade_self_from_raw; pause_before_return ;;
             0) return 0 ;;
             *) printf '无效选择。\n' >&2 ;;
         esac
@@ -3577,6 +3649,14 @@ while [[ $# -gt 0 ]]; do
             ACTION="install-self"
             shift
             ;;
+        --upgrade-self)
+            ACTION="upgrade-self"
+            shift
+            ;;
+        --version)
+            ACTION="version"
+            shift
+            ;;
         --install-cron)
             INSTALL_CRON="1"
             if [[ -n "${2:-}" && "${2:-}" =~ ^[0-9]+$ ]]; then
@@ -3685,6 +3765,14 @@ case "${ACTION}" in
         ;;
     install-self)
         install_self
+        exit $?
+        ;;
+    upgrade-self)
+        upgrade_self_from_raw
+        exit $?
+        ;;
+    version)
+        show_local_script_status
         exit $?
         ;;
     install-cron)

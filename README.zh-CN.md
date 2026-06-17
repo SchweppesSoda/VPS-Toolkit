@@ -64,6 +64,7 @@ curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scri
 # PO0 内网 Worker：在 LAN Worker 机器上执行，只做资源任务轮询领取
 # PO0 端负责定时创建任务，Worker 只检查并领取 pending 任务
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --resource-token <RESOURCE_TOKEN> --install-cron 5
+# 如果仍看到 scp: Connection closed，先确认实际运行脚本：/usr/local/sbin/po0-lan-client --version
 
 # PO0 内网 Worker：在 LAN Worker 机器上执行，自上报接收端，HTTP 只跑在 LAN Worker
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash -s -- --install-self

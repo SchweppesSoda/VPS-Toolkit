@@ -63,6 +63,7 @@ curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scri
 
 # PO0 LAN Worker, run on the LAN Worker host: only poll and claim PO0-created resource tasks
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --resource-token <RESOURCE_TOKEN> --install-cron 5
+# If you still see "scp: Connection closed", verify the actual script in use: /usr/local/sbin/po0-lan-client --version
 
 # PO0 LAN Worker, run on the LAN Worker host: self-report receiver, HTTP runs only on the LAN Worker
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash -s -- --install-self

@@ -222,6 +222,16 @@ root:     /usr/local/sbin/po0-lan-client
 non-root: ~/.local/bin/po0-lan-client
 ```
 
+如果资源轮询仍输出 `scp: Connection closed`，说明实际运行的 LAN Worker 脚本仍是旧的 SCP 上传版，或 cron 仍指向旧路径。先在 LAN Worker 上执行：
+
+```bash
+/usr/local/sbin/po0-lan-client --version
+/usr/local/sbin/po0-lan-client --upgrade-self
+/usr/local/sbin/po0-lan-client --install-cron 5
+```
+
+新版自检应显示 `版本` 为 `2026-06-17-manager-upload`，`资源上传` 为 `manager-stdin`，资源产物通过 PO0 manager stdin 上传，不再调用 `scp`。
+
 配置里旧的 `PO0_SCRIPT=/root/nftables-relay-manager.sh` 继续兼容。
 
 ## LAN Worker Self-report
