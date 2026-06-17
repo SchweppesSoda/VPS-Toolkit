@@ -2,7 +2,7 @@
 set -uo pipefail
 
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh"
-SCRIPT_VERSION="2026-06-17-resource-first-menu"
+SCRIPT_VERSION="2026-06-17-resource-stdin-fix"
 RESOURCE_UPLOAD_MODE="manager-stdin"
 DEFAULT_PO0_SCRIPT="/root/nftables-relay-manager.sh"
 PO0_HOST="${PO0_HOST:-}"
@@ -1814,7 +1814,7 @@ report_once() {
         remote_cmd+=" $(sh_quote "${token}")"
     fi
 
-    ssh_args+=(-p "${po0_port}")
+    ssh_args+=(-n -p "${po0_port}")
     if [[ -n "${ssh_extra_args}" ]]; then
         read -r -a extra_args <<< "${ssh_extra_args}"
         ssh_args+=("${extra_args[@]}")
@@ -1866,7 +1866,7 @@ remote_manager_call() {
     local extra="$5"
     shift 5
     local remote_cmd arg
-    local -a ssh_args=(-p "${port:-22}")
+    local -a ssh_args=(-n -p "${port:-22}")
     local -a extra_args=()
     [[ -n "${user}" ]] || user="root"
     [[ -n "${script}" ]] || script="${DEFAULT_PO0_SCRIPT}"
@@ -1890,7 +1890,7 @@ remote_manager_call_timeout() {
     local extra="$6"
     shift 6
     local remote_cmd arg
-    local -a ssh_args=(-p "${port:-22}")
+    local -a ssh_args=(-n -p "${port:-22}")
     local -a extra_args=()
     [[ -n "${user}" ]] || user="root"
     [[ -n "${script}" ]] || script="${DEFAULT_PO0_SCRIPT}"
@@ -2434,7 +2434,7 @@ sha256_file() {
 report_resource_failure() {
     local task_id="$1" worker_id="$2" reason="$3" host="$4" port="$5" user="$6" script="$7" token="$8" extra="$9"
     local remote_cmd
-    local -a ssh_args=(-p "${port}")
+    local -a ssh_args=(-n -p "${port}")
     local -a extra_args=()
     if [[ -n "${extra}" ]]; then
         read -r -a extra_args <<< "${extra}"
@@ -2472,6 +2472,7 @@ run_resource_endpoint() {
     local worker_id endpoint_id remote_cmd response protocol task_id task_type upload_path work output sha size upload_response complete_response reason
     local processed=0 failed=0 max_per_run upload_timeout complete_timeout control_timeout upload_rc complete_rc claim_rc
     local -a ssh_args=(-p "${port}")
+    local -a control_ssh_args=(-n -p "${port}")
     local -a extra_args=()
     worker_id="$(sanitize_field "${WORKER_ID}")"
     worker_id="${worker_id// /_}"
@@ -2479,6 +2480,7 @@ run_resource_endpoint() {
     if [[ -n "${extra}" ]]; then
         read -r -a extra_args <<< "${extra}"
         ssh_args+=("${extra_args[@]}")
+        control_ssh_args+=("${extra_args[@]}")
     fi
     max_per_run="$(resource_task_max_per_run)"
     upload_timeout="$(timeout_seconds "${RESOURCE_UPLOAD_TIMEOUT_SECONDS}" 900)"
@@ -2497,7 +2499,7 @@ run_resource_endpoint() {
         upload_path=""
         output=""
         remote_cmd="bash $(sh_quote "${script}") --resource-task-claim $(sh_quote "${worker_id}") $(sh_quote "${token}")"
-        response="$(run_with_optional_timeout "${control_timeout}" ssh "${ssh_args[@]}" "${user}@${host}" "${remote_cmd}" 2>&1)"
+        response="$(run_with_optional_timeout "${control_timeout}" ssh "${control_ssh_args[@]}" "${user}@${host}" "${remote_cmd}" 2>&1)"
         claim_rc=$?
         if [[ "${claim_rc}" -ne 0 ]]; then
             if [[ "${claim_rc}" == "124" ]]; then
@@ -2603,7 +2605,7 @@ run_resource_endpoint() {
         fi
         printf '资源任务 %s：PO0 已接收，开始校验/导入（超时 %s 秒）...\n' "${task_id}" "${complete_timeout}"
         remote_cmd="bash $(sh_quote "${script}") --resource-task-complete $(sh_quote "${task_id}") $(sh_quote "${worker_id}") $(sh_quote "${sha}") $(sh_quote "${size}") $(sh_quote "${token}")"
-        complete_response="$(run_with_optional_timeout "${complete_timeout}" ssh "${ssh_args[@]}" "${user}@${host}" "${remote_cmd}" 2>&1)"
+        complete_response="$(run_with_optional_timeout "${complete_timeout}" ssh "${control_ssh_args[@]}" "${user}@${host}" "${remote_cmd}" 2>&1)"
         complete_rc=$?
         if [[ "${complete_rc}" -ne 0 ]]; then
             if [[ "${complete_rc}" == "124" ]]; then
@@ -2637,25 +2639,36 @@ run_resource_endpoint() {
 }
 
 run_resource_targets() {
-    local line endpoint_key seen=";" ok=0 fail=0 skipped=0
+    local line endpoint_key script_for_key label seen=";" ok=0 fail=0 skipped=0 disabled=0 duplicate=0
     ensure_config_file || return 1
     while IFS= read -r line || [[ -n "${line}" ]]; do
         parse_target_line "${line}" || continue
-        [[ "${TARGET_ENABLED}" == "1" ]] || continue
+        label="${TARGET_LABEL:-${TARGET_PO0_HOST}}"
+        if [[ "${TARGET_ENABLED}" != "1" ]]; then
+            ((disabled++))
+            continue
+        fi
         if [[ -z "${TARGET_RESOURCE_TOKEN}" ]]; then
+            printf '资源任务：%s 未配置 Token，跳过。\n' "${label}"
             ((skipped++))
             continue
         fi
-        endpoint_key="${TARGET_PO0_USER:-root}@${TARGET_PO0_HOST}:${TARGET_PO0_PORT:-22}:${TARGET_PO0_SCRIPT}:${TARGET_RESOURCE_TOKEN}"
-        [[ "${seen}" == *";${endpoint_key};"* ]] && continue
+        script_for_key="${TARGET_PO0_SCRIPT:-${DEFAULT_PO0_SCRIPT}}"
+        endpoint_key="${TARGET_PO0_USER:-root}@${TARGET_PO0_HOST}:${TARGET_PO0_PORT:-22}:${script_for_key}:${TARGET_RESOURCE_TOKEN}"
+        if [[ "${seen}" == *";${endpoint_key};"* ]]; then
+            printf '资源任务：%s 与前面目标使用同一 PO0/token，跳过重复轮询。\n' "${label}"
+            ((duplicate++))
+            continue
+        fi
         seen+="${endpoint_key};"
+        printf '资源任务：轮询 %s -> %s@%s:%s\n' "${label}" "${TARGET_PO0_USER:-root}" "${TARGET_PO0_HOST}" "${TARGET_PO0_PORT:-22}"
         if run_resource_endpoint "${TARGET_PO0_HOST}" "${TARGET_PO0_PORT:-22}" "${TARGET_PO0_USER:-root}" "${TARGET_PO0_SCRIPT:-${DEFAULT_PO0_SCRIPT}}" "${TARGET_RESOURCE_TOKEN}" "${TARGET_SSH_EXTRA_ARGS}"; then
             ((ok++))
         else
             ((fail++))
         fi
     done < "${CONFIG_FILE}"
-    printf '资源任务轮询完成：成功/无任务 %s，失败 %s，未配置 Token 跳过 %s。\n' "${ok}" "${fail}" "${skipped}"
+    printf '资源任务轮询完成：成功/无任务 %s，失败 %s，未配置 Token 跳过 %s，停用跳过 %s，重复跳过 %s。\n' "${ok}" "${fail}" "${skipped}" "${disabled}" "${duplicate}"
     [[ "${fail}" == "0" ]]
 }
 
