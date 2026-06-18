@@ -60,6 +60,66 @@ body[data-theme="light"] {
   --shadow: 0 14px 34px rgba(34, 48, 70, 0.12);
 }
 
+body[data-theme="graphite"] {
+  --bg: #101113;
+  --surface: #181a1f;
+  --surface-2: #22252b;
+  --surface-3: #121419;
+  --panel-head: #1d2026;
+  --table-head: #171a20;
+  --detail-bg: #14171d;
+  --output-bg: #0c0d10;
+  --output-text: #e1e5eb;
+  --button-hover: #2c3038;
+  --primary: #3b7c72;
+  --primary-hover: #458f84;
+  --primary-border: #58aa9d;
+  --active-tab: #263a38;
+  --badge-protocol-text: #d3f3ec;
+  --line: #333841;
+  --line-strong: #4a515d;
+  --text: #eceff3;
+  --muted: #9ba3ae;
+  --soft: #d0d5dc;
+  --green: #73c991;
+  --blue: #78b7e8;
+  --amber: #d7b86b;
+  --red: #f07373;
+  --focus: #70c8bb;
+  --focus-ring: rgba(112, 200, 187, 0.13);
+  --shadow: 0 18px 44px rgba(0, 0, 0, 0.34);
+}
+
+body[data-theme="deepsea"] {
+  --bg: #07151b;
+  --surface: #0d222b;
+  --surface-2: #15313b;
+  --surface-3: #081b23;
+  --panel-head: #102832;
+  --table-head: #0b2028;
+  --detail-bg: #09202a;
+  --output-bg: #051116;
+  --output-text: #d8f1f3;
+  --button-hover: #1b3f4a;
+  --primary: #1d7d78;
+  --primary-hover: #25948e;
+  --primary-border: #43b7aa;
+  --active-tab: #16413d;
+  --badge-protocol-text: #d7fff8;
+  --line: #21424d;
+  --line-strong: #315765;
+  --text: #e4f5f7;
+  --muted: #91acb4;
+  --soft: #c8e1e5;
+  --green: #78d29a;
+  --blue: #6bc7e8;
+  --amber: #e0bd65;
+  --red: #ff7d7d;
+  --focus: #68d8cb;
+  --focus-ring: rgba(104, 216, 203, 0.15);
+  --shadow: 0 18px 48px rgba(0, 8, 12, 0.42);
+}
+
 body[data-theme="nord"] {
   --bg: #242933;
   --surface: #2e3440;
@@ -148,34 +208,4 @@ body[data-theme="dracula"] {
   --focus: #8be9fd;
   --focus-ring: rgba(139, 233, 253, 0.14);
   --shadow: 0 18px 48px rgba(9, 9, 18, 0.36);
-}
-
-body[data-theme="sepia"] {
-  --bg: #f2eadc;
-  --surface: #fff8ed;
-  --surface-2: #eadfcd;
-  --surface-3: #fbf2e4;
-  --panel-head: #efe3d0;
-  --table-head: #e7dac5;
-  --detail-bg: #f7eadb;
-  --output-bg: #fffaf2;
-  --output-text: #33281c;
-  --button-hover: #ded0bb;
-  --primary: #7b5e36;
-  --primary-hover: #8f6e40;
-  --primary-border: #9f7d4e;
-  --active-tab: #e7d8bd;
-  --badge-protocol-text: #4f3b1e;
-  --line: #d6c3aa;
-  --line-strong: #bba286;
-  --text: #33281c;
-  --muted: #766754;
-  --soft: #4b3d2d;
-  --green: #4f7d45;
-  --blue: #356f91;
-  --amber: #9b6b1d;
-  --red: #b04d42;
-  --focus: #8a6d3b;
-  --focus-ring: rgba(138, 109, 59, 0.16);
-  --shadow: 0 14px 34px rgba(87, 62, 30, 0.14);
 }

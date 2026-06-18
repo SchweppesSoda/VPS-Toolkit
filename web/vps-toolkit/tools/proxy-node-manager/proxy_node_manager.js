@@ -138,6 +138,7 @@ const state = {
   forwardOutputMode: "both",
   outputFormat: "auto",
   clashProxyHeader: "",
+  singleNodeQrText: "",
   removedLines: 0,
   duplicateCount: 0,
   invalidCount: 0
@@ -168,7 +169,7 @@ const NodeProducer = {
   rewriteEndpoint
 };
 
-const THEME_CHOICES = new Set(["dark", "light", "nord", "solarized", "dracula", "sepia"]);
+const THEME_CHOICES = new Set(["dark", "graphite", "deepsea", "nord", "dracula", "light", "solarized"]);
 
 initTheme();
 
@@ -263,6 +264,29 @@ document.querySelectorAll("[data-settings-tab]").forEach(button => {
 $("copyBtn").addEventListener("click", copyOutput);
 $("downloadBtn").addEventListener("click", downloadOutput);
 $("selfTestBtn").addEventListener("click", runSelfTests);
+$("qrOpenBtn").addEventListener("click", () => openSingleNodeQrDialog({ focusInput: false }));
+$("qrCloseBtn").addEventListener("click", closeSingleNodeQrDialog);
+$("qrGenerateBtn").addEventListener("click", () => generateSingleNodeQr());
+$("qrFromOutputBtn").addEventListener("click", loadQrFromCurrentOutput);
+$("qrClearBtn").addEventListener("click", () => clearSingleNodeQr());
+$("qrCopyLinkBtn").addEventListener("click", copySingleNodeQrLink);
+$("qrDownloadBtn").addEventListener("click", downloadSingleNodeQrPng);
+$("singleNodeInput").addEventListener("input", () => {
+  state.singleNodeQrText = "";
+  $("singleNodeQrPreview").classList.remove("has-qr");
+  $("singleNodeQrMeta").textContent = "已修改，尚未重新生成";
+  setQrMessage("点击“生成二维码”更新预览。", "warn");
+});
+$("singleNodeQrDialog").addEventListener("click", event => {
+  if (event.target === $("singleNodeQrDialog")) {
+    closeSingleNodeQrDialog();
+  }
+});
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape" && !$("singleNodeQrDialog").hidden) {
+    closeSingleNodeQrDialog();
+  }
+});
 $("outputFormat").addEventListener("change", () => {
   state.outputFormat = $("outputFormat").value;
   renderOutput();
@@ -2045,6 +2069,18 @@ function getSelfTests() {
         assertSelfTest(result.issues.some(item => item.reason.includes("Clash YAML")), "应记录坏 Clash YAML");
         assertSelfTest(result.issues.some(item => item.reason.includes("VMess")), "应记录坏 VMess");
       }
+    },
+    {
+      name: "节点二维码",
+      run() {
+        assertSelfTest(Boolean(window.ProxyNodeQr), "二维码模块应已加载");
+        const qr = window.ProxyNodeQr.encode("ss://aes-128-gcm:pwd@198.51.100.10:9443#US-SS");
+        assertSelfTest(qr.version >= 1 && qr.version <= 40, "二维码版本应在 1-40 范围内");
+        assertSelfTest(qr.size === qr.version * 4 + 17, "二维码矩阵尺寸不正确");
+        assertSelfTest(qr.modules.some(row => row.some(Boolean)), "二维码矩阵不应为空");
+        const candidate = getFirstQrCandidate("说明\nss://aes-128-gcm:pwd@198.51.100.10:9443#A\nss://aes-128-gcm:pwd@198.51.100.11:9443#B");
+        assertSelfTest(candidate.text.endsWith("#A") && candidate.count === 2, "多行输入应提取第一条节点");
+      }
     }
   ];
 }
@@ -2222,13 +2258,21 @@ function renderGroups() {
     return;
   }
 
-  root.innerHTML = state.groups.map(group => {
+  const heading = `
+    <section class="section-heading">
+      <h2>VPS 前缀与节点分组</h2>
+      <p>清洗后按 VPS/主机特征分组，在这里调整 VPS 前缀、最终名称和节点二维码动作。</p>
+    </section>
+  `;
+
+  root.innerHTML = heading + state.groups.map(group => {
     const perNodeForward = $("forwardMode").value === "per-node";
     const protocols = Array.from(new Set(group.nodes.map(n => n.protocolCode || n.protocolLabel))).filter(Boolean);
     const hosts = Array.from(new Set(group.nodes.map(n => n.host).filter(Boolean)));
     const rows = group.nodes.map(node => {
       const endpoint = [node.host || "unknown", node.port || ""].filter(Boolean).join(":");
       const forwardable = canForwardNode(node);
+      const qrReady = isQrShareLink(node.raw);
       const expanded = state.expandedDetails.has(node.id);
       const detailColspan = 11;
       return `
@@ -2258,7 +2302,10 @@ function renderGroups() {
           <td class="link">
             <div class="link-cell">
               <span class="link-preview" title="${escapeAttr(node.raw)}">${escapeHtml(compactLink(node.raw))}</span>
-              <button class="small ghost copy-link-btn" data-copy-link="${node.id}">复制</button>
+              <div class="link-actions">
+                <button class="small ghost copy-link-btn" data-copy-link="${node.id}">复制</button>
+                <button class="small ghost copy-link-btn" data-qr-link="${node.id}" ${qrReady ? "" : "disabled title=\"当前行不是 URL/URI 节点链接\""}>二维码</button>
+              </div>
             </div>
           </td>
         </tr>
@@ -2401,6 +2448,14 @@ function renderGroups() {
     });
   });
 
+  root.querySelectorAll("[data-qr-link]").forEach(button => {
+    button.addEventListener("click", () => {
+      const node = state.nodes.find(n => n.id === button.dataset.qrLink);
+      if (!node) return;
+      setSingleNodeQrInput(node.raw, { open: true, message: "已载入该节点链接。" });
+    });
+  });
+
   root.querySelectorAll("[data-group-name]").forEach(input => {
     input.addEventListener("change", () => {
       const group = state.groups.find(g => g.id === input.dataset.groupName);
@@ -2490,6 +2545,152 @@ function renderOutputReport(result) {
     "",
     ...result.warnings.map(formatOutputWarning)
   ].join("\n");
+}
+
+function setSingleNodeQrInput(text, opts = {}) {
+  $("singleNodeInput").value = String(text || "").trim();
+  if (opts.open) {
+    openSingleNodeQrDialog({ focusInput: false });
+  }
+  const generated = generateSingleNodeQr({ silentSuccess: Boolean(opts.message) });
+  if (opts.message && generated) {
+    setQrMessage(opts.message, "ok");
+  }
+}
+
+function loadQrFromCurrentOutput() {
+  const source = $("output").textContent || "";
+  const candidate = getFirstQrCandidate(source);
+  if (!candidate.text) {
+    openSingleNodeQrDialog({ focusInput: false });
+    setQrMessage("底部当前输出没有 URL/URI 节点链接；如果输出是 Clash YAML，请先切到 URL/URI 节点列表。", "err");
+    return;
+  }
+  setSingleNodeQrInput(candidate.text, {
+    open: true,
+    message: candidate.count > 1 ? "已从底部当前输出中提取第一条 URL/URI 节点链接。" : "已从底部当前输出中提取该 URL/URI 节点链接。"
+  });
+}
+
+function generateSingleNodeQr(opts = {}) {
+  const candidate = getFirstQrCandidate($("singleNodeInput").value);
+  if (!candidate.text) {
+    clearQrCanvas();
+    setQrMessage("请输入一条 URL/URI 节点链接。", "err");
+    return false;
+  }
+
+  if (candidate.text !== $("singleNodeInput").value.trim()) {
+    $("singleNodeInput").value = candidate.text;
+  }
+
+  try {
+    if (!window.ProxyNodeQr) {
+      throw new Error("二维码模块未加载。");
+    }
+    const qr = window.ProxyNodeQr.encode(candidate.text);
+    window.ProxyNodeQr.drawToCanvas(qr, $("singleNodeQrCanvas"), { maxSize: 320 });
+    $("singleNodeQrPreview").classList.add("has-qr");
+    $("singleNodeQrMeta").textContent = [
+      "QR version " + qr.version + "-" + qr.ecc,
+      qr.size + " x " + qr.size,
+      qr.byteLength + " bytes"
+    ].join(" | ");
+    state.singleNodeQrText = candidate.text;
+    if (!opts.silentSuccess) {
+      setQrMessage(candidate.count > 1 ? "已从多条内容中提取第一条并生成二维码。" : "二维码已生成。", "ok");
+    }
+    return true;
+  } catch (err) {
+    clearQrCanvas();
+    setQrMessage(err.message || String(err), "err");
+    return false;
+  }
+}
+
+function getFirstQrCandidate(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return { text: "", count: 0 };
+
+  const extracted = NodeParser.extract(text);
+  const uriItems = (extracted.items || []).filter(item => isQrShareLink(item.raw));
+  if (uriItems.length) {
+    return {
+      text: uriItems[0].raw,
+      count: uriItems.length
+    };
+  }
+
+  const firstLine = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean)[0] || "";
+  return {
+    text: isQrShareLink(firstLine) ? firstLine : "",
+    count: isQrShareLink(firstLine) ? 1 : 0
+  };
+}
+
+function isQrShareLink(value) {
+  const text = String(value || "").trim().toLowerCase();
+  return SHARE_SCHEMES.some(scheme => text.startsWith(scheme + "://"));
+}
+
+function clearSingleNodeQr(opts = {}) {
+  $("singleNodeInput").value = "";
+  state.singleNodeQrText = "";
+  clearQrCanvas();
+  $("singleNodeQrMeta").textContent = "未生成";
+  if (!opts.silent) {
+    setQrMessage("等待节点链接。", "");
+  }
+}
+
+function clearQrCanvas() {
+  const canvas = $("singleNodeQrCanvas");
+  const ctx = canvas.getContext("2d");
+  canvas.width = 320;
+  canvas.height = 320;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  $("singleNodeQrPreview").classList.remove("has-qr");
+  state.singleNodeQrText = "";
+}
+
+function copySingleNodeQrLink() {
+  const candidate = state.singleNodeQrText || getFirstQrCandidate($("singleNodeInput").value).text;
+  if (!candidate) {
+    setQrMessage("没有可复制的节点链接。", "err");
+    return;
+  }
+  copyText(candidate, "已复制节点链接。");
+}
+
+function downloadSingleNodeQrPng() {
+  if (!state.singleNodeQrText && !generateSingleNodeQr()) return;
+  const canvas = $("singleNodeQrCanvas");
+  const a = document.createElement("a");
+  const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+  a.href = canvas.toDataURL("image/png");
+  a.download = "proxy-node-qr-" + ts + ".png";
+  a.click();
+  setQrMessage("二维码 PNG 已生成下载。", "ok");
+}
+
+function setQrMessage(message, type = "") {
+  const box = $("singleNodeQrMessage");
+  box.className = "message qr-message" + (type ? " " + type : "");
+  box.textContent = message || "";
+}
+
+function openSingleNodeQrDialog(opts = {}) {
+  const dialog = $("singleNodeQrDialog");
+  dialog.hidden = false;
+  if (opts.focusInput !== false) {
+    $("singleNodeInput").focus();
+  }
+}
+
+function closeSingleNodeQrDialog() {
+  $("singleNodeQrDialog").hidden = true;
 }
 
 function formatOutputWarning(warning) {
@@ -3352,4 +3553,5 @@ function escapeAttr(value) {
   return escapeHtml(value).replace(/`/g, "&#96;");
 }
 
+clearSingleNodeQr({ silent: true });
 renderAll("等待输入。", "warn");

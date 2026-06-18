@@ -16,12 +16,15 @@
       </div>
       <div class="top-actions">
         <div class="theme-switch" aria-label="主题皮肤">
+          <span class="theme-group-label">暗色</span>
           <button class="active" type="button" data-theme-choice="dark" aria-pressed="true" title="深色工作台配色">暗黑</button>
-          <button type="button" data-theme-choice="light" aria-pressed="false" title="浅色中性配色">明亮</button>
+          <button type="button" data-theme-choice="graphite" aria-pressed="false" title="中性灰黑低干扰配色">石墨</button>
+          <button type="button" data-theme-choice="deepsea" aria-pressed="false" title="深海蓝绿高识别配色">深海</button>
           <button type="button" data-theme-choice="nord" aria-pressed="false" title="Nord 冷色低对比配色">Nord</button>
-          <button type="button" data-theme-choice="solarized" aria-pressed="false" title="Solarized 阅读配色">Solarized</button>
           <button type="button" data-theme-choice="dracula" aria-pressed="false" title="Dracula 高饱和深色配色">Dracula</button>
-          <button type="button" data-theme-choice="sepia" aria-pressed="false" title="暖色护眼配色">Sepia</button>
+          <span class="theme-group-label">亮色</span>
+          <button type="button" data-theme-choice="light" aria-pressed="false" title="浅色中性配色">明亮</button>
+          <button type="button" data-theme-choice="solarized" aria-pressed="false" title="Solarized 阅读配色">Solarized</button>
         </div>
         <div class="status-strip" aria-label="统计">
           <div class="metric"><b id="metricNodes">0</b><span>节点</span></div>
@@ -49,7 +52,7 @@
 
       <aside class="panel settings-panel">
         <div class="panel-head">
-          <h2>命名设置</h2>
+          <h2>VPS 前缀与命名设置</h2>
           <div class="settings-tabs" role="tablist" aria-label="设置分类">
             <button class="settings-tab active" type="button" data-settings-tab="naming" aria-selected="true">命名</button>
             <button class="settings-tab" type="button" data-settings-tab="forward" aria-selected="false">转发</button>
@@ -59,7 +62,7 @@
         <div class="panel-body settings-grid">
           <div class="settings-tab-panel" data-settings-panel="naming">
             <section class="settings-section">
-              <h3 class="settings-section-title">国家与模板</h3>
+              <h3 class="settings-section-title">国家与命名模板</h3>
               <div class="two-cols">
                 <div>
                   <label for="countrySelect">国家/地区</label>
@@ -106,7 +109,7 @@
             </section>
 
             <section class="settings-section">
-              <h3 class="settings-section-title">清理与筛选</h3>
+              <h3 class="settings-section-title">VPS 前缀清理与筛选</h3>
               <p class="note">用于推断 VPS 前缀时删除多余前缀/后缀；支持一行一个，也支持用逗号分隔。</p>
               <textarea id="nameCleanWords" style="min-height: 92px" placeholder="例如：RAW_ENC&#10;TLS_XHTTP_ENC&#10;线路商缩写"></textarea>
               <p class="note">每个识别出来的 VPS 都会有自己的“VPS 前缀”，可以在下方分组里单独改；最终节点名默认以国家 emoji 和 VPS 前缀开头。</p>
@@ -252,30 +255,37 @@
 
     <section class="panel output-panel">
       <div class="panel-head">
-        <div class="output-controls">
-          <div class="tabs" role="tablist" aria-label="输出内容">
-            <button class="small active" data-output-content="renamed">重命名节点</button>
-            <button class="small" data-output-content="clean">清洗节点</button>
+        <div class="output-head-main">
+          <div>
+            <h2>转发与最终输出</h2>
+            <p class="panel-subtitle">选择是否输出转发副本，并生成最终可复制或下载的节点文本。</p>
           </div>
-          <div class="output-field">
-            <label for="forwardOutputMode">转发输出</label>
-            <select id="forwardOutputMode" class="output-format" aria-label="转发输出">
-              <option value="both" selected>原节点 + 转发节点</option>
-              <option value="forward-only">只输出转发节点</option>
-              <option value="original-only">只输出原节点</option>
-            </select>
-          </div>
-          <div class="output-field">
-            <label for="outputFormat">输出格式</label>
-            <select id="outputFormat" class="output-format" aria-label="输出格式">
-              <option value="auto" selected>保持输入格式</option>
-              <option value="uri">URL/URI 节点列表</option>
-              <option value="clash">Clash proxies YAML</option>
-              <option value="base64-uri">Base64 URL/URI 订阅</option>
-            </select>
+          <div class="output-controls">
+            <div class="tabs" role="tablist" aria-label="输出内容">
+              <button class="small" data-output-content="clean">清洗节点</button>
+              <button class="small active" data-output-content="renamed">重命名节点</button>
+            </div>
+            <div class="output-field">
+              <label for="forwardOutputMode">转发输出</label>
+              <select id="forwardOutputMode" class="output-format" aria-label="转发输出">
+                <option value="both" selected>原节点 + 转发节点</option>
+                <option value="forward-only">只输出转发节点</option>
+                <option value="original-only">只输出原节点</option>
+              </select>
+            </div>
+            <div class="output-field">
+              <label for="outputFormat">输出格式</label>
+              <select id="outputFormat" class="output-format" aria-label="输出格式">
+                <option value="auto" selected>保持输入格式</option>
+                <option value="uri">URL/URI 节点列表</option>
+                <option value="clash">Clash proxies YAML</option>
+                <option value="base64-uri">Base64 URL/URI 订阅</option>
+              </select>
+            </div>
           </div>
         </div>
         <div class="button-row">
+          <button class="ghost small" id="qrFromOutputBtn" title="从底部当前输出文本中提取第一条 URL/URI 节点链接并生成二维码">输出第一条节点二维码</button>
           <button class="ghost small" id="copyBtn">复制当前输出</button>
           <button class="ghost small" id="downloadBtn">下载 txt</button>
         </div>
@@ -290,6 +300,43 @@
     </section>
   </main>
 
+  <button class="side-qr-trigger" id="qrOpenBtn" type="button" aria-haspopup="dialog" aria-controls="singleNodeQrDialog">节点二维码</button>
+
+  <div class="modal-backdrop" id="singleNodeQrDialog" role="dialog" aria-modal="true" aria-labelledby="singleNodeQrTitle" hidden>
+    <section class="panel qr-modal">
+      <div class="panel-head">
+        <div>
+          <h2 id="singleNodeQrTitle">节点二维码</h2>
+          <p class="panel-subtitle">只处理一条 URL/URI 节点链接；内容在本地浏览器生成二维码，不发送到页面外。</p>
+        </div>
+        <div class="button-row">
+          <button class="ghost small" id="qrClearBtn">清空</button>
+          <button class="ghost small" id="qrCloseBtn">关闭</button>
+          <button class="primary small" id="qrGenerateBtn">生成二维码</button>
+        </div>
+      </div>
+      <div class="panel-body qr-grid">
+        <div class="qr-input-side">
+          <label for="singleNodeInput">节点链接</label>
+          <textarea id="singleNodeInput" spellcheck="false" placeholder="粘贴一条 vless://、ss://、vmess://、trojan:// 等节点链接。多行内容会优先提取第一条 URL/URI 节点链接。"></textarea>
+          <div class="button-row">
+            <button class="ghost small" id="qrCopyLinkBtn">复制链接</button>
+            <button class="ghost small" id="qrDownloadBtn">下载 PNG</button>
+          </div>
+        </div>
+        <div class="qr-output-side">
+          <div class="qr-preview" id="singleNodeQrPreview">
+            <canvas id="singleNodeQrCanvas" width="320" height="320" aria-label="节点二维码"></canvas>
+            <div class="qr-placeholder" id="singleNodeQrPlaceholder">等待生成</div>
+          </div>
+          <div class="qr-meta" id="singleNodeQrMeta">未生成</div>
+          <div class="message qr-message" id="singleNodeQrMessage">等待节点链接。</div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script src="./proxy_node_qr.js"></script>
   <script src="./proxy_node_manager.js"></script>
 </body>
 </html>

@@ -5,6 +5,7 @@
 - `web/vps-toolkit/tools/proxy-node-manager/proxy_node_manager.html`
 - `web/vps-toolkit/tools/proxy-node-manager/proxy_node_manager_themes.css`
 - `web/vps-toolkit/tools/proxy-node-manager/proxy_node_manager.css`
+- `web/vps-toolkit/tools/proxy-node-manager/proxy_node_qr.js`
 - `web/vps-toolkit/tools/proxy-node-manager/proxy_node_manager.js`
 
 ## 1. 定位
@@ -25,6 +26,7 @@
 - 支持命名模板、清理词表、手动改名、分组改名。
 - 支持生成转发副本，替换节点入口 host/port。
 - 支持输出为原格式、URL/URI 列表、Clash proxies YAML、Base64 URI 订阅。
+- 支持节点 URL/URI 链接在本地浏览器生成二维码，可从手动输入、底部当前输出第一条或节点表格单条链接载入。
 - 支持复制、下载、解析详情、输出详情和内置自测。
 
 ## 3. 页面设计
@@ -33,11 +35,12 @@
 
 - 顶部状态区：显示节点数、VPS 数、协议数、清理行数。
 - 左侧输入区：粘贴原始节点、脚本输出或 Clash 片段。
-- 右侧设置区：通过“命名 / 转发 / 输出”标签页组织命名、协议过滤、转发、Clash 输出属性、去重等选项。
-- 中部结果区：按 VPS 分组展示节点表格。
-- 底部输出区：选择输出内容和输出格式。
+- 右侧设置区：通过“命名 / 转发 / 输出”标签页组织 VPS 前缀命名、协议过滤、转发、Clash 输出属性、去重等选项。
+- 中部结果区：清洗出结果后，以“VPS 前缀与节点分组”标题展示节点表格；无结果时不显示该标题。
+- 底部输出区：以“转发与最终输出”标题组织输出内容、转发输出组合和输出格式。
+- 节点二维码浮窗：通过右侧悬浮入口、底部输出按钮或节点表格行按钮打开，粘贴或载入一条 URL/URI 节点链接后生成二维码并下载 PNG。
 
-主题通过 CSS 变量实现，`body[data-theme]` 切换不同皮肤变量；当前主题写入 `localStorage`，键名为 `proxy-node-manager-theme`。内置皮肤包括暗黑、明亮、Nord、Solarized、Dracula 和 Sepia。
+主题通过 CSS 变量实现，`body[data-theme]` 切换不同皮肤变量；当前主题写入 `localStorage`，键名为 `proxy-node-manager-theme`。主题按钮按暗色和亮色分组展示，暗色包括暗黑、石墨、深海、Nord 和 Dracula，亮色保留明亮和 Solarized。
 
 ## 4. 状态模型
 
@@ -96,6 +99,8 @@ const NodeProducer = {
 - `NodeParser`：只负责文本提取和协议解析。
 - `NodeProcessor`：只负责协议识别、国家识别、VPS 推断和命名。
 - `NodeProducer`：只负责改写节点和输出目标格式。
+
+二维码编码器独立在 `proxy_node_qr.js`，通过 `window.ProxyNodeQr.encode()` 和 `window.ProxyNodeQr.drawToCanvas()` 暴露能力。主脚本只负责读取节点文本、选择第一条候选、复制/下载和页面状态提示；二维码算法不参与节点解析、命名或批量输出。
 
 ## 6. 解析流程
 
@@ -288,7 +293,7 @@ host|user|port
 
 转发功能默认关闭。开启后，只有在“重命名节点”输出模式下才会添加转发副本；“清洗节点”模式始终输出未改名、未转发的清洗结果。
 
-转发路径模式默认是“每个节点单独路径”，更适合每条节点指向不同转发入口的场景。统一入口和单节点入口都支持输入 `host:port`、`https://host:port/path` 或 `[IPv6]:port`，脚本会自动拆出 host 和 port 并回填端口框。
+转发路径模式默认是“每个节点单独路径”，更适合每条节点指向不同转发入口的场景。统一入口和单条节点入口都支持输入 `host:port`、`https://host:port/path` 或 `[IPv6]:port`，脚本会自动拆出 host 和 port 并回填端口框。
 
 转发输出组合由 `forwardOutputMode` 控制：
 
@@ -341,7 +346,26 @@ Clash 输出由 `nodeToClashProxy()` 转换，已覆盖：
 
 Clash proxy 反向转 URI 目前覆盖常见类型。不支持的类型会写入输出警告。
 
-## 14. 自测
+## 14. 节点二维码
+
+节点二维码功能不依赖后端和第三方二维码 API，避免把节点密钥、密码或订阅信息发送到页面外。
+
+入口：
+
+- 手动粘贴单条 URL/URI 节点链接。
+- 点击“输出第一条节点二维码”，从底部当前输出文本中提取第一条 URL/URI 节点链接；如果底部输出是 Clash YAML，需要先切换到 URL/URI 节点列表或 Base64 URL/URI 订阅。
+- 点击节点表格“二维码”，把该行 URL/URI 原始链接载入二维码浮窗；Clash proxy 块不是 URL/URI 链接，按钮会禁用。
+
+生成逻辑：
+
+1. `getFirstQrCandidate()` 复用 `NodeParser.extract()`，多行内容优先取第一条 URL/URI 节点链接。
+2. `generateSingleNodeQr()` 调用 `ProxyNodeQr.encode()`，生成 QR Code 矩阵。
+3. `ProxyNodeQr.drawToCanvas()` 将矩阵画入 Canvas。
+4. `downloadSingleNodeQrPng()` 直接从 Canvas 导出 PNG。
+
+`proxy_node_qr.js` 使用 QR Code byte mode、纠错等级 L、version 1-40 自动选型。超出 version 40-L 容量时会提示链接过长。
+
+## 15. 自测
 
 页面内置 `runSelfTests()`，覆盖：
 
@@ -354,10 +378,11 @@ Clash proxy 反向转 URI 目前覆盖常见类型。不支持的类型会写入
 - 转发输出组合切换。
 - 不支持协议时的 warning。
 - 重复节点、坏节点、清理行统计。
+- 节点二维码生成和多行取第一条候选。
 
-修改解析、命名或输出逻辑后，应先运行页面内置自测。
+修改解析、命名、输出或二维码逻辑后，应先运行页面内置自测。
 
-## 15. 已知限制
+## 16. 已知限制
 
 - YAML parser 不是完整 YAML parser，不支持 anchor、merge key、多文档等复杂语法。
 - `auto` 输出中，原始 Clash YAML 块经过改名或转发重写后可能变为 JSON proxy 行。
@@ -365,16 +390,18 @@ Clash proxy 反向转 URI 目前覆盖常见类型。不支持的类型会写入
 - Base64 订阅识别只处理整体输入像 Base64 的场景。
 - 去重忽略 `#name`，两个仅名称不同的节点会被视作重复。
 - 默认不 URL 编码节点名，以兼容更多客户端；需要严格 URI 编码时要手动开启。
+- 节点二维码使用 byte mode 和 L 级纠错，主要面向代理节点链接；极长链接超过 QR Code version 40-L 容量时不能生成。
 
-## 16. 维护建议
+## 17. 维护建议
 
 - 新协议：同时检查 `SHARE_SCHEMES`、解析函数、`detectProtocol()`、`nodeToClashProxy()`、`clashProxyToUri()`。
 - 新命名规则：优先放入 `NodeProcessor` 相关函数。
 - 新输出格式：优先扩展 `produceOutputResult()`。
 - 新解析提示：写入 `parseIssues`，复用现有详情面板。
 - 涉及格式转换的修改必须补充或更新 `runSelfTests()`。
+- 二维码逻辑保持在 `proxy_node_qr.js`，不要改成远程二维码 API。
 
-## 17. 人工测试清单
+## 18. 人工测试清单
 
 - 普通 URI 多协议列表能解析、去重、命名、输出。
 - 混杂脚本输出中的节点能被提取，非节点行进入解析详情。
@@ -384,4 +411,5 @@ Clash proxy 反向转 URI 目前覆盖常见类型。不支持的类型会写入
 - 手动改名后，保留手动命名开启时刷新推荐名不会覆盖用户输入。
 - 转发模式下，普通 URI、SS、VMess、Clash proxy 的 host/port 替换符合预期。
 - Clash 输出中 `udp`、`skip-cert-verify`、`client-fingerprint`、`servername/sni` 批量属性生效。
+- 节点二维码浮窗能手动生成、从底部当前输出第一条 URL/URI 节点链接生成、从节点表格单条 URL/URI 链接生成，并能下载 PNG。
 
