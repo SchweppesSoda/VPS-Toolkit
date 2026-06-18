@@ -619,7 +619,7 @@ scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh
 scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1
 ```
 
-`po0-lan-client.sh` 适合 Linux/macOS/OpenWrt 内网机器。它可以同时做 DDNS resolver 上报和资源任务轮询领取，也可以只做资源任务 Worker。资源任务创建周期只在 PO0 端设置；LAN Worker 本机 cron 只是轮询器，负责定期检查并领取 PO0 已创建的 pending 任务。推荐先用交互向导；向导会通过 `ssh -o BatchMode=yes` 检查到 PO0 的密钥 SSH，密钥 SSH 可用时自动读取所需 token，写入本机目标配置，安装本机 `po0-lan-client` 命令，并按选择安装 Worker 轮询器 / systemd 服务。首次向导里的 PO0 SSH 地址一次只填一个；多个 PO0 目标后续用菜单添加：
+`po0-lan-client.sh` 适合 Linux/macOS/OpenWrt 内网机器。它可以同时做 DDNS resolver 上报和资源任务轮询领取，也可以只做资源任务 Worker。DDNS resolver 上报周期和资源任务领取周期不是一回事：DDNS 间隔按 PO0 端 DDNS 来源 TTL 设置；资源任务创建周期只在 PO0 端设置，LAN Worker 本机 cron 只负责定期检查并领取 PO0 已创建的 pending 任务。同一个 managed cron block 里最多写两条计划，分别调用 `--run-ddns` 和 `--run-resource`。推荐先用交互向导；向导会通过 `ssh -o BatchMode=yes` 检查到 PO0 的密钥 SSH，密钥 SSH 可用时自动读取所需 token，写入本机目标配置，安装本机 `po0-lan-client` 命令，并按选择安装 Worker 轮询器 / systemd 服务。首次向导里的 PO0 SSH 地址一次只填一个；多个 PO0 目标后续用菜单添加：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash
@@ -667,7 +667,7 @@ PowerShell 客户端下载后支持 `-Menu`，使用 `irm | iex` 时可设置 `$
 
 Self-report 放行 TTL 默认 `3600` 秒，由 LAN Worker self-report server 上报 PO0 时传入；客户端只控制上报频率，不控制 TTL。TTL 可以通过 `po0-lan-client --self-report-ttl <秒数>`、bootstrap 向导，或 LAN Worker 菜单 `Self-report / WebAuth TTL` 修改。
 
-`--bootstrap` 会先 probe，再写入本机目标配置；如果要求安装本机 Worker 轮询器，管道运行时会自动落盘到固定路径。Worker 默认调用 PO0 上的 `/root/nftables-relay-manager.sh`，也可以通过 `--po0-script` 覆盖。首次部署推荐 `--wizard`，高级维护菜单仍可管理本机 Worker 的 PO0 目标：查看、添加、编辑、删除、启用/停用，执行 DDNS 解析上报和资源任务轮询领取，并只读查看 PO0 端资源任务创建计划。一个配置文件可以放多台 PO0/VPS。
+`--bootstrap` 会先 probe，再写入本机目标配置；如果要求安装本机 Worker 轮询器，管道运行时会自动落盘到固定路径。`--install-cron N` 是兼容参数，会把 DDNS 和资源任务两个计划都设为 `N` 分钟；不带 `N` 时，默认 DDNS 每 5 分钟上报、资源任务每 120 分钟检查一次。Worker 默认调用 PO0 上的 `/root/nftables-relay-manager.sh`，也可以通过 `--po0-script` 覆盖。首次部署推荐 `--wizard`，高级维护菜单仍可管理本机 Worker 的 PO0 目标：查看、添加、编辑、删除、启用/停用，执行 DDNS 解析上报和资源任务轮询领取，并只读查看 PO0 端资源任务创建计划。一个配置文件可以放多台 PO0/VPS。
 
 向导自动取 token 使用 PO0 端机器可读接口：
 

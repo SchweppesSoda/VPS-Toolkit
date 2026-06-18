@@ -25,6 +25,12 @@ ssh root@<PO0_HOST> 'chmod +x /root/nftables-relay-manager.sh && bash /root/nfta
 ssh root@<PO0_HOST> 'bash /root/nftables-relay-manager.sh --version'
 ```
 
+查看 PO0 主控当前版本更新内容：
+
+```bash
+ssh root@<PO0_HOST> 'bash /root/nftables-relay-manager.sh --changelog'
+```
+
 LAN Worker 命令在内网 Worker 机器上执行，不在 PO0 上执行。DDNS 解析上报 + 资源任务轮询领取：
 
 推荐先用交互向导。向导会检查到 PO0 的密钥 SSH；密钥 SSH 可用时，会自动调用 PO0 主控读取所需 token，然后写入本机配置、安装本机 `po0-lan-client` 命令，并按选择安装本机 Worker 轮询器 / systemd 服务。首次向导里的 PO0 SSH 地址一次只填一个；多个 PO0 目标后续进入菜单添加：
@@ -81,10 +87,12 @@ curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scri
 LAN Worker：只做 `iplist/ipdb` 资源任务：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script /root/nftables-relay-manager.sh --resource-token <RESOURCE_TOKEN> --install-cron 5
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script /root/nftables-relay-manager.sh --resource-token <RESOURCE_TOKEN> --install-cron 120
 ```
 
-上面的 `--install-cron 5` 是安装 Worker 本机轮询器，每 5 分钟去 PO0 检查是否已有 pending 资源任务；资源任务的创建周期在 PO0 主控的 `内网资源更新任务 -> 安装 / 更新 PO0 定时创建` 中设置。
+`--install-cron` 是安装 Worker 本机计划任务。DDNS resolver 上报和资源任务领取是两条不同计划：DDNS 间隔按 PO0 端 DDNS 来源 TTL 设置；资源任务只负责发现并领取 PO0 已创建的 pending 任务，设为 60 或 120 分钟通常也可以。资源任务的创建周期在 PO0 主控的 `内网资源更新任务 -> 安装 / 更新 PO0 定时创建` 中设置。
+
+兼容旧用法时，`--install-cron N` 会把 DDNS 和资源任务两个计划都设为 `N` 分钟；不带 `N` 时，LAN Worker 默认 DDNS 每 5 分钟上报、资源任务每 120 分钟检查一次。
 
 Linux/OpenWrt Self-report client：
 
@@ -260,10 +268,12 @@ non-root: ~/.local/bin/po0-lan-client
 ```bash
 /usr/local/sbin/po0-lan-client --version
 /usr/local/sbin/po0-lan-client --upgrade-self
-/usr/local/sbin/po0-lan-client --install-cron 5
+/usr/local/sbin/po0-lan-client --install-cron
 ```
 
-新版自检应显示 `版本` 为 `2026.06.18+build.1` 或更新，`资源上传` 为 `manager-stdin`，资源产物通过 PO0 manager stdin 上传，不再调用 `scp`。
+新版自检应显示 `版本` 为 `2026.06.18+build.4` 或更新，`资源上传` 为“通过 PO0 manager stdin 上传资源产物（不使用 SCP）”，不再调用 `scp`。
+
+`--upgrade-self` 更新成功后会输出安装路径、版本变化和新脚本内置的更新内容；具体状态再用 `--version` 查看。
 
 如果 LAN Worker 查询 PO0 创建计划时出现 `--resource-task-cron-status not allowed for scope worker`，说明 PO0 上的专用受限 SSH wrapper 还没刷新到新版；在 PO0 上用新版 manager 执行 `--refresh-report-key-wrapper` 即可。这个报错只影响创建计划只读查询，不影响 pending 资源任务领取、上传和完成。
 
