@@ -3,12 +3,11 @@ set -uo pipefail
 
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh"
 SCRIPT_NAME="po0-lan-worker-client"
-SCRIPT_VERSION="2026.06.18+build.4"
+SCRIPT_VERSION="2026.06.18+build.6"
 SCRIPT_RELEASE_DATE="2026-06-18"
 # CHANGELOG_BEGIN
-# - 自更新完成后输出版本变化和更新内容，不再输出内部上传模式标记。
-# - 拆分 DDNS resolver 上报计划和资源任务领取计划，新增 --run-ddns / --run-resource。
-# - 资源任务上传状态改为中文说明：通过 PO0 manager stdin 上传资源产物（不使用 SCP）。
+# - 资源任务本机检查间隔默认改为 1440 分钟，可设置到 10080 分钟。
+# - DDNS 菜单新增目标 / 上报计划入口，说明 PO0 DDNS TTL 设置位置并可直接更新本机 DDNS 上报计划。
 # CHANGELOG_END
 RESOURCE_UPLOAD_MODE="manager-stdin"
 DEFAULT_PO0_SCRIPT="/root/nftables-relay-manager.sh"
@@ -44,7 +43,9 @@ STATS_FILE_EXPLICIT="0"
 ACTION=""
 CRON_MINUTES="5"
 DDNS_CRON_MINUTES="${PO0_DDNS_CRON_MINUTES:-${DDNS_CRON_MINUTES:-5}}"
-RESOURCE_CRON_MINUTES="${PO0_RESOURCE_CRON_MINUTES:-${RESOURCE_CRON_MINUTES:-120}}"
+DDNS_CRON_MAX_MINUTES="${PO0_DDNS_CRON_MAX_MINUTES:-1440}"
+RESOURCE_CRON_MINUTES="${PO0_RESOURCE_CRON_MINUTES:-${RESOURCE_CRON_MINUTES:-1440}}"
+RESOURCE_CRON_MAX_MINUTES="${PO0_RESOURCE_CRON_MAX_MINUTES:-10080}"
 INSTALL_CRON=""
 BOOTSTRAP_RUN="1"
 BOOTSTRAP_PROBE="1"
@@ -242,7 +243,7 @@ usage() {
         "  bash po0-lan-client.sh --menu" \
         "  bash po0-lan-client.sh --probe --po0-host HOST --source-key home --ddns-domain home.example.com --token TOKEN --resource-token TOKEN" \
         "  bash po0-lan-client.sh --bootstrap --po0-host HOST --source-key home --ddns-domain home.example.com --token TOKEN --resource-token TOKEN --install-cron 5" \
-        "  bash po0-lan-client.sh --bootstrap --po0-host HOST --resource-token TOKEN --install-cron 120" \
+        "  bash po0-lan-client.sh --bootstrap --po0-host HOST --resource-token TOKEN --install-cron 1440" \
         "  curl -fsSL ${RAW_URL} | bash -s -- --bootstrap --po0-host HOST --source-key home --ddns-domain home.example.com --token TOKEN --resource-token TOKEN --install-cron 5" \
         "  po0-lan-client --webauth-server --listen 127.0.0.1:8787 --po0-host HOST --webauth-token TOKEN" \
         "  po0-lan-client --self-report-server --self-report-listen 127.0.0.1:8788 --po0-host HOST --client-ip-token TOKEN" \
@@ -276,7 +277,7 @@ usage() {
         "  --self-report-targets STR 设备自上报目标；格式 source|host|port|user|script|token|ttl|ssh_args，多目标用分号或换行分隔。" \
         "  --self-report-probe  检查自上报接收端依赖和 PO0 client-ip token。" \
         "  --version            显示当前脚本名称、版本、发布日期、路径和本机状态。" \
-        "  --upgrade-self       从 ${RAW_URL} 覆盖更新本机 po0-lan-client 命令，并输出版本变化和更新内容。" \
+        "  --upgrade-self       从 ${RAW_URL} 覆盖更新本机 po0-lan-client 命令，设置权限，并输出版本变化和更新内容。" \
         "  --wizard             进入交互式安装向导。" \
         "  --menu               进入高级菜单。" \
         "" \
@@ -2517,10 +2518,10 @@ po0_lan_wizard() {
             if prompt_yes_no "安装/更新本机 Worker 轮询器（资源创建周期在 PO0 设置）" "y"; then
                 install_periodic=1
                 if (( use_resource == 1 )); then
-                    resource_cron_minutes="$(prompt_default "资源任务每几分钟检查一次（1-1440；只领取 PO0 已创建任务）" "${RESOURCE_CRON_MINUTES}")"
+                    resource_cron_minutes="$(prompt_default "资源任务每几分钟检查一次（1-${RESOURCE_CRON_MAX_MINUTES}；只领取 PO0 已创建任务）" "${RESOURCE_CRON_MINUTES}")"
                 fi
                 if (( use_ddns == 1 )); then
-                    ddns_cron_minutes="$(prompt_default "DDNS resolver 每几分钟上报一次（1-1440；应小于 PO0 DDNS TTL）" "${DDNS_CRON_MINUTES}")"
+                    ddns_cron_minutes="$(prompt_default "DDNS resolver 每几分钟上报一次（1-${DDNS_CRON_MAX_MINUTES}；应小于 PO0 端 DDNS 来源 TTL）" "${DDNS_CRON_MINUTES}")"
                 fi
                 install_worker_crons "${ddns_cron_minutes:-}" "${resource_cron_minutes:-}" "${script_path}" || return 1
             fi
@@ -4217,8 +4218,10 @@ EOF
 
 normalize_cron_minutes() {
     local minutes="${1:-}"
+    local max="${2:-1440}"
     minutes="$(trim "${minutes}")"
-    [[ "${minutes}" =~ ^[0-9]+$ && "${minutes}" -ge 1 && "${minutes}" -le 1440 ]] || return 1
+    [[ "${max}" =~ ^[0-9]+$ && "${max}" -ge 1 ]] || max=1440
+    [[ "${minutes}" =~ ^[0-9]+$ && "${minutes}" -ge 1 && "${minutes}" -le "${max}" ]] || return 1
     printf '%s\n' "${minutes}"
 }
 
@@ -4226,6 +4229,8 @@ cron_interval_label() {
     local minutes="$1"
     if (( minutes == 1440 )); then
         printf '每天'
+    elif (( minutes > 1440 && minutes % 1440 == 0 )); then
+        printf '每 %s 天' "$((minutes / 1440))"
     elif (( minutes == 60 )); then
         printf '每小时'
     elif (( minutes > 60 && minutes % 60 == 0 )); then
@@ -4247,11 +4252,14 @@ build_worker_cron_job() {
         printf '%s %s >%s 2>&1\n' "${schedule}" "${run_cmd}" "$(sh_quote "${log_path}")"
     elif (( minutes == 60 )); then
         printf '0 * * * * %s >%s 2>&1\n' "${run_cmd}" "$(sh_quote "${log_path}")"
+    elif (( minutes < 1440 && minutes % 60 == 0 )); then
+        hours=$((minutes / 60))
+        printf '0 */%s * * * %s >%s 2>&1\n' "${hours}" "${run_cmd}" "$(sh_quote "${log_path}")"
     elif (( minutes == 1440 )); then
         printf '0 0 * * * %s >%s 2>&1\n' "${run_cmd}" "$(sh_quote "${log_path}")"
     elif (( minutes % 60 == 0 )); then
         hours=$((minutes / 60))
-        printf '0 */%s * * * %s >%s 2>&1\n' "${hours}" "${run_cmd}" "$(sh_quote "${log_path}")"
+        printf '0 * * * * now=$(date +\%%s); if [ $((now / 3600 \%% %s)) -eq 0 ]; then %s >%s 2>&1; fi\n' "${hours}" "${run_cmd}" "$(sh_quote "${log_path}")"
     else
         printf '* * * * now=$(date +\%%s); if [ $((now / 60 \%% %s)) -eq 0 ]; then %s >%s 2>&1; fi\n' "${minutes}" "${run_cmd}" "$(sh_quote "${log_path}")"
     fi
@@ -4259,17 +4267,44 @@ build_worker_cron_job() {
 
 print_cron_example() {
     local minutes="$1"
-    local script_path label
-    if ! minutes="$(normalize_cron_minutes "${minutes}")"; then
-        minutes="${CRON_MINUTES}"
+    local script_path resource_minutes ddns_minutes resource_label ddns_label
+    if ! resource_minutes="$(normalize_cron_minutes "${minutes}" "${RESOURCE_CRON_MAX_MINUTES}")"; then
+        resource_minutes="$(normalize_cron_minutes "${RESOURCE_CRON_MINUTES}" "${RESOURCE_CRON_MAX_MINUTES}" 2>/dev/null || printf '1440')"
     fi
-    label="$(cron_interval_label "${minutes}")"
+    if ! ddns_minutes="$(normalize_cron_minutes "${minutes}" "${DDNS_CRON_MAX_MINUTES}")"; then
+        ddns_minutes="$(normalize_cron_minutes "${DDNS_CRON_MINUTES}" "${DDNS_CRON_MAX_MINUTES}" 2>/dev/null || printf '5')"
+    fi
+    resource_label="$(cron_interval_label "${resource_minutes}")"
+    ddns_label="$(cron_interval_label "${ddns_minutes}")"
     script_path="$(script_self_path)"
     printf '%s\n' \
-        "本机资源任务领取示例（${label}检查 PO0 pending 任务）：" \
-        "$(build_worker_cron_job "${minutes}" "--run-resource" "${script_path}" "/tmp/po0-lan-resource.log")" \
-        "本机 DDNS resolver 示例（${label}解析并上报 DDNS）：" \
-        "$(build_worker_cron_job "${minutes}" "--run-ddns" "${script_path}" "/tmp/po0-lan-ddns.log")"
+        "本机资源任务领取示例（${resource_label}检查 PO0 pending 任务）：" \
+        "$(build_worker_cron_job "${resource_minutes}" "--run-resource" "${script_path}" "/tmp/po0-lan-resource.log")" \
+        "本机 DDNS resolver 示例（${ddns_label}解析并上报 DDNS）：" \
+        "$(build_worker_cron_job "${ddns_minutes}" "--run-ddns" "${script_path}" "/tmp/po0-lan-ddns.log")"
+}
+
+managed_cron_job_for_action() {
+    local action="$1"
+    local begin end line in_block=0
+    have_cmd crontab || return 1
+    begin="$(cron_begin_marker)"
+    end="$(cron_end_marker)"
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        if [[ "${line}" == "${begin}" ]]; then
+            in_block=1
+            continue
+        fi
+        if [[ "${line}" == "${end}" ]]; then
+            in_block=0
+            continue
+        fi
+        [[ "${in_block}" == "1" ]] || continue
+        [[ "${line}" == *" ${action}"* || "${line}" == *" ${action} "* ]] || continue
+        printf '%s\n' "${line}"
+        return 0
+    done < <(crontab -l 2>/dev/null || true)
+    return 1
 }
 
 default_install_path() {
@@ -4344,7 +4379,8 @@ install_self() {
 }
 
 upgrade_self_from_raw() {
-    local dest dir tmp legacy_scp_cmd legacy_scp_var old_version new_version changelog
+    local reopen_mode="${1:-}"
+    local dest dir tmp legacy_scp_cmd legacy_scp_var old_version new_version changelog chmod_message
     old_version="${SCRIPT_VERSION}"
     dest="$(default_install_path)"
     dir="$(path_dirname "${dest}")"
@@ -4380,7 +4416,13 @@ upgrade_self_from_raw() {
         rm -f -- "${tmp}" 2>/dev/null || true
         return 1
     }
+    if chmod 755 "${dest}" 2>/dev/null; then
+        chmod_message="已设置执行权限：chmod 755 ${dest}"
+    else
+        chmod_message="警告：已更新，但自动设置执行权限失败；请手动执行 chmod 755 ${dest}"
+    fi
     printf '已更新本机命令：%s\n' "${dest}"
+    printf '%s\n' "${chmod_message}"
     if [[ -n "${new_version}" ]]; then
         if [[ "${new_version}" == "${old_version}" ]]; then
             printf '版本：%s（与当前执行脚本相同）\n' "${new_version}"
@@ -4392,6 +4434,12 @@ upgrade_self_from_raw() {
         printf '更新内容：\n%s\n' "${changelog}"
     else
         printf '更新内容：新脚本未提供更新说明；请运行 --version 查看当前状态。\n'
+    fi
+    if [[ "${reopen_mode}" == "--reopen-menu" ]]; then
+        printf '正在重新打开新版菜单：%s --menu\n' "${dest}"
+        exec "${BASH:-bash}" "${dest}" --config "${CONFIG_FILE}" --install-path "${dest}" --menu
+        printf '重新打开新版脚本失败，请手动执行：%s --menu\n' "${dest}" >&2
+        return 1
     fi
 }
 
@@ -4479,8 +4527,9 @@ install_cron_interactive() {
     ensure_config_file || return 1
     print_panel_section "本机 Worker 轮询器"
     print_panel_row "资源领取" "只检查并领取 PO0 已创建的 pending 任务；不决定资源创建周期"
-    print_panel_row "DDNS 上报" "只对启用 DDNS resolver 的目标执行；间隔应小于 PO0 DDNS TTL"
+    print_panel_row "DDNS 上报" "只对启用 DDNS resolver 的目标执行；间隔应小于 PO0 端 DDNS 来源 TTL"
     print_panel_row "资源周期" "在 PO0 nft manager 的“内网资源更新任务”里单独设置"
+    print_panel_row "DDNS TTL" "在 PO0 nft manager 的“管理源 IP 白名单 -> 管理 DDNS 来源”里添加/编辑"
     resource_count="$(count_enabled_worker_targets resource)" || return 1
     ddns_count="$(count_enabled_worker_targets ddns)" || return 1
     if (( resource_count == 0 && ddns_count == 0 )); then
@@ -4488,24 +4537,48 @@ install_cron_interactive() {
         return 1
     fi
     if (( resource_count > 0 )); then
-        resource_minutes="$(prompt_default "资源任务每几分钟检查一次（1-1440；只领取 PO0 已创建任务）" "${RESOURCE_CRON_MINUTES}")"
+        resource_minutes="$(prompt_default "资源任务每几分钟检查一次（1-${RESOURCE_CRON_MAX_MINUTES}；只领取 PO0 已创建任务）" "${RESOURCE_CRON_MINUTES}")"
     else
         print_panel_row "资源任务" "未配置启用目标，跳过资源领取计划"
     fi
     if (( ddns_count > 0 )); then
-        ddns_minutes="$(prompt_default "DDNS resolver 每几分钟上报一次（1-1440；应小于 PO0 DDNS TTL）" "${DDNS_CRON_MINUTES}")"
+        ddns_minutes="$(prompt_default "DDNS resolver 每几分钟上报一次（1-${DDNS_CRON_MAX_MINUTES}；应小于 PO0 端 DDNS 来源 TTL）" "${DDNS_CRON_MINUTES}")"
     else
         print_panel_row "DDNS resolver" "未配置启用目标，跳过 DDNS 上报计划"
     fi
     script_path="$(ensure_persistent_script)" || return 1
-    install_worker_crons "${ddns_minutes}" "${resource_minutes}" "${script_path}"
+    install_worker_crons "${ddns_minutes}" "${resource_minutes}" "${script_path}" "all"
+}
+
+show_ddns_ttl_help() {
+    print_panel_section "DDNS TTL 与上报间隔"
+    print_panel_row "PO0 DDNS TTL" "在 PO0 nft manager 的“管理源 IP 白名单 -> 管理 DDNS 来源”里添加/编辑"
+    print_panel_row "TTL 含义" "PO0 端接受上报后，DDNS 来源 IP 在白名单里的有效期"
+    print_panel_row "本机间隔" "LAN Worker 只决定多久解析并上报一次；应小于 PO0 端 DDNS 来源 TTL"
+    print_panel_row "查看 TTL" "在 PO0 manager 的 DDNS 来源列表里会显示 TTL=...s"
+}
+
+install_ddns_cron_interactive() {
+    local ddns_count ddns_minutes script_path
+    ensure_config_file || return 1
+    show_ddns_ttl_help
+    ddns_count="$(count_enabled_worker_targets ddns)" || return 1
+    if (( ddns_count == 0 )); then
+        printf '没有启用的 DDNS resolver 目标。请先在 DDNS 目标设置里添加或编辑目标。\n' >&2
+        return 1
+    fi
+    ddns_minutes="$(prompt_default "DDNS resolver 每几分钟上报一次（1-${DDNS_CRON_MAX_MINUTES}；应小于 PO0 端 DDNS 来源 TTL）" "${DDNS_CRON_MINUTES}")"
+    script_path="$(ensure_persistent_script)" || return 1
+    install_worker_crons "${ddns_minutes}" "" "${script_path}" "ddns"
 }
 
 install_worker_crons() {
     local ddns_minutes="${1:-}"
     local resource_minutes="${2:-}"
     local script_path="${3:-}"
+    local scope="${4:-all}"
     local ddns_count resource_count ddns_label="" resource_label="" ddns_job="" resource_job="" tmp
+    local preserved_ddns=0 preserved_resource=0
     ensure_config_file || return 1
     command -v crontab >/dev/null 2>&1 || {
         printf '当前系统没有 crontab 命令。请先安装 cron，或改用 systemd timer。\n' >&2
@@ -4519,21 +4592,33 @@ install_worker_crons() {
     fi
     [[ -n "${script_path}" ]] || script_path="$(script_self_path)"
     if (( resource_count > 0 )); then
-        if ! resource_minutes="$(normalize_cron_minutes "${resource_minutes:-${RESOURCE_CRON_MINUTES}}")"; then
-            printf '资源任务分钟数无效：请输入 1-1440 的整数。\n' >&2
-            return 1
+        if [[ "${scope}" == "all" || "${scope}" == "resource" ]]; then
+            if ! resource_minutes="$(normalize_cron_minutes "${resource_minutes:-${RESOURCE_CRON_MINUTES}}" "${RESOURCE_CRON_MAX_MINUTES}")"; then
+                printf '资源任务分钟数无效：请输入 1-%s 的整数。\n' "${RESOURCE_CRON_MAX_MINUTES}" >&2
+                return 1
+            fi
+            resource_label="$(cron_interval_label "${resource_minutes}")"
+            resource_job="$(build_worker_cron_job "${resource_minutes}" "--run-resource" "${script_path}" "/tmp/po0-lan-resource.log")"
+        elif resource_job="$(managed_cron_job_for_action "--run-resource" 2>/dev/null)"; then
+            preserved_resource=1
         fi
-        resource_label="$(cron_interval_label "${resource_minutes}")"
-        resource_job="$(build_worker_cron_job "${resource_minutes}" "--run-resource" "${script_path}" "/tmp/po0-lan-resource.log")"
     fi
     if (( ddns_count > 0 )); then
-        if ! ddns_minutes="$(normalize_cron_minutes "${ddns_minutes:-${DDNS_CRON_MINUTES}}")"; then
-            printf 'DDNS 分钟数无效：请输入 1-1440 的整数。\n' >&2
-            return 1
+        if [[ "${scope}" == "all" || "${scope}" == "ddns" ]]; then
+            if ! ddns_minutes="$(normalize_cron_minutes "${ddns_minutes:-${DDNS_CRON_MINUTES}}" "${DDNS_CRON_MAX_MINUTES}")"; then
+                printf 'DDNS 分钟数无效：请输入 1-%s 的整数。\n' "${DDNS_CRON_MAX_MINUTES}" >&2
+                return 1
+            fi
+            ddns_label="$(cron_interval_label "${ddns_minutes}")"
+            ddns_job="$(build_worker_cron_job "${ddns_minutes}" "--run-ddns" "${script_path}" "/tmp/po0-lan-ddns.log")"
+        elif ddns_job="$(managed_cron_job_for_action "--run-ddns" 2>/dev/null)"; then
+            preserved_ddns=1
         fi
-        ddns_label="$(cron_interval_label "${ddns_minutes}")"
-        ddns_job="$(build_worker_cron_job "${ddns_minutes}" "--run-ddns" "${script_path}" "/tmp/po0-lan-ddns.log")"
     fi
+    [[ -n "${resource_job}${ddns_job}" ]] || {
+        printf '没有可写入的本机轮询计划。\n' >&2
+        return 1
+    }
     tmp="${CONFIG_FILE}.cron.$$"
     {
         crontab -l 2>/dev/null | write_cron_without_managed_block || true
@@ -4547,9 +4632,21 @@ install_worker_crons() {
         return 1
     }
     rm -f "${tmp}" 2>/dev/null || true
-    [[ -n "${resource_job}" ]] && printf '已安装/更新资源任务领取计划：%s检查 PO0 pending 任务。\n' "${resource_label}"
-    [[ -n "${ddns_job}" ]] && printf '已安装/更新 DDNS resolver 上报计划：%s解析并上报 DDNS。\n' "${ddns_label}"
-    printf '提示：资源任务创建周期由 PO0 nft manager 控制；DDNS 上报间隔按 PO0 DDNS TTL 单独设置。\n'
+    if [[ -n "${resource_job}" ]]; then
+        if (( preserved_resource == 1 )); then
+            printf '已保留现有资源任务领取计划。\n'
+        else
+            printf '已安装/更新资源任务领取计划：%s检查 PO0 pending 任务。\n' "${resource_label}"
+        fi
+    fi
+    if [[ -n "${ddns_job}" ]]; then
+        if (( preserved_ddns == 1 )); then
+            printf '已保留现有 DDNS resolver 上报计划。\n'
+        else
+            printf '已安装/更新 DDNS resolver 上报计划：%s解析并上报 DDNS。\n' "${ddns_label}"
+        fi
+    fi
+    printf '提示：资源任务创建周期由 PO0 nft manager 控制；DDNS TTL 在 PO0 端 DDNS 来源里设置，本机只设置上报间隔。\n'
 }
 
 install_cron_minutes() {
@@ -4689,6 +4786,39 @@ EOF
     printf '%s\n' "PO0 不开放 HTTP；Cloudflare 只连接 LAN Worker。"
 }
 
+manage_ddns_settings_interactive() {
+    local choice
+    while true; do
+        menu_clear_screen
+        print_title "DDNS 目标 / 上报计划"
+        show_ddns_ttl_help
+        print_menu_section "DDNS 目标"
+        print_menu_pair 1 "查看目标与统计" 2 "添加 DDNS / PO0 目标"
+        print_menu_pair 3 "编辑目标" 4 "目标 Token"
+        print_menu_item 5 "启用 / 停用目标"
+
+        print_menu_section "本机上报"
+        print_menu_pair 6 "安装 / 更新 DDNS 上报计划" 7 "立即执行 DDNS 上报"
+
+        print_menu_section "退出"
+        print_menu_item 0 "返回"
+        print_menu_footer
+        read_menu_choice_or_return choice "请选择操作 [0-7]: " || return 0
+        case "${choice}" in
+            1) list_targets; pause_before_return ;;
+            2) add_target_interactive; pause_before_return ;;
+            3) edit_target_interactive; pause_before_return ;;
+            4) manage_target_tokens_interactive; pause_before_return ;;
+            5) toggle_target_interactive; pause_before_return ;;
+            6) install_ddns_cron_interactive; pause_before_return ;;
+            7) run_config_targets; pause_before_return ;;
+            0) return 0 ;;
+            "") ;;
+            *) printf '无效选择。\n' >&2; pause_before_return ;;
+        esac
+    done
+}
+
 menu_loop() {
     local choice
     while true; do
@@ -4700,33 +4830,33 @@ menu_loop() {
 
         print_menu_section "DDNS 解析上报"
         print_menu_pair 5 "上报目标与 DDNS 统计" 6 "立即执行 DDNS 上报"
-        print_menu_item 7 "清空 DDNS 统计"
+        print_menu_pair 7 "DDNS 目标 / 上报计划" 8 "清空 DDNS 统计"
 
         print_menu_section "Self-report 自上报"
-        print_menu_pair 8 "Self-report 连通性检查" 9 "启动 Self-report 服务"
+        print_menu_pair 9 "Self-report 连通性检查" 10 "启动 Self-report 服务"
 
         print_menu_section "WebAuth 放行"
-        print_menu_pair 10 "WebAuth 连通性检查" 11 "启动 WebAuth 服务"
-        print_menu_item 12 "WebAuth / Cloudflare Access 配置提示"
+        print_menu_pair 11 "WebAuth 连通性检查" 12 "启动 WebAuth 服务"
+        print_menu_item 13 "WebAuth / Cloudflare Access 配置提示"
 
         print_menu_section "PO0 目标、SSH、Token 与 TTL"
-        print_menu_pair 13 "添加 PO0 目标" 14 "编辑 PO0 目标"
-        print_menu_pair 15 "SSH 私钥 / 参数" 16 "目标 Token"
-        print_menu_pair 17 "Self-report / WebAuth TTL" 18 "启用 / 停用目标"
-        print_menu_item 19 "删除 PO0 目标"
+        print_menu_pair 14 "添加 PO0 目标" 15 "编辑 PO0 目标"
+        print_menu_pair 16 "SSH 私钥 / 参数" 17 "目标 Token"
+        print_menu_pair 18 "Self-report / WebAuth TTL" 19 "启用 / 停用目标"
+        print_menu_item 20 "删除 PO0 目标"
 
         print_menu_section "全局操作"
-        print_menu_item 20 "执行全部任务"
+        print_menu_item 21 "执行全部任务"
 
         print_menu_section "维护"
-        print_menu_pair 21 "安装 / 更新本机轮询器" 22 "删除本机轮询器"
-        print_menu_pair 23 "查看本机轮询器状态" 24 "查看脚本版本 / 本机状态"
-        print_menu_item 25 "从 GitHub 更新脚本"
+        print_menu_pair 22 "安装 / 更新本机轮询器" 23 "删除本机轮询器"
+        print_menu_pair 24 "查看本机轮询器状态" 25 "查看脚本版本 / 本机状态"
+        print_menu_item 26 "从 GitHub 更新脚本"
 
         print_menu_section "退出"
         print_menu_item 0 "退出"
         print_menu_footer
-        read_menu_choice_or_return choice "请选择操作 [0-25]: " || return 0
+        read_menu_choice_or_return choice "请选择操作 [0-26]: " || return 0
         case "${choice}" in
             1) list_resource_stats; pause_before_return ;;
             2) show_remote_resource_task_cron_status; pause_before_return ;;
@@ -4734,25 +4864,26 @@ menu_loop() {
             4) clear_resource_stats_interactive; pause_before_return ;;
             5) list_targets; pause_before_return ;;
             6) run_config_targets; pause_before_return ;;
-            7) clear_stats_interactive; pause_before_return ;;
-            8) probe_self_report_target; pause_before_return ;;
-            9) run_self_report_server ;;
-            10) probe_webauth_target; pause_before_return ;;
-            11) run_webauth_server ;;
-            12) show_webauth_cloudflare_guide; pause_before_return ;;
-            13) add_target_interactive; pause_before_return ;;
-            14) edit_target_interactive; pause_before_return ;;
-            15) manage_target_ssh_interactive; [[ "$?" -eq 2 ]] || pause_before_return ;;
-            16) manage_target_tokens_interactive; pause_before_return ;;
-            17) manage_target_report_ttl_interactive; pause_before_return ;;
-            18) toggle_target_interactive; pause_before_return ;;
-            19) delete_target_interactive; pause_before_return ;;
-            20) run_all_client_jobs; pause_before_return ;;
-            21) install_cron_interactive; pause_before_return ;;
-            22) remove_cron_interactive; pause_before_return ;;
-            23) show_cron_status; pause_before_return ;;
-            24) show_local_script_status; pause_before_return ;;
-            25) upgrade_self_from_raw; pause_before_return ;;
+            7) manage_ddns_settings_interactive ;;
+            8) clear_stats_interactive; pause_before_return ;;
+            9) probe_self_report_target; pause_before_return ;;
+            10) run_self_report_server ;;
+            11) probe_webauth_target; pause_before_return ;;
+            12) run_webauth_server ;;
+            13) show_webauth_cloudflare_guide; pause_before_return ;;
+            14) add_target_interactive; pause_before_return ;;
+            15) edit_target_interactive; pause_before_return ;;
+            16) manage_target_ssh_interactive; [[ "$?" -eq 2 ]] || pause_before_return ;;
+            17) manage_target_tokens_interactive; pause_before_return ;;
+            18) manage_target_report_ttl_interactive; pause_before_return ;;
+            19) toggle_target_interactive; pause_before_return ;;
+            20) delete_target_interactive; pause_before_return ;;
+            21) run_all_client_jobs; pause_before_return ;;
+            22) install_cron_interactive; pause_before_return ;;
+            23) remove_cron_interactive; pause_before_return ;;
+            24) show_cron_status; pause_before_return ;;
+            25) show_local_script_status; pause_before_return ;;
+            26) upgrade_self_from_raw --reopen-menu || pause_before_return ;;
             0) return 0 ;;
             "") ;;
             *) printf '无效选择。\n' >&2; pause_before_return ;;

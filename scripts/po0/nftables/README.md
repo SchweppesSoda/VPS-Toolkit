@@ -39,7 +39,7 @@ LAN Worker 命令在内网 Worker 机器上执行，不在 PO0 上执行。DDNS 
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash
 ```
 
-SSH 认证按向导选择：系统默认 SSH 配置/agent、已有私钥路径，或粘贴专用私钥。粘贴的私钥会保存到本机配置目录并设置 600 权限。`额外 SSH 参数` 是传给 `ssh` 的选项，例如 `-J jump-host` 或 `-o StrictHostKeyChecking=accept-new`，不是私钥短语；带短语的私钥需要 `ssh-agent`。菜单里的 `PO0 目标`、`SSH 私钥 / 参数`、`目标 Token`、`Self-report / WebAuth TTL` 分开管理目标、SSH、Token 和 TTL；`资源统计 / PO0 创建计划` 只读显示 PO0 端资源任务创建 cron，Worker 本机只安装轮询器领取 pending 任务。
+SSH 认证按向导选择：系统默认 SSH 配置/agent、已有私钥路径，或粘贴专用私钥。粘贴的私钥会保存到本机配置目录并设置 600 权限。`额外 SSH 参数` 是传给 `ssh` 的选项，例如 `-J jump-host` 或 `-o StrictHostKeyChecking=accept-new`，不是私钥短语；带短语的私钥需要 `ssh-agent`。菜单里的 `DDNS 解析上报 -> DDNS 目标 / 上报计划` 管理 DDNS 目标和本机上报间隔；`PO0 目标`、`SSH 私钥 / 参数`、`目标 Token`、`Self-report / WebAuth TTL` 分开管理目标、SSH、Token 和自上报/WebAuth TTL；`资源统计 / PO0 创建计划` 只读显示 PO0 端资源任务创建 cron，Worker 本机只安装轮询器领取 pending 任务。
 
 初始化后常用本地命令：
 
@@ -87,12 +87,12 @@ curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scri
 LAN Worker：只做 `iplist/ipdb` 资源任务：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script /root/nftables-relay-manager.sh --resource-token <RESOURCE_TOKEN> --install-cron 120
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script /root/nftables-relay-manager.sh --resource-token <RESOURCE_TOKEN> --install-cron 1440
 ```
 
-`--install-cron` 是安装 Worker 本机计划任务。DDNS resolver 上报和资源任务领取是两条不同计划：DDNS 间隔按 PO0 端 DDNS 来源 TTL 设置；资源任务只负责发现并领取 PO0 已创建的 pending 任务，设为 60 或 120 分钟通常也可以。资源任务的创建周期在 PO0 主控的 `内网资源更新任务 -> 安装 / 更新 PO0 定时创建` 中设置。
+`--install-cron` 是安装 Worker 本机计划任务。DDNS resolver 上报和资源任务领取是两条不同计划：DDNS 间隔在 LAN Worker 本机设置，应小于 PO0 端 DDNS 来源 TTL；这个 TTL 在 PO0 主控的 `管理源 IP 白名单 -> 管理 DDNS 来源` 添加/编辑来源时设置。资源任务只负责发现并领取 PO0 已创建的 pending 任务，默认每 `1440` 分钟检查一次，交互菜单可设为 `1-10080` 分钟。资源任务的创建周期在 PO0 主控的 `内网资源更新任务 -> 安装 / 更新 PO0 定时创建` 中设置。
 
-兼容旧用法时，`--install-cron N` 会把 DDNS 和资源任务两个计划都设为 `N` 分钟；不带 `N` 时，LAN Worker 默认 DDNS 每 5 分钟上报、资源任务每 120 分钟检查一次。
+兼容旧用法时，`--install-cron N` 会把 DDNS 和资源任务两个计划都设为 `N` 分钟；不带 `N` 时，LAN Worker 默认 DDNS 每 5 分钟上报、资源任务每 1440 分钟检查一次。
 
 Linux/OpenWrt Self-report client：
 
@@ -228,7 +228,7 @@ office-sg|office.example.com|sg-po0.example.com|22|root|/root/nftables-relay-man
 po0-lan-client --run --ddns-targets 'home-sg|home.example.com|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|;home-us|home.example.com|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|'
 ```
 
-首次部署推荐运行 `po0-lan-client --wizard`。长期维护可进入 `po0-lan-client --menu`，分别在 `PO0 目标`、`SSH 私钥 / 参数`、`目标 Token`、`Self-report / WebAuth TTL` 里查看、编辑、删除、启停 PO0 目标，并管理目标 SSH 私钥、SSH 参数、Token 和自上报/WebAuth TTL；底层仍保存到本机配置文件，旧配置继续兼容。
+首次部署推荐运行 `po0-lan-client --wizard`。长期维护可进入 `po0-lan-client --menu`，在 `DDNS 解析上报 -> DDNS 目标 / 上报计划` 里查看或编辑 DDNS 目标、安装/更新 DDNS 本机上报计划，并查看 PO0 DDNS TTL 设置位置；也可以分别在 `PO0 目标`、`SSH 私钥 / 参数`、`目标 Token`、`Self-report / WebAuth TTL` 里查看、编辑、删除、启停 PO0 目标，并管理目标 SSH 私钥、SSH 参数、Token 和自上报/WebAuth TTL；底层仍保存到本机配置文件，旧配置继续兼容。
 
 PO0 不做本地 DDNS 解析。`--refresh-ddns` 只会把已经由 LAN Worker/路由器上报、且仍在 TTL 内的结果重建/应用；它不会延长原上报 TTL：
 
@@ -273,9 +273,9 @@ non-root: ~/.local/bin/po0-lan-client
 /usr/local/sbin/po0-lan-client --install-cron
 ```
 
-新版自检应显示 `版本` 为 `2026.06.18+build.4` 或更新，`资源上传` 为“通过 PO0 manager stdin 上传资源产物（不使用 SCP）”，不再调用 `scp`。
+新版自检应显示 `版本` 为 `2026.06.18+build.6` 或更新，`资源上传` 为“通过 PO0 manager stdin 上传资源产物（不使用 SCP）”，不再调用 `scp`。
 
-`--upgrade-self` 更新成功后会输出安装路径、版本变化和新脚本内置的更新内容；具体状态再用 `--version` 查看。
+`--upgrade-self` 更新成功后会输出安装路径、权限设置结果、版本变化和新脚本内置的更新内容；具体状态再用 `--version` 查看。从菜单里选择“从 GitHub 更新脚本”时，更新成功后会自动设置最终安装路径的执行权限，并重新打开新版菜单。命令行直接执行 `--upgrade-self` 仍会更新后退出，方便继续串行执行 `--version` 或 `--install-cron`。
 
 如果 LAN Worker 查询 PO0 创建计划时出现 `--resource-task-cron-status not allowed for scope worker`，说明 PO0 上的专用受限 SSH wrapper 还没刷新到新版；在 PO0 上用新版 manager 执行 `--refresh-report-key-wrapper` 即可。这个报错只影响创建计划只读查询，不影响 pending 资源任务领取、上传和完成。
 
