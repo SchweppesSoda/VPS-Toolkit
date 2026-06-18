@@ -218,6 +218,7 @@ table ip po0_relay_mangle
 `po0-relay.env` 保存：
 
 ```text
+NODE_NAME                  本机名称 / 导出前缀，可空
 RELAY_MODE                 lan / public / mixed
 RELAY_LAN_IP               中转机内网 IP
 ENABLE_MSS_CLAMP           是否启用 MSS clamp
@@ -982,7 +983,7 @@ po0-relay-blocked.tsv
 po0-relay-blocked-summary.tsv
 ```
 
-导入规则入口可以从现有 nft 配置或运行中 ruleset 尝试提取 DNAT 规则，并转成脚本托管规则。接管前会做备份，导出入口会保存当前托管配置，便于迁移或回滚。
+导入规则入口可以从现有 nft 配置或运行中 ruleset 尝试提取 DNAT 规则，并转成脚本托管规则。接管前会做备份，导出入口会保存当前托管配置，便于迁移或回滚。全局设置里的 `NODE_NAME` 非空时，导出默认文件名会加此前缀，例如 `PO0XX-po0-relay-export-YYYYMMDD_HHMMSS.txt`。
 
 ## 9. 当前实现状态
 

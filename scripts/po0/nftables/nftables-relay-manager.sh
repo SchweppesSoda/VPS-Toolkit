@@ -2,9 +2,10 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-nftables-relay-manager"
-SCRIPT_VERSION="2026.06.18+build.4"
+SCRIPT_VERSION="2026.06.18+build.5"
 SCRIPT_RELEASE_DATE="2026-06-18"
 # CHANGELOG_BEGIN
+# - 中转机参数新增“本机名称/导出前缀”，导出规则默认文件名可带 PO0XX- 这类主机前缀。
 # - 转发规则列表的“回程模式”改为直接显示“内网回源 / 公网出口 / 透明转发”，避免把 relay_lan 简写成 lan 造成理解成本。
 # - 新增 --changelog，用于 scp 上传更新后查看当前版本更新内容。
 # - 内网资源更新任务菜单新增“查看 PO0 定时创建状态”，明确 PO0 只创建 pending 任务、LAN Worker 负责领取执行。
@@ -88,6 +89,7 @@ FORWARD_PORT_MAX="49151"
 FORWARD_PORT_RANDOM_TRIES="200"
 
 RELAY_MODE="mixed"
+NODE_NAME=""
 RELAY_LAN_IP=""
 ENABLE_MSS_CLAMP="1"
 MSS_VALUE="1452"
@@ -381,6 +383,20 @@ trim() {
     value="${value#"${value%%[![:space:]]*}"}"
     value="${value%"${value##*[![:space:]]}"}"
     printf '%s' "${value}"
+}
+
+validate_node_name() {
+    local value="$1"
+    [[ -z "${value}" ]] && return 0
+    [[ ${#value} -le 32 ]] || return 1
+    [[ "${value}" =~ ^[A-Za-z0-9._-]+$ ]]
+}
+
+export_rules_default_path() {
+    local prefix=""
+    validate_node_name "${NODE_NAME}" || NODE_NAME=""
+    [[ -n "${NODE_NAME}" ]] && prefix="${NODE_NAME}-"
+    printf '%s/%spo0-relay-export-%s.txt\n' "${EXPORT_DIR}" "${prefix}" "$(date '+%Y%m%d_%H%M%S')"
 }
 
 check_root() {
@@ -6779,6 +6795,9 @@ read_settings_file() {
         raw_value="${line#*=}"
         value="$(unquote_setting_value "${raw_value}")"
         case "${key}" in
+            NODE_NAME)
+                NODE_NAME="${value}"
+                ;;
             RELAY_MODE)
                 RELAY_MODE="${value}"
                 ;;
@@ -6824,6 +6843,7 @@ load_settings() {
     if [[ "${SETTINGS_CACHE_READY}" == "1" && "${force_reload}" != "1" ]]; then
         return 0
     fi
+    NODE_NAME=""
     RELAY_MODE="mixed"
     RELAY_LAN_IP=""
     PUBLIC_IP=""
@@ -6840,6 +6860,7 @@ load_settings() {
     RELAY_LAN_IP_SOURCE="none"
     PUBLIC_IP_SOURCE="none"
     read_settings_file
+    validate_node_name "${NODE_NAME}" || NODE_NAME=""
     RELAY_MODE="$(normalize_relay_mode "${RELAY_MODE}" 2>/dev/null || printf 'mixed')"
     if validate_host_ipv4 "${RELAY_LAN_IP}"; then
         RELAY_LAN_IP_SOURCE="settings"
@@ -6880,6 +6901,7 @@ save_settings() {
     local tmp
     make_temp_file "${SETTINGS_FILE}" || return 1
     tmp="${TEMP_FILE_RESULT}"
+    validate_node_name "${NODE_NAME}" || NODE_NAME=""
     RELAY_MODE="$(normalize_relay_mode "${RELAY_MODE}" 2>/dev/null || printf 'mixed')"
     if validate_host_ipv4 "${RELAY_LAN_IP}"; then
         RELAY_LAN_IP_SOURCE="settings"
@@ -6897,6 +6919,7 @@ save_settings() {
         *) AUTOMATION_MODE="regular" ;;
     esac
     cat > "${tmp}" <<EOF
+NODE_NAME="${NODE_NAME}"
 RELAY_MODE="${RELAY_MODE}"
 RELAY_LAN_IP="${RELAY_LAN_IP}"
 PUBLIC_IP="${PUBLIC_IP}"
@@ -7066,6 +7089,7 @@ print_runtime_rule_hint() {
 print_settings() {
     load_settings
     load_rules
+    printf '本机名称    : %s\n' "${NODE_NAME:-未设置（导出不加前缀）}"
     printf '中转模式    : %s\n' "$(relay_mode_to_label "${RELAY_MODE}")"
     if validate_host_ipv4 "${RELAY_LAN_IP}"; then
         printf '中转机内网 IP : %s (%s)\n' "${RELAY_LAN_IP}" "$(relay_ip_source_label)"
@@ -7240,6 +7264,22 @@ refresh_cached_ips_for_mode() {
 prompt_settings() {
     local input ans relay_ip_prompt input_lower
     load_settings
+    while true; do
+        if [[ -n "${NODE_NAME}" ]]; then
+            input="$(read_prompt "本机名称 / 导出前缀 [当前: ${NODE_NAME}，回车保留，输入 - 清空]: ")" || input=""
+            input="$(trim "${input}")"
+            [[ -n "${input}" ]] || input="${NODE_NAME}"
+            [[ "${input}" == "-" ]] && input=""
+        else
+            input="$(read_prompt "本机名称 / 导出前缀（例如 PO0XX，回车不设置）: ")" || input=""
+            input="$(trim "${input}")"
+        fi
+        validate_node_name "${input}" && {
+            NODE_NAME="${input}"
+            break
+        }
+        err "本机名称只能使用字母、数字、点、下划线、短横线，最长 32 个字符。"
+    done
     RELAY_MODE="$(prompt_relay_mode "${RELAY_MODE}")" || return
     refresh_cached_ips_for_mode || true
     if [[ "${RELAY_LAN_IP_SOURCE}" == "auto" ]]; then
@@ -8621,13 +8661,14 @@ do_export_rules() {
     local path tmp rule
     print_title "导出规则"
     ensure_layout || return
+    load_settings
     load_rules
     [[ ${#RULES[@]} -gt 0 ]] || {
         info "当前没有转发规则。"
         return
     }
 
-    path="$(prompt_with_default "导出文件路径" "${EXPORT_DIR}/po0-relay-export-$(date '+%Y%m%d_%H%M%S').txt")"
+    path="$(prompt_with_default "导出文件路径" "$(export_rules_default_path)")"
     path="$(trim "${path}")"
     [[ -n "${path}" ]] || {
         err "导出路径不能为空。"

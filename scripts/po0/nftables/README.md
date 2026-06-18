@@ -129,6 +129,8 @@ https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nft
 - 访问来源 / 白名单 / 客户端：源 IP 白名单、LAN Worker/客户端/Egern 部署命令、内网资源更新任务。
 - 系统维护：中转参数、自检、BBR。
 
+`中转机参数` 里可以设置本机名称 / 导出前缀，例如 `PO0XX`、`PO0YY`。设置后，导出规则默认文件名会变成 `PO0XX-po0-relay-export-YYYYMMDD_HHMMSS.txt`；留空则继续使用旧的 `po0-relay-export-YYYYMMDD_HHMMSS.txt`。
+
 客户端部署命令可由主控自动生成：
 
 ```bash
