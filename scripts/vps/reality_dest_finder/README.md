@@ -11,4 +11,22 @@ chmod +x reality_dest_finder.sh
 ./reality_dest_finder.sh --check <域名>
 ```
 
-说明文档见 `reality_dest_finder.md`。
+依赖安装：
+
+```bash
+apt update && apt install -y nmap jq dnsutils openssl curl bc
+```
+
+常用检查：
+
+```bash
+cat ~/reality_scan/results_*.txt
+cat ~/reality_scan/all_filtered.txt
+./reality_dest_finder.sh --check <域名>
+```
+
+清理旧扫描数据：
+
+```bash
+rm -rf ~/reality_scan
+```

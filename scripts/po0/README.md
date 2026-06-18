@@ -24,9 +24,7 @@ cd scripts/po0/nftables
 bash nftables-relay-manager.sh
 ```
 
-详细功能和客户端使用方式见 [`nftables/README.md`](./nftables/README.md)。
-
-LAN Worker 首次部署推荐在内网机器上直接使用 raw 脚本管道进入交互向导：
+详细功能、LAN Worker、Self-report、WebAuth、Egern 和 iplist 离线包使用方式见 [`nftables/README.md`](./nftables/README.md)。LAN Worker 首次部署推荐在内网机器上直接使用 raw 脚本管道进入交互向导：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash
@@ -40,18 +38,9 @@ po0-lan-client --run
 po0-lan-client --probe
 ```
 
-初始化时 PO0 SSH 地址一次只填一个；多个 PO0 目标后续进入 `po0-lan-client --menu` 添加。
-SSH 认证按向导选择：系统默认 SSH 配置/agent、已有私钥路径，或粘贴专用私钥。粘贴的私钥会保存到本机配置目录并设置 600 权限。
-“额外 SSH 参数”是传给 `ssh` 的选项，例如 `-J jump-host` 或 `-o StrictHostKeyChecking=accept-new`，不是私钥短语；带短语的私钥需要 `ssh-agent`。
-菜单里的 `PO0 目标 / SSH / Token` 用于添加、编辑、启停 PO0 目标，并管理目标 SSH 私钥和 Token；`资源统计 / PO0 创建计划` 只读展示 PO0 端资源任务定时创建状态。资源任务创建周期在 PO0 nft manager 设置，LAN Worker 本机只安装轮询器来领取 pending 任务。
+本文件只保留 PO0 层入口；菜单、Token、TTL、资源统计和排错说明以 `nftables/README.md` 为准。
 
-如果旧版本安装后没有 `po0-lan-client` 命令，可手动补装：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh -o /usr/local/sbin/po0-lan-client
-chmod 755 /usr/local/sbin/po0-lan-client
-/usr/local/sbin/po0-lan-client --menu
-```
+PO0 主控和 LAN Worker 脚本统一使用 `YYYY.MM.DD+build.N` 混合版本格式；同一天再次发布时递增 `build.N`，例如 `2026.06.18+build.2`。
 
 ### 管理代理服务增强
 

@@ -55,6 +55,8 @@ ssh root@<PO0_HOST> 'chmod +x /root/nftables-relay-manager.sh && bash /root/nfta
 ssh root@<PO0_HOST> 'bash /root/nftables-relay-manager.sh --version'
 ```
 
+PO0 主控和 LAN Worker 脚本统一使用 `YYYY.MM.DD+build.N` 混合版本格式；同一天再次发布时递增 `build.N`，例如 `2026.06.18+build.2`。
+
 如果 PO0 可以访问 `raw.githubusercontent.com`，也可以直接在线拉取运行：
 
 ```bash
@@ -103,77 +105,16 @@ ssh root@<PO0_HOST> 'chmod +x /root/po0-debian-reinstall.sh && bash /root/po0-de
 ssh root@<PO0_HOST> 'bash /root/po0-debian-reinstall.sh -port 60022'
 ```
 
-### PO0 内网 Worker
+### PO0 内网 Worker 与客户端
 
-推荐在 LAN Worker 机器上用交互向导安装。向导可通过密钥 SSH 自动从 PO0 读取 token，写入本机配置，并安装本机 `po0-lan-client` 命令。每次向导初始化一个 PO0 目标。
+LAN Worker、DDNS 上报、PO0 已创建资源任务领取、Self-report 和 WebAuth 推荐先在 LAN Worker 机器上进入交互向导：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash
 po0-lan-client --menu
-po0-lan-client --run
 ```
 
-检查 LAN Worker 上已安装的 client 版本：
-
-```bash
-po0-lan-client --version
-```
-
-更新 LAN Worker 上已安装的 client：
-
-```bash
-po0-lan-client --upgrade-self
-po0-lan-client --version
-```
-
-如果旧版本安装后没有 `po0-lan-client` 命令，可手动补装：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh -o /usr/local/sbin/po0-lan-client
-chmod 755 /usr/local/sbin/po0-lan-client
-/usr/local/sbin/po0-lan-client --menu
-```
-
-DDNS 解析上报 + `iplist/ipdb` 资源轮询领取：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --source-key <DDNS_SOURCE_KEY> --ddns-domain <DDNS_DOMAIN> --token <DDNS_TOKEN> --resource-token <RESOURCE_TOKEN> --install-cron 5
-```
-
-只做 PO0 已创建资源任务的轮询领取：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --resource-token <RESOURCE_TOKEN> --install-cron 5
-```
-
-在 LAN Worker 上启动自上报接收端：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash -s -- --install-self
-po0-lan-client --self-report-server --self-report-listen 127.0.0.1:8788 --po0-host <PO0_HOST> --client-ip-token <CLIENT_REPORT_TOKEN> --self-report-secret <SELF_REPORT_SECRET>
-```
-
-### 自上报客户端
-
-Linux/OpenWrt 访问设备自上报：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh | bash -s -- --worker-url <LAN_WORKER_REPORT_URL> --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --install-cron 5
-```
-
-Windows 访问设备自上报：
-
-```powershell
-$env:PO0_LAN_WORKER_URL='<LAN_WORKER_REPORT_URL>'; $env:PO0_SELF_REPORT_SOURCE='<CLIENT_ID>'; $env:PO0_SELF_REPORT_SECRET='<SELF_REPORT_SECRET>'; $env:INSTALL_TASK='1'; $env:MINUTES='5'; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' | iex
-```
-
-### Egern SSH report 模块
-
-在 Egern 内导入这个 raw URL：
-
-```text
-https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/PO0-SSH-IP-Report.yaml
-```
+LAN Worker、Self-report、WebAuth、Egern 和 iplist 离线包的详细用法集中维护在 [`scripts/po0/nftables/README.md`](./scripts/po0/nftables/README.md)。Egern 专属配置另见 [`clients/egern/README.md`](./scripts/po0/nftables/clients/egern/README.md)。
 
 ### Fail2ban 管理
 
@@ -231,18 +172,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/ma
 
 ### iplist 离线包构建
 
-Bash 版：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/build-iplist-package.sh | bash -s -- "${HOME}/Desktop/iplist.tar.gz" 16
-```
-
-PowerShell 版：
-
-```powershell
-$script = irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/tools/build-iplist-package.ps1'
-& ([scriptblock]::Create($script)) -OutFile "$env:USERPROFILE\Desktop\iplist.tar.gz" -ThrottleLimit 16
-```
+构建脚本位于 `scripts/po0/nftables/tools/`。使用方式和导入行为集中维护在 [`scripts/po0/nftables/README.md`](./scripts/po0/nftables/README.md)，实现细节见 [`nftables-relay-manager-technical.md`](./scripts/po0/nftables/nftables-relay-manager-technical.md)。
 
 `scripts/po0/nftables/nftables-legacy.sh` 只保留给旧配置兼容，不作为新部署推荐入口。
 

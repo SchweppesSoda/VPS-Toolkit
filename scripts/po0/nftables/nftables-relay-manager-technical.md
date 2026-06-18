@@ -22,6 +22,8 @@
 bash nftables-relay-manager.sh
 ```
 
+脚本版本统一采用 `YYYY.MM.DD+build.N` 混合版本格式；同一天再次发布时递增 `build.N`，例如 `2026.06.18+build.2`。
+
 常见操作：
 
 ```text
@@ -444,18 +446,28 @@ sshd -T
 
 ### 5.3 地区白名单与离线包
 
-地区数据来自：
+地区白名单数据来自 `metowolf/iplist`，构建入口固定为：
 
 ```text
 https://github.com/metowolf/iplist
 https://raw.githubusercontent.com/metowolf/iplist/refs/heads/master/docs/cncity.md
 ```
 
-离线包只包含：
+构建脚本只使用 `cncity.md` 里指向 `data/cncity/*.txt` 的链接；`data/country/*` 或其它目录会被忽略。这样生成的包只覆盖国内省市级地区白名单，和管理器菜单里的“地区白名单”语义保持一致。
+
+离线包默认输出为 `~/Desktop/iplist.tar.gz`，包内只包含：
 
 ```text
 docs/cncity.md
 data/cncity/*.txt
+```
+
+导入后会在 VPS 上生成：
+
+```text
+/etc/nftables.d/po0-iplist/docs/cncity.md
+/etc/nftables.d/po0-iplist/data/cncity/*.txt
+/etc/nftables.d/po0-iplist/manifest.tsv
 ```
 
 构建脚本：
@@ -465,7 +477,45 @@ tools/build-iplist-package.sh
 tools/build-iplist-package.ps1
 ```
 
-导入逻辑会解包、重建 `manifest.tsv`、校验数据文件和 CIDR，成功后才替换当前 `/etc/nftables.d/po0-iplist`。
+Bash 版读取第 1 个参数作为输出路径，读取 `IPLIST_JOBS` 或第 2 个参数作为并发数，默认并发 8。它下载 `docs/cncity.md`，提取 `.txt` URL，只保留 `data/cncity/*.txt`，再用 `xargs -0 -n 4 -P` 并发下载并通过 `tar -czf` 打包。
+
+PowerShell 版读取 `-OutFile` 和 `-ThrottleLimit`，默认并发 8；用 `Invoke-WebRequest` 下载索引，用 `Start-Job` 并发下载数据，最后调用系统 `tar` 打包。Windows 10/11 通常内置 BSD tar；如果缺失，需要先安装 tar 或使用 Bash 版本。
+
+路径过滤逻辑：
+
+```text
+*/iplist/data/cncity/*.txt  -> data/cncity/<file>
+*/data/cncity/*.txt         -> data/cncity/<file>
+其它 URL                      -> 跳过
+```
+
+`manifest.tsv` 不由构建脚本写入，而是在 `nftables-relay-manager.sh` 导入包时根据 `docs/cncity.md` 重新解析生成。`build_iplist_manifest_for_dir()` 从表格列中读取地区名称和数据 URL，生成：
+
+```text
+id<TAB>地区名称<TAB>相对路径<TAB>原始 URL
+```
+
+其中 `id` 来自数据文件名去掉 `.txt` 后的值，只保留 `A-Za-z0-9._-`，其它字符替换为 `_`。地区选择菜单实际保存的就是这些 `id`。
+
+导入入口：
+
+```text
+菜单路径：系统维护 -> 管理源 IP 白名单
+6) 导入 / 刷新 iplist 离线包
+```
+
+导入逻辑会校验包文件和 `tar`，解压 `.tar.gz` / `.tgz` / `.tar` 到临时目录，要求包根目录存在 `docs/cncity.md`，重建 `manifest.tsv`，校验 manifest 里的每个 `data/cncity/*.txt` 都存在，成功后才原子替换当前 `/etc/nftables.d/po0-iplist`；如果替换失败，会尽量恢复旧目录。
+
+构建脚本只下载并打包数据，不修改 nftables，也不接触 VPS 配置。真正影响放行范围的是管理器导入后再执行的白名单重建流程：
+
+```text
+build_src_allowlist_cache()
+write_nft_allowlist_set()
+nft -c -f 预检
+reload_managed_rules 或 apply_full_config
+```
+
+因此，更新离线包后仍需要在 VPS 端导入并重新应用白名单，新的地区 CIDR 才会进入 nft set。
 
 ### 5.4 自定义白名单与旧文件兼容
 
@@ -579,7 +629,7 @@ po0-lan-client --probe
 po0-lan-client --wizard
 ```
 
-SSH 认证按向导选择：系统默认 SSH 配置/agent、已有私钥路径，或粘贴专用私钥。粘贴的私钥会保存到本机配置目录并设置 600 权限。`额外 SSH 参数` 是传给 `ssh` 的选项，例如 `-J jump-host` 或 `-o StrictHostKeyChecking=accept-new`，不是私钥短语；带短语的私钥需要 `ssh-agent`。向导会自动补 `-o BatchMode=yes`，避免 cron/service 卡在交互输入。菜单里的 `PO0 目标 / SSH / Token` 用于添加、编辑、启停 PO0 目标，并管理目标 SSH 私钥和 Token；`资源任务` 与 `DDNS resolver` 是分开的执行入口，资源任务在前。
+SSH 认证按向导选择：系统默认 SSH 配置/agent、已有私钥路径，或粘贴专用私钥。粘贴的私钥会保存到本机配置目录并设置 600 权限。`额外 SSH 参数` 是传给 `ssh` 的选项，例如 `-J jump-host` 或 `-o StrictHostKeyChecking=accept-new`，不是私钥短语；带短语的私钥需要 `ssh-agent`。向导会自动补 `-o BatchMode=yes`，避免 cron/service 卡在交互输入。菜单里的 `PO0 目标`、`SSH 私钥 / 参数`、`目标 Token`、`Self-report / WebAuth TTL` 分开管理目标、SSH、Token 和 TTL；`资源任务` 与 `DDNS resolver` 是分开的执行入口，资源任务在前。
 
 如果旧版本安装后没有 `po0-lan-client` 命令，可手动补装：
 
@@ -598,14 +648,24 @@ curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scri
 Self-report client 适合运行在访问设备上：它检测自身当前出口公网 IPv4，并上报给 LAN Worker self-report server；LAN Worker 再通过 SSH 调 PO0：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh | bash -s -- --worker-url <LAN_WORKER_REPORT_URL> --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --install-cron 5
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh | bash
+```
+
+非交互安装 cron 时，默认和示例推荐每 15 分钟上报一次；`--install-cron N` 的 `N` 可在 1-59 分钟内调整：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh | bash -s -- --worker-url <LAN_WORKER_REPORT_URL> --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --install-cron 15
 ```
 
 Windows PowerShell 版本检测本机当前出口公网 IPv4 并上报 LAN Worker：
 
 ```powershell
-$env:PO0_LAN_WORKER_URL='<LAN_WORKER_REPORT_URL>'; $env:PO0_SELF_REPORT_SOURCE='<CLIENT_ID>'; $env:PO0_SELF_REPORT_SECRET='<SELF_REPORT_SECRET>'; $env:INSTALL_TASK='1'; $env:MINUTES='5'; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' | iex
+$env:PO0_LAN_WORKER_URL='<LAN_WORKER_REPORT_URL>'; $env:PO0_SELF_REPORT_SOURCE='<CLIENT_ID>'; $env:PO0_SELF_REPORT_SECRET='<SELF_REPORT_SECRET>'; $env:INSTALL_TASK='1'; $env:MINUTES='15'; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' | iex
 ```
+
+PowerShell 客户端下载后支持 `-Menu`，使用 `irm | iex` 时可设置 `$env:PO0_SELF_REPORT_MENU='1'` 进入菜单。
+
+Self-report 放行 TTL 默认 `3600` 秒，由 LAN Worker self-report server 上报 PO0 时传入；客户端只控制上报频率，不控制 TTL。TTL 可以通过 `po0-lan-client --self-report-ttl <秒数>`、bootstrap 向导，或 LAN Worker 菜单 `Self-report / WebAuth TTL` 修改。
 
 `--bootstrap` 会先 probe，再写入本机目标配置；如果要求安装本机 Worker 轮询器，管道运行时会自动落盘到固定路径。Worker 默认调用 PO0 上的 `/root/nftables-relay-manager.sh`，也可以通过 `--po0-script` 覆盖。首次部署推荐 `--wizard`，高级维护菜单仍可管理本机 Worker 的 PO0 目标：查看、添加、编辑、删除、启用/停用，执行 DDNS 解析上报和资源任务轮询领取，并只读查看 PO0 端资源任务创建计划。一个配置文件可以放多台 PO0/VPS。
 
@@ -650,6 +710,8 @@ bash nftables-relay-manager.sh --resource-task-ping TOKEN
 ```
 
 `--resource-task-create` 和 `--install-resource-task-cron` 是 PO0 管理员入口，只创建等待领取的固定任务，不主动连接内网机器。`--resource-task-cron-status` 是只读状态接口，供 Worker 菜单显示 PO0 端创建计划。`--resource-task-ping/claim/upload/complete/fail` 主要供 Worker 调用。`--resource-task-ping` 只读检查 token；任务领取、上传和状态修改使用 `flock`（系统提供时）串行化；上传路径由 PO0 生成，客户端不能指定生产文件路径。资源任务使用独立 Token，不复用 DDNS 上报 Token。使用 PO0 专用受限 SSH 上报 key 时，`scope=worker` 允许 `--resource-task-ping/claim/upload/complete/fail` 和只读 `--resource-task-cron-status`，但不允许 `--resource-task-create` 或安装 PO0 端定时任务；旧 wrapper 需要用新版脚本重新安装/刷新。资源产物通过受限 manager 命令的 stdin 上传，不依赖 SCP。
+
+LAN Worker 本机保留两类资源任务记录：`resource-stats.tsv` 是每个 PO0 endpoint 的聚合统计，`resource-events.tsv` 是逐次查询/执行事件日志。菜单 `资源统计` 会同时展示汇总和最近事件；路径可用 `PO0_LAN_RESOURCE_STATS` / `PO0_LAN_RESOURCE_EVENTS` 覆盖。菜单 `清理资源统计` 支持清空事件日志、清空全部资源统计，或按最近 N 条裁剪事件日志；资源轮询结束后也会自动裁剪事件日志，默认保留最近 `500` 条，可用 `PO0_RESOURCE_EVENTS_KEEP` 调整。
 
 `qqwry.ipdb` 默认下载源：
 
