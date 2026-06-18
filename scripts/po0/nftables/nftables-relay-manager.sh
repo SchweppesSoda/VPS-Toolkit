@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-SCRIPT_VERSION="2026-06-18-version-command"
+SCRIPT_NAME="po0-nftables-relay-manager"
+SCRIPT_VERSION="2026.06.18+build.1"
+SCRIPT_RELEASE_DATE="2026-06-18"
 CONF_DIR="${PO0_CONF_DIR:-/etc/nftables.d}"
 MAIN_CONF="/etc/nftables.conf"
 NFT_CONF="${CONF_DIR}/po0-relay.conf"
@@ -11266,7 +11268,9 @@ do_render() {
 
 do_show_version() {
     printf '%s\n' \
-        "nftables-relay-manager ${SCRIPT_VERSION}" \
+        "script_name=${SCRIPT_NAME}" \
+        "version=${SCRIPT_VERSION}" \
+        "release_date=${SCRIPT_RELEASE_DATE}" \
         "install_path=${MANAGER_INSTALL_PATH}"
 }
 
@@ -11286,7 +11290,7 @@ print_cli_usage() {
         "  bash ${MANAGER_INSTALL_PATH} --show-client-deploy-commands egern" \
         "" \
         "常用命令:" \
-        "  --version        显示当前脚本版本。" \
+        "  --version        显示当前脚本名称、版本、发布日期和安装路径。" \
         "  --render         将计划生成的 nftables 配置输出到标准输出。" \
         "  --refresh-ddns   按 LAN Worker/路由器已上报且仍在 TTL 内的 DDNS 结果重建/应用；PO0 不做本地 DNS 解析，也不延长原上报 TTL。" \
         "  --collect-blocked [since]" \
