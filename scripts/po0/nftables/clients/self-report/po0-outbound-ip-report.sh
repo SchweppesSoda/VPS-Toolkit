@@ -8,28 +8,36 @@ IDENTITY="${PO0_SELF_REPORT_IDENTITY:-${IDENTITY:-$(hostname 2>/dev/null || prin
 SECRET="${PO0_SELF_REPORT_SECRET:-${SELF_REPORT_SECRET:-}}"
 IP_CHECK_URL="${IP_CHECK_URL:-https://ip9.com.cn/get}"
 IP_CHECK_URLS="${IP_CHECK_URLS:-}"
+INSTALL_PATH="${PO0_SELF_REPORT_INSTALL_PATH:-${INSTALL_PATH:-}}"
 INSTALL_CRON=""
-CRON_MINUTES="5"
+SHOW_MENU=""
+CRON_MINUTES="${PO0_SELF_REPORT_MINUTES:-${MINUTES:-15}}"
+HAD_ARGS=0
+[[ "$#" -gt 0 ]] && HAD_ARGS=1
 
 usage() {
     printf '%s\n' \
         "PO0 自上报客户端（Linux/OpenWrt）" \
         "" \
         "本脚本探测当前设备的公网出口 IPv4，并上报到 LAN Worker 的 self-report" \
-        "接收服务。访问设备不直接连接 PO0。" \
+        "接收服务。访问设备不直接连接 PO0。Self-report 放行 TTL 由 LAN Worker" \
+        "接收端配置，不由客户端决定。" \
         "" \
         "用法:" \
+        "  bash po0-outbound-ip-report.sh --menu" \
         "  bash po0-outbound-ip-report.sh --worker-url https://worker.example.com/report --source-id laptop --secret SECRET" \
-        "  curl -fsSL ${RAW_URL} | bash -s -- --worker-url https://worker.example.com/report --source-id laptop --secret SECRET --install-cron 5" \
+        "  curl -fsSL ${RAW_URL} | bash -s -- --worker-url https://worker.example.com/report --source-id laptop --secret SECRET --install-cron 15" \
         "" \
         "参数:" \
+        "  --menu                打开交互菜单。" \
         "  --worker-url URL      LAN Worker self-report 接收地址，例如 https://auth.example.com/report。" \
         "  --source-id ID        写入 PO0 client_ip 记录的来源 ID。默认: ${SOURCE_ID}" \
         "  --identity ID         LAN Worker/PO0 日志里的设备或用户标签。默认: ${IDENTITY}" \
         "  --secret SECRET       可选的 LAN Worker self-report 共享密钥。" \
         "  --ip-check-url URL    第一个公网 IPv4 探测地址。默认: ${IP_CHECK_URL}" \
         "  --ip-check-urls CSV   覆盖完整探测地址列表，多个 URL 用逗号分隔。" \
-        "  --install-cron [N]    安装 cron，每 N 分钟自上报一次。默认: 5。" \
+        "  --install-cron [N]    安装 cron，每 N 分钟自上报一次。默认: ${CRON_MINUTES}。" \
+        "  --minutes N           设置 cron 上报间隔，范围 1-59。" \
         "" \
         "默认公网 IPv4 探测顺序:" \
         "  https://ip9.com.cn/get" \
@@ -54,6 +62,78 @@ sh_quote() {
     local value="$1"
     value="${value//\'/\'\\\'\'}"
     printf "'%s'" "${value}"
+}
+
+mask_secret() {
+    local value="$1"
+    local len
+    [[ -n "${value}" ]] || { printf '未设置'; return 0; }
+    len="${#value}"
+    if (( len <= 8 )); then
+        printf '***'
+    else
+        printf '%s***%s' "${value:0:3}" "${value: -3}"
+    fi
+}
+
+read_prompt() {
+    local prompt="$1"
+    local value
+    if [[ -r /dev/tty && -w /dev/tty ]]; then
+        if { printf '%s' "${prompt}" > /dev/tty && IFS= read -r value < /dev/tty; } 2>/dev/null; then
+            printf '%s\n' "${value}"
+            return 0
+        fi
+    fi
+    printf '%s' "${prompt}" >&2
+    IFS= read -r value || return 1
+    printf '%s\n' "${value}"
+}
+
+prompt_default() {
+    local prompt="$1"
+    local default="$2"
+    local value
+    if [[ -n "${default}" ]]; then
+        value="$(read_prompt "${prompt} [${default}]: ")" || value=""
+        value="$(trim "${value}")"
+        [[ -n "${value}" ]] || value="${default}"
+    else
+        value="$(read_prompt "${prompt}: ")" || value=""
+        value="$(trim "${value}")"
+    fi
+    printf '%s\n' "${value}"
+}
+
+prompt_yes_no() {
+    local prompt="$1"
+    local default="${2:-n}"
+    local suffix value
+    case "${default,,}" in
+        y|yes|1|true) suffix="Y/n"; default="y" ;;
+        *) suffix="y/N"; default="n" ;;
+    esac
+    while true; do
+        value="$(read_prompt "${prompt} [${suffix}]: ")" || return 1
+        value="$(trim "${value}")"
+        [[ -n "${value}" ]] || value="${default}"
+        case "${value,,}" in
+            y|yes) return 0 ;;
+            n|no) return 1 ;;
+            *) printf '请输入 y 或 n。\n' >&2 ;;
+        esac
+    done
+}
+
+pause_before_return() {
+    read_prompt "按回车返回菜单..." >/dev/null || true
+}
+
+validate_cron_minutes() {
+    [[ "${CRON_MINUTES}" =~ ^[0-9]+$ && "${CRON_MINUTES}" -ge 1 && "${CRON_MINUTES}" -le 59 ]] || {
+        printf '上报间隔必须是 1-59 分钟。\n' >&2
+        return 1
+    }
 }
 
 is_public_ipv4() {
@@ -157,25 +237,24 @@ detect_outbound_ipv4() {
     return 1
 }
 
-script_path() {
-    local script="${BASH_SOURCE[0]}"
-    case "${script}" in
-        /dev/fd/*|/proc/*|/dev/stdin)
-            printf '/usr/local/sbin/po0-self-report\n'
-            ;;
-        /*)
-            printf '%s\n' "${script}"
-            ;;
-        *)
-            printf '%s/%s\n' "$(pwd -P)" "${script}"
-            ;;
-    esac
+default_install_path() {
+    if [[ -n "${INSTALL_PATH}" ]]; then
+        printf '%s\n' "${INSTALL_PATH}"
+    elif [[ "${EUID:-$(id -u 2>/dev/null || printf 1)}" -eq 0 ]]; then
+        printf '%s\n' "/usr/local/sbin/po0-self-report"
+    elif [[ -n "${HOME:-}" ]]; then
+        printf '%s\n' "${HOME}/.local/bin/po0-self-report"
+    else
+        printf '%s\n' "./po0-self-report"
+    fi
 }
 
 install_self() {
-    local dest="/usr/local/sbin/po0-self-report"
-    mkdir -p "$(dirname "${dest}")" || return 1
-    if [[ -r "${BASH_SOURCE[0]}" && "${BASH_SOURCE[0]}" != /dev/fd/* && "${BASH_SOURCE[0]}" != /proc/* ]]; then
+    local dest dir
+    dest="$(default_install_path)"
+    dir="$(dirname "${dest}")"
+    mkdir -p "${dir}" || return 1
+    if [[ -r "${BASH_SOURCE[0]}" && "${BASH_SOURCE[0]}" != /dev/fd/* && "${BASH_SOURCE[0]}" != /proc/* && "${BASH_SOURCE[0]}" != /dev/stdin ]]; then
         cp "${BASH_SOURCE[0]}" "${dest}" || return 1
     elif command -v curl >/dev/null 2>&1; then
         curl -fsSL "${RAW_URL}" -o "${dest}" || return 1
@@ -189,24 +268,82 @@ install_self() {
     printf '%s\n' "${dest}"
 }
 
+cron_begin_marker() {
+    printf '# PO0_SELF_REPORT_BEGIN\n'
+}
+
+cron_end_marker() {
+    printf '# PO0_SELF_REPORT_END\n'
+}
+
+write_cron_without_managed_block() {
+    awk '/# PO0_SELF_REPORT_BEGIN/{skip=1; next} /# PO0_SELF_REPORT_END/{skip=0; next} !skip{print}'
+}
+
 install_cron() {
-    local script job tmp
+    local script job tmp ip_args
+    validate_cron_minutes || return 1
+    [[ -n "${WORKER_URL}" ]] || {
+        echo "缺少 --worker-url。" >&2
+        return 1
+    }
     command -v crontab >/dev/null 2>&1 || {
         echo "未找到 crontab 命令。" >&2
         return 1
     }
     script="$(install_self)" || return 1
-    job="*/${CRON_MINUTES} * * * * bash $(sh_quote "${script}") --worker-url $(sh_quote "${WORKER_URL}") --source-id $(sh_quote "${SOURCE_ID}") --identity $(sh_quote "${IDENTITY}") --secret $(sh_quote "${SECRET}") --ip-check-url $(sh_quote "${IP_CHECK_URL}") >/tmp/po0-self-report.log 2>&1"
+    if [[ -n "${IP_CHECK_URLS}" ]]; then
+        ip_args="--ip-check-urls $(sh_quote "${IP_CHECK_URLS}")"
+    else
+        ip_args="--ip-check-url $(sh_quote "${IP_CHECK_URL}")"
+    fi
+    job="*/${CRON_MINUTES} * * * * bash $(sh_quote "${script}") --worker-url $(sh_quote "${WORKER_URL}") --source-id $(sh_quote "${SOURCE_ID}") --identity $(sh_quote "${IDENTITY}") --secret $(sh_quote "${SECRET}") ${ip_args} >/tmp/po0-self-report.log 2>&1"
     tmp="/tmp/po0-self-report-cron.$$"
     {
-        crontab -l 2>/dev/null | awk '/# PO0_SELF_REPORT_BEGIN/{skip=1; next} /# PO0_SELF_REPORT_END/{skip=0; next} !skip{print}'
-        echo "# PO0_SELF_REPORT_BEGIN"
+        crontab -l 2>/dev/null | write_cron_without_managed_block
+        echo "$(cron_begin_marker)"
         echo "${job}"
-        echo "# PO0_SELF_REPORT_END"
+        echo "$(cron_end_marker)"
     } > "${tmp}" || return 1
-    crontab "${tmp}" || return 1
-    rm -f "${tmp}"
+    crontab "${tmp}" || {
+        rm -f "${tmp}" 2>/dev/null || true
+        return 1
+    }
+    rm -f "${tmp}" 2>/dev/null || true
     echo "已安装 self-report cron：每 ${CRON_MINUTES} 分钟上报一次。"
+    echo "脚本路径：${script}"
+}
+
+remove_cron() {
+    local tmp
+    command -v crontab >/dev/null 2>&1 || {
+        echo "未找到 crontab 命令。" >&2
+        return 1
+    }
+    tmp="/tmp/po0-self-report-cron.$$"
+    crontab -l 2>/dev/null | write_cron_without_managed_block > "${tmp}" || true
+    crontab "${tmp}" || {
+        rm -f "${tmp}" 2>/dev/null || true
+        return 1
+    }
+    rm -f "${tmp}" 2>/dev/null || true
+    echo "已删除本脚本管理的 self-report cron。"
+}
+
+show_cron_status() {
+    local line in_block=0 found=0
+    command -v crontab >/dev/null 2>&1 || {
+        echo "当前系统没有 crontab 命令。"
+        return 0
+    }
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        case "${line}" in
+            "# PO0_SELF_REPORT_BEGIN") in_block=1; found=1; continue ;;
+            "# PO0_SELF_REPORT_END") in_block=0; continue ;;
+        esac
+        [[ "${in_block}" == "1" ]] && printf '%s\n' "${line}"
+    done < <(crontab -l 2>/dev/null || true)
+    [[ "${found}" == "1" ]] || echo "未安装本脚本管理的 self-report cron。"
 }
 
 report_once() {
@@ -232,28 +369,161 @@ report_once() {
         "${WORKER_URL}"
 }
 
+show_current_config() {
+    printf '%s\n' "------------------------"
+    printf '%s\n' "Self-report 客户端配置"
+    printf '  LAN Worker URL : %s\n' "${WORKER_URL:-未设置}"
+    printf '  Source ID      : %s\n' "${SOURCE_ID:-未设置}"
+    printf '  Identity       : %s\n' "${IDENTITY:-未设置}"
+    printf '  Secret         : %s\n' "$(mask_secret "${SECRET}")"
+    printf '  上报间隔       : 每 %s 分钟（安装 cron 时使用）\n' "${CRON_MINUTES}"
+    printf '  放行 TTL       : 由 LAN Worker Self-report 目标控制，默认 3600 秒\n'
+    if [[ -n "${IP_CHECK_URLS}" ]]; then
+        printf '  IP 探测列表    : %s\n' "${IP_CHECK_URLS}"
+    else
+        printf '  首选 IP 探测   : %s\n' "${IP_CHECK_URL}"
+    fi
+}
+
+configure_interactive() {
+    local secret_input
+    WORKER_URL="$(prompt_default "LAN Worker self-report 接收地址" "${WORKER_URL}")"
+    SOURCE_ID="$(prompt_default "Source ID" "${SOURCE_ID:-self-report}")"
+    IDENTITY="$(prompt_default "Identity" "${IDENTITY}")"
+    if [[ -n "${SECRET}" ]]; then
+        secret_input="$(read_prompt "Self-report secret [已设置，回车保留，输入 - 清空]: ")" || secret_input=""
+        secret_input="$(trim "${secret_input}")"
+        case "${secret_input}" in
+            "") ;;
+            "-") SECRET="" ;;
+            *) SECRET="${secret_input}" ;;
+        esac
+    else
+        SECRET="$(prompt_default "Self-report secret，可空" "")"
+    fi
+    CRON_MINUTES="$(prompt_default "客户端每几分钟上报一次（1-59）" "${CRON_MINUTES}")"
+    validate_cron_minutes || return 1
+    IP_CHECK_URL="$(prompt_default "首选公网 IPv4 探测 URL" "${IP_CHECK_URL}")"
+    if prompt_yes_no "是否覆盖完整 IP 探测 URL 列表" "n"; then
+        IP_CHECK_URLS="$(prompt_default "完整探测 URL 列表，逗号分隔" "${IP_CHECK_URLS}")"
+    fi
+}
+
+run_once_interactive() {
+    if [[ -z "${WORKER_URL}" ]]; then
+        configure_interactive || return 1
+    fi
+    report_once
+}
+
+install_cron_interactive() {
+    configure_interactive || return 1
+    install_cron
+}
+
+menu_loop() {
+    local choice
+    while true; do
+        show_current_config
+        printf '%s\n' "------------------------"
+        printf '%s\n' "请选择操作"
+        printf '  %s\n' "1. 配置上报目标 / 间隔"
+        printf '  %s\n' "2. 立即上报一次"
+        printf '  %s\n' "3. 安装 / 更新定时上报"
+        printf '  %s\n' "4. 查看定时上报状态"
+        printf '  %s\n' "5. 删除定时上报"
+        printf '  %s\n' "6. 显示当前配置"
+        printf '  %s\n' "0. 退出"
+        printf '%s\n' "------------------------"
+        choice="$(read_prompt "请选择操作 [0-6]: ")" || return 0
+        choice="$(trim "${choice}")"
+        case "${choice}" in
+            1) configure_interactive; pause_before_return ;;
+            2) run_once_interactive; pause_before_return ;;
+            3) install_cron_interactive; pause_before_return ;;
+            4) show_cron_status; pause_before_return ;;
+            5)
+                if prompt_yes_no "确认删除 self-report 定时上报" "n"; then
+                    remove_cron
+                else
+                    echo "已取消。"
+                fi
+                pause_before_return
+                ;;
+            6) show_current_config; pause_before_return ;;
+            0) return 0 ;;
+            "") ;;
+            *) printf '无效选择。\n' >&2; pause_before_return ;;
+        esac
+    done
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --worker-url|--lan-worker-url) WORKER_URL="${2:-}"; shift 2 ;;
-        --source-id) SOURCE_ID="${2:-}"; shift 2 ;;
-        --identity) IDENTITY="${2:-}"; shift 2 ;;
-        --secret|--self-report-secret) SECRET="${2:-}"; shift 2 ;;
-        --ip-check-url) IP_CHECK_URL="${2:-}"; shift 2 ;;
-        --ip-check-urls) IP_CHECK_URLS="${2:-}"; shift 2 ;;
+        --menu)
+            SHOW_MENU="1"
+            shift
+            ;;
+        --worker-url|--lan-worker-url)
+            WORKER_URL="${2:-}"
+            shift 2
+            ;;
+        --source-id)
+            SOURCE_ID="${2:-}"
+            shift 2
+            ;;
+        --identity)
+            IDENTITY="${2:-}"
+            shift 2
+            ;;
+        --secret|--self-report-secret)
+            SECRET="${2:-}"
+            shift 2
+            ;;
+        --ip-check-url)
+            IP_CHECK_URL="${2:-}"
+            shift 2
+            ;;
+        --ip-check-urls)
+            IP_CHECK_URLS="${2:-}"
+            shift 2
+            ;;
+        --install-path)
+            INSTALL_PATH="${2:-}"
+            shift 2
+            ;;
+        --minutes|--cron-minutes)
+            CRON_MINUTES="${2:-}"
+            shift 2
+            ;;
         --install-cron)
             INSTALL_CRON="1"
-            if [[ "${2:-}" =~ ^[0-9]+$ ]]; then CRON_MINUTES="${2:-}"; shift 2; else shift; fi
+            if [[ "${2:-}" =~ ^[0-9]+$ ]]; then
+                CRON_MINUTES="${2:-}"
+                shift 2
+            else
+                shift
+            fi
             ;;
         --po0-host|--po0-script|--source-key|--domain|--token)
             echo "不再支持直接向 PO0 自上报。请使用 --worker-url 上报到 LAN Worker。" >&2
             exit 1
             ;;
-        --help|-h) usage; exit 0 ;;
-        *) echo "未知参数：$1" >&2; usage >&2; exit 1 ;;
+        --help|-h)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "未知参数：$1" >&2
+            usage >&2
+            exit 1
+            ;;
     esac
 done
 
-if [[ "${INSTALL_CRON}" == "1" ]]; then
+if [[ "${SHOW_MENU}" == "1" || ( "${HAD_ARGS}" == "0" && -r /dev/tty && -w /dev/tty && -z "${WORKER_URL}" ) ]]; then
+    menu_loop
+elif [[ "${INSTALL_CRON}" == "1" ]]; then
     install_cron
 else
     report_once
