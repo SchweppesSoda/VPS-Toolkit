@@ -2,9 +2,10 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-nftables-relay-manager"
-SCRIPT_VERSION="2026.06.18+build.5"
+SCRIPT_VERSION="2026.06.18+build.6"
 SCRIPT_RELEASE_DATE="2026-06-18"
 # CHANGELOG_BEGIN
+# - 重排源 IP 白名单菜单：动态来源缓存维护、来源 IP 学习与候选提升、被阻挡访问日志拆成独立子菜单，减少主菜单裸露维护动作。
 # - 中转机参数新增“本机名称/导出前缀”，导出规则默认文件名可带 PO0XX- 这类主机前缀。
 # - 转发规则列表的“回程模式”改为直接显示“内网回源 / 公网出口 / 透明转发”，避免把 relay_lan 简写成 lan 造成理解成本。
 # - 新增 --changelog，用于 scp 上传更新后查看当前版本更新内容。
@@ -10731,24 +10732,141 @@ do_manage_custom_allowlist() {
     done
 }
 
+do_print_dynamic_allowlist_cleanup_status() {
+    print_title "动态来源清理 cron"
+    printf '动态缓存策略：%s\n' "$(dynamic_allowlist_limits_label)"
+    printf '清理 cron：\n'
+    print_dynamic_allowlist_cron_summary
+}
+
+do_manage_dynamic_allowlist_maintenance() {
+    local choice
+    ensure_layout || return
+    while true; do
+        menu_clear_screen
+        print_title "动态来源缓存维护"
+        print_panel_section "状态"
+        print_panel_row "动态来源限制" "$(dynamic_allowlist_limits_label)"
+        print_panel_row "清理 cron" "$(print_dynamic_allowlist_cron_summary)"
+        print_menu_section "查看与清理"
+        print_menu_pair 1 "查看清理 cron" 2 "立即清理过期 / 超量 IP"
+        print_menu_section "计划任务"
+        print_menu_pair 3 "安装 / 更新清理 cron" 4 "删除清理 cron"
+        print_menu_section "退出"
+        print_menu_item 0 "返回"
+        print_menu_footer
+        read_menu_choice_or_return choice "请选择操作 [0-4]: " || return
+        case "${choice}" in
+            1)
+                do_print_dynamic_allowlist_cleanup_status
+                pause_before_return
+                ;;
+            2)
+                do_cleanup_dynamic_allowlist
+                pause_before_return
+                ;;
+            3)
+                do_install_dynamic_allowlist_cleanup_cron_interactive
+                pause_before_return
+                ;;
+            4)
+                confirm_yes "确认删除动态来源清理 cron" && remove_dynamic_allowlist_cleanup_cron
+                pause_before_return
+                ;;
+            0)
+                return
+                ;;
+            *)
+                err "无效选择。"
+                pause_before_return
+                ;;
+        esac
+    done
+}
+
+do_collect_blocked_ips_custom_since() {
+    local since
+    print_title "按时间范围采集被阻挡访问日志"
+    echo "时间范围会传给 journalctl --since；例如 24 hours ago 或 2026-06-18 00:00:00。"
+    since="$(prompt_with_default "请输入采集起点" "24 hours ago")"
+    since="$(trim "${since}")"
+    [[ -n "${since}" ]] || since="24 hours ago"
+    do_collect_blocked_ips "${since}"
+}
+
+do_manage_blocked_log() {
+    local choice
+    ensure_layout || return
+    while true; do
+        menu_clear_screen
+        print_title "被阻挡访问日志"
+        printf '日志文件 : %s（%s 条，%s）\n' \
+            "${BLOCK_LOG_FILE}" "$(block_log_count)" "$(format_bytes "$(block_log_size_bytes)")"
+        printf '统计文件 : %s（%s 行）\n' "${BLOCK_SUMMARY_FILE}" "$(block_summary_count)"
+        printf 'IPDB 数据: %s\n' "$(ipdb_status_label)"
+        echo ""
+        print_menu_section "查看与采集"
+        print_menu_pair 1 "查看被阻挡访问统计" 2 "采集最近 1 小时日志"
+        print_menu_item 3 "按自定义 since 采集日志"
+        print_menu_section "日志维护"
+        print_menu_pair 4 "压缩日志并刷新统计" 5 "清空日志"
+        print_menu_section "退出"
+        print_menu_item 0 "返回"
+        print_menu_footer
+        read_menu_choice_or_return choice "请选择操作 [0-5]: " || return
+        case "${choice}" in
+            1)
+                do_print_blocked_log_stats
+                pause_before_return
+                ;;
+            2)
+                do_collect_blocked_ips "1 hour ago"
+                pause_before_return
+                ;;
+            3)
+                do_collect_blocked_ips_custom_since
+                pause_before_return
+                ;;
+            4)
+                do_compact_block_log
+                pause_before_return
+                ;;
+            5)
+                do_clear_block_log
+                pause_before_return
+                ;;
+            0)
+                return
+                ;;
+            *)
+                err "无效选择。"
+                pause_before_return
+                ;;
+        esac
+    done
+}
+
 do_manage_learning_allowlist() {
     local choice
     while true; do
         menu_clear_screen
-        print_title "学习服务与候选提升"
+        print_title "来源 IP 学习与候选提升"
         printf '学习服务 : %s\n' "$(learning_service_status_label)"
         printf '学习日志 : %s（%s 条事件，%s）\n' \
             "${LEARN_LOG_FILE}" "$(learning_log_count)" "$(format_bytes "$(learning_log_size_bytes)")"
         printf '每日汇总 : %s（%s 天）\n' "${LEARN_SUMMARY_FILE}" "$(learning_summary_count)"
         printf 'IPDB 数据: %s\n' "$(ipdb_status_label)"
         echo ""
+        print_menu_section "服务"
         print_menu_item 1 "启动 / 停止学习服务"
-        print_menu_item 2 "查看学习记录统计"
-        print_menu_item 3 "清空学习记录"
-        print_menu_item 4 "将学习到的单 IP 加入自定义白名单"
-        print_menu_item 5 "将学习到的 /24 候选加入自定义白名单"
-        print_menu_item 6 "将学习到的 /16 候选加入自定义白名单（高风险）"
-        print_menu_item 7 "立即压缩学习日志"
+        print_menu_section "查看"
+        print_menu_item 2 "查看学习记录与候选统计"
+        print_menu_section "候选提升"
+        print_menu_pair 3 "将学习到的单 IP 加入自定义白名单" 4 "将学习到的 /24 候选加入自定义白名单"
+        print_menu_item 5 "将学习到的 /16 候选加入自定义白名单（高风险）"
+        print_menu_section "日志维护"
+        print_menu_pair 6 "压缩 / 归档学习日志" 7 "清空学习记录"
+        print_menu_section "退出"
         print_menu_item 0 "返回"
         print_menu_footer
         read_menu_choice_or_return choice "请选择操作 [0-7]: " || return
@@ -10762,23 +10880,23 @@ do_manage_learning_allowlist() {
                 pause_before_return
                 ;;
             3)
-                do_clear_learning_log
-                pause_before_return
-                ;;
-            4)
                 do_promote_learned_ip
                 pause_before_return
                 ;;
-            5)
+            4)
                 do_promote_learned_cidr24
                 pause_before_return
                 ;;
-            6)
+            5)
                 do_promote_learned_cidr16
                 pause_before_return
                 ;;
-            7)
+            6)
                 do_compact_learning_log
+                pause_before_return
+                ;;
+            7)
+                do_clear_learning_log
                 pause_before_return
                 ;;
             0)
@@ -10990,28 +11108,26 @@ do_manage_src_allowlist() {
         print_src_allowlist_details
         print_menu_section "查看与确认"
         print_menu_pair 1 "字段说明" 2 "来源 / IP 明细"
-        print_menu_pair 3 "最终生效 CIDR 缓存" 4 "被阻挡访问统计"
-        print_menu_section "策略与静态来源"
-        print_menu_pair 5 "设置源 IP 限制方式" 6 "管理地区白名单"
-        print_menu_pair 7 "管理手动 CIDR" 8 "当前 SSH 临时放行"
+        print_menu_item 3 "最终生效 CIDR 缓存"
+        print_menu_section "策略与手动来源"
+        print_menu_pair 4 "设置源 IP 限制方式" 5 "管理地区白名单"
+        print_menu_pair 6 "管理手动 CIDR" 7 "当前 SSH 临时放行"
         print_menu_section "动态来源与客户端"
-        print_menu_pair 9 "动态来源开关" 10 "管理 DDNS 来源"
-        print_menu_pair 11 "Client IP / Self-report Token" 12 "Egern / SSH report Token"
-        print_menu_pair 13 "WebAuth 上报 Token" 14 "专用受限 SSH 上报 key"
-        print_menu_item 15 "自动来源安全模式 / pending IP"
-        print_menu_section "清理、学习与阻挡日志"
-        print_menu_pair 16 "清理动态来源过期 / 超量 IP" 17 "安装 / 更新清理 cron"
-        print_menu_pair 18 "删除动态来源清理 cron" 19 "学习服务与候选提升"
-        print_menu_pair 20 "采集被阻挡访问日志" 21 "压缩被阻挡访问日志"
-        print_menu_item 22 "清空被阻挡访问日志"
+        print_menu_pair 8 "动态来源开关" 9 "管理 DDNS 来源"
+        print_menu_pair 10 "Client IP / Self-report Token" 11 "Egern / SSH report Token"
+        print_menu_pair 12 "WebAuth 上报 Token" 13 "专用受限 SSH 上报 key"
+        print_menu_item 14 "自动来源安全模式 / pending IP"
+        print_menu_section "自动学习、清理与排障"
+        print_menu_pair 15 "动态来源缓存维护" 16 "来源 IP 学习与候选提升"
+        print_menu_item 17 "被阻挡访问日志"
         print_menu_section "数据与资源"
-        print_menu_pair 23 "IPDB 数据与解析" 24 "导入 / 刷新 iplist 离线包"
-        print_menu_pair 25 "重建并应用白名单" 26 "管理白名单配置档案"
-        print_menu_item 27 "管理内网资源更新任务"
+        print_menu_pair 18 "IPDB 数据与解析" 19 "导入 / 刷新 iplist 离线包"
+        print_menu_pair 20 "重建并应用白名单" 21 "管理白名单配置档案"
+        print_menu_item 22 "管理内网资源更新任务"
         print_menu_section "退出"
         print_menu_item 0 "返回"
         print_menu_footer
-        read_menu_choice_or_return choice "请选择操作 [0-27]: " || return
+        read_menu_choice_or_return choice "请选择操作 [0-22]: " || return
         case "${choice}" in
             1)
                 do_explain_src_allowlist_fields
@@ -11026,10 +11142,6 @@ do_manage_src_allowlist() {
                 pause_before_return
                 ;;
             4)
-                do_print_blocked_log_stats
-                pause_before_return
-                ;;
-            5)
                 save_allowlist_last_snapshot || {
                     pause_before_return
                     continue
@@ -11041,76 +11153,58 @@ do_manage_src_allowlist() {
                 apply_src_allowlist_changes
                 pause_before_return
                 ;;
-            6)
+            5)
                 do_manage_region_allowlist
                 ;;
-            7)
+            6)
                 do_manage_custom_allowlist
                 ;;
-            8)
+            7)
                 do_add_ssh_temp_allowlist_entry
                 pause_before_return
                 ;;
-            9)
+            8)
                 do_manage_allowlist_source_switches
                 pause_before_return
                 ;;
-            10)
+            9)
                 do_manage_ddns_allowlist_sources
                 ;;
-            11)
+            10)
                 do_show_client_ip_report_token
                 pause_before_return
                 ;;
-            12)
+            11)
                 do_show_ssh_report_token
                 pause_before_return
                 ;;
-            13)
+            12)
                 do_show_webauth_report_token
                 pause_before_return
                 ;;
-            14)
+            13)
                 do_manage_report_keys
                 ;;
-            15)
+            14)
                 do_manage_automation_mode
                 ;;
+            15)
+                do_manage_dynamic_allowlist_maintenance
+                ;;
             16)
-                do_cleanup_dynamic_allowlist
-                pause_before_return
-                ;;
-            17)
-                do_install_dynamic_allowlist_cleanup_cron_interactive
-                pause_before_return
-                ;;
-            18)
-                confirm_yes "确认删除动态来源清理 cron" && remove_dynamic_allowlist_cleanup_cron
-                pause_before_return
-                ;;
-            19)
                 do_manage_learning_allowlist
                 ;;
-            20)
-                do_collect_blocked_ips
-                pause_before_return
+            17)
+                do_manage_blocked_log
                 ;;
-            21)
-                do_compact_block_log
-                pause_before_return
-                ;;
-            22)
-                do_clear_block_log
-                pause_before_return
-                ;;
-            23)
+            18)
                 do_manage_ipdb_tools
                 ;;
-            24)
+            19)
                 do_import_iplist_package
                 pause_before_return
                 ;;
-            25)
+            20)
                 src_allowlist_enabled || {
                     err "白名单未开启，或当前模式没有可用 CIDR。"
                     pause_before_return
@@ -11119,10 +11213,10 @@ do_manage_src_allowlist() {
                 apply_src_allowlist_changes
                 pause_before_return
                 ;;
-            26)
+            21)
                 do_manage_allowlist_profiles
                 ;;
-            27)
+            22)
                 do_manage_resource_tasks
                 ;;
             0)
@@ -11149,7 +11243,7 @@ print_recommended_operations() {
     print_panel_section "推荐操作"
     print_panel_action "首次部署" "安装/初始化 -> 新增或导入转发规则 -> 管理源 IP 白名单 -> 诊断/自检"
     print_panel_action "日常维护" "查看概览与规则列表；按需新增/编辑规则；管理源 IP 白名单"
-    print_panel_action "白名单收紧" "管理源 IP 白名单 -> 学习服务与候选提升 -> 手动加入自定义白名单"
+    print_panel_action "白名单收紧" "管理源 IP 白名单 -> 来源 IP 学习与候选提升 -> 将学习到的单 IP 加入自定义白名单"
     print_panel_action "安全基线" "保持入站防火墙接管开启；SSH 端口会自动例外放行"
     echo ""
 }

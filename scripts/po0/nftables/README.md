@@ -90,7 +90,7 @@ LAN Worker：只做 `iplist/ipdb` 资源任务：
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script /root/nftables-relay-manager.sh --resource-token <RESOURCE_TOKEN> --install-cron 1440
 ```
 
-`--install-cron` 是安装 Worker 本机计划任务。DDNS resolver 上报和资源任务领取是两条不同计划：DDNS 间隔在 LAN Worker 本机设置，应小于 PO0 端 DDNS 来源 TTL；这个 TTL 在 PO0 主控的 `管理源 IP 白名单 -> 管理 DDNS 来源` 添加/编辑来源时设置。资源任务只负责发现并领取 PO0 已创建的 pending 任务，默认每 `1440` 分钟检查一次，交互菜单可设为 `1-10080` 分钟。资源任务的创建周期在 PO0 主控的 `内网资源更新任务 -> 安装 / 更新 PO0 定时创建` 中设置。
+`--install-cron` 是安装 Worker 本机计划任务。DDNS resolver 上报和资源任务领取是两条不同计划：DDNS 间隔在 LAN Worker 本机设置，应小于 PO0 端 DDNS 来源 TTL；这个 TTL 在 PO0 主控的 `管理源 IP 白名单 -> 动态来源与客户端 -> 管理 DDNS 来源` 添加/编辑来源时设置。资源任务只负责发现并领取 PO0 已创建的 pending 任务，默认每 `1440` 分钟检查一次，交互菜单可设为 `1-10080` 分钟。资源任务的创建周期在 PO0 主控的 `内网资源更新任务 -> 安装 / 更新 PO0 定时创建` 中设置。
 
 兼容旧用法时，`--install-cron N` 会把 DDNS 和资源任务两个计划都设为 `N` 分钟；不带 `N` 时，LAN Worker 默认 DDNS 每 5 分钟上报、资源任务每 1440 分钟检查一次。
 
@@ -171,7 +171,7 @@ custom_sources        高级自选来源组合
 如果不想把所有动态来源都打开，选择 `custom_sources`，或在菜单里进入：
 
 ```text
-管理源 IP 白名单 -> 管理动态来源开关（高级自选来源）
+管理源 IP 白名单 -> 动态来源开关（高级自选来源）
 ```
 
 可组合的来源：
@@ -193,11 +193,19 @@ bash /root/nftables-relay-manager.sh --cleanup-dynamic-allowlist
 bash /root/nftables-relay-manager.sh --install-dynamic-allowlist-cleanup-cron daily
 ```
 
+交互菜单里，动态来源缓存维护、来源 IP 学习和被阻挡访问排障已拆分：
+
+```text
+管理源 IP 白名单 -> 动态来源缓存维护
+管理源 IP 白名单 -> 来源 IP 学习与候选提升
+管理源 IP 白名单 -> 被阻挡访问日志
+```
+
 ## DDNS Resolver 上报
 
 推荐流程：
 
-1. PO0 端在“管理源 IP 白名单 -> 管理 DDNS 来源”里添加域名并生成 DDNS token。
+1. PO0 端在“管理源 IP 白名单 -> 动态来源与客户端 -> 管理 DDNS 来源”里添加域名并生成 DDNS token。
 2. LAN Worker、路由器、OpenWrt、NAS 或 Windows/Linux 小脚本解析这个 DDNS 域名的公网 A 记录。
 3. 解析结果通过 SSH 调 PO0：
 
