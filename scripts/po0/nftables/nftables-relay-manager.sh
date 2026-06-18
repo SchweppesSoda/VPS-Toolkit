@@ -2,9 +2,10 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-nftables-relay-manager"
-SCRIPT_VERSION="2026.06.18+build.3"
+SCRIPT_VERSION="2026.06.18+build.4"
 SCRIPT_RELEASE_DATE="2026-06-18"
 # CHANGELOG_BEGIN
+# - 转发规则列表的“回程模式”改为直接显示“内网回源 / 公网出口 / 透明转发”，避免把 relay_lan 简写成 lan 造成理解成本。
 # - 新增 --changelog，用于 scp 上传更新后查看当前版本更新内容。
 # - 内网资源更新任务菜单新增“查看 PO0 定时创建状态”，明确 PO0 只创建 pending 任务、LAN Worker 负责领取执行。
 # - 脚本版本菜单改为版本信息面板，并显示当前版本更新内容。
@@ -6366,13 +6367,13 @@ snat_mode_to_label() {
 snat_mode_to_short() {
     case "$1" in
         masquerade)
-            printf 'masq'
+            printf '公网出口'
             ;;
         none)
-            printf 'none'
+            printf '透明转发'
             ;;
         *)
-            printf 'lan'
+            printf '内网回源'
             ;;
     esac
 }
@@ -7606,7 +7607,7 @@ describe_rule() {
 print_rule_line() {
     local idx="$1"
     parse_rule "$2"
-    printf '%-4s %-8b %-10s :%-8s %-21s %-8s %s\n' \
+    printf '%-4s %-8b %-10s :%-8s %-21s %-12s %s\n' \
         "${idx}." \
         "$(enabled_to_short "${RULE_ENABLED}")" \
         "$(proto_to_label "${RULE_PROTO}")" \
@@ -7624,8 +7625,8 @@ print_rules_table() {
         info "当前没有转发规则。"
         return 0
     fi
-    printf '%b%-4s %-8s %-10s %-10s %-21s %-8s %s%b\n' \
-        "${C_BOLD}" "#" "状态" "协议" "监听端口" "目标地址" "回程" "规则名称" "${C_RESET}"
+    printf '%b%-4s %-8s %-10s %-10s %-21s %-12s %s%b\n' \
+        "${C_BOLD}" "#" "状态" "协议" "监听端口" "目标地址" "回程模式" "规则名称" "${C_RESET}"
     print_divider
     for rule in "${RULES[@]}"; do
         print_rule_line "${idx}" "${rule}"
