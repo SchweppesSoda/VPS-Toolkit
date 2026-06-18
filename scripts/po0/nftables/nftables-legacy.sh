@@ -62,10 +62,30 @@ print_menu_footer() {
     print_menu_divider
 }
 
+menu_clear_screen() {
+    [[ "${MENU_CLEAR:-1}" == "0" ]] && return 0
+    [[ -t 1 && -n "${TERM:-}" && "${TERM}" != "dumb" ]] || return 0
+    command -v clear >/dev/null 2>&1 && clear || printf '\033[H\033[2J'
+}
+
+read_prompt() {
+    local prompt="$1"
+    local value
+    if [[ -r /dev/tty && -w /dev/tty ]]; then
+        if { printf '%s' "${prompt}" > /dev/tty && IFS= read -r value < /dev/tty; } 2>/dev/null; then
+            printf '%s\n' "${value}"
+            return 0
+        fi
+    fi
+    printf '%s' "${prompt}" >&2
+    IFS= read -r value || return 1
+    printf '%s\n' "${value}"
+}
+
 pause_before_return() {
     local _
     echo ""
-    read -r -p "按回车返回菜单..." _ || true
+    read_prompt "按回车返回菜单..." >/dev/null || true
 }
 
 check_root() {
@@ -77,7 +97,7 @@ check_root() {
 
 confirm_yes() {
     local ans
-    read -rp "$1 [y/N]: " ans
+    ans="$(read_prompt "$1 [y/N]: ")" || return 1
     [[ "$ans" =~ ^[Yy]$ ]]
 }
 
@@ -238,21 +258,21 @@ prompt_settings() {
     local input ans
     load_settings
     while true; do
-        read -rp "请输入 PO0 内网 IP${RELAY_LAN_IP:+ [当前: ${RELAY_LAN_IP}]}: " input
+        input="$(read_prompt "请输入 PO0 内网 IP${RELAY_LAN_IP:+ [当前: ${RELAY_LAN_IP}]}: ")" || input=""
         input="${input:-${RELAY_LAN_IP}}"
         validate_ip "${input}" && { RELAY_LAN_IP="${input}"; break; }
         err "IP 地址格式无效。"
     done
     if [[ "${ENABLE_MSS_CLAMP}" == "1" ]]; then
-        read -rp "是否保留 MSS 修正 (默认开启)？[Y/n]: " ans
+        ans="$(read_prompt "是否保留 MSS 修正 (默认开启)？[Y/n]: ")" || ans=""
         [[ "${ans}" =~ ^[Nn]$ ]] && { ENABLE_MSS_CLAMP="0"; return 0; }
     else
-        read -rp "是否开启 MSS 修正？[y/N]: " ans
+        ans="$(read_prompt "是否开启 MSS 修正？[y/N]: ")" || ans=""
         [[ "${ans}" =~ ^[Yy]$ ]] || { ENABLE_MSS_CLAMP="0"; return 0; }
     fi
     ENABLE_MSS_CLAMP="1"
     while true; do
-        read -rp "请输入 MSS 值 [当前: ${MSS_VALUE}]: " input
+        input="$(read_prompt "请输入 MSS 值 [当前: ${MSS_VALUE}]: ")" || input=""
         input="${input:-${MSS_VALUE}}"
         validate_mss "${input}" && { MSS_VALUE="${input}"; return 0; }
         err "MSS 值无效，请输入 536-65535。"
@@ -425,14 +445,14 @@ do_add() {
     settings_ready || return
     ensure_layout || return
     load_rules
-    while true; do read -rp "请输入 PO0 监听端口: " lport; validate_port "${lport}" && break; err "端口无效。"; done
+    while true; do lport="$(read_prompt "请输入 PO0 监听端口: ")" || return; validate_port "${lport}" && break; err "端口无效。"; done
     for rule in "${RULES[@]}"; do IFS='|' read -r current _ _ <<< "${rule}"; [[ "${current}" == "${lport}" ]] && { err "端口 ${lport} 已存在规则。"; return; }; done
     check_port_conflict "${lport}" || { info "已取消。"; return; }
-    while true; do read -rp "请输入落地机 IP: " dip; validate_ip "${dip}" && break; err "IP 无效。"; done
-    while true; do read -rp "请输入落地机端口 [默认: ${lport}]: " dport; dport="${dport:-${lport}}"; validate_port "${dport}" && break; err "端口无效。"; done
+    while true; do dip="$(read_prompt "请输入落地机 IP: ")" || return; validate_ip "${dip}" && break; err "IP 无效。"; done
+    while true; do dport="$(read_prompt "请输入落地机端口 [默认: ${lport}]: ")" || return; dport="${dport:-${lport}}"; validate_port "${dport}" && break; err "端口无效。"; done
     echo "即将添加 :${lport} -> ${dip}:${dport}，SNAT -> ${RELAY_LAN_IP}"
     [[ "${ENABLE_MSS_CLAMP}" == "1" ]] && echo "MSS 修正 -> ${MSS_VALUE}"
-    read -rp "确认添加？[Y/n]: " confirm
+    confirm="$(read_prompt "确认添加？[Y/n]: ")" || confirm=""
     [[ "${confirm}" =~ ^[Nn]$ ]] && { info "已取消。"; return; }
     backup_managed_files
     RULES+=("${lport}|${dip}|${dport}")
@@ -449,12 +469,12 @@ do_delete() {
     load_rules
     [[ ${#RULES[@]} -gt 0 ]] || { info "当前没有转发规则。"; return; }
     for rule in "${RULES[@]}"; do IFS='|' read -r lport dip dport <<< "${rule}"; printf "%2s) :%s -> %s:%s\n" "${idx}" "${lport}" "${dip}" "${dport}"; ((idx++)); done
-    read -rp "请输入要删除的序号 (0 取消): " choice
+    choice="$(read_prompt "请输入要删除的序号 (0 取消): ")" || return
     [[ -z "${choice}" || "${choice}" == "0" ]] && { info "已取消。"; return; }
     [[ "${choice}" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#RULES[@]} )) || { err "序号无效。"; return; }
     target="${RULES[$((choice - 1))]}"
     IFS='|' read -r lport dip dport <<< "${target}"
-    read -rp "确认删除 :${lport} -> ${dip}:${dport}？[Y/n]: " confirm
+    confirm="$(read_prompt "确认删除 :${lport} -> ${dip}:${dport}？[Y/n]: ")" || confirm=""
     [[ "${confirm}" =~ ^[Nn]$ ]] && { info "已取消。"; return; }
     backup_managed_files
     unset 'RULES[$((choice - 1))]'
@@ -517,7 +537,7 @@ do_enable_bbr() {
 main_menu() {
     local choice
     while true; do
-        echo ""
+        menu_clear_screen
         print_menu_section "PO0 nftables relay manager"
         print_menu_item 1 "安装 / 初始化 nftables"
         print_menu_item 2 "查看当前配置与转发"
@@ -531,7 +551,7 @@ main_menu() {
         print_menu_footer
         print_menu_item 0 "退出"
         print_menu_footer
-        read -rp "请选择操作 [0-8]: " choice
+        choice="$(read_prompt "请选择操作 [0-8]: ")" || exit 0
         case "${choice}" in
             1) do_install; pause_before_return ;;
             2) do_list; pause_before_return ;;
@@ -542,7 +562,7 @@ main_menu() {
             7) do_edit_settings; pause_before_return ;;
             8) do_enable_bbr; pause_before_return ;;
             0) info "再见。"; exit 0 ;;
-            *) err "无效选择，请输入 0-8。" ;;
+            *) err "无效选择，请输入 0-8。"; pause_before_return ;;
         esac
     done
 }

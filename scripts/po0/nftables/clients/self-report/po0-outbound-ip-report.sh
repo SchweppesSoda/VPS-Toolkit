@@ -129,6 +129,12 @@ pause_before_return() {
     read_prompt "按回车返回菜单..." >/dev/null || true
 }
 
+menu_clear_screen() {
+    [[ "${MENU_CLEAR:-1}" == "0" ]] && return 0
+    [[ -t 1 && -n "${TERM:-}" && "${TERM}" != "dumb" ]] || return 0
+    command -v clear >/dev/null 2>&1 && clear || printf '\033[H\033[2J'
+}
+
 validate_cron_minutes() {
     [[ "${CRON_MINUTES}" =~ ^[0-9]+$ && "${CRON_MINUTES}" -ge 1 && "${CRON_MINUTES}" -le 59 ]] || {
         printf '上报间隔必须是 1-59 分钟。\n' >&2
@@ -424,6 +430,7 @@ install_cron_interactive() {
 menu_loop() {
     local choice
     while true; do
+        menu_clear_screen
         show_current_config
         printf '%s\n' "------------------------"
         printf '%s\n' "请选择操作"

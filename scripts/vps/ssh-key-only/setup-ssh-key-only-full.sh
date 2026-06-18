@@ -309,6 +309,12 @@ prompt_from_terminal() {
   IFS= read -r "${target}"
 }
 
+menu_clear_screen() {
+  [[ "${MENU_CLEAR:-1}" == "0" ]] && return 0
+  [[ -t 1 && -n "${TERM:-}" && "${TERM}" != "dumb" ]] || return 0
+  command -v clear >/dev/null 2>&1 && clear || printf '\033[H\033[2J'
+}
+
 read_required() {
   local target="$1"
 
@@ -1334,6 +1340,7 @@ run_interactive_menu() {
 
   need_root
   while true; do
+    menu_clear_screen
     print_menu_section "SSH 公钥登录加固菜单"
     print_menu_item 1 "查看当前 SSH / nft 状态（只读）"
     print_menu_item 2 "只安装 / 更新登录公钥（不改端口）"
@@ -1368,6 +1375,7 @@ run_interactive_menu() {
         ;;
       *)
         warn "无效选择。"
+        pause_before_menu
         ;;
     esac
   done

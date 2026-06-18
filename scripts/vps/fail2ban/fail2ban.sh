@@ -55,10 +55,30 @@ print_menu_footer() {
   print_menu_divider
 }
 
+menu_clear_screen() {
+  [[ "${MENU_CLEAR:-1}" == "0" ]] && return 0
+  [[ -t 1 && -n "${TERM:-}" && "${TERM}" != "dumb" ]] || return 0
+  command -v clear >/dev/null 2>&1 && clear || printf '\033[H\033[2J'
+}
+
+read_prompt() {
+  local prompt="$1"
+  local value
+  if [[ -r /dev/tty && -w /dev/tty ]]; then
+    if { printf '%s' "${prompt}" > /dev/tty && IFS= read -r value < /dev/tty; } 2>/dev/null; then
+      printf '%s\n' "${value}"
+      return 0
+    fi
+  fi
+  printf '%s' "${prompt}" >&2
+  IFS= read -r value || return 1
+  printf '%s\n' "${value}"
+}
+
 pause_before_return() {
   local _
   echo ""
-  read -r -p "按回车返回菜单..." _ || true
+  read_prompt "按回车返回菜单..." >/dev/null || true
 }
 
 check_root() {
@@ -77,7 +97,7 @@ require_fail2ban() {
 
 confirm_yes() {
   local ans
-  read -r -p "$1 [y/N]: " ans
+  ans="$(read_prompt "$1 [y/N]: ")" || return 1
   [[ "${ans}" =~ ^[Yy]$ ]]
 }
 
@@ -352,7 +372,7 @@ prompt_with_default() {
   local prompt="$1"
   local default="$2"
   local input
-  read -r -p "${prompt} [${default}]: " input
+  input="$(read_prompt "${prompt} [${default}]: ")" || input=""
   printf '%s\n' "${input:-${default}}"
 }
 
@@ -627,7 +647,7 @@ unban_ip() {
   local jail ip
   require_fail2ban || return 0
   jail="$(prompt_with_default "要解封的 jail" "sshd")"
-  read -r -p "要解封的 IP: " ip
+  ip="$(read_prompt "要解封的 IP: ")" || return 1
   if [[ -z "${ip}" ]]; then
     err "IP 不能为空。"
     return 1
@@ -689,8 +709,9 @@ EOF
 }
 
 advanced_menu() {
+  local choice
   while true; do
-    echo ""
+    menu_clear_screen
     print_menu_section "Fail2ban 高级模式"
     print_menu_item 1 "自定义推荐配置（保留默认值，可逐项修改）"
     print_menu_item 2 "查看状态"
@@ -701,7 +722,7 @@ advanced_menu() {
     print_menu_footer
     print_menu_item 0 "退出"
     print_menu_footer
-    read -r -p "请选择: " choice
+    choice="$(read_prompt "请选择: ")" || exit 0
     case "${choice}" in
       1) install_and_configure || true; pause_before_return ;;
       2) show_status || true; pause_before_return ;;
@@ -710,26 +731,27 @@ advanced_menu() {
       5) restart_fail2ban || true; pause_before_return ;;
       6) restore_latest_backup || true; pause_before_return ;;
       0) exit 0 ;;
-      *) warn "无效选择。" ;;
+      *) warn "无效选择。"; pause_before_return ;;
     esac
   done
 }
 
 mode_menu() {
+  local choice
   while true; do
-    echo ""
+    menu_clear_screen
     print_menu_section "Fail2ban 模式选择"
     print_menu_item 1 "默认模式（一键推荐配置，自动探测，只在最后确认）"
     print_menu_item 2 "高级模式（逐项自定义，含状态/解封/回滚等维护功能）"
     print_menu_footer
     print_menu_item 0 "退出"
     print_menu_footer
-    read -r -p "请选择: " choice
+    choice="$(read_prompt "请选择: ")" || exit 0
     case "${choice}" in
       1) default_install_and_configure || true; pause_before_return ;;
       2) advanced_menu ;;
       0) exit 0 ;;
-      *) warn "无效选择。" ;;
+      *) warn "无效选择。"; pause_before_return ;;
     esac
   done
 }

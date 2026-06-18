@@ -146,9 +146,29 @@ print_panel_note() {
   printf '  %s\n' "$*"
 }
 
+menu_clear_screen() {
+  [[ "${MENU_CLEAR:-1}" == "0" ]] && return 0
+  [[ -t 1 && -n "${TERM:-}" && "${TERM}" != "dumb" ]] || return 0
+  command -v clear >/dev/null 2>&1 && clear || printf '\033[H\033[2J'
+}
+
+read_prompt() {
+  local prompt="$1"
+  local value
+  if [[ -r /dev/tty && -w /dev/tty ]]; then
+    if { printf '%s' "${prompt}" > /dev/tty && IFS= read -r value < /dev/tty; } 2>/dev/null; then
+      printf '%s\n' "${value}"
+      return 0
+    fi
+  fi
+  printf '%s' "${prompt}" >&2
+  IFS= read -r value || return 1
+  printf '%s\n' "${value}"
+}
+
 pause_before_return() {
   echo ""
-  read -r -p "按回车返回菜单..." _
+  read_prompt "按回车返回菜单..." >/dev/null || true
 }
 
 check_root() {
@@ -179,7 +199,7 @@ trim() {
 
 confirm_yes() {
   local ans
-  read -r -p "$1 [y/N]: " ans
+  ans="$(read_prompt "$1 [y/N]: ")" || return 1
   [[ "${ans}" =~ ^[Yy]$ ]]
 }
 
@@ -188,10 +208,10 @@ prompt_with_default() {
   local default="${2-}"
   local value
   if [[ -n "${default}" ]]; then
-    read -r -p "${prompt} [当前: ${default}]: " value
+    value="$(read_prompt "${prompt} [当前: ${default}]: ")" || value=""
     printf '%s\n' "${value:-${default}}"
   else
-    read -r -p "${prompt}: " value
+    value="$(read_prompt "${prompt}: ")" || value=""
     printf '%s\n' "${value}"
   fi
 }
@@ -740,7 +760,7 @@ prompt_flow_mode() {
     echo "1. none（默认；VLESS ENC 不写 flow，和 TLS/Reality 无关）"
     echo "2. xtls-rprx-vision（写入 flow，需要客户端支持 Vision + VLESS ENC；不会自动开启 TLS）"
   } >&2
-  read -r -p "请选择 Flow 模式 [当前: $(flow_label "${current}")，回车保留]: " choice
+  choice="$(read_prompt "请选择 Flow 模式 [当前: $(flow_label "${current}")，回车保留]: ")" || choice=""
   case "${choice}" in
     "") printf '%s\n' "${current}" ;;
     1|none|NONE|off|OFF|no|NO|0) printf 'none\n' ;;
@@ -788,7 +808,7 @@ copy_xray_binary() {
     download_official_xray_binary && return 0
   fi
 
-  read -r -p "请输入现有 xray 二进制路径，或直接回车退出: " manual_path
+  manual_path="$(read_prompt "请输入现有 xray 二进制路径，或直接回车退出: ")" || manual_path=""
   manual_path="$(trim "${manual_path}")"
   [[ -n "${manual_path}" ]] || return 1
   if [[ ! -f "${manual_path}" ]]; then
@@ -1439,7 +1459,7 @@ prompt_ss_method() {
   echo "4. aes-128-gcm（旧 AEAD）" >&2
   echo "5. aes-256-gcm（旧 AEAD）" >&2
   echo "6. chacha20-ietf-poly1305（旧 AEAD）" >&2
-  read -r -p "请选择 [当前: ${current}，回车保留]: " choice
+  choice="$(read_prompt "请选择 [当前: ${current}，回车保留]: ")" || choice=""
   case "${choice}" in
     "") printf '%s\n' "${current}" ;;
     1) printf '2022-blake3-aes-128-gcm\n' ;;
@@ -1506,7 +1526,7 @@ install_or_repair_ss() {
   }
 
   if [[ -z "${SS_PASSWORD:-}" ]]; then
-    read -r -p "请输入 SS 密钥（回车自动生成）: " password_input
+    password_input="$(read_prompt "请输入 SS 密钥（回车自动生成）: ")" || password_input=""
     if [[ -n "${password_input}" ]]; then
       SS_PASSWORD="${password_input}"
     else
@@ -1678,6 +1698,7 @@ regenerate_enc() {
 vless_settings_menu() {
   local choice
   while true; do
+    menu_clear_screen
     print_title "VLESS 设置"
     print_panel_section "当前参数"
     print_panel_row "端口" "${PORT:-未设置}"
@@ -1692,7 +1713,7 @@ vless_settings_menu() {
     print_menu_footer
     print_menu_item 0 "返回"
     print_menu_footer
-    read -r -p "请选择: " choice
+    choice="$(read_prompt "请选择: ")" || return 0
     case "${choice}" in
       1) change_port; pause_before_return ;;
       2) change_node_name; pause_before_return ;;
@@ -1700,7 +1721,7 @@ vless_settings_menu() {
       4) regenerate_uuid; pause_before_return ;;
       5) regenerate_enc; pause_before_return ;;
       0) return 0 ;;
-      *) warn "无效选择。" ;;
+      *) warn "无效选择。"; pause_before_return ;;
     esac
   done
 }
@@ -1803,6 +1824,7 @@ disable_ss() {
 ss_settings_menu() {
   local choice
   while true; do
+    menu_clear_screen
     print_title "SS2022 设置"
     print_panel_section "当前参数"
     print_panel_row "状态" "$([[ "${SS_ENABLED:-0}" == "1" ]] && echo "已启用" || echo "未启用")"
@@ -1820,7 +1842,7 @@ ss_settings_menu() {
     print_menu_footer
     print_menu_item 0 "返回"
     print_menu_footer
-    read -r -p "请选择: " choice
+    choice="$(read_prompt "请选择: ")" || return 0
     case "${choice}" in
       1) install_or_repair_ss; pause_before_return ;;
       2) change_ss_port; pause_before_return ;;
@@ -1830,7 +1852,7 @@ ss_settings_menu() {
       6) change_ss_public_entry; pause_before_return ;;
       7) disable_ss; pause_before_return ;;
       0) return 0 ;;
-      *) warn "无效选择。" ;;
+      *) warn "无效选择。"; pause_before_return ;;
     esac
   done
 }
@@ -1850,6 +1872,7 @@ rewrite_and_restart() {
 service_control_menu() {
   local choice
   while true; do
+    menu_clear_screen
     print_title "服务控制"
     print_panel_section "当前状态"
     print_panel_row "服务" "$(service_status_label)"
@@ -1861,14 +1884,14 @@ service_control_menu() {
     print_menu_footer
     print_menu_item 0 "返回"
     print_menu_footer
-    read -r -p "请选择: " choice
+    choice="$(read_prompt "请选择: ")" || return 0
     case "${choice}" in
       1) start_service; pause_before_return ;;
       2) stop_service; pause_before_return ;;
       3) restart_service; pause_before_return ;;
       4) service_runtime_status; pause_before_return ;;
       0) return 0 ;;
-      *) warn "无效选择。" ;;
+      *) warn "无效选择。"; pause_before_return ;;
     esac
   done
 }
@@ -1978,6 +2001,7 @@ EOF
 test_menu() {
   local choice host port
   while true; do
+    menu_clear_screen
     print_title "连接测试"
     print_menu_section "测试项目"
     print_menu_item 1 "Xray 配置语法测试"
@@ -1986,7 +2010,7 @@ test_menu() {
     print_menu_footer
     print_menu_item 0 "返回"
     print_menu_footer
-    read -r -p "请选择: " choice
+    choice="$(read_prompt "请选择: ")" || return 0
     case "${choice}" in
       1)
         load_state
@@ -2010,7 +2034,7 @@ test_menu() {
         pause_before_return
         ;;
       0) return 0 ;;
-      *) warn "无效选择。" ;;
+      *) warn "无效选择。"; pause_before_return ;;
     esac
   done
 }
@@ -2027,6 +2051,7 @@ show_logs() {
 firewall_menu() {
   local choice
   load_state
+  menu_clear_screen
   print_title "防火墙 / 安全组"
   print_panel_section "端口"
   print_panel_row "VLESS" "${PORT:-未设置}/tcp"
@@ -2043,7 +2068,7 @@ firewall_menu() {
   print_menu_footer
   print_menu_item 0 "返回"
   print_menu_footer
-  read -r -p "请选择: " choice
+  choice="$(read_prompt "请选择: ")" || return 0
   case "${choice}" in
     1)
       [[ -n "${PORT:-}" ]] || { err "VLESS 端口未设置。"; return 1; }
@@ -2264,9 +2289,10 @@ main() {
   detect_init_system
 
   while true; do
+    menu_clear_screen
     print_dashboard
     print_main_menu
-    read -r -p "请选择: " choice
+    choice="$(read_prompt "请选择: ")" || exit 0
     case "${choice}" in
       1) show_preflight; pause_before_return ;;
       2) install_or_repair_xray_core; pause_before_return ;;
@@ -2284,7 +2310,7 @@ main() {
       14) firewall_menu; pause_before_return ;;
       15) uninstall_feature; pause_before_return ;;
       0) exit 0 ;;
-      *) warn "无效选择。" ;;
+      *) warn "无效选择。"; pause_before_return ;;
     esac
   done
 }

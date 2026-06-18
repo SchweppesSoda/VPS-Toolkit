@@ -84,10 +84,30 @@ print_panel_row() {
     printf ': %s\n' "$*"
 }
 
+menu_clear_screen() {
+    [[ "${MENU_CLEAR:-1}" == "0" ]] && return 0
+    [[ -t 1 && -n "${TERM:-}" && "${TERM}" != "dumb" ]] || return 0
+    command -v clear >/dev/null 2>&1 && clear || printf '\033[H\033[2J'
+}
+
+read_prompt() {
+    local prompt="$1"
+    local value
+    if [[ -r /dev/tty && -w /dev/tty ]]; then
+        if { printf '%s' "${prompt}" > /dev/tty && IFS= read -r value < /dev/tty; } 2>/dev/null; then
+            printf '%s\n' "${value}"
+            return 0
+        fi
+    fi
+    printf '%s' "${prompt}" >&2
+    IFS= read -r value || return 1
+    printf '%s\n' "${value}"
+}
+
 pause_before_return() {
     local _
     echo ""
-    read -r -p "按回车返回菜单..." _ || true
+    read_prompt "按回车返回菜单..." >/dev/null || true
 }
 
 mkdir -p "$OUTPUT_DIR"
@@ -142,7 +162,7 @@ prompt_yes_no() {
     fi
 
     while :; do
-        read -r -p "$prompt $suffix: " input
+        input="$(read_prompt "$prompt $suffix: ")" || return 1
         input="${input:-$default_answer}"
         case "${input,,}" in
             y|yes) return 0 ;;
@@ -205,8 +225,10 @@ interactive_config() {
     local default_action="1"
     local default_domain=""
     local mode_label="严格"
+    local redraw_menu="0"
 
     load_last_config
+    menu_clear_screen
 
     echo "未提供命令行参数，进入交互式模式。"
     echo "推荐直接先跑一次完整扫描（严格模式）。"
@@ -221,6 +243,10 @@ interactive_config() {
     fi
 
     while :; do
+        if [ "$redraw_menu" = "1" ]; then
+            menu_clear_screen
+        fi
+        redraw_menu="1"
         print_menu_section "操作"
         print_menu_item 1 "完整扫描（严格模式，推荐）"
         print_menu_item 2 "完整扫描（宽松模式）"
@@ -230,7 +256,7 @@ interactive_config() {
         print_menu_item 0 "退出"
         print_menu_footer
 
-        read -r -p "请选择操作 [0-4，默认 ${default_action}]: " action
+        action="$(read_prompt "请选择操作 [0-4，默认 ${default_action}]: ")" || exit 0
         action=${action:-$default_action}
         case "$action" in
             0)
@@ -253,10 +279,10 @@ interactive_config() {
                 default_domain="$CHECK_DOMAIN"
                 while :; do
                     if [ -n "$default_domain" ]; then
-                        read -r -p "请输入要深度检测的域名 [默认 ${default_domain}]: " CHECK_DOMAIN
+                        CHECK_DOMAIN="$(read_prompt "请输入要深度检测的域名 [默认 ${default_domain}]: ")" || CHECK_DOMAIN=""
                         CHECK_DOMAIN="${CHECK_DOMAIN:-$default_domain}"
                     else
-                        read -r -p "请输入要深度检测的域名: " CHECK_DOMAIN
+                        CHECK_DOMAIN="$(read_prompt "请输入要深度检测的域名: ")" || CHECK_DOMAIN=""
                     fi
                     [ -n "$CHECK_DOMAIN" ] && break
                     warn "域名不能为空。"
@@ -276,6 +302,7 @@ interactive_config() {
                 ;;
             *)
                 warn "请输入 0 到 4 之间的数字。"
+                pause_before_return
                 ;;
         esac
     done

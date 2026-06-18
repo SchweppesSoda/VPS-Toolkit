@@ -77,6 +77,12 @@ has_tty() {
   [[ -r /dev/tty ]]
 }
 
+menu_clear_screen() {
+  [[ "${MENU_CLEAR:-1}" == "0" ]] && return 0
+  [[ -t 1 && -n "${TERM:-}" && "${TERM}" != "dumb" ]] || return 0
+  command -v clear >/dev/null 2>&1 && clear || printf '\033[H\033[2J'
+}
+
 read_tty() {
   local prompt="$1"
   local value=""
@@ -942,6 +948,7 @@ main_menu() {
   local choice=""
 
   while true; do
+    menu_clear_screen
     print_main_menu
     choice="$(read_tty "请选择操作 [0-5]: ")"
 

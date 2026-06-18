@@ -2,8 +2,14 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-nftables-relay-manager"
-SCRIPT_VERSION="2026.06.18+build.1"
+SCRIPT_VERSION="2026.06.18+build.3"
 SCRIPT_RELEASE_DATE="2026-06-18"
+# CHANGELOG_BEGIN
+# - 新增 --changelog，用于 scp 上传更新后查看当前版本更新内容。
+# - 内网资源更新任务菜单新增“查看 PO0 定时创建状态”，明确 PO0 只创建 pending 任务、LAN Worker 负责领取执行。
+# - 脚本版本菜单改为版本信息面板，并显示当前版本更新内容。
+# - 状态面板和资源任务创建计划摘要增加彩色状态提示。
+# CHANGELOG_END
 CONF_DIR="${PO0_CONF_DIR:-/etc/nftables.d}"
 MAIN_CONF="/etc/nftables.conf"
 NFT_CONF="${CONF_DIR}/po0-relay.conf"
@@ -329,6 +335,12 @@ print_panel_note() {
 
 print_panel_action() {
     print_panel_row "$@"
+}
+
+menu_clear_screen() {
+    [[ "${MENU_CLEAR:-1}" == "0" ]] && return 0
+    [[ -t 1 && -n "${TERM:-}" && "${TERM}" != "dumb" ]] || return 0
+    command -v clear >/dev/null 2>&1 && clear || printf '\033[H\033[2J'
 }
 
 read_prompt() {
@@ -4926,9 +4938,9 @@ print_resource_task_cron_summary() {
     local status detail
     IFS='|' read -r status detail < <(resource_task_cron_status_record)
     case "${status}" in
-        installed) printf '%s\n' "${detail}" ;;
-        unavailable) printf '系统未安装 crontab\n' ;;
-        *) printf '未安装\n' ;;
+        installed) printf '%b已安装%b：%s\n' "${C_GREEN}" "${C_RESET}" "${detail}" ;;
+        unavailable) printf '%b不可用%b：%s\n' "${C_YELLOW}" "${C_RESET}" "${detail:-系统未安装 crontab}" ;;
+        *) printf '%b未安装%b\n' "${C_YELLOW}" "${C_RESET}" ;;
     esac
 }
 
@@ -4939,6 +4951,31 @@ do_resource_task_cron_status_cli() {
     printf 'STATUS=%s\n' "${status}"
     printf 'DETAIL=%s\n' "${detail}"
     printf 'ROLE=po0-resource-task-create-schedule\n'
+}
+
+do_show_resource_task_cron_status() {
+    local status detail
+    print_title "PO0 定时创建状态"
+    print_panel_section "职责"
+    print_panel_row "创建位置" "PO0 只定时创建 pending 任务"
+    print_panel_row "执行位置" "LAN Worker 按本机轮询器领取并执行"
+    print_panel_section "当前状态"
+    IFS='|' read -r status detail < <(resource_task_cron_status_record)
+    case "${status}" in
+        installed)
+            print_panel_row "状态" "${C_GREEN}已安装${C_RESET}"
+            print_panel_row "cron" "${detail}"
+            print_panel_row "日志" "/tmp/po0-resource-task-cron.log"
+            ;;
+        unavailable)
+            print_panel_row "状态" "${C_YELLOW}不可用${C_RESET}"
+            print_panel_row "原因" "${detail:-系统未安装 crontab}"
+            ;;
+        *)
+            print_panel_row "状态" "${C_YELLOW}未安装${C_RESET}"
+            print_panel_row "下一步" "执行 [8] 安装 / 更新 PO0 定时创建"
+            ;;
+    esac
 }
 
 install_resource_task_cron() {
@@ -7093,9 +7130,9 @@ print_status_panel() {
     print_panel_row "nftables" "${nft_status}"
     print_panel_row "IPv4 转发" "${ip_forward_status}"
     if manager_controls_main_conf; then
-        print_panel_row "接管状态" "已接管"
+        print_panel_row "接管状态" "${C_GREEN}已接管${C_RESET}"
     else
-        print_panel_row "接管状态" "未接管（仅管理配置文件）"
+        print_panel_row "接管状态" "${C_YELLOW}未接管（仅管理配置文件）${C_RESET}"
     fi
 
     print_panel_section "网络与转发"
@@ -9409,6 +9446,7 @@ do_manage_report_keys() {
     local choice user scope pubkey
     ensure_layout || return
     while true; do
+        menu_clear_screen
         print_title "专用受限上报 key"
         print_menu_section "查看"
         print_menu_pair 1 "显示已有 key 分类" 2 "查看拒绝日志"
@@ -9430,7 +9468,7 @@ do_manage_report_keys() {
                 ;;
             4) ensure_report_key_wrapper && success "已刷新 wrapper：${REPORT_KEY_WRAPPER_PATH}"; pause_before_return ;;
             0) return ;;
-            *) err "无效选择。" ;;
+            *) err "无效选择。"; pause_before_return ;;
         esac
     done
 }
@@ -9842,6 +9880,7 @@ do_show_client_deploy_topic() {
 do_manage_client_deploy_commands() {
     local choice
     while true; do
+        menu_clear_screen
         print_title "LAN Worker / 客户端 / Egern 分场景部署"
         print_menu_section "主控与索引"
         print_menu_pair 1 "显示简短索引" 2 "PO0 主控脚本上传"
@@ -9864,7 +9903,7 @@ do_manage_client_deploy_commands() {
             7) do_show_self_report_client_commands; pause_before_return ;;
             8) do_show_egern_deploy_commands; pause_before_return ;;
             0) return ;;
-            *) err "无效选择。" ;;
+            *) err "无效选择。"; pause_before_return ;;
         esac
     done
 }
@@ -9901,6 +9940,7 @@ do_manage_automation_mode() {
     ensure_layout || return
     load_settings 1
     while true; do
+        menu_clear_screen
         print_title "自动白名单安全模式"
         printf '当前模式 : %s\n' "${AUTOMATION_MODE}"
         print_menu_item 1 "regular：自动来源新 IP 可直接进入白名单"
@@ -9914,7 +9954,7 @@ do_manage_automation_mode() {
             2) set_automation_mode attack; pause_before_return ;;
             3) do_list_pending_auto_sources; pause_before_return ;;
             0) return ;;
-            *) err "无效选择。" ;;
+            *) err "无效选择。"; pause_before_return ;;
         esac
         load_settings 1
     done
@@ -10216,6 +10256,7 @@ do_manage_ddns_allowlist_sources() {
     ensure_layout || return
     load_settings 1
     while true; do
+        menu_clear_screen
         print_title "管理 DDNS 来源"
         printf '当前 DDNS 来源数量：%s\n' "$(allowlist_sources_count)"
         print_menu_section "查看与维护"
@@ -10262,6 +10303,7 @@ do_manage_ddns_allowlist_sources() {
                 ;;
             *)
                 err "无效选择。"
+                pause_before_return
                 ;;
         esac
     done
@@ -10391,6 +10433,7 @@ do_delete_allowlist_profile() {
 do_manage_allowlist_profiles() {
     local choice
     while true; do
+        menu_clear_screen
         print_title "白名单配置档案"
         show_allowlist_profiles
         echo ""
@@ -10423,6 +10466,7 @@ do_manage_allowlist_profiles() {
                 ;;
             *)
                 err "无效选择。"
+                pause_before_return
                 ;;
         esac
     done
@@ -10557,6 +10601,7 @@ do_install_ipdb_parser() {
 do_manage_region_allowlist() {
     local choice id
     while true; do
+        menu_clear_screen
         print_title "地区白名单"
         echo "已选地区："
         show_selected_allowlist_regions
@@ -10606,6 +10651,7 @@ do_manage_region_allowlist() {
                 ;;
             *)
                 err "无效选择。"
+                pause_before_return
                 ;;
         esac
     done
@@ -10614,6 +10660,7 @@ do_manage_region_allowlist() {
 do_manage_custom_allowlist() {
     local choice
     while true; do
+        menu_clear_screen
         print_title "自定义 CIDR 白名单"
         show_custom_allowlist_entries
         echo ""
@@ -10636,6 +10683,7 @@ do_manage_custom_allowlist() {
                 ;;
             *)
                 err "无效选择。"
+                pause_before_return
                 ;;
         esac
     done
@@ -10644,6 +10692,7 @@ do_manage_custom_allowlist() {
 do_manage_learning_allowlist() {
     local choice
     while true; do
+        menu_clear_screen
         print_title "学习服务与候选提升"
         printf '学习服务 : %s\n' "$(learning_service_status_label)"
         printf '学习日志 : %s（%s 条事件，%s）\n' \
@@ -10695,6 +10744,7 @@ do_manage_learning_allowlist() {
                 ;;
             *)
                 err "无效选择。"
+                pause_before_return
                 ;;
         esac
     done
@@ -10703,6 +10753,7 @@ do_manage_learning_allowlist() {
 do_manage_ipdb_tools() {
     local choice
     while true; do
+        menu_clear_screen
         print_title "IPDB 数据与解析"
         printf 'IPDB 状态 : %s\n' "$(ipdb_status_label)"
         echo ""
@@ -10725,6 +10776,7 @@ do_manage_ipdb_tools() {
                 ;;
             *)
                 err "无效选择。"
+                pause_before_return
                 ;;
         esac
     done
@@ -10773,6 +10825,7 @@ do_manage_resource_tasks() {
     local choice token
     ensure_layout || return
     while true; do
+        menu_clear_screen
         print_title "内网资源更新任务"
         print_resource_data_overview
         print_panel_section "任务状态"
@@ -10793,11 +10846,11 @@ do_manage_resource_tasks() {
         print_menu_pair 5 "重新排队失败 / 执行中任务" 6 "取消未完成任务"
         print_menu_section "Token 与 PO0 定时创建"
         print_menu_pair 7 "任务 Token（显示/生成/重置）" 8 "安装 / 更新 PO0 定时创建"
-        print_menu_item 9 "删除 PO0 定时创建"
+        print_menu_pair 9 "查看 PO0 定时创建状态" 10 "删除 PO0 定时创建"
         print_menu_section "退出"
         print_menu_item 0 "返回"
         print_menu_footer
-        read_menu_choice_or_return choice "请选择操作 [0-9]: " || return
+        read_menu_choice_or_return choice "请选择操作 [0-10]: " || return
         case "${choice}" in
             1)
                 list_resource_tasks
@@ -10837,6 +10890,10 @@ do_manage_resource_tasks() {
                 pause_before_return
                 ;;
             9)
+                do_show_resource_task_cron_status
+                pause_before_return
+                ;;
+            10)
                 if confirm_yes "确认删除 PO0 资源任务定时创建 cron"; then
                     remove_resource_task_cron
                 else
@@ -10849,6 +10906,7 @@ do_manage_resource_tasks() {
                 ;;
             *)
                 err "无效选择。"
+                pause_before_return
                 ;;
         esac
     done
@@ -10885,6 +10943,7 @@ do_manage_src_allowlist() {
     ensure_layout || return
     load_settings 1
     while true; do
+        menu_clear_screen
         print_title "管理源 IP 白名单"
         print_src_allowlist_details
         print_menu_section "查看与确认"
@@ -11029,6 +11088,7 @@ do_manage_src_allowlist() {
                 ;;
             *)
                 err "无效选择。"
+                pause_before_return
                 ;;
         esac
     done
@@ -11266,12 +11326,77 @@ do_render() {
     cat "${render_conf}"
 }
 
+script_changelog_lines() {
+    local file="${1:-}"
+    local line in_block=0 found=0
+    [[ -r "${file}" ]] || return 1
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        if [[ "${line}" == "# CHANGELOG_BEGIN" ]]; then
+            in_block=1
+            continue
+        fi
+        if [[ "${line}" == "# CHANGELOG_END" ]]; then
+            break
+        fi
+        [[ "${in_block}" == "1" ]] || continue
+        line="${line#\# }"
+        line="${line#\#}"
+        line="$(trim "${line}")"
+        [[ -n "${line}" ]] || continue
+        found=1
+        printf '%s\n' "${line}"
+    done < "${file}"
+    [[ "${found}" == "1" ]]
+}
+
+current_script_changelog() {
+    local script_path
+    script_path="$(current_script_path 2>/dev/null || true)"
+    script_changelog_lines "${script_path}"
+}
+
 do_show_version() {
     printf '%s\n' \
         "script_name=${SCRIPT_NAME}" \
         "version=${SCRIPT_VERSION}" \
         "release_date=${SCRIPT_RELEASE_DATE}" \
         "install_path=${MANAGER_INSTALL_PATH}"
+}
+
+do_show_changelog() {
+    local changes line
+    changes="$(current_script_changelog 2>/dev/null || true)"
+    printf '%s\n' \
+        "script_name=${SCRIPT_NAME}" \
+        "version=${SCRIPT_VERSION}" \
+        "release_date=${SCRIPT_RELEASE_DATE}" \
+        "changes:"
+    if [[ -n "${changes}" ]]; then
+        while IFS= read -r line || [[ -n "${line}" ]]; do
+            printf '  %s\n' "${line}"
+        done <<< "${changes}"
+    else
+        printf '  未提供当前版本更新内容。\n'
+    fi
+}
+
+do_show_version_panel() {
+    local changes line
+    print_title "脚本版本"
+    print_panel_section "版本信息"
+    print_panel_row "脚本名称" "${SCRIPT_NAME}"
+    print_panel_row "版本" "${C_GREEN}${SCRIPT_VERSION}${C_RESET}"
+    print_panel_row "发布日期" "${SCRIPT_RELEASE_DATE}"
+    print_panel_row "安装路径" "${MANAGER_INSTALL_PATH}"
+    print_panel_section "当前版本更新内容"
+    changes="$(current_script_changelog 2>/dev/null || true)"
+    if [[ -n "${changes}" ]]; then
+        while IFS= read -r line || [[ -n "${line}" ]]; do
+            print_panel_note "${line}"
+        done <<< "${changes}"
+    else
+        print_panel_note "未提供当前版本更新内容"
+    fi
 }
 
 print_cli_usage() {
@@ -11291,6 +11416,7 @@ print_cli_usage() {
         "" \
         "常用命令:" \
         "  --version        显示当前脚本名称、版本、发布日期和安装路径。" \
+        "  --changelog      显示当前版本更新内容；适合 scp 上传后确认本次变化。" \
         "  --render         将计划生成的 nftables 配置输出到标准输出。" \
         "  --refresh-ddns   按 LAN Worker/路由器已上报且仍在 TTL 内的 DDNS 结果重建/应用；PO0 不做本地 DNS 解析，也不延长原上报 TTL。" \
         "  --collect-blocked [since]" \
@@ -11375,6 +11501,7 @@ print_cli_usage() {
 main_menu() {
     local choice
     while true; do
+        menu_clear_screen
         print_title "nftables relay manager"
         print_status_panel
         print_runtime_rule_hint
@@ -11413,7 +11540,7 @@ main_menu() {
             13) do_manage_resource_tasks ;;
             14) do_edit_settings; pause_before_return ;;
             15) do_diagnose; pause_before_return ;;
-            16) do_show_version; pause_before_return ;;
+            16) do_show_version_panel; pause_before_return ;;
             17) do_enable_bbr; pause_before_return ;;
             0)
                 info "再见。"
@@ -11421,6 +11548,7 @@ main_menu() {
                 ;;
             *)
                 err "无效选择，请输入 0-17。"
+                pause_before_return
                 ;;
         esac
     done
@@ -11432,6 +11560,10 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
 fi
 if [[ "${1:-}" == "--version" || "${1:-}" == "-V" ]]; then
     do_show_version
+    exit 0
+fi
+if [[ "${1:-}" == "--changelog" || "${1:-}" == "--changes" ]]; then
+    do_show_changelog
     exit 0
 fi
 
