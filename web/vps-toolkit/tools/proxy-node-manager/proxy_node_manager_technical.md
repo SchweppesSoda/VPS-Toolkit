@@ -222,7 +222,7 @@ YAML parser 是轻量实现，只覆盖 Clash proxy 常见 map、list、inline o
 
 - `vmess`：Base64 解码 JSON，读取 `ps`、`add`、`port`、`id`、`net`、`tls`、`host`、`path`、`aid`、`scy`。
 - `ss`：兼容 `method:password@host:port` 和 Base64 userinfo 两种写法。
-- 其他 URI：按通用 `user@host:port?query#name` 解析。
+- 其他 URI：按通用 `user@host:port?query#name` 或 `scheme://host:port?query#name` 解析。
 - Clash JSON/YAML：读取 `name`、`type`、`server`、`port` 等字段，并把 Clash 参数映射进标准节点对象。
 
 解析后会调用 `validateParsedNode()` 做基础校验：
@@ -313,6 +313,7 @@ host|user|port
 支持重写：
 
 - 普通 `@host:port` URI。
+- 直连入口 `scheme://host:port` URI。
 - Shadowsocks 明文或 Base64 userinfo。
 - VMess Base64 JSON。
 - Clash proxy 的 `server` 和 `port`。

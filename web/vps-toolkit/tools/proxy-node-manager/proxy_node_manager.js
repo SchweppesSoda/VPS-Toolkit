@@ -1969,6 +1969,21 @@ function getSelfTests() {
       }
     },
     {
+      name: "直连入口 URI 转发",
+      run() {
+        const result = selfTestParse([
+          "vless://00000000-0000-4000-8000-000000000000@198.51.100.11:443?encryption=none&type=ws&security=tls&sni=example.com#US-VLESS",
+          "ssr://198.51.100.30:9448?method=aes-128-gcm&password=pwd#US-SSR"
+        ].join("\n"));
+        const ssrNode = result.nodes.find(node => node.scheme === "ssr");
+        assertSelfTest(result.nodes.length === 2, "应解析 VLESS 和 SSR 两条节点");
+        assertSelfTest(Boolean(ssrNode), "应存在 SSR 节点");
+        assertSelfTest(canForwardNode(ssrNode), "直连入口 URI 节点应允许转发");
+        const forwardedRaw = NodeProducer.rewriteEndpoint(ssrNode, "relay.example.com", "24443");
+        assertSelfTest(forwardedRaw.includes("ssr://relay.example.com:24443?"), "直连入口 URI 应替换 host/port");
+      }
+    },
+    {
       name: "协议覆盖增强",
       run() {
         const raw = [
@@ -3339,7 +3354,14 @@ function shouldOutputForwardNode(node, forward) {
 function canForwardNode(node) {
   if (node.sourceFormat === "clash") return Boolean(node.host && node.port);
   return /@(?:\[[^\]]+\]|[^:?\s/#]+):\d+/.test(node.raw || "")
+    || hasDirectShareEndpoint(node)
     || ((node.scheme === "ss" || node.scheme === "vmess") && Boolean(node.host && node.port));
+}
+
+function hasDirectShareEndpoint(node) {
+  if (!node || !node.scheme || !node.host || !node.port) return false;
+  const host = escapeRegExp(formatHostForShare(node.host));
+  return new RegExp("^" + escapeRegExp(node.scheme) + ":\\/\\/" + host + ":" + escapeRegExp(String(node.port)) + "(?:[/?#]|$)", "i").test(node.raw || "");
 }
 
 function getForwardConfig(node) {
@@ -3375,7 +3397,16 @@ function rewriteEndpoint(nodeOrRaw, host, port) {
   }
 
   const endpoint = formatHostForShare(host) + ":" + port;
-  return raw.replace(/@(?:\[[^\]]+\]|[^:?\s/#]+):\d+/, "@" + endpoint);
+  if (/@(?:\[[^\]]+\]|[^:?\s/#]+):\d+/.test(raw)) {
+    return raw.replace(/@(?:\[[^\]]+\]|[^:?\s/#]+):\d+/, "@" + endpoint);
+  }
+  if (node && hasDirectShareEndpoint(node)) {
+    return raw.replace(
+      new RegExp("^(" + escapeRegExp(node.scheme) + ":\\/\\/)(?:\\[[^\\]]+\\]|[^:?\\s/#]+):" + escapeRegExp(String(node.port)), "i"),
+      "$1" + endpoint
+    );
+  }
+  return raw;
 }
 
 function rewriteShadowsocksEndpoint(raw, host, port) {
