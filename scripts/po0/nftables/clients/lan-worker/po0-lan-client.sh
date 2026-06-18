@@ -2,7 +2,9 @@
 set -uo pipefail
 
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh"
-SCRIPT_VERSION="2026-06-18-ssh-key-iplist-output"
+SCRIPT_NAME="po0-lan-worker-client"
+SCRIPT_VERSION="2026.06.18+build.1"
+SCRIPT_RELEASE_DATE="2026-06-18"
 RESOURCE_UPLOAD_MODE="manager-stdin"
 DEFAULT_PO0_SCRIPT="/root/nftables-relay-manager.sh"
 PO0_HOST="${PO0_HOST:-}"
@@ -21,6 +23,7 @@ SSH_EXTRA_ARGS="${SSH_EXTRA_ARGS:-}"
 CONFIG_FILE="${PO0_LAN_CLIENT_CONFIG:-}"
 STATS_FILE="${PO0_LAN_CLIENT_STATS:-}"
 RESOURCE_STATS_FILE="${PO0_LAN_RESOURCE_STATS:-}"
+RESOURCE_EVENTS_FILE="${PO0_LAN_RESOURCE_EVENTS:-}"
 INSTALL_PATH="${PO0_LAN_CLIENT_INSTALL_PATH:-}"
 IPDB_DOWNLOAD_URL="${PO0_IPDB_DOWNLOAD_URL:-https://raw.githubusercontent.com/nmgliangwei/qqwry.ipdb/main/qqwry.ipdb}"
 IPLIST_JOBS="${PO0_IPLIST_JOBS:-${IPLIST_JOBS:-16}}"
@@ -28,6 +31,7 @@ RESOURCE_TASK_MAX_PER_RUN="${PO0_RESOURCE_TASK_MAX_PER_RUN:-10}"
 RESOURCE_UPLOAD_TIMEOUT_SECONDS="${PO0_RESOURCE_UPLOAD_TIMEOUT_SECONDS:-900}"
 RESOURCE_COMPLETE_TIMEOUT_SECONDS="${PO0_RESOURCE_COMPLETE_TIMEOUT_SECONDS:-600}"
 RESOURCE_CONTROL_TIMEOUT_SECONDS="${PO0_RESOURCE_CONTROL_TIMEOUT_SECONDS:-30}"
+RESOURCE_EVENTS_KEEP="${PO0_RESOURCE_EVENTS_KEEP:-500}"
 REMOTE_STATUS_TIMEOUT_SECONDS="${PO0_REMOTE_STATUS_TIMEOUT_SECONDS:-8}"
 SSH_CONNECT_TIMEOUT_SECONDS="${PO0_SSH_CONNECT_TIMEOUT_SECONDS:-15}"
 WORKER_ID="${PO0_WORKER_ID:-$(hostname 2>/dev/null || printf 'po0-worker')}"
@@ -210,7 +214,7 @@ usage() {
         "  --self-report-server 在 LAN Worker 本地运行自上报接收服务；访问设备先报 LAN Worker，再由 LAN Worker SSH 上报 PO0。" \
         "  --self-report-targets STR 设备自上报目标；格式 source|host|port|user|script|token|ttl|ssh_args，多目标用分号或换行分隔。" \
         "  --self-report-probe  检查自上报接收端依赖和 PO0 client-ip token。" \
-        "  --version            显示当前脚本版本、路径和资源上传模式。" \
+        "  --version            显示当前脚本名称、版本、发布日期、路径和资源上传模式。" \
         "  --upgrade-self       从 ${RAW_URL} 覆盖更新本机 po0-lan-client 命令。" \
         "  --wizard             进入交互式安装向导。" \
         "  --menu               进入高级菜单。" \
@@ -260,6 +264,12 @@ refresh_stats_file() {
 refresh_resource_stats_file() {
     if [[ -z "${RESOURCE_STATS_FILE}" ]]; then
         RESOURCE_STATS_FILE="$(path_dirname "${CONFIG_FILE}")/resource-stats.tsv"
+    fi
+}
+
+refresh_resource_events_file() {
+    if [[ -z "${RESOURCE_EVENTS_FILE}" ]]; then
+        RESOURCE_EVENTS_FILE="$(path_dirname "${CONFIG_FILE}")/resource-events.tsv"
     fi
 }
 
@@ -396,10 +406,35 @@ ensure_resource_stats_file() {
     local dir
     refresh_resource_stats_file
     dir="$(path_dirname "${RESOURCE_STATS_FILE}")"
-    mkdir -p "${dir}" || return 1
+    if [[ ! -d "${dir}" ]]; then
+        if command -v mkdir >/dev/null 2>&1; then
+            mkdir -p "${dir}" || return 1
+        else
+            printf '资源统计目录不存在，且当前系统缺少 mkdir：%s\n' "${dir}" >&2
+            return 1
+        fi
+    fi
     if [[ ! -f "${RESOURCE_STATS_FILE}" ]]; then
         printf '# endpoint_id|success_count|fail_count|last_task|last_type|last_status|last_at|last_message\n' > "${RESOURCE_STATS_FILE}" || return 1
         chmod 600 "${RESOURCE_STATS_FILE}" 2>/dev/null || true
+    fi
+}
+
+ensure_resource_events_file() {
+    local dir
+    refresh_resource_events_file
+    dir="$(path_dirname "${RESOURCE_EVENTS_FILE}")"
+    if [[ ! -d "${dir}" ]]; then
+        if command -v mkdir >/dev/null 2>&1; then
+            mkdir -p "${dir}" || return 1
+        else
+            printf '资源事件目录不存在，且当前系统缺少 mkdir：%s\n' "${dir}" >&2
+            return 1
+        fi
+    fi
+    if [[ ! -f "${RESOURCE_EVENTS_FILE}" ]]; then
+        printf '# at|endpoint_id|task_id|task_type|status|message\n' > "${RESOURCE_EVENTS_FILE}" || return 1
+        chmod 600 "${RESOURCE_EVENTS_FILE}" 2>/dev/null || true
     fi
 }
 
@@ -1652,11 +1687,15 @@ print_dashboard() {
     dashboard_stat_totals
     print_title "PO0 内网 Worker"
     print_panel_section "基础信息"
+    print_panel_row "脚本名称" "${SCRIPT_NAME}"
     print_panel_row "当前脚本" "$(script_source_path)"
-    print_panel_row "版本 / 上传" "${SCRIPT_VERSION} / ${RESOURCE_UPLOAD_MODE}"
+    print_panel_row "版本" "${SCRIPT_VERSION}"
+    print_panel_row "发布日期" "${SCRIPT_RELEASE_DATE}"
+    print_panel_row "资源上传" "${RESOURCE_UPLOAD_MODE}"
     print_panel_row "配置文件" "${CONFIG_FILE}"
     print_panel_row "统计文件" "${STATS_FILE}"
     print_panel_row "资源统计" "${RESOURCE_STATS_FILE}"
+    print_panel_row "资源事件" "${RESOURCE_EVENTS_FILE:-$(path_dirname "${CONFIG_FILE}")/resource-events.tsv}"
     print_panel_row "Worker ID" "${WORKER_ID}"
 
     print_panel_section "目标概览"
@@ -2073,6 +2112,70 @@ manage_target_tokens_interactive() {
     [[ "${webauth_token}" == "-" ]] && webauth_token=""
     update_target_tokens_by_index "${selected}" "${ddns_token}" "${resource_token}" "${client_ip_token}" "${webauth_token}" || return 1
     printf '已更新目标 %s 的 Token。\n' "${selected}"
+}
+
+update_target_report_ttl_by_index() {
+    local selected="$1"
+    local client_ip_source="$2"
+    local client_ip_ttl="$3"
+    local webauth_source="$4"
+    local webauth_ttl="$5"
+    local line idx=0 tmp
+    ensure_config_file || return 1
+    tmp="${CONFIG_FILE}.tmp.$$"
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        if ! parse_target_line "${line}"; then
+            printf '%s\n' "${line}" >> "${tmp}"
+            continue
+        fi
+        ((idx++))
+        if [[ "${idx}" == "${selected}" ]]; then
+            TARGET_CLIENT_IP_SOURCE="$(sanitize_field "${client_ip_source}")"
+            TARGET_CLIENT_IP_TTL="$(sanitize_field "${client_ip_ttl}")"
+            TARGET_WEBAUTH_SOURCE="$(sanitize_field "${webauth_source}")"
+            TARGET_WEBAUTH_TTL="$(sanitize_field "${webauth_ttl}")"
+        fi
+        printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
+            "${TARGET_ENABLED}" "${TARGET_LABEL}" "${TARGET_DOMAIN}" "${TARGET_REPORT_KEY}" "${TARGET_PO0_HOST}" "${TARGET_PO0_PORT}" "${TARGET_PO0_USER}" "${TARGET_PO0_SCRIPT}" "${TARGET_TOKEN}" "${TARGET_SSH_EXTRA_ARGS}" "${TARGET_RESOURCE_TOKEN}" "${TARGET_REPORT_MODE}" "${TARGET_DDNS_RESOLVE_DOMAIN}" "${TARGET_CLIENT_IP_TOKEN}" "${TARGET_CLIENT_IP_SOURCE}" "${TARGET_CLIENT_IP_TTL}" "${TARGET_WEBAUTH_TOKEN}" "${TARGET_WEBAUTH_SOURCE}" "${TARGET_WEBAUTH_TTL}" "${TARGET_REPORT_SSH_EXTRA_ARGS}" >> "${tmp}"
+    done < "${CONFIG_FILE}"
+    replace_config_from_tmp "${tmp}"
+}
+
+manage_target_report_ttl_interactive() {
+    local selected line idx=0
+    local client_ip_source client_ip_ttl webauth_source webauth_ttl
+    select_target_index || return 1
+    selected="${SELECTED_TARGET_INDEX}"
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        parse_target_line "${line}" || continue
+        ((idx++))
+        if [[ "${idx}" == "${selected}" ]]; then
+            client_ip_source="${TARGET_CLIENT_IP_SOURCE}"
+            client_ip_ttl="${TARGET_CLIENT_IP_TTL}"
+            webauth_source="${TARGET_WEBAUTH_SOURCE}"
+            webauth_ttl="${TARGET_WEBAUTH_TTL}"
+            break
+        fi
+    done < "${CONFIG_FILE}"
+    printf '\nSelf-report / WebAuth source 与 TTL 维护；直接回车保留当前值，输入 - 可清空目标覆盖。\n'
+    client_ip_source="$(prompt_default "Self-report source id" "${client_ip_source:-${SELF_REPORT_SOURCE}}")"
+    client_ip_ttl="$(prompt_default "Self-report 放行 TTL 秒数" "${client_ip_ttl:-${SELF_REPORT_TTL_SECONDS:-3600}}")"
+    webauth_source="$(prompt_default "WebAuth source id" "${webauth_source:-${WEBAUTH_SOURCE}}")"
+    webauth_ttl="$(prompt_default "WebAuth 放行 TTL 秒数" "${webauth_ttl:-${WEBAUTH_TTL_SECONDS:-3600}}")"
+    [[ "${client_ip_source}" == "-" ]] && client_ip_source=""
+    [[ "${client_ip_ttl}" == "-" ]] && client_ip_ttl=""
+    [[ "${webauth_source}" == "-" ]] && webauth_source=""
+    [[ "${webauth_ttl}" == "-" ]] && webauth_ttl=""
+    if [[ -n "${client_ip_ttl}" && ! "${client_ip_ttl}" =~ ^[0-9]+$ ]]; then
+        printf 'Self-report TTL 必须是秒数，或输入 - 清空目标覆盖。\n' >&2
+        return 1
+    fi
+    if [[ -n "${webauth_ttl}" && ! "${webauth_ttl}" =~ ^[0-9]+$ ]]; then
+        printf 'WebAuth TTL 必须是秒数，或输入 - 清空目标覆盖。\n' >&2
+        return 1
+    fi
+    update_target_report_ttl_by_index "${selected}" "${client_ip_source}" "${client_ip_ttl}" "${webauth_source}" "${webauth_ttl}" || return 1
+    printf '已更新目标 %s 的 Self-report / WebAuth source 与 TTL。\n' "${selected}"
 }
 
 report_once() {
@@ -2508,6 +2611,66 @@ resource_endpoint_id_for() {
         "$(sanitize_field "${3:-root}")"
 }
 
+resource_endpoint_label() {
+    local endpoint_id="$1"
+    local host port user line label=""
+    IFS=',' read -r host port user <<< "${endpoint_id}"
+    host="${host:-}"
+    port="${port:-22}"
+    user="${user:-root}"
+    if [[ -f "${CONFIG_FILE}" ]]; then
+        while IFS= read -r line || [[ -n "${line}" ]]; do
+            parse_target_line "${line}" || continue
+            [[ -n "${TARGET_RESOURCE_TOKEN}" ]] || continue
+            if [[ "${TARGET_PO0_HOST}" == "${host}" && "${TARGET_PO0_PORT:-22}" == "${port}" && "${TARGET_PO0_USER:-root}" == "${user}" ]]; then
+                label="${TARGET_LABEL:-${TARGET_PO0_HOST}}"
+                break
+            fi
+        done < "${CONFIG_FILE}"
+    fi
+    if [[ -n "${label}" ]]; then
+        printf '%s (%s@%s:%s)\n' "${label}" "${user}" "${host}" "${port}"
+    elif [[ -n "${host}" ]]; then
+        printf '%s@%s:%s\n' "${user}" "${host}" "${port}"
+    else
+        printf '%s\n' "${endpoint_id}"
+    fi
+}
+
+resource_success_rate() {
+    local success="${1:-0}" fail="${2:-0}" total
+    [[ "${success}" =~ ^[0-9]+$ ]] || success=0
+    [[ "${fail}" =~ ^[0-9]+$ ]] || fail=0
+    total=$((success + fail))
+    if (( total == 0 )); then
+        printf 'n/a'
+    else
+        printf '%s%%' "$(((success * 100) / total))"
+    fi
+}
+
+short_text() {
+    local value="$1"
+    local max="${2:-180}"
+    if [[ "${#value}" -gt "${max}" ]]; then
+        printf '%s...\n' "${value:0:max}"
+    else
+        printf '%s\n' "${value}"
+    fi
+}
+
+append_resource_event() {
+    local at="$1" endpoint_id="$2" task_id="$3" task_type="$4" status="$5" message="$6"
+    ensure_resource_events_file || return 1
+    printf '%s|%s|%s|%s|%s|%s\n' \
+        "${at}" \
+        "$(sanitize_field "${endpoint_id}")" \
+        "$(sanitize_field "${task_id:-无}")" \
+        "$(sanitize_field "${task_type:-无}")" \
+        "$(sanitize_field "${status}")" \
+        "$(sanitize_field "${message}")" >> "${RESOURCE_EVENTS_FILE}"
+}
+
 update_resource_stats() {
     local endpoint_id="$1" task_id="$2" task_type="$3" status="$4" message="$5"
     local tmp line id success fail last_task last_type last_status last_at last_message found=0 now
@@ -2546,22 +2709,143 @@ update_resource_stats() {
         printf '%s|%s|%s|%s|%s|%s|%s|%s\n' \
             "${endpoint_id}" "${success}" "${fail}" "${task_id:-无}" "${task_type:-无}" "${status}" "${now}" "$(sanitize_field "${message}")" >> "${tmp}"
     fi
-    replace_file_from_tmp "${tmp}" "${RESOURCE_STATS_FILE}"
+    replace_file_from_tmp "${tmp}" "${RESOURCE_STATS_FILE}" || return 1
+    append_resource_event "${now}" "${endpoint_id}" "${task_id:-无}" "${task_type:-无}" "${status}" "${message}" || true
 }
 
 list_resource_stats() {
-    local line endpoint success fail task type status at message count=0
+    local line endpoint success fail task type status at message count=0 label total rate summary
     ensure_resource_stats_file || return 1
-    print_panel_section "资源任务统计"
-    print_panel_row "统计文件" "${RESOURCE_STATS_FILE}"
+    ensure_resource_events_file || true
+    print_panel_section "资源任务汇总"
+    print_panel_row "聚合统计" "${RESOURCE_STATS_FILE}"
+    print_panel_row "事件日志" "${RESOURCE_EVENTS_FILE}"
     while IFS= read -r line || [[ -n "${line}" ]]; do
         [[ -n "$(trim "${line}")" && "$(trim "${line}")" != \#* ]] || continue
         IFS='|' read -r endpoint success fail task type status at message <<< "${line}"
         ((count++))
-        print_panel_row "${endpoint}" "成功=${success:-0} 失败=${fail:-0} 上次=${status:-未知} 任务=${task:-无}/${type:-无} 时间=${at:-未知}"
-        [[ -n "${message}" ]] && print_panel_note "${message}"
+        [[ "${success}" =~ ^[0-9]+$ ]] || success=0
+        [[ "${fail}" =~ ^[0-9]+$ ]] || fail=0
+        total=$((success + fail))
+        rate="$(resource_success_rate "${success}" "${fail}")"
+        label="$(resource_endpoint_label "${endpoint}")"
+        summary="状态=${status:-未知} 最近=${at:-未知} 成功=${success} 失败=${fail} 成功率=${rate}"
+        [[ "${total}" == "0" ]] && summary+="（尚无成功/失败任务）"
+        print_panel_row "${label}" "${summary}"
+        print_panel_note "任务=${task:-无}/${type:-无}；$(short_text "${message:-无消息}" 160)"
     done < "${RESOURCE_STATS_FILE}"
     [[ "${count}" -gt 0 ]] || print_panel_row "记录" "尚无资源任务记录"
+    list_recent_resource_events 12
+}
+
+list_recent_resource_events() {
+    local limit="${1:-12}" line total start i
+    local at endpoint task type status message label detail
+    local -a events=()
+    ensure_resource_events_file || return 1
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        [[ -n "$(trim "${line}")" && "$(trim "${line}")" != \#* ]] || continue
+        events+=("${line}")
+    done < "${RESOURCE_EVENTS_FILE}"
+    print_panel_section "最近资源任务事件"
+    total="${#events[@]}"
+    if (( total == 0 )); then
+        print_panel_row "记录" "尚无事件日志"
+        return 0
+    fi
+    [[ "${limit}" =~ ^[0-9]+$ && "${limit}" -gt 0 ]] || limit=12
+    if (( total > limit )); then
+        start=$((total - limit))
+    else
+        start=0
+    fi
+    for ((i = start; i < total; i++)); do
+        IFS='|' read -r at endpoint task type status message <<< "${events[$i]}"
+        label="$(resource_endpoint_label "${endpoint}")"
+        detail="${label}；状态=${status:-未知}；任务=${task:-无}/${type:-无}"
+        print_panel_row "${at:-未知}" "${detail}"
+        [[ -n "${message}" ]] && print_panel_note "$(short_text "${message}" 180)"
+    done
+}
+
+resource_events_keep_count() {
+    local keep="${1:-${RESOURCE_EVENTS_KEEP}}"
+    [[ "${keep}" =~ ^[0-9]+$ ]] || keep=500
+    printf '%s\n' "${keep}"
+}
+
+prune_resource_events() {
+    local keep="${1:-${RESOURCE_EVENTS_KEEP}}" line total start i tmp
+    local -a events=()
+    keep="$(resource_events_keep_count "${keep}")"
+    ensure_resource_events_file || return 1
+    (( keep > 0 )) || return 0
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        [[ -n "$(trim "${line}")" && "$(trim "${line}")" != \#* ]] || continue
+        events+=("${line}")
+    done < "${RESOURCE_EVENTS_FILE}"
+    total="${#events[@]}"
+    (( total > keep )) || return 0
+    start=$((total - keep))
+    tmp="${RESOURCE_EVENTS_FILE}.tmp.$$"
+    printf '# at|endpoint_id|task_id|task_type|status|message\n' > "${tmp}" || return 1
+    for ((i = start; i < total; i++)); do
+        printf '%s\n' "${events[$i]}" >> "${tmp}"
+    done
+    replace_file_from_tmp "${tmp}" "${RESOURCE_EVENTS_FILE}"
+}
+
+clear_resource_stats_interactive() {
+    local choice keep
+    ensure_resource_stats_file || return 1
+    ensure_resource_events_file || return 1
+    print_panel_section "清理资源任务统计"
+    print_panel_row "聚合统计" "${RESOURCE_STATS_FILE}"
+    print_panel_row "事件日志" "${RESOURCE_EVENTS_FILE}"
+    print_panel_row "自动裁剪" "每次资源轮询后保留最近 ${RESOURCE_EVENTS_KEEP} 条事件；设 PO0_RESOURCE_EVENTS_KEEP 可调整"
+    printf '%s\n' "  1) 清空资源事件日志"
+    printf '%s\n' "  2) 清空聚合统计和事件日志"
+    printf '%s\n' "  3) 裁剪事件日志，只保留最近 N 条"
+    printf '%s\n' "  0) 取消"
+    choice="$(read_prompt "请选择清理方式 [0-3]: ")" || {
+        printf '\n输入结束，取消清理。\n'
+        return 0
+    }
+    choice="$(trim "${choice}")"
+    case "${choice}" in
+        1)
+            if prompt_yes_no "确认清空资源事件日志" "n"; then
+                printf '# at|endpoint_id|task_id|task_type|status|message\n' > "${RESOURCE_EVENTS_FILE}" || return 1
+                chmod 600 "${RESOURCE_EVENTS_FILE}" 2>/dev/null || true
+                printf '已清空资源事件日志。\n'
+            else
+                printf '已取消。\n'
+            fi
+            ;;
+        2)
+            if prompt_yes_no "确认清空资源聚合统计和事件日志" "n"; then
+                printf '# endpoint_id|success_count|fail_count|last_task|last_type|last_status|last_at|last_message\n' > "${RESOURCE_STATS_FILE}" || return 1
+                printf '# at|endpoint_id|task_id|task_type|status|message\n' > "${RESOURCE_EVENTS_FILE}" || return 1
+                chmod 600 "${RESOURCE_STATS_FILE}" "${RESOURCE_EVENTS_FILE}" 2>/dev/null || true
+                printf '已清空资源聚合统计和事件日志。\n'
+            else
+                printf '已取消。\n'
+            fi
+            ;;
+        3)
+            keep="$(prompt_default "保留最近多少条事件" "${RESOURCE_EVENTS_KEEP}")"
+            keep="$(resource_events_keep_count "${keep}")"
+            prune_resource_events "${keep}" || return 1
+            printf '已裁剪资源事件日志，保留最近 %s 条。\n' "${keep}"
+            ;;
+        0|"")
+            printf '已取消。\n'
+            ;;
+        *)
+            printf '无效选择。\n' >&2
+            return 1
+            ;;
+    esac
 }
 
 fetch_to_file() {
@@ -2949,6 +3233,7 @@ run_resource_targets() {
         fi
     done < "${CONFIG_FILE}"
     printf '资源任务轮询完成：成功/无任务 %s，失败 %s，未配置 Token 跳过 %s，停用跳过 %s，重复跳过 %s。\n' "${ok}" "${fail}" "${skipped}" "${disabled}" "${duplicate}"
+    prune_resource_events "${RESOURCE_EVENTS_KEEP}" || true
     [[ "${fail}" == "0" ]]
 }
 
@@ -3988,13 +4273,15 @@ show_local_script_status() {
     legacy_scp_cmd+="upload_path"
     legacy_scp_var="scp"
     legacy_scp_var+="_args"
-    if [[ -r "${current}" ]] && { grep -q -- "${legacy_scp_cmd}" "${current}" || grep -q -- "${legacy_scp_var}" "${current}"; }; then
+    if have_cmd grep && [[ -r "${current}" ]] && { grep -q -- "${legacy_scp_cmd}" "${current}" || grep -q -- "${legacy_scp_var}" "${current}"; }; then
         marker_status="警告：当前脚本内容仍包含 legacy SCP 上传逻辑"
     fi
     print_panel_section "本机脚本"
+    print_panel_row "脚本名称" "${SCRIPT_NAME}"
+    print_panel_row "版本" "${SCRIPT_VERSION}"
+    print_panel_row "发布日期" "${SCRIPT_RELEASE_DATE}"
     print_panel_row "当前脚本" "${current}"
     print_panel_row "默认安装路径" "${install_path}"
-    print_panel_row "版本" "${SCRIPT_VERSION}"
     print_panel_row "资源上传" "${marker_status}"
     print_panel_row "raw URL" "${RAW_URL}"
     cron_summary="$(cron_status_summary)"
@@ -4207,60 +4494,63 @@ menu_loop() {
         print_dashboard
         print_menu_section "资源任务"
         print_menu_pair 1 "资源统计" 2 "PO0 资源更新计划"
-        print_menu_item 3 "立即领取并执行资源任务"
+        print_menu_pair 3 "立即领取并执行资源任务" 4 "清理资源统计"
 
         print_menu_section "DDNS 解析上报"
-        print_menu_pair 4 "上报目标与 DDNS 统计" 5 "立即执行 DDNS 上报"
-        print_menu_item 6 "清空 DDNS 统计"
+        print_menu_pair 5 "上报目标与 DDNS 统计" 6 "立即执行 DDNS 上报"
+        print_menu_item 7 "清空 DDNS 统计"
 
         print_menu_section "Self-report 自上报"
-        print_menu_pair 7 "Self-report 连通性检查" 8 "启动 Self-report 服务"
+        print_menu_pair 8 "Self-report 连通性检查" 9 "启动 Self-report 服务"
 
         print_menu_section "WebAuth 放行"
-        print_menu_pair 9 "WebAuth 连通性检查" 10 "启动 WebAuth 服务"
-        print_menu_item 11 "WebAuth / Cloudflare Access 配置提示"
+        print_menu_pair 10 "WebAuth 连通性检查" 11 "启动 WebAuth 服务"
+        print_menu_item 12 "WebAuth / Cloudflare Access 配置提示"
 
-        print_menu_section "PO0 目标、SSH 与 Token"
-        print_menu_pair 12 "添加 PO0 目标" 13 "编辑 PO0 目标"
-        print_menu_pair 14 "SSH 私钥 / 参数" 15 "目标 Token"
-        print_menu_pair 16 "启用 / 停用目标" 17 "删除 PO0 目标"
+        print_menu_section "PO0 目标、SSH、Token 与 TTL"
+        print_menu_pair 13 "添加 PO0 目标" 14 "编辑 PO0 目标"
+        print_menu_pair 15 "SSH 私钥 / 参数" 16 "目标 Token"
+        print_menu_pair 17 "Self-report / WebAuth TTL" 18 "启用 / 停用目标"
+        print_menu_item 19 "删除 PO0 目标"
 
         print_menu_section "全局操作"
-        print_menu_item 18 "执行全部任务"
+        print_menu_item 20 "执行全部任务"
 
         print_menu_section "维护"
-        print_menu_pair 19 "安装 / 更新本机轮询器" 20 "删除本机轮询器"
-        print_menu_pair 21 "查看本机轮询器状态" 22 "查看脚本版本 / 本机状态"
-        print_menu_item 23 "从 GitHub 更新脚本"
+        print_menu_pair 21 "安装 / 更新本机轮询器" 22 "删除本机轮询器"
+        print_menu_pair 23 "查看本机轮询器状态" 24 "查看脚本版本 / 本机状态"
+        print_menu_item 25 "从 GitHub 更新脚本"
 
         print_menu_section "退出"
         print_menu_item 0 "退出"
         print_menu_footer
-        read_menu_choice_or_return choice "请选择操作 [0-23]: " || return 0
+        read_menu_choice_or_return choice "请选择操作 [0-25]: " || return 0
         case "${choice}" in
             1) list_resource_stats; pause_before_return ;;
             2) show_remote_resource_task_cron_status; pause_before_return ;;
             3) run_resource_targets; pause_before_return ;;
-            4) list_targets; pause_before_return ;;
-            5) run_config_targets; pause_before_return ;;
-            6) clear_stats_interactive; pause_before_return ;;
-            7) probe_self_report_target; pause_before_return ;;
-            8) run_self_report_server ;;
-            9) probe_webauth_target; pause_before_return ;;
-            10) run_webauth_server ;;
-            11) show_webauth_cloudflare_guide; pause_before_return ;;
-            12) add_target_interactive; pause_before_return ;;
-            13) edit_target_interactive; pause_before_return ;;
-            14) manage_target_ssh_interactive; [[ "$?" -eq 2 ]] || pause_before_return ;;
-            15) manage_target_tokens_interactive; pause_before_return ;;
-            16) toggle_target_interactive; pause_before_return ;;
-            17) delete_target_interactive; pause_before_return ;;
-            18) run_all_client_jobs; pause_before_return ;;
-            19) install_cron_interactive; pause_before_return ;;
-            20) remove_cron_interactive; pause_before_return ;;
-            21) show_cron_status; pause_before_return ;;
-            22) show_local_script_status; pause_before_return ;;
-            23) upgrade_self_from_raw; pause_before_return ;;
+            4) clear_resource_stats_interactive; pause_before_return ;;
+            5) list_targets; pause_before_return ;;
+            6) run_config_targets; pause_before_return ;;
+            7) clear_stats_interactive; pause_before_return ;;
+            8) probe_self_report_target; pause_before_return ;;
+            9) run_self_report_server ;;
+            10) probe_webauth_target; pause_before_return ;;
+            11) run_webauth_server ;;
+            12) show_webauth_cloudflare_guide; pause_before_return ;;
+            13) add_target_interactive; pause_before_return ;;
+            14) edit_target_interactive; pause_before_return ;;
+            15) manage_target_ssh_interactive; [[ "$?" -eq 2 ]] || pause_before_return ;;
+            16) manage_target_tokens_interactive; pause_before_return ;;
+            17) manage_target_report_ttl_interactive; pause_before_return ;;
+            18) toggle_target_interactive; pause_before_return ;;
+            19) delete_target_interactive; pause_before_return ;;
+            20) run_all_client_jobs; pause_before_return ;;
+            21) install_cron_interactive; pause_before_return ;;
+            22) remove_cron_interactive; pause_before_return ;;
+            23) show_cron_status; pause_before_return ;;
+            24) show_local_script_status; pause_before_return ;;
+            25) upgrade_self_from_raw; pause_before_return ;;
             0) return 0 ;;
             "") ;;
             *) printf '无效选择。\n' >&2 ;;
