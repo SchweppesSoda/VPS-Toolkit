@@ -44,6 +44,7 @@
   - `scripts/po0/*/README.md`：PO0 子模块用户入口；复杂实现才允许一个配套 technical/design 文档。
   - `scripts/vps/*/README.md`：VPS 工具用户入口；跨模块约定放 `scripts/vps/docs/*.md`，复杂实现才允许一个 `*-technical.md` 或 `*-guide.md`。
   - `web/vps-toolkit/tools/*/*_technical.md`：复杂网页工具技术说明；网页工具用户入口在页面本身，不新增 README 碎片。
+- 修改 `web/vps-toolkit/tools/*` 的 UI 时，先阅读该工具自己的 `*_technical.md`；如果该工具没有 UI 结构说明，可参考 `web/vps-toolkit/tools/proxy-node-manager/proxy_node_manager_technical.md` 的页面设计、信息架构、响应式验证和自测写法，再同步补齐本工具的 technical 文档。不要只新增功能控件而不检查整体布局、控件分组和小屏表现。
 - `scripts/po0/nftables/` 只保留三类长期维护 Markdown：用户主文档 `README.md`、实现主文档 `nftables-relay-manager-technical.md`、Egern 专属文档 `clients/egern/README.md`。
 - nftables 用户行为、菜单、命令示例、默认值、TTL、Token、状态文件和定时任务只更新 `scripts/po0/nftables/README.md`；实现细节、协议、wrapper、兼容规则和内部状态模型只更新 technical 文档；Egern 专属导入、设备 ID、Widget 和多 PO0 行为只更新 Egern README。
 - 不随手新增 `.md`。新增文档前先判断是否能放入现有主文档；除非是独立模块且长期维护，否则不要制造碎片文档。短命令笔记、目录清单、临时排错记录应并入现有 README 或删除。

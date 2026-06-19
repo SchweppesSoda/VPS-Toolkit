@@ -254,39 +254,37 @@
     <section id="groups" class="groups"></section>
 
     <section class="panel output-panel">
-      <div class="panel-head">
-        <div class="output-head-main">
-          <div>
-            <h2>转发与最终输出</h2>
-            <p class="panel-subtitle">选择是否输出转发副本，并生成最终可复制或下载的节点文本。</p>
-          </div>
-          <div class="output-controls">
-            <div class="tabs" role="tablist" aria-label="输出内容">
-              <button class="small" data-output-content="clean">清洗节点</button>
-              <button class="small active" data-output-content="renamed">重命名节点</button>
-            </div>
-            <div class="output-field">
-              <label for="forwardOutputMode">转发输出</label>
-              <select id="forwardOutputMode" class="output-format" aria-label="转发输出">
-                <option value="both" selected>原节点 + 转发节点</option>
-                <option value="forward-only">只输出转发节点</option>
-                <option value="original-only">只输出原节点</option>
-              </select>
-            </div>
-            <div class="output-field">
-              <label for="outputFormat">输出格式</label>
-              <select id="outputFormat" class="output-format" aria-label="输出格式">
-                <option value="auto" selected>保持输入格式</option>
-                <option value="uri">URL/URI 节点列表</option>
-                <option value="clash">Clash proxies YAML</option>
-                <option value="base64-uri">Base64 URL/URI 订阅</option>
-              </select>
-            </div>
-          </div>
+      <div class="panel-head output-panel-head">
+        <div class="panel-title-block">
+          <h2>转发与最终输出</h2>
+          <p class="panel-subtitle">选择输出内容、转发组合和格式，生成最终可复制或下载的节点文本。</p>
         </div>
-        <div class="button-row">
+        <div class="button-row panel-actions">
           <button class="ghost small" id="copyBtn">复制当前输出</button>
           <button class="ghost small" id="downloadBtn">下载 txt</button>
+        </div>
+      </div>
+      <div class="panel-toolbar output-toolbar">
+        <div class="tabs" role="tablist" aria-label="输出内容">
+          <button class="small" data-output-content="clean">清洗节点</button>
+          <button class="small active" data-output-content="renamed">重命名节点</button>
+        </div>
+        <div class="output-field">
+          <label for="forwardOutputMode">转发输出</label>
+          <select id="forwardOutputMode" class="output-format" aria-label="转发输出">
+            <option value="both" selected>原节点 + 转发节点</option>
+            <option value="forward-only">只输出转发节点</option>
+            <option value="original-only">只输出原节点</option>
+          </select>
+        </div>
+        <div class="output-field">
+          <label for="outputFormat">输出格式</label>
+          <select id="outputFormat" class="output-format" aria-label="输出格式">
+            <option value="auto" selected>保持输入格式</option>
+            <option value="uri">URL/URI 节点列表</option>
+            <option value="clash">Clash proxies YAML</option>
+            <option value="base64-uri">Base64 URL/URI 订阅</option>
+          </select>
         </div>
       </div>
       <div class="panel-body">

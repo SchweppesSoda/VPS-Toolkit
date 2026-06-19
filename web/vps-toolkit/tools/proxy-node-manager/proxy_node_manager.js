@@ -2275,14 +2275,7 @@ function renderGroups() {
     return;
   }
 
-  const heading = `
-    <section class="section-heading">
-      <h2>VPS 前缀与节点分组</h2>
-      <p>清洗后按 VPS/主机特征分组，在这里调整 VPS 前缀、最终名称和节点二维码动作。</p>
-    </section>
-  `;
-
-  root.innerHTML = heading + state.groups.map(group => {
+  root.innerHTML = state.groups.map(group => {
     const perNodeForward = $("forwardMode").value === "per-node";
     const protocols = Array.from(new Set(group.nodes.map(n => n.protocolCode || n.protocolLabel))).filter(Boolean);
     const hosts = Array.from(new Set(group.nodes.map(n => n.host).filter(Boolean)));
@@ -2332,21 +2325,23 @@ function renderGroups() {
     return `
       <article class="group-panel" data-group="${group.id}">
         <div class="group-head">
-          <div>
-            <div class="group-title">
-              <div>
-                <label>VPS 前缀</label>
-                <input data-group-name="${group.id}" value="${escapeAttr(group.name)}">
-              </div>
-              <div>
-                <label>分组依据</label>
-                <input readonly value="${escapeAttr(group.key)}">
-              </div>
-            </div>
+          <div class="group-summary">
+            <h2>VPS 前缀与节点分组</h2>
+            <p>按 VPS/主机特征分组，调整前缀、最终名称和节点二维码动作。</p>
             <div class="badges">
               <span class="badge">${group.nodes.length} 条节点</span>
               <span class="badge">${hosts.length || 0} 个入口</span>
               ${protocols.map(p => '<span class="badge protocol">' + escapeHtml(p) + '</span>').join("")}
+            </div>
+          </div>
+          <div class="group-fields">
+            <div>
+              <label>VPS 前缀</label>
+              <input data-group-name="${group.id}" value="${escapeAttr(group.name)}">
+            </div>
+            <div>
+              <label>分组依据</label>
+              <input readonly value="${escapeAttr(group.key)}">
             </div>
           </div>
           <div class="button-row group-tools">
