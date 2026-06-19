@@ -2429,6 +2429,8 @@ function renderGroups() {
       if (!node.forwardManual) {
         node.forwardName = NodeProcessor.makeForwardName(node, getGroupNameForNode(node));
       }
+      syncForwardSelectionFromEndpoint(node);
+      syncForwardSelectInput(root, node);
       renderOutput();
     });
   });
@@ -2441,6 +2443,8 @@ function renderGroups() {
       if (!node.forwardManual) {
         node.forwardName = NodeProcessor.makeForwardName(node, getGroupNameForNode(node));
       }
+      syncForwardSelectionFromEndpoint(node);
+      syncForwardSelectInput(root, node);
       renderOutput();
     });
   });
@@ -2729,6 +2733,7 @@ function buildOutputRecords(nodes, contentMode) {
   const renamed = contentMode !== "clean";
   const forwardMode = renamed ? state.forwardOutputMode : "original-only";
   const records = [];
+  const forwardWarnings = [];
   for (const node of nodes) {
     const name = renamed ? (node.customName || node.suggestedName || node.rawName || node.protocolCode) : (node.rawName || node.protocolCode);
     const originalRecord = {
@@ -2748,10 +2753,19 @@ function buildOutputRecords(nodes, contentMode) {
     }
 
     const forward = getForwardConfig(node);
-    if (!shouldOutputForwardNode(node, forward)) continue;
+    const skipReason = getForwardSkipReason(node, forward);
+    if (skipReason) {
+      if (node.forwardSelected || (forward.host || forward.port)) {
+        forwardWarnings.push(makeOutputWarning(originalRecord, skipReason));
+      }
+      continue;
+    }
 
     const forwardedRaw = NodeProducer.rewriteEndpoint(node, forward.host, forward.port);
-    if (forwardedRaw === node.raw) continue;
+    if (forwardedRaw === node.raw) {
+      forwardWarnings.push(makeOutputWarning(originalRecord, "转发入口已填写，但当前节点无法改写入口"));
+      continue;
+    }
 
     const forwardName = node.forwardName || NodeProcessor.makeForwardName(node, getGroupNameForNode(node));
     records.push({
@@ -2761,11 +2775,12 @@ function buildOutputRecords(nodes, contentMode) {
       isForward: true
     });
   }
+  records.forwardWarnings = forwardWarnings;
   return records;
 }
 
 function produceOutputResult(nodes, records, format) {
-  const warnings = [];
+  const warnings = [...((records && records.forwardWarnings) || [])];
   let lines = [];
   let text = "";
   let emitted = 0;
@@ -3344,11 +3359,37 @@ function applyForwardEndpointInput(hostInput, portInput) {
   }
 }
 
+function syncForwardSelectionFromEndpoint(node) {
+  if (!node) return;
+  const forward = getForwardConfig(node);
+  if (forward.valid && canForwardNode(node)) {
+    node.forwardSelected = true;
+    $("forwardEnabled").checked = true;
+    return;
+  }
+  if (!forward.host && !forward.port) {
+    node.forwardSelected = false;
+  }
+}
+
+function syncForwardSelectInput(root, node) {
+  if (!root || !node) return;
+  const input = root.querySelector('[data-forward-select="' + node.id + '"]');
+  if (input && !input.disabled) {
+    input.checked = Boolean(node.forwardSelected);
+  }
+}
+
 function shouldOutputForwardNode(node, forward) {
-  return $("forwardEnabled").checked
-    && forward.valid
-    && node.forwardSelected
-    && canForwardNode(node);
+  return !getForwardSkipReason(node, forward);
+}
+
+function getForwardSkipReason(node, forward) {
+  if (!$("forwardEnabled").checked) return "未启用转发输出";
+  if (!node.forwardSelected) return "当前节点未选择转发";
+  if (!forward.valid) return "转发入口或端口无效";
+  if (!canForwardNode(node)) return "当前节点暂不支持改写入口";
+  return "";
 }
 
 function canForwardNode(node) {
