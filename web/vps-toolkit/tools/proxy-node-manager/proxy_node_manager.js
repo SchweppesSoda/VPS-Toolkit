@@ -2285,33 +2285,33 @@ function renderGroups() {
     const protocols = Array.from(new Set(group.nodes.map(n => n.protocolCode || n.protocolLabel))).filter(Boolean);
     const hosts = Array.from(new Set(group.nodes.map(n => n.host).filter(Boolean)));
     const rows = group.nodes.map(node => {
-      const endpoint = [node.host || "unknown", node.port || ""].filter(Boolean).join(":");
       const forwardable = canForwardNode(node);
       const qrReady = isQrShareLink(node.raw);
       const expanded = state.expandedDetails.has(node.id);
-      const detailColspan = 11;
+      const detailColspan = 12;
       return `
         <tr>
           <td class="detail-cell">
             <button class="small ghost" data-node-detail="${node.id}">${expanded ? "收起" : "详情"}</button>
           </td>
           <td class="protocol">${escapeHtml(node.protocolLabel)}</td>
-          <td class="host">${escapeHtml(endpoint || "-")}</td>
-          <td class="name">${escapeHtml(node.rawName || "-")}</td>
-          <td class="name">${escapeHtml(node.suggestedName || "")}</td>
-          <td>
+          <td class="host"><span class="cell-clip" title="${escapeAttr(node.host || "-")}">${escapeHtml(node.host || "-")}</span></td>
+          <td class="port">${escapeHtml(node.port || "-")}</td>
+          <td class="name"><span class="cell-clip" title="${escapeAttr(node.rawName || "-")}">${escapeHtml(node.rawName || "-")}</span></td>
+          <td class="name"><span class="cell-clip" title="${escapeAttr(node.suggestedName || "")}">${escapeHtml(node.suggestedName || "")}</span></td>
+          <td class="final-name-cell">
             <input class="name-input" data-node-name="${node.id}" value="${escapeAttr(node.customName || node.suggestedName || "")}">
           </td>
-          <td>
+          <td class="forward-select-cell">
             <input type="checkbox" data-forward-select="${node.id}" ${node.forwardSelected && forwardable ? "checked" : ""} ${forwardable ? "" : "disabled"}>
           </td>
-          <td>
+          <td class="forward-host-cell">
             <input data-forward-host="${node.id}" value="${escapeAttr(node.forwardHost || "")}" placeholder="${escapeAttr($("forwardHost").value.trim() || "入口")}" ${forwardable && perNodeForward ? "" : "disabled"}>
           </td>
-          <td>
+          <td class="forward-port-cell">
             <input data-forward-port="${node.id}" value="${escapeAttr(node.forwardPort || "")}" placeholder="${escapeAttr($("forwardPort").value.trim() || "端口")}" ${forwardable && perNodeForward ? "" : "disabled"}>
           </td>
-          <td>
+          <td class="forward-name-cell">
             <input class="name-input" data-forward-name="${node.id}" value="${escapeAttr(node.forwardName || NodeProcessor.makeForwardName(node, group.name))}" ${forwardable ? "" : "disabled placeholder=\"暂不支持\""}>
           </td>
           <td class="link">
@@ -2361,6 +2361,7 @@ function renderGroups() {
                 <th>详情</th>
                 <th>协议</th>
                 <th>入口</th>
+                <th>端口</th>
                 <th>原名称</th>
                 <th>推荐名称</th>
                 <th>最终名称</th>
