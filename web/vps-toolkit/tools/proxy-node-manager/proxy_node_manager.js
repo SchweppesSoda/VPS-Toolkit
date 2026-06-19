@@ -202,7 +202,10 @@ $("refreshNameBtn").addEventListener("click", () => refreshSuggestedNames(false)
 $("applyAllBtn").addEventListener("click", () => refreshSuggestedNames(true));
 $("protocolAllBtn").addEventListener("click", () => setAllProtocols(true));
 $("protocolNoneBtn").addEventListener("click", () => setAllProtocols(false));
-$("forwardEnabled").addEventListener("change", renderOutput);
+$("forwardEnabled").addEventListener("change", () => {
+  renderGroups();
+  renderOutput();
+});
 $("forwardMode").addEventListener("change", () => {
   refreshForwardNames(false, { silent: true });
   renderGroups();
@@ -267,7 +270,6 @@ $("selfTestBtn").addEventListener("click", runSelfTests);
 $("qrOpenBtn").addEventListener("click", () => openSingleNodeQrDialog({ focusInput: false }));
 $("qrCloseBtn").addEventListener("click", closeSingleNodeQrDialog);
 $("qrGenerateBtn").addEventListener("click", () => generateSingleNodeQr());
-$("qrFromOutputBtn").addEventListener("click", loadQrFromCurrentOutput);
 $("qrClearBtn").addEventListener("click", () => clearSingleNodeQr());
 $("qrCopyLinkBtn").addEventListener("click", copySingleNodeQrLink);
 $("qrDownloadBtn").addEventListener("click", downloadSingleNodeQrPng);
@@ -2287,6 +2289,8 @@ function renderGroups() {
     const rows = group.nodes.map(node => {
       const forwardable = canForwardNode(node);
       const qrReady = isQrShareLink(node.raw);
+      const forwardQrLink = makeForwardQrLink(node);
+      const forwardQrReady = Boolean(forwardQrLink);
       const expanded = state.expandedDetails.has(node.id);
       const detailColspan = 12;
       return `
@@ -2315,12 +2319,9 @@ function renderGroups() {
             <input class="name-input" data-forward-name="${node.id}" value="${escapeAttr(node.forwardName || NodeProcessor.makeForwardName(node, group.name))}" ${forwardable ? "" : "disabled placeholder=\"暂不支持\""}>
           </td>
           <td class="link">
-            <div class="link-cell">
-              <span class="link-preview" title="${escapeAttr(node.raw)}">${escapeHtml(compactLink(node.raw))}</span>
-              <div class="link-actions">
-                <button class="small ghost copy-link-btn" data-copy-link="${node.id}">复制</button>
-                <button class="small ghost copy-link-btn" data-qr-link="${node.id}" ${qrReady ? "" : "disabled title=\"当前行不是 URL/URI 节点链接\""}>二维码</button>
-              </div>
+            <div class="link-actions">
+              <button class="small ghost qr-link-btn" data-qr-link="${node.id}" ${qrReady ? "" : "disabled title=\"当前行不是 URL/URI 节点链接\""}>原始</button>
+              <button class="small ghost qr-link-btn" data-forward-qr-link="${node.id}" ${forwardQrReady ? "" : "disabled title=\"当前行还没有可生成二维码的转发节点链接\""}>转发</button>
             </div>
           </td>
         </tr>
@@ -2366,10 +2367,10 @@ function renderGroups() {
                 <th>推荐名称</th>
                 <th>最终名称</th>
                 <th>转发</th>
-                <th>节点转发入口</th>
-                <th>节点转发端口</th>
+                <th>转发入口</th>
+                <th>转发端口</th>
                 <th>转发名称</th>
-                <th>原始链接</th>
+                <th>二维码</th>
               </tr>
             </thead>
             <tbody>${rows}</tbody>
@@ -2413,6 +2414,7 @@ function renderGroups() {
       if (input.checked) {
         $("forwardEnabled").checked = true;
       }
+      syncForwardQrButton(root, node);
       renderOutput();
     });
   });
@@ -2432,6 +2434,7 @@ function renderGroups() {
       }
       syncForwardSelectionFromEndpoint(node);
       syncForwardSelectInput(root, node);
+      syncForwardQrButton(root, node);
       renderOutput();
     });
   });
@@ -2446,6 +2449,7 @@ function renderGroups() {
       }
       syncForwardSelectionFromEndpoint(node);
       syncForwardSelectInput(root, node);
+      syncForwardQrButton(root, node);
       renderOutput();
     });
   });
@@ -2456,15 +2460,8 @@ function renderGroups() {
       if (!node) return;
       node.forwardName = input.value;
       node.forwardManual = true;
+      syncForwardQrButton(root, node);
       renderOutput();
-    });
-  });
-
-  root.querySelectorAll("[data-copy-link]").forEach(button => {
-    button.addEventListener("click", () => {
-      const node = state.nodes.find(n => n.id === button.dataset.copyLink);
-      if (!node) return;
-      copyText(node.raw, "已复制原始链接。");
     });
   });
 
@@ -2473,6 +2470,20 @@ function renderGroups() {
       const node = state.nodes.find(n => n.id === button.dataset.qrLink);
       if (!node) return;
       setSingleNodeQrInput(node.raw, { open: true, message: "已载入该节点链接。" });
+    });
+  });
+
+  root.querySelectorAll("[data-forward-qr-link]").forEach(button => {
+    button.addEventListener("click", () => {
+      const node = state.nodes.find(n => n.id === button.dataset.forwardQrLink);
+      if (!node) return;
+      const link = makeForwardQrLink(node);
+      if (!link) {
+        openSingleNodeQrDialog({ focusInput: false });
+        setQrMessage("当前行还没有可生成二维码的转发节点链接。", "err");
+        return;
+      }
+      setSingleNodeQrInput(link, { open: true, message: "已载入转发节点链接。" });
     });
   });
 
@@ -2505,20 +2516,6 @@ function renderGroups() {
       setMessage("本组已采用推荐名称。", "ok");
     });
   });
-}
-
-function compactLink(raw) {
-  const text = String(raw || "");
-  const scheme = (text.match(/^([a-z0-9+.-]+):\/\//i) || [])[0] || "";
-  if (!scheme && NodeParser.parseClashProxy(text)) {
-    return text.length > 96 ? text.slice(0, 74) + "..." + text.slice(-18) : text;
-  }
-  const hash = text.includes("#") ? "#" + text.split("#").slice(1).join("#") : "";
-  const body = text.slice(scheme.length, hash ? text.indexOf("#") : text.length);
-  const head = body.slice(0, 34);
-  const tail = hash || (body.length > 54 ? body.slice(-18) : "");
-  if (body.length <= 58 && !hash) return text;
-  return scheme + head + "..." + tail;
 }
 
 function renderOutput() {
@@ -2576,20 +2573,6 @@ function setSingleNodeQrInput(text, opts = {}) {
   if (opts.message && generated) {
     setQrMessage(opts.message, "ok");
   }
-}
-
-function loadQrFromCurrentOutput() {
-  const source = $("output").textContent || "";
-  const candidate = getFirstQrCandidate(source);
-  if (!candidate.text) {
-    openSingleNodeQrDialog({ focusInput: false });
-    setQrMessage("底部当前输出没有 URL/URI 节点链接；如果输出是 Clash YAML，请先切到 URL/URI 节点列表。", "err");
-    return;
-  }
-  setSingleNodeQrInput(candidate.text, {
-    open: true,
-    message: candidate.count > 1 ? "已从底部当前输出中提取第一条 URL/URI 节点链接。" : "已从底部当前输出中提取该 URL/URI 节点链接。"
-  });
 }
 
 function generateSingleNodeQr(opts = {}) {
@@ -3381,8 +3364,34 @@ function syncForwardSelectInput(root, node) {
   }
 }
 
+function syncForwardQrButton(root, node) {
+  if (!root || !node) return;
+  const button = root.querySelector('[data-forward-qr-link="' + node.id + '"]');
+  if (!button) return;
+  const ready = Boolean(makeForwardQrLink(node));
+  button.disabled = !ready;
+  if (ready) {
+    button.removeAttribute("title");
+  } else {
+    button.title = "当前行还没有可生成二维码的转发节点链接";
+  }
+}
+
 function shouldOutputForwardNode(node, forward) {
   return !getForwardSkipReason(node, forward);
+}
+
+function makeForwardQrLink(node) {
+  const forward = getForwardConfig(node);
+  const skipReason = getForwardSkipReason(node, forward);
+  if (skipReason) return "";
+
+  const forwardedRaw = NodeProducer.rewriteEndpoint(node, forward.host, forward.port);
+  if (forwardedRaw === node.raw) return "";
+
+  const forwardName = node.forwardName || NodeProcessor.makeForwardName(node, getGroupNameForNode(node));
+  const link = NodeProducer.rewriteName(forwardedRaw, forwardName);
+  return isQrShareLink(link) ? link : "";
 }
 
 function getForwardSkipReason(node, forward) {

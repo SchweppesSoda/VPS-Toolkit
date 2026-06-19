@@ -655,7 +655,7 @@ td {
   border-bottom: 1px solid var(--line);
   padding: 10px;
   text-align: left;
-  vertical-align: top;
+  vertical-align: middle;
   font-size: 12px;
 }
 
@@ -663,6 +663,8 @@ th {
   color: var(--muted);
   font-weight: 600;
   background: var(--table-head);
+  line-height: 1.25;
+  white-space: nowrap;
 }
 
 tr:last-child td {
@@ -720,27 +722,11 @@ td.host .cell-clip {
 
 td.link {
   color: var(--muted);
-  max-width: 360px;
-  min-width: 260px;
+  width: 120px;
+  min-width: 120px;
 }
 
-.link-cell {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
-  align-items: center;
-}
-
-.link-preview {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  word-break: normal;
-  color: var(--muted);
-}
-
-.copy-link-btn {
+.qr-link-btn {
   min-height: 28px;
   padding: 4px 8px;
   font-size: 11px;
@@ -1095,7 +1081,7 @@ td.link {
   td:nth-child(9)::before { content: "转发入口"; }
   td:nth-child(10)::before { content: "转发端口"; }
   td:nth-child(11)::before { content: "转发名称"; }
-  td:nth-child(12)::before { content: "原始链接"; }
+  td:nth-child(12)::before { content: "二维码"; }
 
   .node-detail-row {
     border: 0;
@@ -1115,14 +1101,7 @@ td.link {
   td.link {
     max-width: none;
     min-width: 0;
-  }
-
-  td.link .link-preview {
-    display: none;
-  }
-
-  td.link .link-cell {
-    grid-template-columns: 1fr;
+    width: auto;
   }
 
   .name-input {
@@ -1164,10 +1143,6 @@ td.link {
 
   #singleNodeInput {
     min-height: 180px;
-  }
-
-  .link-cell {
-    grid-template-columns: 1fr;
   }
 
   td {
