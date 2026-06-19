@@ -629,7 +629,7 @@ h1 {
 table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 980px;
+  min-width: 1680px;
 }
 
 th,
@@ -699,6 +699,14 @@ td.link {
 .name-input {
   min-width: 260px;
   font-family: var(--sans);
+}
+
+[data-forward-host] {
+  min-width: 190px;
+}
+
+[data-forward-port] {
+  min-width: 110px;
 }
 
 .qr-grid {
@@ -955,6 +963,99 @@ td.link {
   }
 }
 
+@media (max-width: 900px) {
+  .table-wrap {
+    overflow: visible;
+  }
+
+  table,
+  thead,
+  tbody,
+  tr,
+  th,
+  td {
+    display: block;
+  }
+
+  table {
+    min-width: 0;
+  }
+
+  thead {
+    display: none;
+  }
+
+  tbody {
+    display: grid;
+    gap: 10px;
+    padding: 10px;
+  }
+
+  tr {
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: var(--surface-3);
+    overflow: hidden;
+  }
+
+  td {
+    display: grid;
+    grid-template-columns: minmax(100px, 28%) minmax(0, 1fr);
+    gap: 10px;
+    align-items: center;
+    border-bottom: 1px solid var(--line);
+    padding: 9px 10px;
+    min-width: 0;
+  }
+
+  td::before {
+    color: var(--muted);
+    font-family: var(--sans);
+    font-size: 11px;
+    line-height: 1.25;
+  }
+
+  td:nth-child(1)::before { content: "详情"; }
+  td:nth-child(2)::before { content: "协议"; }
+  td:nth-child(3)::before { content: "入口"; }
+  td:nth-child(4)::before { content: "原名称"; }
+  td:nth-child(5)::before { content: "推荐名称"; }
+  td:nth-child(6)::before { content: "最终名称"; }
+  td:nth-child(7)::before { content: "转发"; }
+  td:nth-child(8)::before { content: "转发入口"; }
+  td:nth-child(9)::before { content: "转发端口"; }
+  td:nth-child(10)::before { content: "转发名称"; }
+  td:nth-child(11)::before { content: "原始链接"; }
+
+  .node-detail-row {
+    border: 0;
+    background: transparent;
+  }
+
+  .node-detail-row td {
+    display: block;
+    padding: 0;
+    border: 0;
+  }
+
+  .node-detail-row td::before {
+    content: none;
+  }
+
+  td.link {
+    max-width: none;
+    min-width: 0;
+  }
+
+  .name-input {
+    min-width: 0;
+  }
+
+  .link-actions {
+    flex-wrap: wrap;
+  }
+}
+
 @media (max-width: 720px) {
   .app {
     width: min(100vw - 20px, 1480px);
@@ -988,6 +1089,10 @@ td.link {
 
   .link-cell {
     grid-template-columns: 1fr;
+  }
+
+  td {
+    grid-template-columns: minmax(92px, 34%) minmax(0, 1fr);
   }
 
   .modal-backdrop {
