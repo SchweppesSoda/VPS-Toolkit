@@ -2,9 +2,10 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-nftables-relay-manager"
-SCRIPT_VERSION="2026.06.20+build.2"
+SCRIPT_VERSION="2026.06.20+build.3"
 SCRIPT_RELEASE_DATE="2026-06-20"
 # CHANGELOG_BEGIN
+# - Self-report client 部署示例改为每 60 分钟上报一次，匹配客户端新的默认间隔和更长间隔支持。
 # - Self-report 部署示例改为 HTTPS 域名/Caddy 模式，访问设备默认上报到 https://<SELF_REPORT_DOMAIN>/report。
 # - Self-report HTTP 直连示例下沉为兼容模式，不再作为默认推荐路径。
 # - 重排源 IP 白名单菜单：动态来源缓存维护、来源 IP 学习与候选提升、被阻挡访问日志拆成独立子菜单，减少主菜单裸露维护动作。
@@ -9206,11 +9207,11 @@ do_show_client_ip_report_token() {
         "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${token}")"
     echo ""
     echo "Linux / OpenWrt 自上报 client（访问设备 -> LAN Worker）："
-    printf '  curl -fsSL %s | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --install-cron 5\n' \
+    printf '  curl -fsSL %s | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --install-cron 60\n' \
         "${OUTBOUND_IP_REPORTER_RAW_URL}"
     echo ""
     echo "Windows PowerShell 自上报 client（访问设备 -> LAN Worker）："
-    printf "  \$script=\"\$env:TEMP\\po0-outbound-ip-report.ps1\"; irm -UseBasicParsing '%s' -OutFile \$script; powershell -ExecutionPolicy Bypass -File \$script -WorkerUrl 'https://<SELF_REPORT_DOMAIN>/report' -SourceId '<CLIENT_ID>' -Secret '<SELF_REPORT_SECRET>' -InstallTask -Minutes 5\n" \
+    printf "  \$script=\"\$env:TEMP\\po0-outbound-ip-report.ps1\"; irm -UseBasicParsing '%s' -OutFile \$script; powershell -ExecutionPolicy Bypass -File \$script -WorkerUrl 'https://<SELF_REPORT_DOMAIN>/report' -SourceId '<CLIENT_ID>' -Secret '<SELF_REPORT_SECRET>' -InstallTask -Minutes 60\n" \
         "${OUTBOUND_IP_REPORTER_PS_RAW_URL}"
 }
 
@@ -9849,11 +9850,11 @@ do_show_self_report_client_commands() {
     echo "在访问设备上执行；检测设备当前出口 IPv4 后上报 LAN Worker，不直连 PO0。"
     echo ""
     echo "Linux / OpenWrt:"
-    printf '  curl -fsSL %s | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --install-cron 5\n' \
+    printf '  curl -fsSL %s | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --install-cron 60\n' \
         "${OUTBOUND_IP_REPORTER_RAW_URL}"
     echo ""
     echo "Windows PowerShell:"
-    printf "  \$script=\"\$env:TEMP\\po0-outbound-ip-report.ps1\"; irm -UseBasicParsing '%s' -OutFile \$script; powershell -ExecutionPolicy Bypass -File \$script -WorkerUrl 'https://<SELF_REPORT_DOMAIN>/report' -SourceId '<CLIENT_ID>' -Secret '<SELF_REPORT_SECRET>' -InstallTask -Minutes 5\n" \
+    printf "  \$script=\"\$env:TEMP\\po0-outbound-ip-report.ps1\"; irm -UseBasicParsing '%s' -OutFile \$script; powershell -ExecutionPolicy Bypass -File \$script -WorkerUrl 'https://<SELF_REPORT_DOMAIN>/report' -SourceId '<CLIENT_ID>' -Secret '<SELF_REPORT_SECRET>' -InstallTask -Minutes 60\n" \
         "${OUTBOUND_IP_REPORTER_PS_RAW_URL}"
 }
 

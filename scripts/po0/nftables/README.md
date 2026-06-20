@@ -100,10 +100,10 @@ Linux/OpenWrt Self-report client（交互式无参数运行默认进入菜单）
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh | bash
 ```
 
-Linux/OpenWrt Self-report client 非交互安装，每 15 分钟上报一次：
+Linux/OpenWrt Self-report client 非交互安装，默认每 60 分钟上报一次：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --install-cron 15
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --install-cron 60
 ```
 
 Windows Self-report client（交互式无参数运行默认进入菜单；PowerShell 推荐先下载再执行）：
@@ -336,10 +336,10 @@ po0-lan-client --install-self-report-https --self-report-https-domain <SELF_REPO
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh | bash
 ```
 
-也可以非交互安装 cron，默认和示例推荐每 15 分钟上报一次；`--install-cron N` 的 `N` 可在 1-59 分钟内调整：
+也可以非交互安装 cron，默认和示例推荐每 60 分钟上报一次；`--install-cron N` 的 `N` 可在 1-10080 分钟内调整：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --install-cron 15
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --install-cron 60
 ```
 
 Windows：

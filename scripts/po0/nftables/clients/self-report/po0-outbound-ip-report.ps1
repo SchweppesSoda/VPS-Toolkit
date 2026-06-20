@@ -6,7 +6,7 @@
     [string]$IpCheckUrl = $(if ($env:IP_CHECK_URL) { $env:IP_CHECK_URL } else { "https://ip9.com.cn/get" }),
     [string[]]$IpCheckUrls = @(),
     [switch]$InstallTask,
-    [int]$Minutes = $(if ($env:PO0_SELF_REPORT_MINUTES) { [int]$env:PO0_SELF_REPORT_MINUTES } elseif ($env:MINUTES) { [int]$env:MINUTES } else { 15 }),
+    [int]$Minutes = $(if ($env:PO0_SELF_REPORT_MINUTES) { [int]$env:PO0_SELF_REPORT_MINUTES } elseif ($env:MINUTES) { [int]$env:MINUTES } else { 60 }),
     [switch]$AllowHttp,
     [switch]$Menu,
     [switch]$Help
@@ -14,6 +14,7 @@
 
 $ErrorActionPreference = "Stop"
 $RawUrl = "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1"
+$MaxMinutes = 10080
 
 if ($env:INSTALL_TASK -match "^(1|true|yes)$") {
     $InstallTask = $true
@@ -42,7 +43,7 @@ self-report 接收服务。访问设备不直接连接 PO0。
   `$script="`$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing '$RawUrl' -OutFile `$script; powershell -ExecutionPolicy Bypass -File `$script
   .\po0-outbound-ip-report.ps1 -Menu
   .\po0-outbound-ip-report.ps1 -WorkerUrl https://report.example.com/report -SourceId laptop -Secret SECRET
-  .\po0-outbound-ip-report.ps1 -WorkerUrl https://report.example.com/report -SourceId laptop -Secret SECRET -InstallTask -Minutes 15
+  .\po0-outbound-ip-report.ps1 -WorkerUrl https://report.example.com/report -SourceId laptop -Secret SECRET -InstallTask -Minutes 60
 
 参数:
   -Menu               打开交互菜单。
@@ -53,7 +54,7 @@ self-report 接收服务。访问设备不直接连接 PO0。
   -Secret SECRET      可选的 LAN Worker self-report 共享密钥。
   -IpCheckUrl URL     第一个公网 IPv4 探测地址。默认: $IpCheckUrl
   -InstallTask        安装/更新 Windows 计划任务。
-  -Minutes N          计划任务间隔分钟数。默认: 15。
+  -Minutes N          计划任务间隔分钟数，范围 1-$MaxMinutes。默认: 60。
                       Self-report 放行 TTL 由 LAN Worker 接收端配置，不由客户端决定。
 
 默认公网 IPv4 探测顺序:
@@ -244,7 +245,7 @@ function Quote-TaskArg {
 
 function Install-ScheduledReporter {
     Assert-WorkerUrl
-    if ($Minutes -lt 1 -or $Minutes -gt 59) { throw "-Minutes 必须在 1-59 之间。" }
+    Assert-Minutes
     $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     $dir = if ($isAdmin) { Join-Path $env:ProgramData "PO0" } else { Join-Path $env:LOCALAPPDATA "PO0" }
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
@@ -278,10 +279,10 @@ function Install-ScheduledReporter {
     }
     $taskArgs = $taskArgList -join " "
     $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $taskArgs
-    $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes $Minutes) -RepetitionDuration (New-TimeSpan -Days 3650)
+    $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes $script:Minutes) -RepetitionDuration (New-TimeSpan -Days 3650)
     $description = "探测当前 Windows 公网出口 IPv4，并上报到 LAN Worker。"
     Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Description $description -Force | Out-Null
-    Write-Host "已安装计划任务：$taskName，每 $Minutes 分钟执行一次。"
+    Write-Host "已安装计划任务：$taskName，每 $script:Minutes 分钟执行一次。"
     Write-Host "脚本路径：$dest"
 }
 
@@ -328,8 +329,8 @@ function Read-SecretSetting {
 
 function Assert-Minutes {
     $parsed = 0
-    if (-not [int]::TryParse([string]$script:Minutes, [ref]$parsed) -or $parsed -lt 1 -or $parsed -gt 59) {
-        throw "计划任务间隔必须在 1-59 分钟之间。"
+    if (-not [int]::TryParse([string]$script:Minutes, [ref]$parsed) -or $parsed -lt 1 -or $parsed -gt $script:MaxMinutes) {
+        throw "计划任务间隔必须在 1-$script:MaxMinutes 分钟之间。"
     }
     $script:Minutes = $parsed
 }
@@ -366,7 +367,7 @@ function Set-ClientConfigInteractive {
     $script:SourceId = Read-Default "Source ID" $script:SourceId
     $script:Identity = Read-Default "Identity" $script:Identity
     Read-SecretSetting
-    $script:Minutes = Read-Default "客户端每几分钟上报一次（1-59）" ([string]$script:Minutes)
+    $script:Minutes = Read-Default "客户端每几分钟上报一次（1-$script:MaxMinutes）" ([string]$script:Minutes)
     Assert-Minutes
     $script:IpCheckUrl = Read-Default "首选公网 IPv4 探测 URL" $script:IpCheckUrl
     $override = Read-Host "是否覆盖完整 IP 探测 URL 列表 [y/N]"

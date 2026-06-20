@@ -12,7 +12,8 @@ IP_CHECK_URLS="${IP_CHECK_URLS:-}"
 INSTALL_PATH="${PO0_SELF_REPORT_INSTALL_PATH:-${INSTALL_PATH:-}}"
 INSTALL_CRON=""
 SHOW_MENU=""
-CRON_MINUTES="${PO0_SELF_REPORT_MINUTES:-${MINUTES:-15}}"
+CRON_MINUTES="${PO0_SELF_REPORT_MINUTES:-${MINUTES:-60}}"
+MAX_CRON_MINUTES="${PO0_SELF_REPORT_MAX_MINUTES:-10080}"
 HAD_ARGS=0
 [[ "$#" -gt 0 ]] && HAD_ARGS=1
 
@@ -28,7 +29,7 @@ usage() {
         "  curl -fsSL ${RAW_URL} | bash" \
         "  bash po0-outbound-ip-report.sh --menu" \
         "  bash po0-outbound-ip-report.sh --worker-url https://report.example.com/report --source-id laptop --secret SECRET" \
-        "  curl -fsSL ${RAW_URL} | bash -s -- --worker-url https://report.example.com/report --source-id laptop --secret SECRET --install-cron 15" \
+        "  curl -fsSL ${RAW_URL} | bash -s -- --worker-url https://report.example.com/report --source-id laptop --secret SECRET --install-cron 60" \
         "" \
         "参数:" \
         "  --menu                打开交互菜单。" \
@@ -40,7 +41,7 @@ usage() {
         "  --ip-check-url URL    第一个公网 IPv4 探测地址。默认: ${IP_CHECK_URL}" \
         "  --ip-check-urls CSV   覆盖完整探测地址列表，多个 URL 用逗号分隔。" \
         "  --install-cron [N]    安装 cron，每 N 分钟自上报一次。默认: ${CRON_MINUTES}。" \
-        "  --minutes N           设置 cron 上报间隔，范围 1-59。" \
+        "  --minutes N           设置 cron 上报间隔，范围 1-${MAX_CRON_MINUTES}。" \
         "" \
         "默认公网 IPv4 探测顺序:" \
         "  https://ip9.com.cn/get" \
@@ -185,10 +186,28 @@ menu_clear_screen() {
 }
 
 validate_cron_minutes() {
-    [[ "${CRON_MINUTES}" =~ ^[0-9]+$ && "${CRON_MINUTES}" -ge 1 && "${CRON_MINUTES}" -le 59 ]] || {
-        printf '上报间隔必须是 1-59 分钟。\n' >&2
+    [[ "${MAX_CRON_MINUTES}" =~ ^[0-9]+$ && "${MAX_CRON_MINUTES}" -ge 1 ]] || MAX_CRON_MINUTES="10080"
+    [[ "${CRON_MINUTES}" =~ ^[0-9]+$ && "${CRON_MINUTES}" -ge 1 && "${CRON_MINUTES}" -le "${MAX_CRON_MINUTES}" ]] || {
+        printf '上报间隔必须是 1-%s 分钟。\n' "${MAX_CRON_MINUTES}" >&2
         return 1
     }
+    MAX_CRON_MINUTES="$((10#${MAX_CRON_MINUTES}))"
+    CRON_MINUTES="$((10#${CRON_MINUTES}))"
+}
+
+cron_interval_label() {
+    local minutes="$1"
+    if (( minutes == 1440 )); then
+        printf '每天'
+    elif (( minutes > 1440 && minutes % 1440 == 0 )); then
+        printf '每 %s 天' "$((minutes / 1440))"
+    elif (( minutes == 60 )); then
+        printf '每小时'
+    elif (( minutes > 60 && minutes % 60 == 0 )); then
+        printf '每 %s 小时' "$((minutes / 60))"
+    else
+        printf '每 %s 分钟' "${minutes}"
+    fi
 }
 
 is_public_ipv4() {
@@ -335,8 +354,30 @@ write_cron_without_managed_block() {
     awk '/# PO0_SELF_REPORT_BEGIN/{skip=1; next} /# PO0_SELF_REPORT_END/{skip=0; next} !skip{print}'
 }
 
+build_cron_job() {
+    local minutes="$1"
+    local run_cmd="$2"
+    local schedule hours
+    if (( minutes < 60 )); then
+        schedule="*/${minutes} * * * *"
+        printf '%s %s\n' "${schedule}" "${run_cmd}"
+    elif (( minutes == 60 )); then
+        printf '0 * * * * %s\n' "${run_cmd}"
+    elif (( minutes < 1440 && minutes % 60 == 0 )); then
+        hours=$((minutes / 60))
+        printf '0 */%s * * * %s\n' "${hours}" "${run_cmd}"
+    elif (( minutes == 1440 )); then
+        printf '0 0 * * * %s\n' "${run_cmd}"
+    elif (( minutes % 60 == 0 )); then
+        hours=$((minutes / 60))
+        printf '0 * * * * now=$(date +\\%%s); if [ $((now / 3600 \\%% %s)) -eq 0 ]; then %s; fi\n' "${hours}" "${run_cmd}"
+    else
+        printf '* * * * now=$(date +\\%%s); if [ $((now / 60 \\%% %s)) -eq 0 ]; then %s; fi\n' "${minutes}" "${run_cmd}"
+    fi
+}
+
 install_cron() {
-    local script job tmp ip_args http_arg=""
+    local script job tmp ip_args http_arg="" run_cmd
     validate_cron_minutes || return 1
     validate_worker_url || return 1
     command -v crontab >/dev/null 2>&1 || {
@@ -350,7 +391,8 @@ install_cron() {
         ip_args="--ip-check-url $(sh_quote "${IP_CHECK_URL}")"
     fi
     http_allowed && http_arg="--allow-http "
-    job="*/${CRON_MINUTES} * * * * bash $(sh_quote "${script}") ${http_arg}--worker-url $(sh_quote "${WORKER_URL}") --source-id $(sh_quote "${SOURCE_ID}") --identity $(sh_quote "${IDENTITY}") --secret $(sh_quote "${SECRET}") ${ip_args} >/tmp/po0-self-report.log 2>&1"
+    run_cmd="bash $(sh_quote "${script}") ${http_arg}--worker-url $(sh_quote "${WORKER_URL}") --source-id $(sh_quote "${SOURCE_ID}") --identity $(sh_quote "${IDENTITY}") --secret $(sh_quote "${SECRET}") ${ip_args} >/tmp/po0-self-report.log 2>&1"
+    job="$(build_cron_job "${CRON_MINUTES}" "${run_cmd}")"
     tmp="/tmp/po0-self-report-cron.$$"
     {
         crontab -l 2>/dev/null | write_cron_without_managed_block
@@ -363,7 +405,7 @@ install_cron() {
         return 1
     }
     rm -f "${tmp}" 2>/dev/null || true
-    echo "已安装 self-report cron：每 ${CRON_MINUTES} 分钟上报一次。"
+    echo "已安装 self-report cron：$(cron_interval_label "${CRON_MINUTES}")上报一次。"
     echo "脚本路径：${script}"
 }
 
@@ -462,7 +504,7 @@ configure_interactive() {
     else
         SECRET="$(prompt_default "Self-report secret，可空" "")"
     fi
-    CRON_MINUTES="$(prompt_default "客户端每几分钟上报一次（1-59）" "${CRON_MINUTES}")"
+    CRON_MINUTES="$(prompt_default "客户端每几分钟上报一次（1-${MAX_CRON_MINUTES}）" "${CRON_MINUTES}")"
     validate_cron_minutes || return 1
     IP_CHECK_URL="$(prompt_default "首选公网 IPv4 探测 URL" "${IP_CHECK_URL}")"
     if prompt_yes_no "是否覆盖完整 IP 探测 URL 列表" "n"; then

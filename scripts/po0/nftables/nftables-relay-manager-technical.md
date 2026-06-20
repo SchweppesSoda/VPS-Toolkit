@@ -654,10 +654,10 @@ Self-report client 适合运行在访问设备上：它检测自身当前出口�
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh | bash
 ```
 
-非交互安装 cron 时，默认和示例推荐每 15 分钟上报一次；`--install-cron N` 的 `N` 可在 1-59 分钟内调整：
+非交互安装 cron 时，默认和示例推荐每 60 分钟上报一次；`--install-cron N` 的 `N` 可在 1-10080 分钟内调整：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --install-cron 15
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --install-cron 60
 ```
 
 Windows PowerShell 版本检测本机当前出口公网 IPv4 并上报 LAN Worker：
