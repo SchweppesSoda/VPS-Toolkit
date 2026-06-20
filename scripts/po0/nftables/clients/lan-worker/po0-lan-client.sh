@@ -3,9 +3,10 @@ set -uo pipefail
 
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh"
 SCRIPT_NAME="po0-lan-worker-client"
-SCRIPT_VERSION="2026.06.20+build.2"
+SCRIPT_VERSION="2026.06.20+build.3"
 SCRIPT_RELEASE_DATE="2026-06-20"
 # CHANGELOG_BEGIN
+# - Self-report 后台服务安装前检查可用 PO0 目标，避免写入空参数后反复重启失败。
 # - Self-report 菜单新增后台服务状态、最近日志和实时日志入口。
 # - Self-report 主菜单入口改为配置子菜单，避免按菜单项后直接进入前台监听造成误解。
 # - Self-report 子菜单新增监听地址、secret 生成/修改、后台服务安装和前台启动入口。
@@ -3352,6 +3353,18 @@ self_report_targets_env() {
     fi
 }
 
+has_config_self_report_target() {
+    local line
+    ensure_config_file || return 1
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        parse_target_line "${line}" || continue
+        [[ "${TARGET_ENABLED}" == "1" ]] || continue
+        [[ -n "${TARGET_PO0_HOST}" && -n "${TARGET_CLIENT_IP_TOKEN}" ]] || continue
+        return 0
+    done < "${CONFIG_FILE}"
+    return 1
+}
+
 webauth_targets_env() {
     local line source ttl extra count=0
     if [[ -n "${WEBAUTH_TARGETS}" ]]; then
@@ -4187,7 +4200,7 @@ with socketserver.ThreadingTCPServer((listen_host, listen_port), Handler) as htt
 PY
 }
 install_self_report_service() {
-    local script_path unit target_args="" name="po0-lan-self-report.service"
+    local script_path unit target_args="" fallback_args="" name="po0-lan-self-report.service" targets
     [[ "${EUID:-$(id -u 2>/dev/null || printf 1)}" -eq 0 ]] || {
         printf '安装 systemd 服务需要 root。\n' >&2
         return 1
@@ -4196,9 +4209,23 @@ install_self_report_service() {
         printf '当前系统没有 systemctl，无法安装服务。\n' >&2
         return 1
     }
+    targets="$(self_report_targets_env 2>/dev/null || true)"
+    if [[ -z "${targets}" ]]; then
+        printf '没有可用的 Self-report PO0 目标，未安装后台服务。\n' >&2
+        printf '请先在菜单里配置：Self-report 配置 / 启动 -> 目标 Token -> Self-report client-ip Token。\n' >&2
+        printf '如果还没有 PO0 目标，请先用主菜单“添加 PO0 目标”。\n' >&2
+        return 1
+    fi
+    if [[ -z "${SELF_REPORT_SECRET}" ]]; then
+        printf '警告：Self-report secret 为空；访问设备上报将不校验共享密钥。建议先用菜单生成 / 修改 secret。\n' >&2
+    fi
     script_path="$(ensure_persistent_script)" || return 1
     unit="/etc/systemd/system/${name}"
-    [[ -n "${SELF_REPORT_TARGETS}" ]] && target_args=" --self-report-targets $(sh_quote "${SELF_REPORT_TARGETS}")"
+    if [[ -n "${SELF_REPORT_TARGETS}" ]]; then
+        target_args=" --self-report-targets $(sh_quote "${SELF_REPORT_TARGETS}")"
+    elif ! has_config_self_report_target; then
+        fallback_args=" --po0-host $(sh_quote "${PO0_HOST}") --po0-port $(sh_quote "${PO0_PORT}") --po0-user $(sh_quote "${PO0_USER}") --po0-script $(sh_quote "${PO0_SCRIPT}") --self-report-source $(sh_quote "${SELF_REPORT_SOURCE}") --client-ip-token $(sh_quote "${CLIENT_IP_TOKEN}") --self-report-ttl $(sh_quote "${SELF_REPORT_TTL_SECONDS}")"
+    fi
     cat > "${unit}" <<EOF
 [Unit]
 Description=PO0 LAN self-report receiver
@@ -4207,7 +4234,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/env bash $(sh_quote "${script_path}") --config $(sh_quote "${CONFIG_FILE}") --self-report-server --self-report-listen $(sh_quote "${SELF_REPORT_LISTEN}") --po0-host $(sh_quote "${PO0_HOST}") --po0-port $(sh_quote "${PO0_PORT}") --po0-user $(sh_quote "${PO0_USER}") --po0-script $(sh_quote "${PO0_SCRIPT}") --self-report-source $(sh_quote "${SELF_REPORT_SOURCE}") --client-ip-token $(sh_quote "${CLIENT_IP_TOKEN}") --self-report-secret $(sh_quote "${SELF_REPORT_SECRET}") --self-report-ttl $(sh_quote "${SELF_REPORT_TTL_SECONDS}")${target_args}
+ExecStart=/usr/bin/env bash $(sh_quote "${script_path}") --config $(sh_quote "${CONFIG_FILE}") --self-report-server --self-report-listen $(sh_quote "${SELF_REPORT_LISTEN}") --self-report-secret $(sh_quote "${SELF_REPORT_SECRET}")${target_args}${fallback_args}
 Restart=always
 RestartSec=5
 

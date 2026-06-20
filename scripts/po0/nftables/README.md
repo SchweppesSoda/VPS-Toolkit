@@ -307,6 +307,8 @@ po0-lan-client --menu
 
 同一个 Self-report 子菜单也可以查看 `po0-lan-self-report.service` 的后台服务状态、最近 journal 日志和实时日志；实时日志同样按 `Ctrl+C` 退出。
 
+安装后台服务前至少要有一个启用的 PO0 目标，并且该目标已填写 `Self-report client-ip Token`。如果状态里看到 `--po0-host` 或 `--client-ip-token` 为空，说明旧版菜单曾写入空 service；在菜单补齐目标 Token 和 secret 后重新执行“安装 / 更新后台服务”即可覆盖。
+
 命令行启动接收端：
 
 ```bash
