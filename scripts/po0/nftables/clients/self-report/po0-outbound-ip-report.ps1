@@ -34,10 +34,10 @@ PO0 自上报客户端（Windows PowerShell）
 self-report 接收服务。访问设备不直接连接 PO0。
 
 用法:
+  `$script="`$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing '$RawUrl' -OutFile `$script; powershell -ExecutionPolicy Bypass -File `$script
   .\po0-outbound-ip-report.ps1 -Menu
-  .\po0-outbound-ip-report.ps1 -WorkerUrl https://worker.example.com/report -SourceId laptop -Secret SECRET
-  `$env:PO0_LAN_WORKER_URL='https://worker.example.com/report'; `$env:PO0_SELF_REPORT_SECRET='SECRET'; irm -UseBasicParsing '$RawUrl' | iex
-  `$env:PO0_LAN_WORKER_URL='https://worker.example.com/report'; `$env:PO0_SELF_REPORT_SECRET='SECRET'; `$env:INSTALL_TASK='1'; `$env:MINUTES='15'; irm -UseBasicParsing '$RawUrl' | iex
+  .\po0-outbound-ip-report.ps1 -WorkerUrl http://worker.example.com:8788/report -SourceId laptop -Secret SECRET
+  .\po0-outbound-ip-report.ps1 -WorkerUrl http://worker.example.com:8788/report -SourceId laptop -Secret SECRET -InstallTask -Minutes 15
 
 参数:
   -Menu               打开交互菜单。
@@ -416,7 +416,7 @@ if ($Help) {
     exit 0
 }
 
-if ($Menu -or (-not $PSBoundParameters.ContainsKey("WorkerUrl") -and -not $WorkerUrl -and [Environment]::UserInteractive)) {
+if ($Menu -or (-not $PSBoundParameters.ContainsKey("WorkerUrl") -and -not $InstallTask -and [Environment]::UserInteractive)) {
     Invoke-InteractiveMenu
     exit 0
 }

@@ -24,13 +24,14 @@ usage() {
         "接收端配置，不由客户端决定。" \
         "" \
         "用法:" \
+        "  curl -fsSL ${RAW_URL} | bash" \
         "  bash po0-outbound-ip-report.sh --menu" \
-        "  bash po0-outbound-ip-report.sh --worker-url https://worker.example.com/report --source-id laptop --secret SECRET" \
-        "  curl -fsSL ${RAW_URL} | bash -s -- --worker-url https://worker.example.com/report --source-id laptop --secret SECRET --install-cron 15" \
+        "  bash po0-outbound-ip-report.sh --worker-url http://worker.example.com:8788/report --source-id laptop --secret SECRET" \
+        "  curl -fsSL ${RAW_URL} | bash -s -- --worker-url http://worker.example.com:8788/report --source-id laptop --secret SECRET --install-cron 15" \
         "" \
         "参数:" \
         "  --menu                打开交互菜单。" \
-        "  --worker-url URL      LAN Worker self-report 接收地址，例如 https://auth.example.com/report。" \
+        "  --worker-url URL      LAN Worker self-report 接收地址，例如 http://worker.example.com:8788/report。" \
         "  --source-id ID        写入 PO0 client_ip 记录的来源 ID。默认: ${SOURCE_ID}" \
         "  --identity ID         LAN Worker/PO0 日志里的设备或用户标签。默认: ${IDENTITY}" \
         "  --secret SECRET       可选的 LAN Worker self-report 共享密钥。" \
@@ -528,7 +529,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ "${SHOW_MENU}" == "1" || ( "${HAD_ARGS}" == "0" && -r /dev/tty && -w /dev/tty && -z "${WORKER_URL}" ) ]]; then
+if [[ "${SHOW_MENU}" == "1" || ( "${HAD_ARGS}" == "0" && -r /dev/tty && -w /dev/tty ) ]]; then
     menu_loop
 elif [[ "${INSTALL_CRON}" == "1" ]]; then
     install_cron
