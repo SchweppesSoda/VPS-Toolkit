@@ -3,9 +3,10 @@ set -uo pipefail
 
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh"
 SCRIPT_NAME="po0-lan-worker-client"
-SCRIPT_VERSION="2026.06.20+build.8"
+SCRIPT_VERSION="2026.06.20+build.9"
 SCRIPT_RELEASE_DATE="2026-06-20"
 # CHANGELOG_BEGIN
+# - 修复 Self-report HTTPS Caddy snippet 使用 respond 404 时被 directive order 提前执行，导致 /health 和 /report 返回 404 的问题。
 # - 修复 Self-report HTTPS 域名校验对合法域名静默失败，导致菜单未写入 Caddy 配置的问题。
 # - Self-report 新增 HTTPS 域名模式，可在菜单配置 Caddy 自动证书并将后端切到 127.0.0.1:8788。
 # - Self-report 默认监听收紧为 127.0.0.1:8788；公网入口默认通过 HTTPS 域名/Caddy。
@@ -4384,8 +4385,12 @@ write_self_report_caddy_config() {
     cat > "${SELF_REPORT_CADDY_SNIPPET}" <<EOF
 # Managed by po0-lan-client. Self-report HTTPS entrypoint.
 ${domain} {
-    @po0_self_report path /report /health
-    reverse_proxy @po0_self_report ${backend_host}:${backend_port}
+    handle /report {
+        reverse_proxy ${backend_host}:${backend_port}
+    }
+    handle /health {
+        reverse_proxy ${backend_host}:${backend_port}
+    }
     respond 404
 }
 EOF
