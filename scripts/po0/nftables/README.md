@@ -305,6 +305,8 @@ po0-lan-client --menu
 
 进入 `Self-report 自上报 -> Self-report 配置 / 启动` 后，可以查看 PO0 目标、维护 `Self-report client-ip Token`、设置 source/TTL、设置监听地址、生成/修改 `Self-report secret`，并安装/更新后台服务。菜单里的“前台启动服务”会占用当前终端，适合临时测试，按 `Ctrl+C` 退出。
 
+同一个 Self-report 子菜单也可以查看 `po0-lan-self-report.service` 的后台服务状态、最近 journal 日志和实时日志；实时日志同样按 `Ctrl+C` 退出。
+
 命令行启动接收端：
 
 ```bash

@@ -3,9 +3,10 @@ set -uo pipefail
 
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh"
 SCRIPT_NAME="po0-lan-worker-client"
-SCRIPT_VERSION="2026.06.20+build.1"
+SCRIPT_VERSION="2026.06.20+build.2"
 SCRIPT_RELEASE_DATE="2026-06-20"
 # CHANGELOG_BEGIN
+# - Self-report 菜单新增后台服务状态、最近日志和实时日志入口。
 # - Self-report 主菜单入口改为配置子菜单，避免按菜单项后直接进入前台监听造成误解。
 # - Self-report 子菜单新增监听地址、secret 生成/修改、后台服务安装和前台启动入口。
 # - 资源任务本机检查间隔默认改为 1440 分钟，可设置到 10080 分钟。
@@ -4218,6 +4219,58 @@ EOF
     printf '已安装并启动 Self-report 服务：%s\n' "${name}"
 }
 
+self_report_service_summary() {
+    local name="po0-lan-self-report.service" active enabled
+    have_cmd systemctl || {
+        printf 'systemctl 不可用'
+        return 0
+    }
+    active="$(systemctl is-active "${name}" 2>/dev/null || true)"
+    enabled="$(systemctl is-enabled "${name}" 2>/dev/null || true)"
+    printf 'active=%s enabled=%s' "${active:-unknown}" "${enabled:-unknown}"
+}
+
+show_self_report_service_status() {
+    local name="po0-lan-self-report.service"
+    have_cmd systemctl || {
+        printf '当前系统没有 systemctl，无法查看后台服务状态。\n' >&2
+        return 1
+    }
+    print_panel_section "Self-report 后台服务状态"
+    print_panel_row "服务" "${name}"
+    print_panel_row "汇总" "$(self_report_service_summary)"
+    printf '\n'
+    systemctl status "${name}" --no-pager --full || true
+}
+
+show_self_report_service_logs() {
+    local name="po0-lan-self-report.service" lines
+    have_cmd journalctl || {
+        printf '当前系统没有 journalctl，无法查看 systemd 日志。\n' >&2
+        return 1
+    }
+    lines="$(prompt_default "显示最近多少行 Self-report 日志" "120")"
+    if [[ ! "${lines}" =~ ^[0-9]+$ || "${lines}" -lt 1 || "${lines}" -gt 1000 ]]; then
+        printf '日志行数必须是 1-1000。\n' >&2
+        return 1
+    fi
+    print_panel_section "Self-report 最近日志"
+    print_panel_row "服务" "${name}"
+    print_panel_row "行数" "${lines}"
+    printf '\n'
+    journalctl -u "${name}" -n "${lines}" --no-pager -o short-iso || true
+}
+
+follow_self_report_service_logs() {
+    local name="po0-lan-self-report.service"
+    have_cmd journalctl || {
+        printf '当前系统没有 journalctl，无法实时查看 systemd 日志。\n' >&2
+        return 1
+    }
+    printf '正在实时查看 %s 日志；按 Ctrl+C 退出。\n' "${name}"
+    journalctl -u "${name}" -f -o short-iso
+}
+
 normalize_cron_minutes() {
     local minutes="${1:-}"
     local max="${2:-1440}"
@@ -4829,6 +4882,7 @@ show_self_report_settings() {
     print_panel_row "Secret" "$(mask_secret "${SELF_REPORT_SECRET}")"
     print_panel_row "默认 source" "${SELF_REPORT_SOURCE}"
     print_panel_row "默认 TTL" "${SELF_REPORT_TTL_SECONDS:-3600} 秒"
+    print_panel_row "后台服务" "$(self_report_service_summary)"
     if [[ -n "${targets}" ]]; then
         print_panel_row "PO0 目标" "已配置"
         while IFS= read -r line || [[ -n "${line}" ]]; do
@@ -4892,12 +4946,13 @@ manage_self_report_server_interactive() {
 
         print_menu_section "运行"
         print_menu_pair 6 "连通性检查" 7 "安装 / 更新后台服务"
-        print_menu_item 8 "前台启动服务"
+        print_menu_pair 8 "查看后台服务状态" 9 "查看最近后台日志"
+        print_menu_pair 10 "实时跟随后台日志" 11 "前台启动服务"
 
         print_menu_section "退出"
         print_menu_item 0 "返回"
         print_menu_footer
-        read_menu_choice_or_return choice "请选择操作 [0-8]: " || return 0
+        read_menu_choice_or_return choice "请选择操作 [0-11]: " || return 0
         case "${choice}" in
             1) list_targets; pause_before_return ;;
             2) manage_target_tokens_interactive; pause_before_return ;;
@@ -4906,7 +4961,10 @@ manage_self_report_server_interactive() {
             5) edit_self_report_secret_interactive; pause_before_return ;;
             6) probe_self_report_target; pause_before_return ;;
             7) install_self_report_service; pause_before_return ;;
-            8)
+            8) show_self_report_service_status; pause_before_return ;;
+            9) show_self_report_service_logs; pause_before_return ;;
+            10) follow_self_report_service_logs ;;
+            11)
                 printf '即将前台启动 Self-report 服务；运行后会占用当前终端，按 Ctrl+C 退出。\n'
                 pause_before_return
                 run_self_report_server
