@@ -297,7 +297,15 @@ Self-report 用于“访问设备自己检测当前出口 IPv4，然后报给 LA
 访问设备 self-report client -> LAN Worker HTTP -> SSH -> PO0 --client-ip-report
 ```
 
-LAN Worker 启动接收端：
+LAN Worker 启动接收端推荐走菜单：
+
+```bash
+po0-lan-client --menu
+```
+
+进入 `Self-report 自上报 -> Self-report 配置 / 启动` 后，可以查看 PO0 目标、维护 `Self-report client-ip Token`、设置 source/TTL、设置监听地址、生成/修改 `Self-report secret`，并安装/更新后台服务。菜单里的“前台启动服务”会占用当前终端，适合临时测试，按 `Ctrl+C` 退出。
+
+命令行启动接收端：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash -s -- --install-self

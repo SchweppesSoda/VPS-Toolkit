@@ -3,9 +3,11 @@ set -uo pipefail
 
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh"
 SCRIPT_NAME="po0-lan-worker-client"
-SCRIPT_VERSION="2026.06.18+build.6"
-SCRIPT_RELEASE_DATE="2026-06-18"
+SCRIPT_VERSION="2026.06.20+build.1"
+SCRIPT_RELEASE_DATE="2026-06-20"
 # CHANGELOG_BEGIN
+# - Self-report 主菜单入口改为配置子菜单，避免按菜单项后直接进入前台监听造成误解。
+# - Self-report 子菜单新增监听地址、secret 生成/修改、后台服务安装和前台启动入口。
 # - 资源任务本机检查间隔默认改为 1440 分钟，可设置到 10080 分钟。
 # - DDNS 菜单新增目标 / 上报计划入口，说明 PO0 DDNS TTL 设置位置并可直接更新本机 DDNS 上报计划。
 # CHANGELOG_END
@@ -4819,6 +4821,103 @@ manage_ddns_settings_interactive() {
     done
 }
 
+show_self_report_settings() {
+    local targets line source host port user script token ttl extra
+    targets="$(self_report_targets_env 2>/dev/null || true)"
+    print_panel_section "Self-report 接收端"
+    print_panel_row "监听地址" "${SELF_REPORT_LISTEN}"
+    print_panel_row "Secret" "$(mask_secret "${SELF_REPORT_SECRET}")"
+    print_panel_row "默认 source" "${SELF_REPORT_SOURCE}"
+    print_panel_row "默认 TTL" "${SELF_REPORT_TTL_SECONDS:-3600} 秒"
+    if [[ -n "${targets}" ]]; then
+        print_panel_row "PO0 目标" "已配置"
+        while IFS= read -r line || [[ -n "${line}" ]]; do
+            [[ -n "${line}" ]] || continue
+            IFS='|' read -r source host port user script token ttl extra <<< "${line}"
+            print_panel_note "${source:-self-report}@${host}:${port:-22} ttl=${ttl:-3600} token=$(mask_secret "${token}")"
+        done <<< "${targets}"
+    else
+        print_panel_row "PO0 目标" "未配置；先在主菜单添加 PO0 目标并设置 Self-report client-ip Token"
+    fi
+}
+
+edit_self_report_listen_interactive() {
+    SELF_REPORT_LISTEN="$(prompt_default "Self-report 本地监听地址" "${SELF_REPORT_LISTEN:-127.0.0.1:8788}")"
+    [[ -n "${SELF_REPORT_LISTEN}" ]] || SELF_REPORT_LISTEN="127.0.0.1:8788"
+    printf '已设置本次菜单会话监听地址：%s\n' "${SELF_REPORT_LISTEN}"
+    printf '安装 / 更新后台服务后，该监听地址会写入 systemd service。\n'
+}
+
+edit_self_report_secret_interactive() {
+    local generated value
+    generated="$(random_secret)"
+    if [[ -n "${SELF_REPORT_SECRET}" ]]; then
+        printf '当前 Self-report secret：%s\n' "${SELF_REPORT_SECRET}"
+        value="$(read_prompt "新的 Self-report secret [回车保留，输入 g 生成新值，输入 - 清空]: ")" || value=""
+        value="$(trim "${value}")"
+        case "${value}" in
+            "") ;;
+            g|G)
+                SELF_REPORT_SECRET="${generated}"
+                ;;
+            -)
+                SELF_REPORT_SECRET=""
+                ;;
+            *)
+                SELF_REPORT_SECRET="${value}"
+                ;;
+        esac
+    else
+        value="$(prompt_default "Self-report secret（回车使用自动生成值）" "${generated}")"
+        SELF_REPORT_SECRET="${value}"
+    fi
+    if [[ -n "${SELF_REPORT_SECRET}" ]]; then
+        printf 'Self-report secret 已设置为：%s\n' "${SELF_REPORT_SECRET}"
+        printf "Windows PowerShell 使用：\$env:PO0_SELF_REPORT_SECRET='%s'\n" "${SELF_REPORT_SECRET}"
+    else
+        printf 'Self-report secret 已清空；接收端将不校验访问设备 secret。\n'
+    fi
+}
+
+manage_self_report_server_interactive() {
+    local choice
+    while true; do
+        menu_clear_screen
+        print_title "Self-report 配置 / 启动"
+        show_self_report_settings
+        print_menu_section "配置"
+        print_menu_pair 1 "查看 PO0 目标" 2 "目标 Token"
+        print_menu_pair 3 "Self-report source / TTL" 4 "设置监听地址"
+        print_menu_item 5 "生成 / 修改 Self-report secret"
+
+        print_menu_section "运行"
+        print_menu_pair 6 "连通性检查" 7 "安装 / 更新后台服务"
+        print_menu_item 8 "前台启动服务"
+
+        print_menu_section "退出"
+        print_menu_item 0 "返回"
+        print_menu_footer
+        read_menu_choice_or_return choice "请选择操作 [0-8]: " || return 0
+        case "${choice}" in
+            1) list_targets; pause_before_return ;;
+            2) manage_target_tokens_interactive; pause_before_return ;;
+            3) manage_target_report_ttl_interactive; pause_before_return ;;
+            4) edit_self_report_listen_interactive; pause_before_return ;;
+            5) edit_self_report_secret_interactive; pause_before_return ;;
+            6) probe_self_report_target; pause_before_return ;;
+            7) install_self_report_service; pause_before_return ;;
+            8)
+                printf '即将前台启动 Self-report 服务；运行后会占用当前终端，按 Ctrl+C 退出。\n'
+                pause_before_return
+                run_self_report_server
+                ;;
+            0) return 0 ;;
+            "") ;;
+            *) printf '无效选择。\n' >&2; pause_before_return ;;
+        esac
+    done
+}
+
 menu_loop() {
     local choice
     while true; do
@@ -4833,7 +4932,7 @@ menu_loop() {
         print_menu_pair 7 "DDNS 目标 / 上报计划" 8 "清空 DDNS 统计"
 
         print_menu_section "Self-report 自上报"
-        print_menu_pair 9 "Self-report 连通性检查" 10 "启动 Self-report 服务"
+        print_menu_pair 9 "Self-report 连通性检查" 10 "Self-report 配置 / 启动"
 
         print_menu_section "WebAuth 放行"
         print_menu_pair 11 "WebAuth 连通性检查" 12 "启动 WebAuth 服务"
@@ -4867,7 +4966,7 @@ menu_loop() {
             7) manage_ddns_settings_interactive ;;
             8) clear_stats_interactive; pause_before_return ;;
             9) probe_self_report_target; pause_before_return ;;
-            10) run_self_report_server ;;
+            10) manage_self_report_server_interactive ;;
             11) probe_webauth_target; pause_before_return ;;
             12) run_webauth_server ;;
             13) show_webauth_cloudflare_guide; pause_before_return ;;
