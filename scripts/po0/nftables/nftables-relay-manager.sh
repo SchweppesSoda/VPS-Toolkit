@@ -2,9 +2,10 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-nftables-relay-manager"
-SCRIPT_VERSION="2026.06.18+build.6"
-SCRIPT_RELEASE_DATE="2026-06-18"
+SCRIPT_VERSION="2026.06.20+build.1"
+SCRIPT_RELEASE_DATE="2026-06-20"
 # CHANGELOG_BEGIN
+# - Self-report 部署示例默认监听改为 0.0.0.0:8788，匹配访问设备直连 LAN Worker 的用法。
 # - 重排源 IP 白名单菜单：动态来源缓存维护、来源 IP 学习与候选提升、被阻挡访问日志拆成独立子菜单，减少主菜单裸露维护动作。
 # - 中转机参数新增“本机名称/导出前缀”，导出规则默认文件名可带 PO0XX- 这类主机前缀。
 # - 转发规则列表的“回程模式”改为直接显示“内网回源 / 公网出口 / 透明转发”，避免把 relay_lan 简写成 lan 造成理解成本。
@@ -9200,7 +9201,7 @@ do_show_client_ip_report_token() {
     printf '  bash %s --client-ip-report self-report 1.2.3.4 %s lan-worker 3600\n' "$(basename "$0")" "${token}"
     echo ""
     echo "LAN Worker self-report server（HTTP 只跑在 LAN Worker，不跑在 PO0）："
-    printf '  po0-lan-client --self-report-server --self-report-listen 127.0.0.1:8788 --po0-host <PO0_HOST> --po0-script %s --self-report-source self-report --client-ip-token %s --self-report-secret <SELF_REPORT_SECRET>\n' \
+    printf '  po0-lan-client --self-report-server --self-report-listen 0.0.0.0:8788 --po0-host <PO0_HOST> --po0-script %s --self-report-source self-report --client-ip-token %s --self-report-secret <SELF_REPORT_SECRET>\n' \
         "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${token}")"
     echo ""
     echo "Linux / OpenWrt 自上报 client（访问设备 -> LAN Worker）："
@@ -9831,7 +9832,7 @@ do_show_self_report_server_commands() {
     echo "HTTP 只监听在 LAN Worker；访问设备先报 LAN Worker，再由 LAN Worker 通过 SSH 上报 PO0。"
     echo ""
     printf '  curl -fsSL %s | bash -s -- --install-self\n' "${LAN_WORKER_RAW_URL}"
-    printf '  po0-lan-client --self-report-server --self-report-listen 127.0.0.1:8788 --po0-host <PO0_HOST> --po0-script %s --self-report-source self-report --client-ip-token %s --self-report-secret <SELF_REPORT_SECRET>\n' \
+    printf '  po0-lan-client --self-report-server --self-report-listen 0.0.0.0:8788 --po0-host <PO0_HOST> --po0-script %s --self-report-source self-report --client-ip-token %s --self-report-secret <SELF_REPORT_SECRET>\n' \
         "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${DEPLOY_CLIENT_TOKEN}")"
     echo ""
     printf 'Self-report PO0 目标行: source|host|port|user|script|token|ttl|ssh_args\n'

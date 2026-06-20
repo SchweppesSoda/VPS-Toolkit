@@ -3,9 +3,10 @@ set -uo pipefail
 
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh"
 SCRIPT_NAME="po0-lan-worker-client"
-SCRIPT_VERSION="2026.06.20+build.5"
+SCRIPT_VERSION="2026.06.20+build.6"
 SCRIPT_RELEASE_DATE="2026-06-20"
 # CHANGELOG_BEGIN
+# - Self-report 默认监听改为 0.0.0.0:8788，方便访问设备直接上报到 LAN Worker IP。
 # - Self-report 后台服务安装/更新后强制 restart，确保旧的失败 unit 立即被新 ExecStart 覆盖。
 # - Self-report 后台服务安装时 secret 为空则省略参数，避免 systemd unit 因空参数反复重启失败。
 # - Self-report 后台服务安装前检查可用 PO0 目标，避免写入空参数后反复重启失败。
@@ -61,7 +62,7 @@ WEBAUTH_SOURCE="${PO0_WEBAUTH_SOURCE:-cf-access}"
 WEBAUTH_TOKEN="${PO0_WEBAUTH_TOKEN:-}"
 WEBAUTH_TTL_SECONDS="${PO0_WEBAUTH_TTL_SECONDS:-3600}"
 WEBAUTH_TARGETS="${PO0_WEBAUTH_TARGETS:-}"
-SELF_REPORT_LISTEN="${PO0_SELF_REPORT_LISTEN:-127.0.0.1:8788}"
+SELF_REPORT_LISTEN="${PO0_SELF_REPORT_LISTEN:-0.0.0.0:8788}"
 SELF_REPORT_SOURCE="${PO0_SELF_REPORT_SOURCE:-self-report}"
 SELF_REPORT_SECRET="${PO0_SELF_REPORT_SECRET:-}"
 SELF_REPORT_TTL_SECONDS="${PO0_SELF_REPORT_TTL_SECONDS:-3600}"
@@ -252,7 +253,7 @@ usage() {
         "  bash po0-lan-client.sh --bootstrap --po0-host HOST --resource-token TOKEN --install-cron 1440" \
         "  curl -fsSL ${RAW_URL} | bash -s -- --bootstrap --po0-host HOST --source-key home --ddns-domain home.example.com --token TOKEN --resource-token TOKEN --install-cron 5" \
         "  po0-lan-client --webauth-server --listen 127.0.0.1:8787 --po0-host HOST --webauth-token TOKEN" \
-        "  po0-lan-client --self-report-server --self-report-listen 127.0.0.1:8788 --po0-host HOST --client-ip-token TOKEN" \
+        "  po0-lan-client --self-report-server --self-report-listen 0.0.0.0:8788 --po0-host HOST --client-ip-token TOKEN" \
         "" \
         "常用命令:" \
         "  --probe              只做依赖、DDNS 解析、SSH、PO0 token 连通性/权限检查，不修改 PO0 白名单。" \
@@ -2486,7 +2487,7 @@ po0_lan_wizard() {
         CLIENT_IP_TOKEN="$(prompt_default "Client IP 上报 token" "${CLIENT_IP_TOKEN}")"
         [[ -n "${CLIENT_IP_TOKEN}" ]] || { printf 'Self-report 需要 client-ip token。\n' >&2; return 1; }
         SELF_REPORT_SOURCE="$(prompt_default "Self-report source id" "${SELF_REPORT_SOURCE:-self-report}")"
-        SELF_REPORT_LISTEN="$(prompt_default "Self-report 本地监听地址" "${SELF_REPORT_LISTEN:-127.0.0.1:8788}")"
+        SELF_REPORT_LISTEN="$(prompt_default "Self-report 本地监听地址" "${SELF_REPORT_LISTEN:-0.0.0.0:8788}")"
         generated_secret="$(random_secret)"
         SELF_REPORT_SECRET="$(prompt_default "Self-report secret（访问设备上报 LAN Worker 用）" "${SELF_REPORT_SECRET:-${generated_secret}}")"
         SELF_REPORT_TTL_SECONDS="$(prompt_default "Self-report 放行 TTL 秒数" "${SELF_REPORT_TTL_SECONDS:-3600}")"
@@ -3858,7 +3859,7 @@ run_self_report_server() {
     fi
     listen_host="${SELF_REPORT_LISTEN%:*}"
     listen_port="${SELF_REPORT_LISTEN##*:}"
-    [[ -n "${listen_host}" && "${listen_host}" != "${SELF_REPORT_LISTEN}" ]] || listen_host="127.0.0.1"
+    [[ -n "${listen_host}" && "${listen_host}" != "${SELF_REPORT_LISTEN}" ]] || listen_host="0.0.0.0"
     [[ "${listen_port}" =~ ^[0-9]+$ ]] || listen_port="8788"
     export PO0_SELF_REPORT_TARGETS="${targets}" SELF_REPORT_SECRET
     printf 'Self-report server listening on %s:%s; device -> LAN Worker -> SSH -> PO0.\n' "${listen_host}" "${listen_port}"
@@ -4928,8 +4929,8 @@ show_self_report_settings() {
 }
 
 edit_self_report_listen_interactive() {
-    SELF_REPORT_LISTEN="$(prompt_default "Self-report 本地监听地址" "${SELF_REPORT_LISTEN:-127.0.0.1:8788}")"
-    [[ -n "${SELF_REPORT_LISTEN}" ]] || SELF_REPORT_LISTEN="127.0.0.1:8788"
+    SELF_REPORT_LISTEN="$(prompt_default "Self-report 本地监听地址" "${SELF_REPORT_LISTEN:-0.0.0.0:8788}")"
+    [[ -n "${SELF_REPORT_LISTEN}" ]] || SELF_REPORT_LISTEN="0.0.0.0:8788"
     printf '已设置本次菜单会话监听地址：%s\n' "${SELF_REPORT_LISTEN}"
     printf '安装 / 更新后台服务后，该监听地址会写入 systemd service。\n'
 }
