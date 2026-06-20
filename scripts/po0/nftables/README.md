@@ -103,7 +103,7 @@ curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scri
 Linux/OpenWrt Self-report client 非交互安装，每 15 分钟上报一次：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh | bash -s -- --worker-url <LAN_WORKER_REPORT_URL> --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --install-cron 15
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --install-cron 15
 ```
 
 Windows Self-report client（交互式无参数运行默认进入菜单；PowerShell 推荐先下载再执行）：
@@ -112,7 +112,7 @@ Windows Self-report client（交互式无参数运行默认进入菜单；PowerS
 $script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script; powershell -ExecutionPolicy Bypass -File $script
 ```
 
-PowerShell 客户端也支持显式 `-Menu`；如果要非交互安装计划任务，再传 `-WorkerUrl`、`-SourceId`、`-Secret` 和 `-InstallTask`。
+PowerShell 客户端也支持显式 `-Menu`；如果要非交互安装计划任务，再传 `-WorkerUrl https://<SELF_REPORT_DOMAIN>/report`、`-SourceId`、`-Secret` 和 `-InstallTask`。
 
 Egern 模块 raw URL：
 
@@ -294,7 +294,7 @@ non-root: ~/.local/bin/po0-lan-client
 Self-report 用于“访问设备自己检测当前出口 IPv4，然后报给 LAN Worker”。PO0 仍然不开放 HTTP，LAN Worker 通过 SSH 调 PO0 的 `--client-ip-report`：
 
 ```text
-访问设备 self-report client -> LAN Worker HTTP -> SSH -> PO0 --client-ip-report
+访问设备 self-report client -> LAN Worker HTTPS/Caddy -> 本机 self-report 后端 -> SSH -> PO0 --client-ip-report
 ```
 
 LAN Worker 启动接收端推荐走菜单：
@@ -303,17 +303,17 @@ LAN Worker 启动接收端推荐走菜单：
 po0-lan-client --menu
 ```
 
-进入 `Self-report 自上报 -> Self-report 配置 / 启动` 后，可以查看 PO0 目标、维护 `Self-report client-ip Token`、设置 source/TTL、设置监听地址、生成/修改 `Self-report secret`，并安装/更新后台服务。Self-report 默认监听 `0.0.0.0:8788`，方便访问设备直接上报到 `http://<LAN_WORKER_IP>:8788/report`；请务必设置 `Self-report secret`，并用服务器防火墙或云安全组控制 TCP `8788` 的访问范围。菜单里的“前台启动服务”会占用当前终端，适合临时测试，按 `Ctrl+C` 退出。
+进入 `Self-report 自上报 -> Self-report 配置 / 启动` 后，可以查看 PO0 目标、维护 `Self-report client-ip Token`、设置 source/TTL、设置监听地址、生成/修改 `Self-report secret`，并安装/更新后台服务。推荐使用“配置 HTTPS 域名 / Caddy”：输入已经解析到 LAN Worker 的域名后，脚本会配置 Caddy 自动证书和续期，并把 self-report 后端改为只监听 `127.0.0.1:8788`；访问设备上报到 `https://<SELF_REPORT_DOMAIN>/report`。请务必设置 `Self-report secret`，并用服务器防火墙或云安全组放行 TCP `80/443`，不建议公网继续放行 `8788`。菜单里的“前台启动服务”会占用当前终端，适合临时测试，按 `Ctrl+C` 退出。
 
-同一个 Self-report 子菜单也可以查看 `po0-lan-self-report.service` 的后台服务状态、最近 journal 日志和实时日志；实时日志同样按 `Ctrl+C` 退出。
+同一个 Self-report 子菜单也可以查看 `po0-lan-self-report.service` 的后台服务状态、最近 journal 日志、实时日志，以及 HTTPS/Caddy 状态和最近 Caddy 日志；实时日志同样按 `Ctrl+C` 退出。
 
-安装后台服务前至少要有一个启用的 PO0 目标，并且该目标已填写 `Self-report client-ip Token`。如果状态里看到 `--po0-host` 或 `--client-ip-token` 为空，说明旧版菜单曾写入空 service；在菜单补齐目标 Token 和 secret 后重新执行“安装 / 更新后台服务”即可覆盖。已安装过旧版 `127.0.0.1:8788` service 的机器，也需要重新执行“安装 / 更新后台服务”，让 systemd unit 切换到 `0.0.0.0:8788`。
+安装后台服务前至少要有一个启用的 PO0 目标，并且该目标已填写 `Self-report client-ip Token`。如果状态里看到 `--po0-host` 或 `--client-ip-token` 为空，说明旧版菜单曾写入空 service；在菜单补齐目标 Token 和 secret 后重新执行“安装 / 更新后台服务”或“配置 HTTPS 域名 / Caddy”即可覆盖。已安装过旧版 `0.0.0.0:8788` HTTP 直连 service 的机器，启用 HTTPS 后需要重新执行“配置 HTTPS 域名 / Caddy”，让 systemd unit 切换到 `127.0.0.1:8788`。
 
 命令行启动接收端：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash -s -- --install-self
-po0-lan-client --self-report-server --self-report-listen 0.0.0.0:8788 --po0-host <PO0_HOST> --po0-script /root/nftables-relay-manager.sh --self-report-source self-report --client-ip-token <CLIENT_REPORT_TOKEN> --self-report-secret <SELF_REPORT_SECRET>
+po0-lan-client --install-self-report-https --self-report-https-domain <SELF_REPORT_DOMAIN> --po0-host <PO0_HOST> --po0-script /root/nftables-relay-manager.sh --self-report-source self-report --client-ip-token <CLIENT_REPORT_TOKEN> --self-report-secret <SELF_REPORT_SECRET>
 ```
 
 Self-report 放行 TTL 默认 `3600` 秒，由 LAN Worker 上报 PO0 时传入；可以在启动接收端时加 `--self-report-ttl <秒数>`，也可以在 LAN Worker 菜单 `PO0 目标、SSH、Token 与 TTL -> Self-report / WebAuth TTL` 里修改目标覆盖值。访问设备客户端只决定“多久上报一次”，不决定 TTL。
@@ -327,7 +327,7 @@ self-report|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR
 ```
 
 ```bash
-po0-lan-client --self-report-server --self-report-listen 0.0.0.0:8788 --self-report-targets 'self-report|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|3600|;self-report|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|3600|' --self-report-secret <SELF_REPORT_SECRET>
+po0-lan-client --install-self-report-https --self-report-https-domain <SELF_REPORT_DOMAIN> --self-report-targets 'self-report|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|3600|;self-report|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|3600|' --self-report-secret <SELF_REPORT_SECRET>
 ```
 
 访问设备定时自上报；交互式无参数运行默认进入菜单：
@@ -339,7 +339,7 @@ curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scri
 也可以非交互安装 cron，默认和示例推荐每 15 分钟上报一次；`--install-cron N` 的 `N` 可在 1-59 分钟内调整：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh | bash -s -- --worker-url <LAN_WORKER_REPORT_URL> --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --install-cron 15
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --install-cron 15
 ```
 
 Windows：
@@ -348,7 +348,7 @@ Windows：
 $script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script; powershell -ExecutionPolicy Bypass -File $script
 ```
 
-PowerShell 客户端也支持显式 `-Menu`；如果要非交互安装计划任务，再传 `-WorkerUrl`、`-SourceId`、`-Secret` 和 `-InstallTask`。
+PowerShell 客户端也支持显式 `-Menu`；如果要非交互安装计划任务，再传 `-WorkerUrl https://<SELF_REPORT_DOMAIN>/report`、`-SourceId`、`-Secret` 和 `-InstallTask`。两个客户端默认拒绝 `http://`；只有本地调试或临时旧环境才显式使用 `--allow-http` / `-AllowHttp`。
 
 self-report client 查询公网 IPv4 会按默认列表轮询：`https://ip9.com.cn/get`、163 邮箱、Bilibili、126、腾讯新闻、爱奇艺、央视、12306、`https://myip.ipip.net/json`。脚本会记住上次使用位置，下次从下一个接口开始；默认不再使用 `ip-api`、`ipify`、`icanhazip`、`ifconfig.co`。
 

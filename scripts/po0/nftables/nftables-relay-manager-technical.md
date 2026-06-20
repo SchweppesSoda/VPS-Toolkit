@@ -648,7 +648,7 @@ chmod 755 /usr/local/sbin/po0-lan-client
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script /root/nftables-relay-manager.sh --source-key home --ddns-domain home.example.com --token <DDNS_TOKEN> --resource-token <RESOURCE_TOKEN> --install-cron 5
 ```
 
-Self-report client 适合运行在访问设备上：它检测自身当前出口公网 IPv4，并上报给 LAN Worker self-report server；LAN Worker 再通过 SSH 调 PO0：
+Self-report client 适合运行在访问设备上：它检测自身当前出口公网 IPv4，并通过 `https://<SELF_REPORT_DOMAIN>/report` 上报给 LAN Worker self-report server；LAN Worker 的 Caddy HTTPS 入口反代到本机后端，再通过 SSH 调 PO0：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh | bash
@@ -657,7 +657,7 @@ curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scri
 非交互安装 cron 时，默认和示例推荐每 15 分钟上报一次；`--install-cron N` 的 `N` 可在 1-59 分钟内调整：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh | bash -s -- --worker-url <LAN_WORKER_REPORT_URL> --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --install-cron 15
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --install-cron 15
 ```
 
 Windows PowerShell 版本检测本机当前出口公网 IPv4 并上报 LAN Worker：
@@ -666,7 +666,7 @@ Windows PowerShell 版本检测本机当前出口公网 IPv4 并上报 LAN Worke
 $script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script; powershell -ExecutionPolicy Bypass -File $script
 ```
 
-PowerShell 客户端交互式无参数运行默认进入菜单，也支持显式 `-Menu`；非交互安装计划任务时再传 `-WorkerUrl`、`-SourceId`、`-Secret` 和 `-InstallTask`。
+PowerShell 客户端交互式无参数运行默认进入菜单，也支持显式 `-Menu`；非交互安装计划任务时再传 `-WorkerUrl https://<SELF_REPORT_DOMAIN>/report`、`-SourceId`、`-Secret` 和 `-InstallTask`。两个访问设备客户端都会把裸域名自动规范化为 HTTPS `/report`，并默认拒绝 `http://`；仅本地调试或临时旧环境才显式使用 `--allow-http` / `-AllowHttp`。
 
 Self-report 放行 TTL 默认 `3600` 秒，由 LAN Worker self-report server 上报 PO0 时传入；客户端只控制上报频率，不控制 TTL。TTL 可以通过 `po0-lan-client --self-report-ttl <秒数>`、bootstrap 向导，或 LAN Worker 菜单 `Self-report / WebAuth TTL` 修改。
 

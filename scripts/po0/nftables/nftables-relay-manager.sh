@@ -2,10 +2,11 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-nftables-relay-manager"
-SCRIPT_VERSION="2026.06.20+build.1"
+SCRIPT_VERSION="2026.06.20+build.2"
 SCRIPT_RELEASE_DATE="2026-06-20"
 # CHANGELOG_BEGIN
-# - Self-report 部署示例默认监听改为 0.0.0.0:8788，匹配访问设备直连 LAN Worker 的用法。
+# - Self-report 部署示例改为 HTTPS 域名/Caddy 模式，访问设备默认上报到 https://<SELF_REPORT_DOMAIN>/report。
+# - Self-report HTTP 直连示例下沉为兼容模式，不再作为默认推荐路径。
 # - 重排源 IP 白名单菜单：动态来源缓存维护、来源 IP 学习与候选提升、被阻挡访问日志拆成独立子菜单，减少主菜单裸露维护动作。
 # - 中转机参数新增“本机名称/导出前缀”，导出规则默认文件名可带 PO0XX- 这类主机前缀。
 # - 转发规则列表的“回程模式”改为直接显示“内网回源 / 公网出口 / 透明转发”，避免把 relay_lan 简写成 lan 造成理解成本。
@@ -9200,16 +9201,16 @@ do_show_client_ip_report_token() {
     echo "PO0 接收命令（SSH only；通常由 LAN Worker 自动执行）："
     printf '  bash %s --client-ip-report self-report 1.2.3.4 %s lan-worker 3600\n' "$(basename "$0")" "${token}"
     echo ""
-    echo "LAN Worker self-report server（HTTP 只跑在 LAN Worker，不跑在 PO0）："
-    printf '  po0-lan-client --self-report-server --self-report-listen 0.0.0.0:8788 --po0-host <PO0_HOST> --po0-script %s --self-report-source self-report --client-ip-token %s --self-report-secret <SELF_REPORT_SECRET>\n' \
+    echo "LAN Worker self-report server（推荐 HTTPS/Caddy；PO0 不开放 HTTP）："
+    printf '  po0-lan-client --install-self-report-https --self-report-https-domain <SELF_REPORT_DOMAIN> --po0-host <PO0_HOST> --po0-script %s --self-report-source self-report --client-ip-token %s --self-report-secret <SELF_REPORT_SECRET>\n' \
         "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${token}")"
     echo ""
     echo "Linux / OpenWrt 自上报 client（访问设备 -> LAN Worker）："
-    printf '  curl -fsSL %s | bash -s -- --worker-url <LAN_WORKER_REPORT_URL> --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --install-cron 5\n' \
+    printf '  curl -fsSL %s | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --install-cron 5\n' \
         "${OUTBOUND_IP_REPORTER_RAW_URL}"
     echo ""
     echo "Windows PowerShell 自上报 client（访问设备 -> LAN Worker）："
-    printf "  \$env:PO0_LAN_WORKER_URL='<LAN_WORKER_REPORT_URL>'; \$env:PO0_SELF_REPORT_SOURCE='<CLIENT_ID>'; \$env:PO0_SELF_REPORT_SECRET='<SELF_REPORT_SECRET>'; \$env:INSTALL_TASK='1'; \$env:MINUTES='5'; irm -UseBasicParsing '%s' | iex\n" \
+    printf "  \$script=\"\$env:TEMP\\po0-outbound-ip-report.ps1\"; irm -UseBasicParsing '%s' -OutFile \$script; powershell -ExecutionPolicy Bypass -File \$script -WorkerUrl 'https://<SELF_REPORT_DOMAIN>/report' -SourceId '<CLIENT_ID>' -Secret '<SELF_REPORT_SECRET>' -InstallTask -Minutes 5\n" \
         "${OUTBOUND_IP_REPORTER_PS_RAW_URL}"
 }
 
@@ -9829,17 +9830,17 @@ do_show_self_report_server_commands() {
     ensure_layout || return 1
     deploy_token_values
     print_title "LAN Worker self-report server"
-    echo "HTTP 只监听在 LAN Worker；访问设备先报 LAN Worker，再由 LAN Worker 通过 SSH 上报 PO0。"
+    echo "推荐 HTTPS/Caddy 只在 LAN Worker 暴露 80/443；访问设备先报 LAN Worker，再由 LAN Worker 通过 SSH 上报 PO0。"
     echo ""
     printf '  curl -fsSL %s | bash -s -- --install-self\n' "${LAN_WORKER_RAW_URL}"
-    printf '  po0-lan-client --self-report-server --self-report-listen 0.0.0.0:8788 --po0-host <PO0_HOST> --po0-script %s --self-report-source self-report --client-ip-token %s --self-report-secret <SELF_REPORT_SECRET>\n' \
+    printf '  po0-lan-client --install-self-report-https --self-report-https-domain <SELF_REPORT_DOMAIN> --po0-host <PO0_HOST> --po0-script %s --self-report-source self-report --client-ip-token %s --self-report-secret <SELF_REPORT_SECRET>\n' \
         "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${DEPLOY_CLIENT_TOKEN}")"
     echo ""
     printf 'Self-report PO0 目标行: source|host|port|user|script|token|ttl|ssh_args\n'
     printf '  self-report|<PO0_HOST>|22|root|%s|%s|3600|\n' "${MANAGER_INSTALL_PATH}" "${DEPLOY_CLIENT_TOKEN}"
     echo ""
     printf '合并多个目标行：\n'
-    printf '  po0-lan-client --self-report-server --self-report-targets "<TARGET1;TARGET2>" --self-report-secret <SELF_REPORT_SECRET>\n'
+    printf '  po0-lan-client --install-self-report-https --self-report-https-domain <SELF_REPORT_DOMAIN> --self-report-targets "<TARGET1;TARGET2>" --self-report-secret <SELF_REPORT_SECRET>\n'
 }
 
 do_show_self_report_client_commands() {
@@ -9848,11 +9849,11 @@ do_show_self_report_client_commands() {
     echo "在访问设备上执行；检测设备当前出口 IPv4 后上报 LAN Worker，不直连 PO0。"
     echo ""
     echo "Linux / OpenWrt:"
-    printf '  curl -fsSL %s | bash -s -- --worker-url <LAN_WORKER_REPORT_URL> --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --install-cron 5\n' \
+    printf '  curl -fsSL %s | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --install-cron 5\n' \
         "${OUTBOUND_IP_REPORTER_RAW_URL}"
     echo ""
     echo "Windows PowerShell:"
-    printf "  \$env:PO0_LAN_WORKER_URL='<LAN_WORKER_REPORT_URL>'; \$env:PO0_SELF_REPORT_SOURCE='<CLIENT_ID>'; \$env:PO0_SELF_REPORT_SECRET='<SELF_REPORT_SECRET>'; \$env:INSTALL_TASK='1'; \$env:MINUTES='5'; irm -UseBasicParsing '%s' | iex\n" \
+    printf "  \$script=\"\$env:TEMP\\po0-outbound-ip-report.ps1\"; irm -UseBasicParsing '%s' -OutFile \$script; powershell -ExecutionPolicy Bypass -File \$script -WorkerUrl 'https://<SELF_REPORT_DOMAIN>/report' -SourceId '<CLIENT_ID>' -Secret '<SELF_REPORT_SECRET>' -InstallTask -Minutes 5\n" \
         "${OUTBOUND_IP_REPORTER_PS_RAW_URL}"
 }
 

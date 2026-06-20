@@ -7,6 +7,7 @@
     [string[]]$IpCheckUrls = @(),
     [switch]$InstallTask,
     [int]$Minutes = $(if ($env:PO0_SELF_REPORT_MINUTES) { [int]$env:PO0_SELF_REPORT_MINUTES } elseif ($env:MINUTES) { [int]$env:MINUTES } else { 15 }),
+    [switch]$AllowHttp,
     [switch]$Menu,
     [switch]$Help
 )
@@ -20,6 +21,10 @@ if ($env:INSTALL_TASK -match "^(1|true|yes)$") {
 
 if ($env:PO0_SELF_REPORT_MENU -match "^(1|true|yes)$") {
     $Menu = $true
+}
+
+if ($env:PO0_SELF_REPORT_ALLOW_HTTP -match "^(1|true|yes)$") {
+    $AllowHttp = $true
 }
 
 if ($env:IP_CHECK_URLS -and $IpCheckUrls.Count -eq 0) {
@@ -36,12 +41,13 @@ self-report 接收服务。访问设备不直接连接 PO0。
 用法:
   `$script="`$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing '$RawUrl' -OutFile `$script; powershell -ExecutionPolicy Bypass -File `$script
   .\po0-outbound-ip-report.ps1 -Menu
-  .\po0-outbound-ip-report.ps1 -WorkerUrl http://worker.example.com:8788/report -SourceId laptop -Secret SECRET
-  .\po0-outbound-ip-report.ps1 -WorkerUrl http://worker.example.com:8788/report -SourceId laptop -Secret SECRET -InstallTask -Minutes 15
+  .\po0-outbound-ip-report.ps1 -WorkerUrl https://report.example.com/report -SourceId laptop -Secret SECRET
+  .\po0-outbound-ip-report.ps1 -WorkerUrl https://report.example.com/report -SourceId laptop -Secret SECRET -InstallTask -Minutes 15
 
 参数:
   -Menu               打开交互菜单。
-  -WorkerUrl URL      LAN Worker self-report 接收地址。
+  -WorkerUrl URL      LAN Worker self-report HTTPS 接收地址；裸域名会自动补全。
+  -AllowHttp          允许 http:// 上报；仅用于本地调试或临时旧环境。
   -SourceId ID        写入 PO0 client_ip 记录的来源 ID。
   -Identity ID        LAN Worker/PO0 日志里的设备或用户标签。默认: 计算机名。
   -Secret SECRET      可选的 LAN Worker self-report 共享密钥。
@@ -61,6 +67,37 @@ self-report 接收服务。访问设备不直接连接 PO0。
   https://exservice.12306.cn/excater/bonree/grip
   https://myip.ipip.net/json
 "@
+}
+
+function Normalize-WorkerUrl {
+    param([string]$Value)
+    if (-not $Value) { return "" }
+    $value = $Value.Trim()
+    if (-not $value) { return "" }
+    if ($value -notmatch "^[A-Za-z][A-Za-z0-9+.-]*://") {
+        $value = "https://$value"
+    }
+    try {
+        $builder = [System.UriBuilder]::new($value)
+    } catch {
+        throw "LAN Worker self-report 地址无效：$Value"
+    }
+    if (-not $builder.Path -or $builder.Path -eq "/") {
+        $builder.Path = "report"
+    }
+    return $builder.Uri.AbsoluteUri
+}
+
+function Assert-WorkerUrl {
+    if (-not $script:WorkerUrl) { throw "缺少 -WorkerUrl 或 PO0_LAN_WORKER_URL。" }
+    $script:WorkerUrl = Normalize-WorkerUrl $script:WorkerUrl
+    $uri = [System.Uri]$script:WorkerUrl
+    if ($uri.Scheme -eq "https") { return }
+    if ($uri.Scheme -eq "http" -and $script:AllowHttp) { return }
+    if ($uri.Scheme -eq "http") {
+        throw "Self-report 默认只允许 HTTPS。若仅用于本地调试或旧环境，请显式加 -AllowHttp。"
+    }
+    throw "LAN Worker self-report 地址必须是 https:// 地址。"
 }
 
 function Test-PublicIPv4 {
@@ -177,18 +214,19 @@ function Get-OutboundIPv4 {
 }
 
 function Invoke-SelfReport {
-    if (-not $WorkerUrl) { throw "缺少 -WorkerUrl 或 PO0_LAN_WORKER_URL。" }
+    Assert-WorkerUrl
     Add-Type -AssemblyName System.Web -ErrorAction SilentlyContinue
     $ip = Get-OutboundIPv4
-    $builder = [System.UriBuilder]::new($WorkerUrl)
+    $builder = [System.UriBuilder]::new($script:WorkerUrl)
     $query = [System.Web.HttpUtility]::ParseQueryString($builder.Query)
     $query["source"] = $SourceId
     $query["ip"] = $ip
     $query["identity"] = $Identity
-    if ($Secret) { $query["token"] = $Secret }
     $builder.Query = $query.ToString()
-    Write-Host "上报当前公网出口 IPv4 $ip 到 LAN Worker：$WorkerUrl"
-    $resp = Invoke-WebRequest -UseBasicParsing -Uri $builder.Uri.AbsoluteUri -TimeoutSec 30
+    $headers = @{}
+    if ($Secret) { $headers["X-PO0-Token"] = $Secret }
+    Write-Host "上报当前公网出口 IPv4 $ip 到 LAN Worker：$script:WorkerUrl"
+    $resp = Invoke-WebRequest -UseBasicParsing -Uri $builder.Uri.AbsoluteUri -Headers $headers -TimeoutSec 30
     $content = $resp.Content
     if ($content -is [byte[]]) {
         $content = [System.Text.Encoding]::UTF8.GetString($content)
@@ -205,6 +243,7 @@ function Quote-TaskArg {
 }
 
 function Install-ScheduledReporter {
+    Assert-WorkerUrl
     if ($Minutes -lt 1 -or $Minutes -gt 59) { throw "-Minutes 必须在 1-59 之间。" }
     $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     $dir = if ($isAdmin) { Join-Path $env:ProgramData "PO0" } else { Join-Path $env:LOCALAPPDATA "PO0" }
@@ -220,11 +259,14 @@ function Install-ScheduledReporter {
         "-NoProfile",
         "-ExecutionPolicy", "Bypass",
         "-File", (Quote-TaskArg $dest),
-        "-WorkerUrl", (Quote-TaskArg $WorkerUrl),
+        "-WorkerUrl", (Quote-TaskArg $script:WorkerUrl),
         "-SourceId", (Quote-TaskArg $SourceId),
         "-Identity", (Quote-TaskArg $Identity),
         "-Secret", (Quote-TaskArg $Secret)
     )
+    if ($script:AllowHttp) {
+        $taskArgList += "-AllowHttp"
+    }
     if ($IpCheckUrls.Count -gt 0) {
         $taskArgList += "-IpCheckUrls"
         foreach ($url in $IpCheckUrls) {
@@ -299,6 +341,7 @@ function Show-ClientConfig {
     Write-Host ("  Source ID      : {0}" -f $script:SourceId)
     Write-Host ("  Identity       : {0}" -f $script:Identity)
     Write-Host ("  Secret         : {0}" -f (Get-MaskedSecret $script:Secret))
+    Write-Host ("  HTTP 上报      : {0}" -f $(if ($script:AllowHttp) { "已显式允许" } else { "默认拒绝" }))
     Write-Host ("  上报间隔       : 每 {0} 分钟（安装计划任务时使用）" -f $script:Minutes)
     Write-Host "  放行 TTL       : 由 LAN Worker Self-report 目标控制，默认 3600 秒"
     if ($script:IpCheckUrls.Count -gt 0) {
@@ -309,7 +352,17 @@ function Show-ClientConfig {
 }
 
 function Set-ClientConfigInteractive {
-    $script:WorkerUrl = Read-Default "LAN Worker self-report 接收地址" $script:WorkerUrl
+    $script:WorkerUrl = Read-Default "LAN Worker self-report HTTPS 接收地址（域名或 https://域名/report）" $(if ($script:WorkerUrl) { $script:WorkerUrl } else { "https://report.example.com/report" })
+    $script:WorkerUrl = Normalize-WorkerUrl $script:WorkerUrl
+    if ($script:WorkerUrl -match "^http://" -and -not $script:AllowHttp) {
+        $confirmHttp = Read-Host "检测到 http:// 地址。仅本地调试/旧环境才允许，是否继续允许 HTTP [y/N]"
+        if ($confirmHttp -match "^(y|yes)$") {
+            $script:AllowHttp = $true
+        } else {
+            throw "已拒绝 HTTP。请改用 https://域名/report。"
+        }
+    }
+    Assert-WorkerUrl
     $script:SourceId = Read-Default "Source ID" $script:SourceId
     $script:Identity = Read-Default "Identity" $script:Identity
     Read-SecretSetting

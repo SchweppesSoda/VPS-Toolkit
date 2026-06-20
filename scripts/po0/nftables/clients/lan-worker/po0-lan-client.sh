@@ -3,10 +3,11 @@ set -uo pipefail
 
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh"
 SCRIPT_NAME="po0-lan-worker-client"
-SCRIPT_VERSION="2026.06.20+build.6"
+SCRIPT_VERSION="2026.06.20+build.7"
 SCRIPT_RELEASE_DATE="2026-06-20"
 # CHANGELOG_BEGIN
-# - Self-report 默认监听改为 0.0.0.0:8788，方便访问设备直接上报到 LAN Worker IP。
+# - Self-report 新增 HTTPS 域名模式，可在菜单配置 Caddy 自动证书并将后端切到 127.0.0.1:8788。
+# - Self-report 默认监听收紧为 127.0.0.1:8788；公网入口默认通过 HTTPS 域名/Caddy。
 # - Self-report 后台服务安装/更新后强制 restart，确保旧的失败 unit 立即被新 ExecStart 覆盖。
 # - Self-report 后台服务安装时 secret 为空则省略参数，避免 systemd unit 因空参数反复重启失败。
 # - Self-report 后台服务安装前检查可用 PO0 目标，避免写入空参数后反复重启失败。
@@ -62,11 +63,15 @@ WEBAUTH_SOURCE="${PO0_WEBAUTH_SOURCE:-cf-access}"
 WEBAUTH_TOKEN="${PO0_WEBAUTH_TOKEN:-}"
 WEBAUTH_TTL_SECONDS="${PO0_WEBAUTH_TTL_SECONDS:-3600}"
 WEBAUTH_TARGETS="${PO0_WEBAUTH_TARGETS:-}"
-SELF_REPORT_LISTEN="${PO0_SELF_REPORT_LISTEN:-0.0.0.0:8788}"
+SELF_REPORT_LISTEN="${PO0_SELF_REPORT_LISTEN:-127.0.0.1:8788}"
 SELF_REPORT_SOURCE="${PO0_SELF_REPORT_SOURCE:-self-report}"
 SELF_REPORT_SECRET="${PO0_SELF_REPORT_SECRET:-}"
 SELF_REPORT_TTL_SECONDS="${PO0_SELF_REPORT_TTL_SECONDS:-3600}"
 SELF_REPORT_TARGETS="${PO0_SELF_REPORT_TARGETS:-}"
+SELF_REPORT_HTTPS_DOMAIN="${PO0_SELF_REPORT_HTTPS_DOMAIN:-}"
+SELF_REPORT_HTTPS_BACKEND="${PO0_SELF_REPORT_HTTPS_BACKEND:-127.0.0.1:8788}"
+SELF_REPORT_CADDY_SNIPPET="${PO0_SELF_REPORT_CADDY_SNIPPET:-/etc/caddy/conf.d/po0-self-report.caddy}"
+CADDYFILE_PATH="${PO0_CADDYFILE:-/etc/caddy/Caddyfile}"
 C_RESET=""
 C_BOLD=""
 C_DIM=""
@@ -253,7 +258,8 @@ usage() {
         "  bash po0-lan-client.sh --bootstrap --po0-host HOST --resource-token TOKEN --install-cron 1440" \
         "  curl -fsSL ${RAW_URL} | bash -s -- --bootstrap --po0-host HOST --source-key home --ddns-domain home.example.com --token TOKEN --resource-token TOKEN --install-cron 5" \
         "  po0-lan-client --webauth-server --listen 127.0.0.1:8787 --po0-host HOST --webauth-token TOKEN" \
-        "  po0-lan-client --self-report-server --self-report-listen 0.0.0.0:8788 --po0-host HOST --client-ip-token TOKEN" \
+        "  po0-lan-client --install-self-report-https --self-report-https-domain report.example.com --po0-host HOST --client-ip-token TOKEN --self-report-secret SECRET" \
+        "  po0-lan-client --self-report-server --self-report-listen 127.0.0.1:8788 --po0-host HOST --client-ip-token TOKEN" \
         "" \
         "常用命令:" \
         "  --probe              只做依赖、DDNS 解析、SSH、PO0 token 连通性/权限检查，不修改 PO0 白名单。" \
@@ -268,6 +274,7 @@ usage() {
         "  PO0_RESOURCE_COMPLETE_TIMEOUT_SECONDS=N PO0 校验/导入资源产物的超时秒数，默认 600。" \
         "  --source-key KEY     PO0 端来源 key/名称；脚本不会解析这个值。" \
         "  --ddns-domain DOMAIN LAN Worker 要解析的 DDNS 域名；结果通过 SSH 上报 PO0。" \
+        "  --install-self-report-https --self-report-https-domain DOMAIN  配置 Self-report HTTPS/Caddy，后端监听 127.0.0.1:8788。" \
         "  --ddns-targets STR  DDNS 上报目标；格式 source_key|ddns_domain|host|port|user|script|token|ssh_args，多目标用分号或换行分隔。" \
         "  --domain DOMAIN      兼容旧参数：没有 --ddns-domain 时同时作为 source-key 和 DDNS 域名。" \
         "  --ssh-extra-args STR 可选 SSH 参数，例如 '-i /path/key -J jump-host'；不是私钥短语。" \
@@ -2487,7 +2494,14 @@ po0_lan_wizard() {
         CLIENT_IP_TOKEN="$(prompt_default "Client IP 上报 token" "${CLIENT_IP_TOKEN}")"
         [[ -n "${CLIENT_IP_TOKEN}" ]] || { printf 'Self-report 需要 client-ip token。\n' >&2; return 1; }
         SELF_REPORT_SOURCE="$(prompt_default "Self-report source id" "${SELF_REPORT_SOURCE:-self-report}")"
-        SELF_REPORT_LISTEN="$(prompt_default "Self-report 本地监听地址" "${SELF_REPORT_LISTEN:-0.0.0.0:8788}")"
+        if prompt_yes_no "使用 Self-report HTTPS 域名 / Caddy（推荐；DNS 需已指向本机）" "y"; then
+            SELF_REPORT_HTTPS_DOMAIN="$(prompt_default "Self-report HTTPS 域名" "${SELF_REPORT_HTTPS_DOMAIN}")"
+            SELF_REPORT_HTTPS_DOMAIN="$(normalize_self_report_https_domain "${SELF_REPORT_HTTPS_DOMAIN}")"
+            validate_self_report_https_domain "${SELF_REPORT_HTTPS_DOMAIN}" || return 1
+            SELF_REPORT_LISTEN="${SELF_REPORT_HTTPS_BACKEND}"
+        else
+            SELF_REPORT_LISTEN="$(prompt_default "Self-report 本地监听地址（HTTP 直连，不推荐公网暴露）" "${SELF_REPORT_LISTEN:-127.0.0.1:8788}")"
+        fi
         generated_secret="$(random_secret)"
         SELF_REPORT_SECRET="$(prompt_default "Self-report secret（访问设备上报 LAN Worker 用）" "${SELF_REPORT_SECRET:-${generated_secret}}")"
         SELF_REPORT_TTL_SECONDS="$(prompt_default "Self-report 放行 TTL 秒数" "${SELF_REPORT_TTL_SECONDS:-3600}")"
@@ -2540,7 +2554,13 @@ po0_lan_wizard() {
     fi
 
     if (( use_self_report == 1 )); then
-        if prompt_yes_no "安装/更新 systemd Self-report server 服务" "n"; then
+        if [[ -n "${SELF_REPORT_HTTPS_DOMAIN}" ]]; then
+            if prompt_yes_no "安装/更新 Self-report HTTPS/Caddy 和后台服务" "y"; then
+                install_self_report_https || return 1
+            else
+                printf 'Self-report HTTPS 手动安装命令：po0-lan-client --install-self-report-https --self-report-https-domain %s\n' "${SELF_REPORT_HTTPS_DOMAIN}"
+            fi
+        elif prompt_yes_no "安装/更新 systemd Self-report server 服务（HTTP 直连模式）" "n"; then
             install_self_report_service || return 1
         else
             printf 'Self-report 手动启动命令：po0-lan-client --self-report-server --self-report-listen %s\n' "${SELF_REPORT_LISTEN}"
@@ -3859,7 +3879,7 @@ run_self_report_server() {
     fi
     listen_host="${SELF_REPORT_LISTEN%:*}"
     listen_port="${SELF_REPORT_LISTEN##*:}"
-    [[ -n "${listen_host}" && "${listen_host}" != "${SELF_REPORT_LISTEN}" ]] || listen_host="0.0.0.0"
+    [[ -n "${listen_host}" && "${listen_host}" != "${SELF_REPORT_LISTEN}" ]] || listen_host="127.0.0.1"
     [[ "${listen_port}" =~ ^[0-9]+$ ]] || listen_port="8788"
     export PO0_SELF_REPORT_TARGETS="${targets}" SELF_REPORT_SECRET
     printf 'Self-report server listening on %s:%s; device -> LAN Worker -> SSH -> PO0.\n' "${listen_host}" "${listen_port}"
@@ -4139,10 +4159,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def handle_report(self):
         path, params = parse_request(self)
-        if path.startswith("/health"):
+        if path in ("/health", "/health/"):
             self.send_response(200)
             self.end_headers()
             self.wfile.write(b"OK\n")
+            return
+        if path not in ("/report", "/report/"):
+            self.send_response(404)
+            self.end_headers()
+            self.wfile.write(b"not found\n")
             return
 
         secret = os.environ.get("SELF_REPORT_SECRET", "")
@@ -4250,6 +4275,170 @@ EOF
     systemctl enable "${name}" || return 1
     systemctl restart "${name}" || return 1
     printf '已安装并启动 Self-report 服务：%s\n' "${name}"
+}
+
+normalize_self_report_https_domain() {
+    local domain="$1"
+    domain="$(trim "${domain}")"
+    domain="${domain#http://}"
+    domain="${domain#https://}"
+    domain="${domain%%/*}"
+    domain="${domain%%:*}"
+    domain="${domain,,}"
+    printf '%s\n' "${domain}"
+}
+
+validate_self_report_https_domain() {
+    local domain="$1"
+    [[ -n "${domain}" ]] || {
+        printf '缺少 Self-report HTTPS 域名。\n' >&2
+        return 1
+    }
+    [[ "${domain}" == *.* && "${domain}" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$ ]] || {
+        printf 'Self-report HTTPS 域名格式无效：%s\n' "${domain}" >&2
+        return 1
+    }
+    is_public_ipv4 "${domain}" && {
+        printf 'Self-report HTTPS 需要公网域名，不能直接使用 IP：%s\n' "${domain}" >&2
+        return 1
+    }
+}
+
+self_report_https_domain_from_caddy() {
+    local line
+    [[ -r "${SELF_REPORT_CADDY_SNIPPET}" ]] || return 1
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        line="$(trim "${line}")"
+        [[ -n "${line}" && "${line}" != \#* ]] || continue
+        case "${line}" in
+            *"{")
+                line="${line%\{}"
+                line="$(trim "${line}")"
+                [[ -n "${line}" ]] || return 1
+                printf '%s\n' "${line}"
+                return 0
+                ;;
+        esac
+    done < "${SELF_REPORT_CADDY_SNIPPET}"
+    return 1
+}
+
+current_self_report_https_domain() {
+    if [[ -n "${SELF_REPORT_HTTPS_DOMAIN}" ]]; then
+        printf '%s\n' "${SELF_REPORT_HTTPS_DOMAIN}"
+    else
+        self_report_https_domain_from_caddy 2>/dev/null || true
+    fi
+}
+
+ensure_caddy_installed() {
+    if have_cmd caddy; then
+        return 0
+    fi
+    [[ "${EUID:-$(id -u 2>/dev/null || printf 1)}" -eq 0 ]] || {
+        printf '安装 Caddy 需要 root。请先手动安装 caddy，或用 root 重新运行菜单。\n' >&2
+        return 1
+    }
+    if have_cmd apt-get; then
+        apt-get update -y && apt-get install -y caddy
+    elif have_cmd dnf; then
+        dnf install -y caddy
+    elif have_cmd yum; then
+        yum install -y caddy
+    elif have_cmd apk; then
+        apk add --no-cache caddy
+    else
+        printf '未识别的包管理器。请先手动安装 Caddy，再重新配置 Self-report HTTPS。\n' >&2
+        return 1
+    fi
+    have_cmd caddy || {
+        printf 'Caddy 安装后仍不可用，请检查包管理器输出。\n' >&2
+        return 1
+    }
+}
+
+ensure_caddyfile_import() {
+    local caddy_dir import_line
+    caddy_dir="$(path_dirname "${CADDYFILE_PATH}")"
+    mkdir -p "${caddy_dir}" "$(path_dirname "${SELF_REPORT_CADDY_SNIPPET}")" || return 1
+    [[ -f "${CADDYFILE_PATH}" ]] || : > "${CADDYFILE_PATH}" || return 1
+    import_line="import /etc/caddy/conf.d/*.caddy"
+    if ! grep -Eq '^[[:space:]]*import[[:space:]]+/etc/caddy/conf\.d/\*\.caddy[[:space:]]*$' "${CADDYFILE_PATH}" 2>/dev/null; then
+        {
+            printf '\n'
+            printf '# PO0 LAN Worker managed snippets\n'
+            printf '%s\n' "${import_line}"
+        } >> "${CADDYFILE_PATH}" || return 1
+    fi
+}
+
+write_self_report_caddy_config() {
+    local domain="$1" backend_host backend_port
+    backend_host="${SELF_REPORT_HTTPS_BACKEND%:*}"
+    backend_port="${SELF_REPORT_HTTPS_BACKEND##*:}"
+    [[ -n "${backend_host}" && "${backend_host}" != "${SELF_REPORT_HTTPS_BACKEND}" ]] || backend_host="127.0.0.1"
+    [[ "${backend_port}" =~ ^[0-9]+$ ]] || backend_port="8788"
+    mkdir -p "$(path_dirname "${SELF_REPORT_CADDY_SNIPPET}")" || return 1
+    cat > "${SELF_REPORT_CADDY_SNIPPET}" <<EOF
+# Managed by po0-lan-client. Self-report HTTPS entrypoint.
+${domain} {
+    @po0_self_report path /report /health
+    reverse_proxy @po0_self_report ${backend_host}:${backend_port}
+    respond 404
+}
+EOF
+}
+
+show_self_report_https_status() {
+    local domain lines name="caddy"
+    domain="$(current_self_report_https_domain)"
+    print_panel_section "Self-report HTTPS / Caddy 状态"
+    print_panel_row "域名" "${domain:-未配置}"
+    print_panel_row "公网入口" "$(if [[ -n "${domain}" ]]; then printf 'https://%s/report' "${domain}"; else printf '未配置'; fi)"
+    print_panel_row "本机后端" "${SELF_REPORT_HTTPS_BACKEND}"
+    print_panel_row "Caddyfile" "${CADDYFILE_PATH}"
+    print_panel_row "Snippet" "${SELF_REPORT_CADDY_SNIPPET}"
+    if have_cmd systemctl; then
+        print_panel_row "Caddy 服务" "active=$(systemctl is-active "${name}" 2>/dev/null || true) enabled=$(systemctl is-enabled "${name}" 2>/dev/null || true)"
+    else
+        print_panel_row "Caddy 服务" "systemctl 不可用"
+    fi
+    if have_cmd caddy; then
+        printf '\n'
+        caddy validate --config "${CADDYFILE_PATH}" || true
+    fi
+    if have_cmd journalctl; then
+        lines="$(prompt_default "显示最近多少行 Caddy 日志" "80")"
+        if [[ "${lines}" =~ ^[0-9]+$ && "${lines}" -ge 1 && "${lines}" -le 1000 ]]; then
+            printf '\n'
+            journalctl -u "${name}" -n "${lines}" --no-pager -o short-iso || true
+        fi
+    fi
+}
+
+install_self_report_https() {
+    local domain ip_csv
+    domain="$(normalize_self_report_https_domain "${SELF_REPORT_HTTPS_DOMAIN}")"
+    validate_self_report_https_domain "${domain}" || return 1
+    if ip_csv="$(resolve_ddns_ipv4_csv "${domain}" 2>/dev/null)"; then
+        printf 'DNS A 记录：%s -> %s\n' "${domain}" "${ip_csv}"
+    else
+        printf '警告：当前机器未解析到 %s 的公网 IPv4。请确认 DNS 已指向 LAN Worker，且 80/443 已放行。\n' "${domain}" >&2
+    fi
+    ensure_caddy_installed || return 1
+    ensure_caddyfile_import || return 1
+    write_self_report_caddy_config "${domain}" || return 1
+    caddy validate --config "${CADDYFILE_PATH}" || return 1
+    SELF_REPORT_HTTPS_DOMAIN="${domain}"
+    SELF_REPORT_LISTEN="${SELF_REPORT_HTTPS_BACKEND}"
+    install_self_report_service || return 1
+    if have_cmd systemctl; then
+        systemctl enable caddy || return 1
+        systemctl reload caddy 2>/dev/null || systemctl restart caddy || return 1
+    fi
+    printf 'Self-report HTTPS 已配置：https://%s/report\n' "${domain}"
+    printf '健康检查：curl -fsS https://%s/health\n' "${domain}"
+    printf '注意：公网建议只放行 80/443，不建议继续放行 8788。\n'
 }
 
 self_report_service_summary() {
@@ -4908,10 +5097,12 @@ manage_ddns_settings_interactive() {
 }
 
 show_self_report_settings() {
-    local targets line source host port user script token ttl extra
+    local targets line source host port user script token ttl extra https_domain
     targets="$(self_report_targets_env 2>/dev/null || true)"
+    https_domain="$(current_self_report_https_domain)"
     print_panel_section "Self-report 接收端"
     print_panel_row "监听地址" "${SELF_REPORT_LISTEN}"
+    print_panel_row "HTTPS 入口" "$(if [[ -n "${https_domain}" ]]; then printf 'https://%s/report' "${https_domain}"; else printf '未配置'; fi)"
     print_panel_row "Secret" "$(mask_secret "${SELF_REPORT_SECRET}")"
     print_panel_row "默认 source" "${SELF_REPORT_SOURCE}"
     print_panel_row "默认 TTL" "${SELF_REPORT_TTL_SECONDS:-3600} 秒"
@@ -4929,8 +5120,8 @@ show_self_report_settings() {
 }
 
 edit_self_report_listen_interactive() {
-    SELF_REPORT_LISTEN="$(prompt_default "Self-report 本地监听地址" "${SELF_REPORT_LISTEN:-0.0.0.0:8788}")"
-    [[ -n "${SELF_REPORT_LISTEN}" ]] || SELF_REPORT_LISTEN="0.0.0.0:8788"
+    SELF_REPORT_LISTEN="$(prompt_default "Self-report 本地监听地址" "${SELF_REPORT_LISTEN:-127.0.0.1:8788}")"
+    [[ -n "${SELF_REPORT_LISTEN}" ]] || SELF_REPORT_LISTEN="127.0.0.1:8788"
     printf '已设置本次菜单会话监听地址：%s\n' "${SELF_REPORT_LISTEN}"
     printf '安装 / 更新后台服务后，该监听地址会写入 systemd service。\n'
 }
@@ -4966,6 +5157,24 @@ edit_self_report_secret_interactive() {
     fi
 }
 
+configure_self_report_https_interactive() {
+    local domain default_domain
+    default_domain="$(current_self_report_https_domain)"
+    domain="$(prompt_default "Self-report HTTPS 域名（DNS 已指向 LAN Worker）" "${default_domain}")"
+    domain="$(normalize_self_report_https_domain "${domain}")"
+    validate_self_report_https_domain "${domain}" || return 1
+    SELF_REPORT_HTTPS_DOMAIN="${domain}"
+    SELF_REPORT_LISTEN="${SELF_REPORT_HTTPS_BACKEND}"
+    printf '将配置 HTTPS 入口：https://%s/report\n' "${domain}"
+    printf 'Self-report 后端将只监听本机：%s\n' "${SELF_REPORT_LISTEN}"
+    printf '请确认云安全组/防火墙已放行 TCP 80/443；公网不建议放行 8788。\n'
+    if prompt_yes_no "继续安装 / 更新 Caddy HTTPS 和 Self-report 后台服务" "y"; then
+        install_self_report_https
+    else
+        printf '已取消。\n'
+    fi
+}
+
 manage_self_report_server_interactive() {
     local choice
     while true; do
@@ -4980,12 +5189,13 @@ manage_self_report_server_interactive() {
         print_menu_section "运行"
         print_menu_pair 6 "连通性检查" 7 "安装 / 更新后台服务"
         print_menu_pair 8 "查看后台服务状态" 9 "查看最近后台日志"
-        print_menu_pair 10 "实时跟随后台日志" 11 "前台启动服务"
+        print_menu_pair 10 "实时跟随后台日志" 11 "配置 HTTPS 域名 / Caddy"
+        print_menu_pair 12 "查看 HTTPS / Caddy 状态日志" 13 "前台启动服务"
 
         print_menu_section "退出"
         print_menu_item 0 "返回"
         print_menu_footer
-        read_menu_choice_or_return choice "请选择操作 [0-11]: " || return 0
+        read_menu_choice_or_return choice "请选择操作 [0-13]: " || return 0
         case "${choice}" in
             1) list_targets; pause_before_return ;;
             2) manage_target_tokens_interactive; pause_before_return ;;
@@ -4997,7 +5207,9 @@ manage_self_report_server_interactive() {
             8) show_self_report_service_status; pause_before_return ;;
             9) show_self_report_service_logs; pause_before_return ;;
             10) follow_self_report_service_logs ;;
-            11)
+            11) configure_self_report_https_interactive; pause_before_return ;;
+            12) show_self_report_https_status; pause_before_return ;;
+            13)
                 printf '即将前台启动 Self-report 服务；运行后会占用当前终端，按 Ctrl+C 退出。\n'
                 pause_before_return
                 run_self_report_server
@@ -5228,6 +5440,11 @@ while [[ $# -gt 0 ]]; do
             SELF_REPORT_TARGETS="${2:-}"
             shift 2
             ;;
+        --self-report-https-domain)
+            require_arg_value "$@"
+            SELF_REPORT_HTTPS_DOMAIN="${2:-}"
+            shift 2
+            ;;
         --label)
             require_arg_value "$@"
             BOOTSTRAP_LABEL="${2:-}"
@@ -5291,6 +5508,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --install-self-report-service)
             ACTION="install-self-report-service"
+            shift
+            ;;
+        --install-self-report-https)
+            ACTION="install-self-report-https"
             shift
             ;;
         --install-webauth-service)
@@ -5421,6 +5642,10 @@ case "${ACTION}" in
         ;;
     install-self-report-service)
         install_self_report_service
+        exit $?
+        ;;
+    install-self-report-https)
+        install_self_report_https
         exit $?
         ;;
     webauth-probe)

@@ -6,6 +6,7 @@ WORKER_URL="${PO0_LAN_WORKER_URL:-${WORKER_URL:-}}"
 SOURCE_ID="${PO0_SELF_REPORT_SOURCE:-${SOURCE_ID:-self-report}}"
 IDENTITY="${PO0_SELF_REPORT_IDENTITY:-${IDENTITY:-$(hostname 2>/dev/null || printf 'self-report')}}"
 SECRET="${PO0_SELF_REPORT_SECRET:-${SELF_REPORT_SECRET:-}}"
+ALLOW_HTTP="${PO0_SELF_REPORT_ALLOW_HTTP:-${ALLOW_HTTP:-}}"
 IP_CHECK_URL="${IP_CHECK_URL:-https://ip9.com.cn/get}"
 IP_CHECK_URLS="${IP_CHECK_URLS:-}"
 INSTALL_PATH="${PO0_SELF_REPORT_INSTALL_PATH:-${INSTALL_PATH:-}}"
@@ -26,12 +27,13 @@ usage() {
         "用法:" \
         "  curl -fsSL ${RAW_URL} | bash" \
         "  bash po0-outbound-ip-report.sh --menu" \
-        "  bash po0-outbound-ip-report.sh --worker-url http://worker.example.com:8788/report --source-id laptop --secret SECRET" \
-        "  curl -fsSL ${RAW_URL} | bash -s -- --worker-url http://worker.example.com:8788/report --source-id laptop --secret SECRET --install-cron 15" \
+        "  bash po0-outbound-ip-report.sh --worker-url https://report.example.com/report --source-id laptop --secret SECRET" \
+        "  curl -fsSL ${RAW_URL} | bash -s -- --worker-url https://report.example.com/report --source-id laptop --secret SECRET --install-cron 15" \
         "" \
         "参数:" \
         "  --menu                打开交互菜单。" \
-        "  --worker-url URL      LAN Worker self-report 接收地址，例如 http://worker.example.com:8788/report。" \
+        "  --worker-url URL      LAN Worker self-report HTTPS 接收地址，例如 https://report.example.com/report；裸域名会自动补全。" \
+        "  --allow-http          允许 http:// 上报；仅用于本地调试或临时旧环境。" \
         "  --source-id ID        写入 PO0 client_ip 记录的来源 ID。默认: ${SOURCE_ID}" \
         "  --identity ID         LAN Worker/PO0 日志里的设备或用户标签。默认: ${IDENTITY}" \
         "  --secret SECRET       可选的 LAN Worker self-report 共享密钥。" \
@@ -124,6 +126,52 @@ prompt_yes_no() {
             *) printf '请输入 y 或 n。\n' >&2 ;;
         esac
     done
+}
+
+normalize_worker_url() {
+    local value="$1" rest
+    value="$(trim "${value}")"
+    [[ -n "${value}" ]] || { printf '\n'; return 0; }
+    case "${value}" in
+        http://*|https://*) ;;
+        *) value="https://${value}" ;;
+    esac
+    rest="${value#*://}"
+    if [[ "${rest}" != */* ]]; then
+        value="${value}/report"
+    elif [[ "${value}" == */ ]]; then
+        value="${value%/}/report"
+    fi
+    printf '%s\n' "${value}"
+}
+
+http_allowed() {
+    case "${ALLOW_HTTP,,}" in
+        1|true|yes|y) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+validate_worker_url() {
+    WORKER_URL="$(normalize_worker_url "${WORKER_URL}")"
+    [[ -n "${WORKER_URL}" ]] || {
+        printf '缺少 --worker-url。\n' >&2
+        return 1
+    }
+    case "${WORKER_URL}" in
+        https://*) return 0 ;;
+        http://*)
+            if http_allowed; then
+                return 0
+            fi
+            printf 'Self-report 默认只允许 HTTPS。若仅用于本地调试或旧环境，请显式加 --allow-http。\n' >&2
+            return 1
+            ;;
+        *)
+            printf 'LAN Worker self-report 地址无效：%s\n' "${WORKER_URL}" >&2
+            return 1
+            ;;
+    esac
 }
 
 pause_before_return() {
@@ -288,12 +336,9 @@ write_cron_without_managed_block() {
 }
 
 install_cron() {
-    local script job tmp ip_args
+    local script job tmp ip_args http_arg=""
     validate_cron_minutes || return 1
-    [[ -n "${WORKER_URL}" ]] || {
-        echo "缺少 --worker-url。" >&2
-        return 1
-    }
+    validate_worker_url || return 1
     command -v crontab >/dev/null 2>&1 || {
         echo "未找到 crontab 命令。" >&2
         return 1
@@ -304,7 +349,8 @@ install_cron() {
     else
         ip_args="--ip-check-url $(sh_quote "${IP_CHECK_URL}")"
     fi
-    job="*/${CRON_MINUTES} * * * * bash $(sh_quote "${script}") --worker-url $(sh_quote "${WORKER_URL}") --source-id $(sh_quote "${SOURCE_ID}") --identity $(sh_quote "${IDENTITY}") --secret $(sh_quote "${SECRET}") ${ip_args} >/tmp/po0-self-report.log 2>&1"
+    http_allowed && http_arg="--allow-http "
+    job="*/${CRON_MINUTES} * * * * bash $(sh_quote "${script}") ${http_arg}--worker-url $(sh_quote "${WORKER_URL}") --source-id $(sh_quote "${SOURCE_ID}") --identity $(sh_quote "${IDENTITY}") --secret $(sh_quote "${SECRET}") ${ip_args} >/tmp/po0-self-report.log 2>&1"
     tmp="/tmp/po0-self-report-cron.$$"
     {
         crontab -l 2>/dev/null | write_cron_without_managed_block
@@ -354,11 +400,8 @@ show_cron_status() {
 }
 
 report_once() {
-    local ip
-    [[ -n "${WORKER_URL}" ]] || {
-        echo "缺少 --worker-url。" >&2
-        return 1
-    }
+    local ip secret_header=()
+    validate_worker_url || return 1
     command -v curl >/dev/null 2>&1 || {
         echo "缺少 curl，无法上报到 LAN Worker。" >&2
         return 1
@@ -367,12 +410,12 @@ report_once() {
         echo "未能探测到当前公网出口 IPv4。" >&2
         return 1
     }
+    [[ -n "${SECRET}" ]] && secret_header=(-H "X-PO0-Token: ${SECRET}")
     echo "上报当前公网出口 IPv4 ${ip} 到 LAN Worker：${WORKER_URL}"
-    curl -fsS --get \
+    curl -fsS --get "${secret_header[@]}" \
         --data-urlencode "source=${SOURCE_ID}" \
         --data-urlencode "ip=${ip}" \
         --data-urlencode "identity=${IDENTITY}" \
-        --data-urlencode "token=${SECRET}" \
         "${WORKER_URL}"
 }
 
@@ -383,6 +426,7 @@ show_current_config() {
     printf '  Source ID      : %s\n' "${SOURCE_ID:-未设置}"
     printf '  Identity       : %s\n' "${IDENTITY:-未设置}"
     printf '  Secret         : %s\n' "$(mask_secret "${SECRET}")"
+    printf '  HTTP 上报      : %s\n' "$(if http_allowed; then printf '已显式允许'; else printf '默认拒绝'; fi)"
     printf '  上报间隔       : 每 %s 分钟（安装 cron 时使用）\n' "${CRON_MINUTES}"
     printf '  放行 TTL       : 由 LAN Worker Self-report 目标控制，默认 3600 秒\n'
     if [[ -n "${IP_CHECK_URLS}" ]]; then
@@ -394,7 +438,17 @@ show_current_config() {
 
 configure_interactive() {
     local secret_input
-    WORKER_URL="$(prompt_default "LAN Worker self-report 接收地址" "${WORKER_URL}")"
+    WORKER_URL="$(prompt_default "LAN Worker self-report HTTPS 接收地址（域名或 https://域名/report）" "${WORKER_URL:-https://report.example.com/report}")"
+    WORKER_URL="$(normalize_worker_url "${WORKER_URL}")"
+    if [[ "${WORKER_URL}" == http://* ]] && ! http_allowed; then
+        if prompt_yes_no "检测到 http:// 地址。仅本地调试/旧环境才允许，是否继续允许 HTTP" "n"; then
+            ALLOW_HTTP="1"
+        else
+            printf '已拒绝 HTTP。请改用 https://域名/report。\n' >&2
+            return 1
+        fi
+    fi
+    validate_worker_url || return 1
     SOURCE_ID="$(prompt_default "Source ID" "${SOURCE_ID:-self-report}")"
     IDENTITY="$(prompt_default "Identity" "${IDENTITY}")"
     if [[ -n "${SECRET}" ]]; then
@@ -475,6 +529,10 @@ while [[ $# -gt 0 ]]; do
         --worker-url|--lan-worker-url)
             WORKER_URL="${2:-}"
             shift 2
+            ;;
+        --allow-http)
+            ALLOW_HTTP="1"
+            shift
             ;;
         --source-id)
             SOURCE_ID="${2:-}"
