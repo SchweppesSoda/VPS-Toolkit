@@ -3,9 +3,10 @@ set -uo pipefail
 
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh"
 SCRIPT_NAME="po0-lan-worker-client"
-SCRIPT_VERSION="2026.06.20+build.4"
+SCRIPT_VERSION="2026.06.20+build.5"
 SCRIPT_RELEASE_DATE="2026-06-20"
 # CHANGELOG_BEGIN
+# - Self-report 后台服务安装/更新后强制 restart，确保旧的失败 unit 立即被新 ExecStart 覆盖。
 # - Self-report 后台服务安装时 secret 为空则省略参数，避免 systemd unit 因空参数反复重启失败。
 # - Self-report 后台服务安装前检查可用 PO0 目标，避免写入空参数后反复重启失败。
 # - Self-report 菜单新增后台服务状态、最近日志和实时日志入口。
@@ -4244,7 +4245,9 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
     systemctl daemon-reload || return 1
-    systemctl enable --now "${name}" || return 1
+    systemctl reset-failed "${name}" 2>/dev/null || true
+    systemctl enable "${name}" || return 1
+    systemctl restart "${name}" || return 1
     printf '已安装并启动 Self-report 服务：%s\n' "${name}"
 }
 
