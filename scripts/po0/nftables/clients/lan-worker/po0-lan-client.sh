@@ -3,9 +3,10 @@ set -uo pipefail
 
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh"
 SCRIPT_NAME="po0-lan-worker-client"
-SCRIPT_VERSION="2026.06.20+build.7"
+SCRIPT_VERSION="2026.06.20+build.8"
 SCRIPT_RELEASE_DATE="2026-06-20"
 # CHANGELOG_BEGIN
+# - 修复 Self-report HTTPS 域名校验对合法域名静默失败，导致菜单未写入 Caddy 配置的问题。
 # - Self-report 新增 HTTPS 域名模式，可在菜单配置 Caddy 自动证书并将后端切到 127.0.0.1:8788。
 # - Self-report 默认监听收紧为 127.0.0.1:8788；公网入口默认通过 HTTPS 域名/Caddy。
 # - Self-report 后台服务安装/更新后强制 restart，确保旧的失败 unit 立即被新 ExecStart 覆盖。
@@ -4302,6 +4303,7 @@ validate_self_report_https_domain() {
         printf 'Self-report HTTPS 需要公网域名，不能直接使用 IP：%s\n' "${domain}" >&2
         return 1
     }
+    return 0
 }
 
 self_report_https_domain_from_caddy() {
