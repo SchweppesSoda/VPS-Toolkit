@@ -3,9 +3,10 @@ set -uo pipefail
 
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh"
 SCRIPT_NAME="po0-lan-worker-client"
-SCRIPT_VERSION="2026.06.20+build.3"
+SCRIPT_VERSION="2026.06.20+build.4"
 SCRIPT_RELEASE_DATE="2026-06-20"
 # CHANGELOG_BEGIN
+# - Self-report 后台服务安装时 secret 为空则省略参数，避免 systemd unit 因空参数反复重启失败。
 # - Self-report 后台服务安装前检查可用 PO0 目标，避免写入空参数后反复重启失败。
 # - Self-report 菜单新增后台服务状态、最近日志和实时日志入口。
 # - Self-report 主菜单入口改为配置子菜单，避免按菜单项后直接进入前台监听造成误解。
@@ -4200,7 +4201,7 @@ with socketserver.ThreadingTCPServer((listen_host, listen_port), Handler) as htt
 PY
 }
 install_self_report_service() {
-    local script_path unit target_args="" fallback_args="" name="po0-lan-self-report.service" targets
+    local script_path unit target_args="" fallback_args="" secret_args="" name="po0-lan-self-report.service" targets
     [[ "${EUID:-$(id -u 2>/dev/null || printf 1)}" -eq 0 ]] || {
         printf '安装 systemd 服务需要 root。\n' >&2
         return 1
@@ -4226,6 +4227,7 @@ install_self_report_service() {
     elif ! has_config_self_report_target; then
         fallback_args=" --po0-host $(sh_quote "${PO0_HOST}") --po0-port $(sh_quote "${PO0_PORT}") --po0-user $(sh_quote "${PO0_USER}") --po0-script $(sh_quote "${PO0_SCRIPT}") --self-report-source $(sh_quote "${SELF_REPORT_SOURCE}") --client-ip-token $(sh_quote "${CLIENT_IP_TOKEN}") --self-report-ttl $(sh_quote "${SELF_REPORT_TTL_SECONDS}")"
     fi
+    [[ -n "${SELF_REPORT_SECRET}" ]] && secret_args=" --self-report-secret $(sh_quote "${SELF_REPORT_SECRET}")"
     cat > "${unit}" <<EOF
 [Unit]
 Description=PO0 LAN self-report receiver
@@ -4234,7 +4236,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/env bash $(sh_quote "${script_path}") --config $(sh_quote "${CONFIG_FILE}") --self-report-server --self-report-listen $(sh_quote "${SELF_REPORT_LISTEN}") --self-report-secret $(sh_quote "${SELF_REPORT_SECRET}")${target_args}${fallback_args}
+ExecStart=/usr/bin/env bash $(sh_quote "${script_path}") --config $(sh_quote "${CONFIG_FILE}") --self-report-server --self-report-listen $(sh_quote "${SELF_REPORT_LISTEN}")${secret_args}${target_args}${fallback_args}
 Restart=always
 RestartSec=5
 
