@@ -189,7 +189,13 @@ function Invoke-SelfReport {
     $builder.Query = $query.ToString()
     Write-Host "上报当前公网出口 IPv4 $ip 到 LAN Worker：$WorkerUrl"
     $resp = Invoke-WebRequest -UseBasicParsing -Uri $builder.Uri.AbsoluteUri -TimeoutSec 30
-    Write-Output $resp.Content
+    $content = $resp.Content
+    if ($content -is [byte[]]) {
+        $content = [System.Text.Encoding]::UTF8.GetString($content)
+    } elseif ($null -ne $content) {
+        $content = [string]$content
+    }
+    Write-Output ($content.TrimEnd())
 }
 
 function Quote-TaskArg {
