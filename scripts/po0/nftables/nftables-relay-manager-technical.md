@@ -22,7 +22,7 @@
 bash nftables-relay-manager.sh
 ```
 
-脚本版本统一采用 `YYYY.MM.DD+build.N` 混合版本格式；同一天再次发布时递增 `build.N`，例如 `2026.06.18+build.2`。
+脚本版本统一采用 `YYYY.MM.DD+build.N` 混合版本格式；同一天再次发布时递增 `build.N`，例如 `2026.06.18+build.2`。PO0 manager 的 `--version` 会像 LAN Worker 一样单独显示 build 构建标识。
 
 常见操作：
 
@@ -554,6 +554,7 @@ CIDR|备注
 只加入 /32，不自动放大到 /24
 默认过期 24 小时，可输入 1-720 小时
 写 entries.tsv：source_type=ssh_temp，source_value=SSH_CONNECTION
+如果同一 /32 已存在，会刷新 created_at、note 和 expires_at，不保留过期旧记录
 保存前创建 _last 快照
 写入后如果当前模式未包含 ssh_temp，会切换为高级自选来源并保留原来源组合再追加 ssh_temp
 重新 render 并应用

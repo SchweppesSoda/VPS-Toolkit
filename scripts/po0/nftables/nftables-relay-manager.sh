@@ -2,9 +2,11 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-nftables-relay-manager"
-SCRIPT_VERSION="2026.06.21+build.3"
+SCRIPT_VERSION="2026.06.21+build.5"
 SCRIPT_RELEASE_DATE="2026-06-21"
 # CHANGELOG_BEGIN
+# - 脚本 --version 输出改为参考 LAN Worker 的版本面板，并单独显示 build 构建标识。
+# - 修复当前 SSH 临时放行同一 /32 再次加入时只命中过期旧记录、不刷新过期时间的问题。
 # - PO0 受限 authorized_keys 备份改为按 passwd/getent 扫描用户 home，避免漏掉非 /home 路径的上报用户。
 # - 修复完整备份导出指定相对路径时可能写入临时目录并随清理丢失的问题；恢复 cron 时优先从备份的 cron block 识别旧脚本路径。
 # - 新增 PO0 全功能备份 / 导入恢复：默认导出 token、状态、资源任务、iplist/ipdb、resource inbox、wrapper、受限 authorized_keys 信息和脚本快照；导入默认只恢复配置/状态文件。
@@ -1809,6 +1811,51 @@ append_allowlist_entry() {
 
     serialize_allowlist_entry "${set_id}" "${cidr}" "${source_type}" "${source_value}" "${note}" "${created_at}" "${expires_at}" \
         >> "${ALLOWLIST_ENTRIES_FILE}"
+}
+
+upsert_allowlist_entry() {
+    local set_id="$1"
+    local cidr="$2"
+    local source_type="$3"
+    local source_value="${4:-}"
+    local note="${5:-}"
+    local expires_at="${6:-}"
+    local created_at line tmp replaced=0
+
+    validate_allowlist_set_id "${set_id}" || return 1
+    cidr="$(normalize_ipv4_cidr_or_host "${cidr}")" || return 1
+    source_type="$(normalize_allowlist_entry_source_type "${source_type}")" || return 1
+    source_value="$(sanitize_allowlist_entry_text "${source_value}")"
+    note="$(sanitize_allowlist_entry_text "${note}")"
+    expires_at="$(sanitize_allowlist_entry_text "${expires_at}")"
+    created_at="$(utc_now_iso)"
+    ensure_allowlist_entries_file || return 1
+    make_temp_file "${ALLOWLIST_ENTRIES_FILE}" || return 1
+    tmp="${TEMP_FILE_RESULT}"
+    write_allowlist_entries_header "${tmp}"
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        if parse_allowlist_entry_line "${line}"; then
+            if [[ "${ALLOWLIST_ENTRY_SET_ID}" == "${set_id}" \
+                && "${ALLOWLIST_ENTRY_CIDR}" == "${cidr}" \
+                && "${ALLOWLIST_ENTRY_SOURCE_TYPE}" == "${source_type}" \
+                && "${ALLOWLIST_ENTRY_SOURCE_VALUE}" == "${source_value}" ]]; then
+                if [[ "${replaced}" != "1" ]]; then
+                    serialize_allowlist_entry "${set_id}" "${cidr}" "${source_type}" "${source_value}" "${note}" "${created_at}" "${expires_at}" \
+                        >> "${tmp}"
+                    replaced=1
+                fi
+                continue
+            fi
+            printf '%s\n' "${PARSED_ALLOWLIST_ENTRY}" >> "${tmp}"
+        elif [[ -n "$(trim "${line}")" && ! "$(trim "${line}")" =~ ^# ]]; then
+            printf '%s\n' "${line}" >> "${tmp}"
+        fi
+    done < "${ALLOWLIST_ENTRIES_FILE}"
+    if [[ "${replaced}" != "1" ]]; then
+        serialize_allowlist_entry "${set_id}" "${cidr}" "${source_type}" "${source_value}" "${note}" "${created_at}" "${expires_at}" \
+            >> "${tmp}"
+    fi
+    mv -f "${tmp}" "${ALLOWLIST_ENTRIES_FILE}"
 }
 
 remove_allowlist_entries_for_cidr() {
@@ -10553,7 +10600,7 @@ do_add_ssh_temp_allowlist_entry() {
     printf '过期时间    : %s\n' "${expires_at}"
     confirm_yes "确认加入 default 临时白名单" || return 1
     save_allowlist_last_snapshot || return 1
-    append_allowlist_entry "default" "${ip}/32" "ssh_temp" "SSH_CONNECTION" "${note}" "${expires_at}" || return 1
+    upsert_allowlist_entry "default" "${ip}/32" "ssh_temp" "SSH_CONNECTION" "${note}" "${expires_at}" || return 1
     enable_allowlist_source_type_for_current_mode "ssh_temp" || return 1
     apply_src_allowlist_changes
 }
@@ -11498,20 +11545,36 @@ current_script_changelog() {
     script_changelog_lines "${script_path}"
 }
 
+script_build_label() {
+    local version="${1:-${SCRIPT_VERSION}}"
+    if [[ "${version}" == *"+"* ]]; then
+        printf '%s\n' "${version#*+}"
+    else
+        printf '未标识\n'
+    fi
+}
+
 do_show_version() {
-    printf '%s\n' \
-        "script_name=${SCRIPT_NAME}" \
-        "version=${SCRIPT_VERSION}" \
-        "release_date=${SCRIPT_RELEASE_DATE}" \
-        "install_path=${MANAGER_INSTALL_PATH}"
+    local script_path build_label
+    script_path="$(current_script_path 2>/dev/null || true)"
+    build_label="$(script_build_label)"
+    print_panel_section "脚本版本"
+    print_panel_row "脚本名称" "${SCRIPT_NAME}"
+    print_panel_row "版本" "${SCRIPT_VERSION}"
+    print_panel_row "构建标识" "${build_label}"
+    print_panel_row "发布日期" "${SCRIPT_RELEASE_DATE}"
+    print_panel_row "当前脚本" "${script_path:-unknown}"
+    print_panel_row "默认安装路径" "${MANAGER_INSTALL_PATH}"
 }
 
 do_show_changelog() {
-    local changes line
+    local changes line build_label
     changes="$(current_script_changelog 2>/dev/null || true)"
+    build_label="$(script_build_label)"
     printf '%s\n' \
         "script_name=${SCRIPT_NAME}" \
         "version=${SCRIPT_VERSION}" \
+        "build=${build_label}" \
         "release_date=${SCRIPT_RELEASE_DATE}" \
         "changes:"
     if [[ -n "${changes}" ]]; then
@@ -11529,6 +11592,7 @@ do_show_version_panel() {
     print_panel_section "版本信息"
     print_panel_row "脚本名称" "${SCRIPT_NAME}"
     print_panel_row "版本" "${C_GREEN}${SCRIPT_VERSION}${C_RESET}"
+    print_panel_row "构建标识" "$(script_build_label)"
     print_panel_row "发布日期" "${SCRIPT_RELEASE_DATE}"
     print_panel_row "安装路径" "${MANAGER_INSTALL_PATH}"
     print_panel_section "当前版本更新内容"
@@ -12024,7 +12088,7 @@ print_cli_usage() {
         "  bash ${MANAGER_INSTALL_PATH} --show-client-deploy-commands egern" \
         "" \
         "常用命令:" \
-        "  --version        显示当前脚本名称、版本、发布日期和安装路径。" \
+        "  --version        以面板显示当前脚本名称、版本、build 构建标识、路径和默认安装路径。" \
         "  --changelog      显示当前版本更新内容；适合 scp 上传后确认本次变化。" \
         "  --backup-export [PATH]" \
         "                   导出 PO0 完整备份；默认包含 token、状态、资源文件、受限 key 信息和脚本快照，备份包 chmod 600。" \

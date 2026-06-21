@@ -41,6 +41,8 @@ ssh root@<PO0_HOST> 'chmod +x /root/nftables-relay-manager.sh && bash /root/nfta
 ssh root@<PO0_HOST> 'bash /root/nftables-relay-manager.sh --version'
 ```
 
+`--version` 会显示版本、build 构建标识、发布日期、当前脚本路径和默认安装路径。
+
 查看 PO0 主控当前版本更新内容：
 
 ```bash
@@ -246,6 +248,7 @@ manual, ssh_temp, ddns, client_ip, ssh_report, webauth, learned, region
 - `ddns`、`client_ip`、`ssh_report`、`webauth` 按 `source_type + source_value` 分组。
 - `ddns`、`client_ip`、`webauth` 每个来源默认最多保留最近 5 个有效 IP；`ssh_report` / Egern 每个来源默认最多保留最近 10 个有效 IP。
 - 已存在 IP 再次上报会刷新时间和过期时间，不重复新增。
+- `ssh_temp` 当前 SSH 临时放行再次加入同一 `/32` 时会刷新时间和过期时间，不复用过期旧记录。
 - 过期条目不会进入最终 nftables 白名单缓存。
 
 手动清理和安装清理 cron：
