@@ -10,6 +10,22 @@
 - Egern 负责移动设备当前出口 IPv4 上报，不再解析 DDNS。
 - 资源任务只允许 `iplist`、`ipdb`，不支持任意远程 shell。
 
+## 阅读路线
+
+如果只是部署或日常维护，先看本文件，不需要先读 `nftables-relay-manager-technical.md`。技术文档只给维护实现、wrapper、协议和内部状态模型时使用。
+
+| 你要做什么 | 看这里 |
+| --- | --- |
+| 首次部署 PO0 主控或 LAN Worker | “部署命令” |
+| 找 PO0 主菜单功能分组、导出/导入、版本和 token bundle | “PO0 主控菜单”、“完整备份与导入恢复” |
+| 管理源 IP 白名单、DDNS、动态来源、attack mode | “源 IP 白名单模式”、“DDNS Resolver 上报”、“attack mode” |
+| 让内网机器领取 iplist/ipdb 资源任务 | “LAN Worker 资源任务” |
+| 让访问设备自上报当前出口 IPv4 | “LAN Worker Self-report” |
+| 配置 Egern 当前出口 IPv4 SSH 上报 | “Egern 当前出口 IP 上报”，以及 [`clients/egern/README.md`](./clients/egern/README.md) |
+| 配置 Cloudflare Access / WebAuth 放行 | “LAN Worker WebAuth” |
+| 构建或导入离线 IP 数据 | “IP 数据源” |
+| 清理旧文件或检查兼容性 | “兼容与清理” |
+
 ## 部署命令
 
 PO0 主控脚本不依赖 HTTPS 拉取。先从本地仓库上传到 PO0，再运行：
@@ -106,16 +122,16 @@ Linux/OpenWrt Self-report client 非交互安装，默认每 60 分钟上报一�
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --install-cron 60
 ```
 
-Windows Self-report client（交互式无参数运行默认进入菜单；PowerShell 推荐先下载再执行）：
+Windows Self-report client（交互式无参数运行默认进入菜单；PowerShell 推荐先下载到临时路径再执行，也可显式加 `-Menu`）：
 
 ```powershell
-$script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script; powershell -ExecutionPolicy Bypass -File $script
+$script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script; powershell -ExecutionPolicy Bypass -File $script -Menu
 ```
 
-Windows Self-report client 非交互安装 / 更新计划任务，默认每 60 分钟上报一次：
+Windows Self-report client 非交互安装 / 更新计划任务，默认每 60 分钟上报一次；`-SourceId` 和 `-Identity` 推荐填设备名，`-Secret` 只填纯 token，不要带 `secret:` 或中文冒号前缀：
 
 ```powershell
-$script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script; powershell -ExecutionPolicy Bypass -File $script -WorkerUrl "https://<SELF_REPORT_DOMAIN>/report" -SourceId "<CLIENT_ID>" -Secret "<SELF_REPORT_SECRET>" -InstallTask -Minutes 60
+$script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script; powershell -ExecutionPolicy Bypass -File $script -WorkerUrl "https://<SELF_REPORT_DOMAIN>/report" -SourceId $env:COMPUTERNAME -Identity $env:COMPUTERNAME -Secret "<SELF_REPORT_SECRET>" -InstallTask -Minutes 60
 ```
 
 PowerShell 客户端也支持显式 `-Menu`；非交互一次性上报时去掉 `-InstallTask -Minutes 60` 即可。
@@ -406,23 +422,25 @@ Linux/OpenWrt 查看最近 self-report 日志：
 tail -n 40 /tmp/po0-self-report.log
 ```
 
-Windows PowerShell 交互式运行，默认进入菜单：
+Windows PowerShell 交互式运行，默认进入菜单；推荐显式加 `-Menu`：
 
 ```powershell
-$script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script; powershell -ExecutionPolicy Bypass -File $script
+$script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script; powershell -ExecutionPolicy Bypass -File $script -Menu
 ```
 
-Windows PowerShell 非交互立即上报一次：
+Windows PowerShell 非交互立即上报一次；`-SourceId` 和 `-Identity` 推荐填设备名，避免多台设备都混到 `self-report` 来源下：
 
 ```powershell
-$script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script; powershell -ExecutionPolicy Bypass -File $script -WorkerUrl "https://<SELF_REPORT_DOMAIN>/report" -SourceId "<CLIENT_ID>" -Secret "<SELF_REPORT_SECRET>"
+$script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script; powershell -ExecutionPolicy Bypass -File $script -WorkerUrl "https://<SELF_REPORT_DOMAIN>/report" -SourceId $env:COMPUTERNAME -Identity $env:COMPUTERNAME -Secret "<SELF_REPORT_SECRET>"
 ```
 
-Windows PowerShell 非交互安装 / 更新计划任务，默认每 60 分钟上报一次：
+Windows PowerShell 非交互安装 / 更新计划任务，默认每 60 分钟上报一次。安装 / 更新计划任务时建议从 `$env:TEMP` 下载脚本再运行，让脚本覆盖安装到 `%LOCALAPPDATA%\PO0\po0-self-report.ps1` 或 `%ProgramData%\PO0\po0-self-report.ps1`：
 
 ```powershell
-$script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script; powershell -ExecutionPolicy Bypass -File $script -WorkerUrl "https://<SELF_REPORT_DOMAIN>/report" -SourceId "<CLIENT_ID>" -Secret "<SELF_REPORT_SECRET>" -InstallTask -Minutes 60
+$script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script; powershell -ExecutionPolicy Bypass -File $script -WorkerUrl "https://<SELF_REPORT_DOMAIN>/report" -SourceId $env:COMPUTERNAME -Identity $env:COMPUTERNAME -Secret "<SELF_REPORT_SECRET>" -InstallTask -Minutes 60
 ```
+
+`<SELF_REPORT_SECRET>` 只替换为 secret 本身，例如 `daf80...ce94`；不要写成 `secret:daf80...` 或 `secret：daf80...`。
 
 Windows PowerShell 查看计划任务状态和最近日志：
 

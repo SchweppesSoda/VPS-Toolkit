@@ -678,23 +678,25 @@ Linux/OpenWrt 查看最近 self-report 日志：
 tail -n 40 /tmp/po0-self-report.log
 ```
 
-Windows PowerShell 版本交互式运行，默认进入菜单：
+Windows PowerShell 版本交互式运行，默认进入菜单；推荐显式加 `-Menu`：
 
 ```powershell
-$script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script; powershell -ExecutionPolicy Bypass -File $script
+$script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script; powershell -ExecutionPolicy Bypass -File $script -Menu
 ```
 
-Windows PowerShell 非交互立即上报一次：
+Windows PowerShell 非交互立即上报一次；`-SourceId` 和 `-Identity` 推荐填设备名，避免多台设备都混到同一来源：
 
 ```powershell
-$script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script; powershell -ExecutionPolicy Bypass -File $script -WorkerUrl "https://<SELF_REPORT_DOMAIN>/report" -SourceId "<CLIENT_ID>" -Secret "<SELF_REPORT_SECRET>"
+$script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script; powershell -ExecutionPolicy Bypass -File $script -WorkerUrl "https://<SELF_REPORT_DOMAIN>/report" -SourceId $env:COMPUTERNAME -Identity $env:COMPUTERNAME -Secret "<SELF_REPORT_SECRET>"
 ```
 
-Windows PowerShell 非交互安装 / 更新计划任务，默认每 60 分钟上报一次：
+Windows PowerShell 非交互安装 / 更新计划任务，默认每 60 分钟上报一次。安装 / 更新计划任务时建议从 `$env:TEMP` 下载脚本再运行，让脚本覆盖安装到 `%LOCALAPPDATA%\PO0\po0-self-report.ps1` 或 `%ProgramData%\PO0\po0-self-report.ps1`：
 
 ```powershell
-$script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script; powershell -ExecutionPolicy Bypass -File $script -WorkerUrl "https://<SELF_REPORT_DOMAIN>/report" -SourceId "<CLIENT_ID>" -Secret "<SELF_REPORT_SECRET>" -InstallTask -Minutes 60
+$script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script; powershell -ExecutionPolicy Bypass -File $script -WorkerUrl "https://<SELF_REPORT_DOMAIN>/report" -SourceId $env:COMPUTERNAME -Identity $env:COMPUTERNAME -Secret "<SELF_REPORT_SECRET>" -InstallTask -Minutes 60
 ```
+
+`<SELF_REPORT_SECRET>` 只替换为 secret 本身，不要带 `secret:` 或中文冒号前缀。
 
 Windows PowerShell 查看计划任务状态和最近日志：
 

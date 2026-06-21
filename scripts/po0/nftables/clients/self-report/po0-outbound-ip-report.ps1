@@ -1,6 +1,6 @@
 ﻿param(
     [string]$WorkerUrl = $(if ($env:PO0_LAN_WORKER_URL) { $env:PO0_LAN_WORKER_URL } else { $env:WORKER_URL }),
-    [string]$SourceId = $(if ($env:PO0_SELF_REPORT_SOURCE) { $env:PO0_SELF_REPORT_SOURCE } elseif ($env:SOURCE_ID) { $env:SOURCE_ID } else { "self-report" }),
+    [string]$SourceId = $(if ($env:PO0_SELF_REPORT_SOURCE) { $env:PO0_SELF_REPORT_SOURCE } elseif ($env:SOURCE_ID) { $env:SOURCE_ID } elseif ($env:PO0_SELF_REPORT_IDENTITY) { $env:PO0_SELF_REPORT_IDENTITY } elseif ($env:IDENTITY) { $env:IDENTITY } elseif ($env:COMPUTERNAME) { $env:COMPUTERNAME } else { "windows-self-report" }),
     [string]$Identity = $(if ($env:PO0_SELF_REPORT_IDENTITY) { $env:PO0_SELF_REPORT_IDENTITY } elseif ($env:IDENTITY) { $env:IDENTITY } elseif ($env:COMPUTERNAME) { $env:COMPUTERNAME } else { "windows-self-report" }),
     [string]$Secret = $(if ($env:PO0_SELF_REPORT_SECRET) { $env:PO0_SELF_REPORT_SECRET } else { $env:SELF_REPORT_SECRET }),
     [string]$IpCheckUrl = $(if ($env:IP_CHECK_URL) { $env:IP_CHECK_URL } else { "https://ip9.com.cn/get" }),
@@ -88,7 +88,7 @@ self-report 接收服务。访问设备不直接连接 PO0。
   -Menu               打开交互菜单。
   -WorkerUrl URL      LAN Worker self-report HTTPS 接收地址；裸域名会自动补全。
   -AllowHttp          允许 http:// 上报；仅用于本地调试或临时旧环境。
-  -SourceId ID        写入 PO0 client_ip 记录的来源 ID。
+  -SourceId ID        写入 PO0 client_ip 记录的来源 ID。默认: 计算机名。
   -Identity ID        LAN Worker/PO0 日志里的设备或用户标签。默认: 计算机名。
   -Secret SECRET      可选的 LAN Worker self-report 共享密钥。
   -IpCheckUrl URL     第一个公网 IPv4 探测地址。默认: $IpCheckUrl
@@ -298,7 +298,11 @@ function Install-ScheduledReporter {
     $logPath = if ($script:LogPath) { $script:LogPath } else { Join-Path $dir "po0-self-report.log" }
     $script:LogPath = $logPath
     if ($PSCommandPath -and (Test-Path -LiteralPath $PSCommandPath)) {
-        Copy-Item -LiteralPath $PSCommandPath -Destination $dest -Force
+        $sourcePath = [System.IO.Path]::GetFullPath($PSCommandPath)
+        $destPath = [System.IO.Path]::GetFullPath($dest)
+        if ($sourcePath -ne $destPath) {
+            Copy-Item -LiteralPath $PSCommandPath -Destination $dest -Force
+        }
     } else {
         Invoke-WebRequest -UseBasicParsing -Uri $RawUrl -OutFile $dest
     }

@@ -1,30 +1,38 @@
 # PO0 工具
 
-这个目录集中保存 PO0 或类似中转机的部署与维护工具，并按职责拆分：
+这个目录保存 PO0 或类似中转机的部署与维护工具。这里是 PO0 子系统导航；具体菜单、Token、TTL、状态文件和定时任务以各子目录 README 为准。
 
-- `reinstall/`：操作系统重装脚本。
-- `nftables/`：端口转发、源 IP 白名单、DDNS 上报和内网资源更新。
-- `proxy-services/`：代理服务与现有服务的增强脚本。
+## 先看哪份文档
+
+| 目标 | 文档 | 说明 |
+| --- | --- | --- |
+| 管理 nftables 中转、源 IP 白名单、LAN Worker、Self-report、WebAuth、Egern、iplist/ipdb | [`nftables/README.md`](./nftables/README.md) | PO0 中转系统用户主文档。 |
+| 重装 Debian | [`reinstall/README.md`](./reinstall/README.md) | 会重装系统盘，执行前必须单独确认。 |
+| 部署代理服务增强 sidecar | [`proxy-services/README.md`](./proxy-services/README.md) | argosbx/Xray sidecar、VLESS RAW ENC、Shadowsocks 2022。 |
+
+Egern 专属配置和 nftables 实现文档从 `nftables/README.md` 继续进入，避免 PO0 层入口重复展开细节。
 
 ## 常用入口
 
-### 重装 Debian
+### PO0 nftables 中转
+
+推荐从本地仓库上传主控脚本，再在 PO0 上运行：
 
 ```bash
-cd scripts/po0/reinstall
-bash po0-debian-reinstall.sh
+scp scripts/po0/nftables/nftables-relay-manager.sh root@<PO0_HOST>:/root/nftables-relay-manager.sh
+ssh root@<PO0_HOST> 'chmod +x /root/nftables-relay-manager.sh && bash /root/nftables-relay-manager.sh'
 ```
 
-该操作会重装系统盘。运行前必须阅读 [`reinstall/README.md`](./reinstall/README.md)。
-
-### 管理 nftables 中转
+检查已安装版本和当前更新内容：
 
 ```bash
-cd scripts/po0/nftables
-bash nftables-relay-manager.sh
+ssh root@<PO0_HOST> 'bash /root/nftables-relay-manager.sh --version'
+ssh root@<PO0_HOST> 'bash /root/nftables-relay-manager.sh --changelog'
 ```
 
-详细功能、LAN Worker、Self-report、WebAuth、Egern 和 iplist 离线包使用方式见 [`nftables/README.md`](./nftables/README.md)。LAN Worker 首次部署推荐在内网机器上直接使用 raw 脚本管道进入交互向导：
+### LAN Worker
+
+LAN Worker 命令在内网 Worker 机器上执行，不在 PO0 上执行。首次部署推荐进入向导：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash
@@ -38,18 +46,24 @@ po0-lan-client --run
 po0-lan-client --probe
 ```
 
-本文件只保留 PO0 层入口；菜单、Token、TTL、资源统计和排错说明以 `nftables/README.md` 为准。
+### PO0 Debian 重装
 
-PO0 主控和 LAN Worker 脚本统一使用 `YYYY.MM.DD+build.N` 混合版本格式；同一天再次发布时递增 `build.N`，例如 `2026.06.18+build.2`。
-
-### 管理代理服务增强
+这个脚本会重装系统盘。不要直接复制未知在线命令；先读 [`reinstall/README.md`](./reinstall/README.md)，再上传脚本执行。
 
 ```bash
-cd scripts/po0/proxy-services
-bash vless-raw-enc-argosbx-enhancer.sh
+scp scripts/po0/reinstall/po0-debian-reinstall.sh root@<PO0_HOST>:/root/po0-debian-reinstall.sh
+ssh root@<PO0_HOST> 'chmod +x /root/po0-debian-reinstall.sh && bash /root/po0-debian-reinstall.sh'
 ```
 
-详细说明见 [`proxy-services/README.md`](./proxy-services/README.md)。
+### PO0 代理服务增强
+
+```bash
+tmp="$(mktemp)"
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/proxy-services/vless-raw-enc-argosbx-enhancer.sh -o "$tmp"
+sudo install -m 0755 "$tmp" /usr/local/sbin/vless-raw-enc-argosbx-enhancer
+rm -f "$tmp"
+sudo /usr/local/sbin/vless-raw-enc-argosbx-enhancer
+```
 
 ## 安全说明
 
