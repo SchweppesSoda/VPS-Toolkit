@@ -2,58 +2,34 @@
 set -uo pipefail
 
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh"
-WORKER_URL="${PO0_LAN_WORKER_URL:-${WORKER_URL:-}}"
-SOURCE_ID="${PO0_SELF_REPORT_SOURCE:-${SOURCE_ID:-self-report}}"
-IDENTITY="${PO0_SELF_REPORT_IDENTITY:-${IDENTITY:-$(hostname 2>/dev/null || printf 'self-report')}}"
-SECRET="${PO0_SELF_REPORT_SECRET:-${SELF_REPORT_SECRET:-}}"
-ALLOW_HTTP="${PO0_SELF_REPORT_ALLOW_HTTP:-${ALLOW_HTTP:-}}"
-IP_CHECK_URL="${IP_CHECK_URL:-https://ip9.com.cn/get}"
-IP_CHECK_URLS="${IP_CHECK_URLS:-}"
-INSTALL_PATH="${PO0_SELF_REPORT_INSTALL_PATH:-${INSTALL_PATH:-}}"
+ENV_WORKER_URL="${WORKER_URL-}"
+ENV_SOURCE_ID="${SOURCE_ID-}"
+ENV_IDENTITY="${IDENTITY-}"
+ENV_ALLOW_HTTP="${ALLOW_HTTP-}"
+ENV_IP_CHECK_URL="${IP_CHECK_URL-}"
+ENV_IP_CHECK_URLS="${IP_CHECK_URLS-}"
+ENV_INSTALL_PATH="${INSTALL_PATH-}"
+ENV_MINUTES="${MINUTES-}"
+CONFIG_FILE="${PO0_SELF_REPORT_CONFIG:-${SELF_REPORT_CONFIG:-}}"
+WORKER_URL=""
+SOURCE_ID="self-report"
+IDENTITY="$(hostname 2>/dev/null || printf 'self-report')"
+SECRET=""
+ALLOW_HTTP=""
+IP_CHECK_URL="https://ip9.com.cn/get"
+IP_CHECK_URLS=""
+INSTALL_PATH=""
 INSTALL_CRON=""
 SHOW_MENU=""
-CRON_MINUTES="${PO0_SELF_REPORT_MINUTES:-${MINUTES:-60}}"
-MAX_CRON_MINUTES="${PO0_SELF_REPORT_MAX_MINUTES:-10080}"
+SAVE_CONFIG=""
+PAUSE_SCHEDULE=""
+RESUME_SCHEDULE=""
+SHOW_SCHEDULE_STATUS=""
+SCHEDULE_PAUSED="0"
+CRON_MINUTES="60"
+MAX_CRON_MINUTES="10080"
 HAD_ARGS=0
 [[ "$#" -gt 0 ]] && HAD_ARGS=1
-
-usage() {
-    printf '%s\n' \
-        "PO0 自上报客户端（Linux/OpenWrt）" \
-        "" \
-        "本脚本探测当前设备的公网出口 IPv4，并上报到 LAN Worker 的 self-report" \
-        "接收服务。访问设备不直接连接 PO0。Self-report 放行 TTL 由 LAN Worker" \
-        "接收端配置，不由客户端决定。" \
-        "" \
-        "用法:" \
-        "  curl -fsSL ${RAW_URL} | bash" \
-        "  bash po0-outbound-ip-report.sh --menu" \
-        "  bash po0-outbound-ip-report.sh --worker-url https://report.example.com/report --source-id laptop --secret SECRET" \
-        "  curl -fsSL ${RAW_URL} | bash -s -- --worker-url https://report.example.com/report --source-id laptop --secret SECRET --install-cron 60" \
-        "" \
-        "参数:" \
-        "  --menu                打开交互菜单。" \
-        "  --worker-url URL      LAN Worker self-report HTTPS 接收地址，例如 https://report.example.com/report；裸域名会自动补全。" \
-        "  --allow-http          允许 http:// 上报；仅用于本地调试或临时旧环境。" \
-        "  --source-id ID        写入 PO0 client_ip 记录的来源 ID。默认: ${SOURCE_ID}" \
-        "  --identity ID         LAN Worker/PO0 日志里的设备或用户标签。默认: ${IDENTITY}" \
-        "  --secret SECRET       可选的 LAN Worker self-report 共享密钥。" \
-        "  --ip-check-url URL    第一个公网 IPv4 探测地址。默认: ${IP_CHECK_URL}" \
-        "  --ip-check-urls CSV   覆盖完整探测地址列表，多个 URL 用逗号分隔。" \
-        "  --install-cron [N]    安装 cron，每 N 分钟自上报一次。默认: ${CRON_MINUTES}。" \
-        "  --minutes N           设置 cron 上报间隔，范围 1-${MAX_CRON_MINUTES}。" \
-        "" \
-        "默认公网 IPv4 探测顺序:" \
-        "  https://ip9.com.cn/get" \
-        "  https://mail.163.com/fgw/mailsrv-ipdetail/detail" \
-        "  https://api.live.bilibili.com/client/v1/Ip/getInfoNew" \
-        "  https://ipservice.ws.126.net/locate/api/getLocByIp" \
-        "  https://r.inews.qq.com/api/ip2city?otype=json" \
-        "  https://data.video.iqiyi.com/v.f4v" \
-        "  https://ip.apps.cntv.cn/whereis?client=json" \
-        "  https://exservice.12306.cn/excater/bonree/grip" \
-        "  https://myip.ipip.net/json"
-}
 
 trim() {
     local value="$1"
@@ -66,6 +42,140 @@ sh_quote() {
     local value="$1"
     value="${value//\'/\'\\\'\'}"
     printf "'%s'" "${value}"
+}
+
+path_dirname() {
+    local path="$1"
+    case "${path}" in
+        */*) printf '%s\n' "${path%/*}" ;;
+        *) printf '.\n' ;;
+    esac
+}
+
+default_config_file() {
+    if [[ -n "${CONFIG_FILE}" ]]; then
+        printf '%s\n' "${CONFIG_FILE}"
+    elif [[ "${EUID:-$(id -u 2>/dev/null || printf 1)}" -eq 0 ]]; then
+        printf '%s\n' "/etc/po0-self-report/settings.env"
+    elif [[ -n "${XDG_CONFIG_HOME:-}" ]]; then
+        printf '%s\n' "${XDG_CONFIG_HOME}/po0-self-report/settings.env"
+    elif [[ -n "${HOME:-}" ]]; then
+        printf '%s\n' "${HOME}/.config/po0-self-report/settings.env"
+    else
+        printf '%s\n' "./po0-self-report.env"
+    fi
+}
+
+prime_config_path_from_args() {
+    local arg next
+    while [[ $# -gt 0 ]]; do
+        arg="$1"
+        case "${arg}" in
+            --config)
+                next="${2:-}"
+                [[ -n "${next}" ]] && CONFIG_FILE="${next}"
+                shift 2 2>/dev/null || shift
+                ;;
+            --config=*)
+                CONFIG_FILE="${arg#--config=}"
+                shift
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+}
+
+setup_colors() {
+    C_RESET=""
+    C_BOLD=""
+    C_DIM=""
+    C_GREEN=""
+    C_YELLOW=""
+    C_RED=""
+    C_CYAN=""
+    C_PANEL=""
+    if [[ -t 1 && -n "${TERM:-}" && "${TERM}" != "dumb" ]]; then
+        C_RESET=$'\033[0m'
+        C_BOLD=$'\033[1m'
+        C_DIM=$'\033[2m'
+        C_GREEN=$'\033[32m'
+        C_YELLOW=$'\033[33m'
+        C_RED=$'\033[31m'
+        C_CYAN=$'\033[96m'
+        C_PANEL=$'\033[38;5;208m'
+    fi
+}
+
+setup_colors
+
+print_menu_divider() {
+    printf '%b%s%b\n' "${C_CYAN}" "------------------------" "${C_RESET}"
+}
+
+print_menu_footer() {
+    print_menu_divider
+}
+
+print_menu_section() {
+    print_menu_divider
+    printf '%b%s%b\n' "${C_BOLD}${C_CYAN}" "$1" "${C_RESET}"
+}
+
+print_menu_item() {
+    local number="$1"
+    local label="$2"
+    printf '  %b%2s%b) %s\n' "${C_CYAN}" "${number}" "${C_RESET}" "${label}"
+}
+
+print_menu_pair() {
+    local left_number="$1"
+    local left_label="$2"
+    local right_number="${3:-}"
+    local right_label="${4:-}"
+    local right_column=46
+    printf '  %b%2s%b) %s' "${C_CYAN}" "${left_number}" "${C_RESET}" "${left_label}"
+    if [[ -n "${right_number}" ]]; then
+        if [[ -t 1 ]]; then
+            printf '\033[%sG' "${right_column}"
+        else
+            printf '    '
+        fi
+        printf '%b%2s%b) %s' "${C_CYAN}" "${right_number}" "${C_RESET}" "${right_label}"
+    fi
+    printf '\n'
+}
+
+print_panel_divider() {
+    printf '%b%s%b\n' "${C_PANEL}" "------------------------" "${C_RESET}"
+}
+
+print_panel_section() {
+    print_panel_divider
+    printf '%b%s%b\n' "${C_BOLD}${C_PANEL}" "$1" "${C_RESET}"
+}
+
+print_panel_value_column() {
+    if [[ -t 1 ]]; then
+        printf '\033[24G'
+    else
+        printf '    '
+    fi
+}
+
+print_panel_row() {
+    local label="$1"
+    shift
+    printf '  %b%s%b' "${C_PANEL}" "${label}" "${C_RESET}"
+    print_panel_value_column
+    printf ': %s\n' "$*"
+}
+
+print_panel_note() {
+    printf '  '
+    print_panel_value_column
+    printf '  %s\n' "$*"
 }
 
 mask_secret() {
@@ -81,11 +191,11 @@ mask_secret() {
 }
 
 self_report_completed() {
-    printf 'Self-report 已完成：%s\n' "$1"
+    printf '%bSelf-report 已完成：%s%b\n' "${C_GREEN}" "$1" "${C_RESET}"
 }
 
 self_report_incomplete() {
-    printf 'Self-report 未完成：%s\n' "$1" >&2
+    printf '%bSelf-report 未完成：%s%b\n' "${C_RED}" "$1" "${C_RESET}" >&2
 }
 
 read_prompt() {
@@ -137,6 +247,72 @@ prompt_yes_no() {
     done
 }
 
+write_env_assignment() {
+    local name="$1"
+    local value="$2"
+    printf '%s=%s\n' "${name}" "$(sh_quote "${value}")"
+}
+
+load_saved_config() {
+    [[ -r "${CONFIG_FILE}" ]] || return 0
+    # This file is created by this script with chmod 600 and may contain secrets.
+    # shellcheck disable=SC1090
+    . "${CONFIG_FILE}" || return 1
+}
+
+apply_env_overrides() {
+    [[ -n "${PO0_LAN_WORKER_URL+x}" ]] && WORKER_URL="${PO0_LAN_WORKER_URL}"
+    [[ -n "${ENV_WORKER_URL}" ]] && WORKER_URL="${ENV_WORKER_URL}"
+    [[ -n "${PO0_SELF_REPORT_SOURCE+x}" ]] && SOURCE_ID="${PO0_SELF_REPORT_SOURCE}"
+    [[ -n "${ENV_SOURCE_ID}" ]] && SOURCE_ID="${ENV_SOURCE_ID}"
+    [[ -n "${PO0_SELF_REPORT_IDENTITY+x}" ]] && IDENTITY="${PO0_SELF_REPORT_IDENTITY}"
+    [[ -n "${ENV_IDENTITY}" ]] && IDENTITY="${ENV_IDENTITY}"
+    [[ -n "${PO0_SELF_REPORT_SECRET+x}" ]] && SECRET="${PO0_SELF_REPORT_SECRET}"
+    [[ -n "${SELF_REPORT_SECRET+x}" ]] && SECRET="${SELF_REPORT_SECRET}"
+    [[ -n "${PO0_SELF_REPORT_ALLOW_HTTP+x}" ]] && ALLOW_HTTP="${PO0_SELF_REPORT_ALLOW_HTTP}"
+    [[ -n "${ENV_ALLOW_HTTP}" ]] && ALLOW_HTTP="${ENV_ALLOW_HTTP}"
+    [[ -n "${ENV_IP_CHECK_URL}" ]] && IP_CHECK_URL="${ENV_IP_CHECK_URL}"
+    [[ -n "${ENV_IP_CHECK_URLS}" ]] && IP_CHECK_URLS="${ENV_IP_CHECK_URLS}"
+    [[ -n "${PO0_SELF_REPORT_INSTALL_PATH+x}" ]] && INSTALL_PATH="${PO0_SELF_REPORT_INSTALL_PATH}"
+    [[ -n "${ENV_INSTALL_PATH}" ]] && INSTALL_PATH="${ENV_INSTALL_PATH}"
+    [[ -n "${PO0_SELF_REPORT_MINUTES+x}" ]] && CRON_MINUTES="${PO0_SELF_REPORT_MINUTES}"
+    [[ -n "${ENV_MINUTES}" ]] && CRON_MINUTES="${ENV_MINUTES}"
+    [[ -n "${PO0_SELF_REPORT_MAX_MINUTES+x}" ]] && MAX_CRON_MINUTES="${PO0_SELF_REPORT_MAX_MINUTES}"
+    [[ -n "${PO0_SELF_REPORT_PAUSED+x}" ]] && SCHEDULE_PAUSED="${PO0_SELF_REPORT_PAUSED}"
+}
+
+save_config_file() {
+    local dir tmp old_umask
+    validate_cron_minutes || return 1
+    dir="$(path_dirname "${CONFIG_FILE}")"
+    mkdir -p "${dir}" || return 1
+    tmp="${CONFIG_FILE}.tmp.$$"
+    old_umask="$(umask)"
+    umask 077
+    {
+        printf '# PO0 self-report client settings. This file may contain secrets.\n'
+        write_env_assignment "WORKER_URL" "${WORKER_URL}"
+        write_env_assignment "SOURCE_ID" "${SOURCE_ID}"
+        write_env_assignment "IDENTITY" "${IDENTITY}"
+        write_env_assignment "SECRET" "${SECRET}"
+        write_env_assignment "ALLOW_HTTP" "${ALLOW_HTTP}"
+        write_env_assignment "IP_CHECK_URL" "${IP_CHECK_URL}"
+        write_env_assignment "IP_CHECK_URLS" "${IP_CHECK_URLS}"
+        write_env_assignment "INSTALL_PATH" "${INSTALL_PATH}"
+        write_env_assignment "CRON_MINUTES" "${CRON_MINUTES}"
+        write_env_assignment "MAX_CRON_MINUTES" "${MAX_CRON_MINUTES}"
+        write_env_assignment "SCHEDULE_PAUSED" "${SCHEDULE_PAUSED}"
+    } > "${tmp}" || {
+        umask "${old_umask}"
+        rm -f "${tmp}" 2>/dev/null || true
+        return 1
+    }
+    umask "${old_umask}"
+    mv -f "${tmp}" "${CONFIG_FILE}" || return 1
+    chmod 600 "${CONFIG_FILE}" 2>/dev/null || true
+    self_report_completed "配置已保存：${CONFIG_FILE}"
+}
+
 normalize_worker_url() {
     local value="$1" rest
     value="$(trim "${value}")"
@@ -161,10 +337,17 @@ http_allowed() {
     esac
 }
 
+schedule_paused() {
+    case "${SCHEDULE_PAUSED,,}" in
+        1|true|yes|y) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 validate_worker_url() {
     WORKER_URL="$(normalize_worker_url "${WORKER_URL}")"
     [[ -n "${WORKER_URL}" ]] || {
-        printf '缺少 --worker-url。\n' >&2
+        printf '缺少 --worker-url；请先配置并保存上报参数。\n' >&2
         return 1
     }
     case "${WORKER_URL}" in
@@ -181,6 +364,12 @@ validate_worker_url() {
             return 1
             ;;
     esac
+}
+
+config_complete() {
+    [[ -n "${WORKER_URL}" ]] || return 1
+    validate_worker_url >/dev/null 2>&1 || return 1
+    validate_cron_minutes >/dev/null 2>&1 || return 1
 }
 
 pause_before_return() {
@@ -351,15 +540,19 @@ install_self() {
 }
 
 cron_begin_marker() {
-    printf '# PO0_SELF_REPORT_BEGIN\n'
+    printf '# PO0_SELF_REPORT_BEGIN %s\n' "${CONFIG_FILE}"
 }
 
 cron_end_marker() {
-    printf '# PO0_SELF_REPORT_END\n'
+    printf '# PO0_SELF_REPORT_END %s\n' "${CONFIG_FILE}"
 }
 
 write_cron_without_managed_block() {
     awk '/# PO0_SELF_REPORT_BEGIN/{skip=1; next} /# PO0_SELF_REPORT_END/{skip=0; next} !skip{print}'
+}
+
+cron_managed_block_exists() {
+    crontab -l 2>/dev/null | grep -q '^# PO0_SELF_REPORT_BEGIN'
 }
 
 build_cron_job() {
@@ -385,29 +578,28 @@ build_cron_job() {
 }
 
 install_cron() {
-    local script job tmp ip_args http_arg="" run_cmd
+    local script job tmp run_cmd
     validate_cron_minutes || { self_report_incomplete "上报间隔配置无效，未安装 cron。"; return 1; }
     validate_worker_url || { self_report_incomplete "LAN Worker URL 未通过检查，未安装 cron。"; return 1; }
+    save_config_file || { self_report_incomplete "配置保存失败，未安装 cron。"; return 1; }
     command -v crontab >/dev/null 2>&1 || {
         echo "未找到 crontab 命令。" >&2
         self_report_incomplete "缺少 crontab，未安装 cron。"
         return 1
     }
     script="$(install_self)" || { self_report_incomplete "脚本落盘失败，未安装 cron。"; return 1; }
-    if [[ -n "${IP_CHECK_URLS}" ]]; then
-        ip_args="--ip-check-urls $(sh_quote "${IP_CHECK_URLS}")"
-    else
-        ip_args="--ip-check-url $(sh_quote "${IP_CHECK_URL}")"
-    fi
-    http_allowed && http_arg="--allow-http "
-    run_cmd="bash $(sh_quote "${script}") ${http_arg}--worker-url $(sh_quote "${WORKER_URL}") --source-id $(sh_quote "${SOURCE_ID}") --identity $(sh_quote "${IDENTITY}") --secret $(sh_quote "${SECRET}") ${ip_args} >/tmp/po0-self-report.log 2>&1"
+    run_cmd="bash $(sh_quote "${script}") --config $(sh_quote "${CONFIG_FILE}") >/tmp/po0-self-report.log 2>&1"
     job="$(build_cron_job "${CRON_MINUTES}" "${run_cmd}")"
+    if schedule_paused; then
+        job="# ${job}"
+    fi
     tmp="/tmp/po0-self-report-cron.$$"
     {
         crontab -l 2>/dev/null | write_cron_without_managed_block
-        echo "$(cron_begin_marker)"
+        cron_begin_marker
+        printf '# paused=%s\n' "$(schedule_paused && printf '1' || printf '0')"
         echo "${job}"
-        echo "$(cron_end_marker)"
+        cron_end_marker
     } > "${tmp}" || { self_report_incomplete "写入临时 cron 配置失败。"; return 1; }
     crontab "${tmp}" || {
         rm -f "${tmp}" 2>/dev/null || true
@@ -417,7 +609,12 @@ install_cron() {
     rm -f "${tmp}" 2>/dev/null || true
     echo "已安装 self-report cron：$(cron_interval_label "${CRON_MINUTES}")上报一次。"
     echo "脚本路径：${script}"
-    self_report_completed "定时上报已安装 / 更新，$(cron_interval_label "${CRON_MINUTES}")执行一次。"
+    echo "配置文件：${CONFIG_FILE}"
+    if schedule_paused; then
+        self_report_completed "定时上报已安装 / 更新，但当前保持暂停。"
+    else
+        self_report_completed "定时上报已安装 / 更新，$(cron_interval_label "${CRON_MINUTES}")执行一次。"
+    fi
 }
 
 remove_cron() {
@@ -441,18 +638,44 @@ remove_cron() {
 
 show_cron_status() {
     local line in_block=0 found=0
-    command -v crontab >/dev/null 2>&1 || {
-        echo "当前系统没有 crontab 命令。"
+    print_panel_section "Self-report 定时上报"
+    print_panel_row "配置文件" "${CONFIG_FILE}"
+    print_panel_row "保存状态" "$([[ -f "${CONFIG_FILE}" ]] && printf '已保存' || printf '未保存')"
+    print_panel_row "暂停状态" "$(schedule_paused && printf '已暂停（手动立即上报仍可用）' || printf '未暂停')"
+    if ! command -v crontab >/dev/null 2>&1; then
+        print_panel_row "cron" "当前系统没有 crontab 命令"
         return 0
-    }
+    fi
     while IFS= read -r line || [[ -n "${line}" ]]; do
         case "${line}" in
-            "# PO0_SELF_REPORT_BEGIN") in_block=1; found=1; continue ;;
-            "# PO0_SELF_REPORT_END") in_block=0; continue ;;
+            "# PO0_SELF_REPORT_BEGIN"*) in_block=1; found=1; continue ;;
+            "# PO0_SELF_REPORT_END"*) in_block=0; continue ;;
         esac
-        [[ "${in_block}" == "1" ]] && printf '%s\n' "${line}"
+        [[ "${in_block}" == "1" ]] && print_panel_row "当前计划" "${line}"
     done < <(crontab -l 2>/dev/null || true)
-    [[ "${found}" == "1" ]] || echo "未安装本脚本管理的 self-report cron。"
+    [[ "${found}" == "1" ]] || print_panel_row "当前计划" "未安装本脚本管理的 self-report cron"
+}
+
+set_schedule_paused() {
+    local value="$1"
+    SCHEDULE_PAUSED="${value}"
+    save_config_file || return 1
+    if command -v crontab >/dev/null 2>&1 && cron_managed_block_exists; then
+        install_cron || return 1
+    fi
+    if schedule_paused; then
+        self_report_completed "定时上报已暂停；手动立即上报仍可用。"
+    else
+        self_report_completed "定时上报已恢复。"
+    fi
+}
+
+toggle_schedule_interactive() {
+    if schedule_paused; then
+        set_schedule_paused "0"
+    else
+        set_schedule_paused "1"
+    fi
 }
 
 report_once() {
@@ -485,19 +708,21 @@ report_once() {
 }
 
 show_current_config() {
-    printf '%s\n' "------------------------"
-    printf '%s\n' "Self-report 客户端配置"
-    printf '  LAN Worker URL : %s\n' "${WORKER_URL:-未设置}"
-    printf '  Source ID      : %s\n' "${SOURCE_ID:-未设置}"
-    printf '  Identity       : %s\n' "${IDENTITY:-未设置}"
-    printf '  Secret         : %s\n' "$(mask_secret "${SECRET}")"
-    printf '  HTTP 上报      : %s\n' "$(if http_allowed; then printf '已显式允许'; else printf '默认拒绝'; fi)"
-    printf '  上报间隔       : 每 %s 分钟（安装 cron 时使用）\n' "${CRON_MINUTES}"
-    printf '  放行 TTL       : 由 LAN Worker Self-report 目标控制，默认 3600 秒\n'
+    print_panel_section "Self-report 客户端配置"
+    print_panel_row "配置文件" "${CONFIG_FILE}"
+    print_panel_row "保存状态" "$([[ -f "${CONFIG_FILE}" ]] && printf '已保存' || printf '未保存')"
+    print_panel_row "LAN Worker URL" "${WORKER_URL:-未设置}"
+    print_panel_row "Source ID" "${SOURCE_ID:-未设置}"
+    print_panel_row "Identity" "${IDENTITY:-未设置}"
+    print_panel_row "Secret" "$(mask_secret "${SECRET}")"
+    print_panel_row "HTTP 上报" "$(if http_allowed; then printf '已显式允许'; else printf '默认拒绝'; fi)"
+    print_panel_row "上报间隔" "$(cron_interval_label "${CRON_MINUTES}")（安装 cron 时使用）"
+    print_panel_row "定时暂停" "$(schedule_paused && printf '已暂停' || printf '未暂停')"
+    print_panel_row "放行 TTL" "由 LAN Worker Self-report 目标控制，默认 3600 秒"
     if [[ -n "${IP_CHECK_URLS}" ]]; then
-        printf '  IP 探测列表    : %s\n' "${IP_CHECK_URLS}"
+        print_panel_row "IP 探测列表" "${IP_CHECK_URLS}"
     else
-        printf '  首选 IP 探测   : %s\n' "${IP_CHECK_URL}"
+        print_panel_row "首选 IP 探测" "${IP_CHECK_URL}"
     fi
 }
 
@@ -533,17 +758,20 @@ configure_interactive() {
     if prompt_yes_no "是否覆盖完整 IP 探测 URL 列表" "n"; then
         IP_CHECK_URLS="$(prompt_default "完整探测 URL 列表，逗号分隔" "${IP_CHECK_URLS}")"
     fi
+    save_config_file
 }
 
 run_once_interactive() {
-    if [[ -z "${WORKER_URL}" ]]; then
+    if ! config_complete; then
         configure_interactive || return 1
     fi
     report_once
 }
 
 install_cron_interactive() {
-    configure_interactive || return 1
+    if ! config_complete; then
+        configure_interactive || return 1
+    fi
     install_cron
 }
 
@@ -552,24 +780,25 @@ menu_loop() {
     while true; do
         menu_clear_screen
         show_current_config
-        printf '%s\n' "------------------------"
-        printf '%s\n' "请选择操作"
-        printf '  %s\n' "1. 配置上报目标 / 间隔"
-        printf '  %s\n' "2. 立即上报一次"
-        printf '  %s\n' "3. 安装 / 更新定时上报"
-        printf '  %s\n' "4. 查看定时上报状态"
-        printf '  %s\n' "5. 删除定时上报"
-        printf '  %s\n' "6. 显示当前配置"
-        printf '  %s\n' "0. 退出"
-        printf '%s\n' "------------------------"
-        choice="$(read_prompt "请选择操作 [0-6]: ")" || return 0
+        print_menu_section "手动上报"
+        print_menu_pair 1 "配置并保存上报参数" 2 "立即上报一次"
+        print_menu_section "定时上报"
+        print_menu_pair 3 "安装 / 更新定时上报" 4 "暂停 / 恢复定时上报"
+        print_menu_pair 5 "查看定时上报状态" 6 "删除定时上报"
+        print_menu_section "查看"
+        print_menu_item 7 "显示当前配置"
+        print_menu_section "退出"
+        print_menu_item 0 "退出"
+        print_menu_footer
+        choice="$(read_prompt "请选择操作 [0-7]: ")" || return 0
         choice="$(trim "${choice}")"
         case "${choice}" in
             1) configure_interactive; pause_before_return ;;
             2) run_once_interactive; pause_before_return ;;
             3) install_cron_interactive; pause_before_return ;;
-            4) show_cron_status; pause_before_return ;;
-            5)
+            4) toggle_schedule_interactive; pause_before_return ;;
+            5) show_cron_status; pause_before_return ;;
+            6)
                 if prompt_yes_no "确认删除 self-report 定时上报" "n"; then
                     remove_cron
                 else
@@ -577,7 +806,7 @@ menu_loop() {
                 fi
                 pause_before_return
                 ;;
-            6) show_current_config; pause_before_return ;;
+            7) show_current_config; pause_before_return ;;
             0) return 0 ;;
             "") ;;
             *) printf '无效选择。\n' >&2; pause_before_return ;;
@@ -585,74 +814,158 @@ menu_loop() {
     done
 }
 
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --menu)
-            SHOW_MENU="1"
-            shift
-            ;;
-        --worker-url|--lan-worker-url)
-            WORKER_URL="${2:-}"
-            shift 2
-            ;;
-        --allow-http)
-            ALLOW_HTTP="1"
-            shift
-            ;;
-        --source-id)
-            SOURCE_ID="${2:-}"
-            shift 2
-            ;;
-        --identity)
-            IDENTITY="${2:-}"
-            shift 2
-            ;;
-        --secret|--self-report-secret)
-            SECRET="${2:-}"
-            shift 2
-            ;;
-        --ip-check-url)
-            IP_CHECK_URL="${2:-}"
-            shift 2
-            ;;
-        --ip-check-urls)
-            IP_CHECK_URLS="${2:-}"
-            shift 2
-            ;;
-        --install-path)
-            INSTALL_PATH="${2:-}"
-            shift 2
-            ;;
-        --minutes|--cron-minutes)
-            CRON_MINUTES="${2:-}"
-            shift 2
-            ;;
-        --install-cron)
-            INSTALL_CRON="1"
-            if [[ "${2:-}" =~ ^[0-9]+$ ]]; then
+usage() {
+    printf '%s\n' \
+        "PO0 自上报客户端（Linux/OpenWrt）" \
+        "" \
+        "本脚本探测当前设备的公网出口 IPv4，并上报到 LAN Worker 的 self-report" \
+        "接收服务。访问设备不直接连接 PO0。Self-report 放行 TTL 由 LAN Worker" \
+        "接收端配置，不由客户端决定。" \
+        "" \
+        "用法:" \
+        "  curl -fsSL ${RAW_URL} | bash" \
+        "  bash po0-outbound-ip-report.sh --menu" \
+        "  bash po0-outbound-ip-report.sh --worker-url https://report.example.com/report --source-id laptop --secret SECRET --save-config" \
+        "  curl -fsSL ${RAW_URL} | bash -s -- --worker-url https://report.example.com/report --source-id laptop --secret SECRET --install-cron 60" \
+        "" \
+        "参数:" \
+        "  --menu                打开交互菜单。" \
+        "  --config PATH         self-report 本地配置文件；默认 root 用 /etc/po0-self-report/settings.env，普通用户用 ~/.config/po0-self-report/settings.env。" \
+        "  --save-config         保存当前参数到本地配置文件，不安装 cron。" \
+        "  --worker-url URL      LAN Worker self-report HTTPS 接收地址，例如 https://report.example.com/report；裸域名会自动补全。" \
+        "  --allow-http          允许 http:// 上报；仅用于本地调试或临时旧环境。" \
+        "  --source-id ID        写入 PO0 client_ip 记录的来源 ID。默认: ${SOURCE_ID}" \
+        "  --identity ID         LAN Worker/PO0 日志里的设备或用户标签。默认: ${IDENTITY}" \
+        "  --secret SECRET       可选的 LAN Worker self-report 共享密钥。" \
+        "  --ip-check-url URL    第一个公网 IPv4 探测地址。默认: ${IP_CHECK_URL}" \
+        "  --ip-check-urls CSV   覆盖完整探测地址列表，多个 URL 用逗号分隔。" \
+        "  --install-cron [N]    安装 / 更新 cron，每 N 分钟自上报一次。默认: ${CRON_MINUTES}。" \
+        "  --pause-schedule      暂停本脚本管理的定时上报；手动立即上报仍可用。" \
+        "  --resume-schedule     恢复本脚本管理的定时上报。" \
+        "  --schedule-status     查看本脚本管理的定时上报状态。" \
+        "  --minutes N           设置 cron 上报间隔，范围 1-${MAX_CRON_MINUTES}。" \
+        "" \
+        "默认公网 IPv4 探测顺序:" \
+        "  https://ip9.com.cn/get" \
+        "  https://mail.163.com/fgw/mailsrv-ipdetail/detail" \
+        "  https://api.live.bilibili.com/client/v1/Ip/getInfoNew" \
+        "  https://ipservice.ws.126.net/locate/api/getLocByIp" \
+        "  https://r.inews.qq.com/api/ip2city?otype=json" \
+        "  https://data.video.iqiyi.com/v.f4v" \
+        "  https://ip.apps.cntv.cn/whereis?client=json" \
+        "  https://exservice.12306.cn/excater/bonree/grip" \
+        "  https://myip.ipip.net/json"
+}
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --menu)
+                SHOW_MENU="1"
+                shift
+                ;;
+            --config)
+                CONFIG_FILE="${2:-}"
+                shift 2
+                ;;
+            --config=*)
+                CONFIG_FILE="${1#--config=}"
+                shift
+                ;;
+            --save-config)
+                SAVE_CONFIG="1"
+                shift
+                ;;
+            --worker-url|--lan-worker-url)
+                WORKER_URL="${2:-}"
+                shift 2
+                ;;
+            --allow-http)
+                ALLOW_HTTP="1"
+                shift
+                ;;
+            --source-id)
+                SOURCE_ID="${2:-}"
+                shift 2
+                ;;
+            --identity)
+                IDENTITY="${2:-}"
+                shift 2
+                ;;
+            --secret|--self-report-secret)
+                SECRET="${2:-}"
+                shift 2
+                ;;
+            --ip-check-url)
+                IP_CHECK_URL="${2:-}"
+                shift 2
+                ;;
+            --ip-check-urls)
+                IP_CHECK_URLS="${2:-}"
+                shift 2
+                ;;
+            --install-path)
+                INSTALL_PATH="${2:-}"
+                shift 2
+                ;;
+            --minutes|--cron-minutes)
                 CRON_MINUTES="${2:-}"
                 shift 2
-            else
+                ;;
+            --install-cron)
+                INSTALL_CRON="1"
+                if [[ "${2:-}" =~ ^[0-9]+$ ]]; then
+                    CRON_MINUTES="${2:-}"
+                    shift 2
+                else
+                    shift
+                fi
+                ;;
+            --pause-schedule)
+                PAUSE_SCHEDULE="1"
                 shift
-            fi
-            ;;
-        --po0-host|--po0-script|--source-key|--domain|--token)
-            echo "不再支持直接向 PO0 自上报。请使用 --worker-url 上报到 LAN Worker。" >&2
-            exit 1
-            ;;
-        --help|-h)
-            usage
-            exit 0
-            ;;
-        *)
-            echo "未知参数：$1" >&2
-            usage >&2
-            exit 1
-            ;;
-    esac
-done
+                ;;
+            --resume-schedule)
+                RESUME_SCHEDULE="1"
+                shift
+                ;;
+            --schedule-status)
+                SHOW_SCHEDULE_STATUS="1"
+                shift
+                ;;
+            --po0-host|--po0-script|--source-key|--domain|--token)
+                echo "不再支持直接向 PO0 自上报。请使用 --worker-url 上报到 LAN Worker。" >&2
+                exit 1
+                ;;
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            *)
+                echo "未知参数：$1" >&2
+                usage >&2
+                exit 1
+                ;;
+        esac
+    done
+}
 
-if [[ "${SHOW_MENU}" == "1" || ( "${HAD_ARGS}" == "0" && -r /dev/tty && -w /dev/tty ) ]]; then
+prime_config_path_from_args "$@"
+CONFIG_FILE="$(default_config_file)"
+load_saved_config
+apply_env_overrides
+parse_args "$@"
+CONFIG_FILE="$(default_config_file)"
+
+if [[ "${SAVE_CONFIG}" == "1" ]]; then
+    save_config_file
+elif [[ "${PAUSE_SCHEDULE}" == "1" ]]; then
+    set_schedule_paused "1"
+elif [[ "${RESUME_SCHEDULE}" == "1" ]]; then
+    set_schedule_paused "0"
+elif [[ "${SHOW_SCHEDULE_STATUS}" == "1" ]]; then
+    show_cron_status
+elif [[ "${SHOW_MENU}" == "1" || ( "${HAD_ARGS}" == "0" && -r /dev/tty && -w /dev/tty ) ]]; then
     menu_loop
 elif [[ "${INSTALL_CRON}" == "1" ]]; then
     install_cron
