@@ -72,6 +72,7 @@ DDNS 外部上报建议使用菜单生成的 token；如果 token 文件存在�
 学习服务只给候选建议，不会自动放行陌生 IP。
 Egern SSH report 和 WebAuth 已实现，但都通过 SSH 调 PO0；PO0 不开放 HTTP / WebAuth / Secret URL。
 WebAuth 的 HTTP 入口只允许跑在 LAN Worker 上，推荐前置 Cloudflare Access/Tunnel。
+PO0 manager HTTP 更新镜像只允许跑在 LAN Worker 上，只返回固定 manager 脚本；PO0 校验 resource token HMAC、sha256、size 和 bash -n 后才安装。
 
 资源更新采用另一套“PO0 任务队列 + 内网 Worker 主动领取”协议，不属于 URL 白名单上报。PO0 只允许 `iplist` 和 `ipdb` 两种固定任务，不能通过该接口发送任意 Shell 命令。
 ```
@@ -771,7 +772,40 @@ PO0 的基础 IPDB 格式校验使用常见的 `od`、`dd`、`grep` 检查文件
 
 Worker 的 `resource-stats.tsv` 每个 PO0 端点只保留一行累计统计，不会按任务无限追加。PO0 的任务文件保留全部活动任务和最近 500 条终态记录，管理员可以在菜单中查看结果，或把失败/执行中的任务重新排队。
 
-### 5.6.1 Egern SSH report 上报
+### 5.6.1 PO0 manager HTTP 更新镜像
+
+该功能不是资源任务，也不是 PO0 HTTP 控制面。LAN Worker 运行一个本地 HTTP 后端，Caddy 用 `http://<domain>` 站点把固定路径反代到本机后端：
+
+```text
+/po0-manager-update/nftables-relay-manager.sh
+/po0-manager-update/health
+```
+
+LAN Worker 后端收到请求后，通过 HTTPS 固定拉取：
+
+```text
+https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/nftables-relay-manager.sh
+```
+
+PO0 请求时不把 token 放进 URL，只发送随机 `nonce` 和 `token_id=sha256(resource_token)`。LAN Worker 用本机配置里的 resource token 匹配 `token_id`，返回脚本正文，并在响应头写入：
+
+```text
+X-PO0-Manager-Version
+X-PO0-Manager-SHA256
+X-PO0-Manager-Size
+X-PO0-Manager-Nonce
+X-PO0-Manager-HMAC
+```
+
+HMAC 消息格式固定为：
+
+```text
+nonce|sha256|size|version
+```
+
+PO0 的 `--upgrade-manager-from-lan [URL]` 只接受 HTTP URL。下载后会校验 nonce、HMAC、sha256、size、`SCRIPT_NAME`、`SCRIPT_VERSION`、`CHANGELOG_BEGIN/END` 和 `bash -n`，然后备份当前 `${MANAGER_INSTALL_PATH}`，以临时文件 + `chmod 0755` + `mv` 原子替换。更新成功后只显示版本变化和 changelog，并询问是否用更新后的脚本执行 `--refresh-report-key-wrapper`；不会自动应用 nftables，也不会自动跑诊断。
+
+### 5.6.2 Egern SSH report 上报
 
 Egern 不再承担 DDNS 解析。它只做移动设备当前出口 IPv4 上报：
 
@@ -997,6 +1031,7 @@ bash nftables-relay-manager.sh --learn-service
 bash nftables-relay-manager.sh --backup-export
 bash nftables-relay-manager.sh --backup-import /etc/nftables.d/backups/po0-manager-full-backup-YYYYMMDD_HHMMSS.tar.gz
 bash nftables-relay-manager.sh --backup-import /etc/nftables.d/backups/po0-manager-full-backup-YYYYMMDD_HHMMSS.tar.gz --restore-all
+bash nftables-relay-manager.sh --upgrade-manager-from-lan http://<LAN_WORKER_DOMAIN>/po0-manager-update/nftables-relay-manager.sh
 ```
 
 定位：
@@ -1013,6 +1048,7 @@ bash nftables-relay-manager.sh --backup-import /etc/nftables.d/backups/po0-manag
 --collect-blocked 采集阻挡日志入口的 cron/systemd timer 形式
 --backup-export 导出 PO0 完整敏感备份包
 --backup-import 默认恢复配置/状态文件；cron/systemd/nftables/authorized_keys 需显式 flag
+--upgrade-manager-from-lan 从 LAN Worker HTTP 更新镜像拉取并校验安装 PO0 manager
 ```
 
 ## 8. 诊断、备份与接管

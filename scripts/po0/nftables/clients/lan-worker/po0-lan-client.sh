@@ -2,10 +2,12 @@
 set -uo pipefail
 
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh"
+MANAGER_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/nftables-relay-manager.sh"
 SCRIPT_NAME="po0-lan-worker-client"
-SCRIPT_VERSION="2026.06.21+build.4"
+SCRIPT_VERSION="2026.06.21+build.5"
 SCRIPT_RELEASE_DATE="2026-06-21"
 # CHANGELOG_BEGIN
+# - 新增 PO0 manager HTTP 更新镜像：LAN Worker 通过 HTTPS 拉取 GitHub raw 脚本，并用 resource token 为 PO0 HTTP 拉取响应签名。
 # - 兼容旧安装：settings.env 不存在或字段为空时，从已安装的 Self-report/WebAuth systemd unit 回填 secret、监听地址、目标和 token，避免升级后导出空 secret。
 # - 修复完整备份导出指定相对路径时可能写入临时目录并随清理丢失的问题；恢复 cron 时优先从备份的 cron block 识别旧脚本路径；Caddy import 跟随当前 snippet 目录且恢复权限改为 644。
 # - 新增 LAN Worker 完整备份 / 导入恢复：默认导出 Token、SSH 私钥、SELF_REPORT_SECRET 和状态文件；导入默认只恢复配置/状态/密钥，cron、systemd、Caddy 需显式 flag 或 --restore-all。
@@ -84,6 +86,10 @@ SELF_REPORT_TARGETS="${PO0_SELF_REPORT_TARGETS:-}"
 SELF_REPORT_HTTPS_DOMAIN="${PO0_SELF_REPORT_HTTPS_DOMAIN:-}"
 SELF_REPORT_HTTPS_BACKEND="${PO0_SELF_REPORT_HTTPS_BACKEND:-127.0.0.1:8788}"
 SELF_REPORT_CADDY_SNIPPET="${PO0_SELF_REPORT_CADDY_SNIPPET:-/etc/caddy/conf.d/po0-self-report.caddy}"
+MANAGER_UPDATE_LISTEN="${PO0_MANAGER_UPDATE_LISTEN:-127.0.0.1:8789}"
+MANAGER_UPDATE_DOMAIN="${PO0_MANAGER_UPDATE_DOMAIN:-}"
+MANAGER_UPDATE_BACKEND="${PO0_MANAGER_UPDATE_BACKEND:-127.0.0.1:8789}"
+MANAGER_UPDATE_CADDY_SNIPPET="${PO0_MANAGER_UPDATE_CADDY_SNIPPET:-/etc/caddy/conf.d/po0-manager-update.caddy}"
 CADDYFILE_PATH="${PO0_CADDYFILE:-/etc/caddy/Caddyfile}"
 C_RESET=""
 C_BOLD=""
@@ -272,6 +278,7 @@ usage() {
         "  curl -fsSL ${RAW_URL} | bash -s -- --bootstrap --po0-host HOST --source-key home --ddns-domain home.example.com --token TOKEN --resource-token TOKEN --install-cron 5" \
         "  po0-lan-client --webauth-server --listen 127.0.0.1:8787 --po0-host HOST --webauth-token TOKEN" \
         "  po0-lan-client --install-self-report-https --self-report-https-domain report.example.com --po0-host HOST --client-ip-token TOKEN --self-report-secret SECRET" \
+        "  po0-lan-client --install-manager-update-http --manager-update-domain update.example.com" \
         "  po0-lan-client --self-report-server --self-report-listen 127.0.0.1:8788 --po0-host HOST --client-ip-token TOKEN" \
         "" \
         "常用命令:" \
@@ -288,6 +295,8 @@ usage() {
         "  --source-key KEY     PO0 端来源 key/名称；脚本不会解析这个值。" \
         "  --ddns-domain DOMAIN LAN Worker 要解析的 DDNS 域名；结果通过 SSH 上报 PO0。" \
         "  --install-self-report-https --self-report-https-domain DOMAIN  配置 Self-report HTTPS/Caddy，后端监听 127.0.0.1:8788。" \
+        "  --install-manager-update-http --manager-update-domain DOMAIN  配置 PO0 manager HTTP 更新镜像，后端监听 127.0.0.1:8789。" \
+        "  --manager-update-mirror-server 启动 PO0 manager 更新镜像 HTTP 后端。" \
         "  --ddns-targets STR  DDNS 上报目标；格式 source_key|ddns_domain|host|port|user|script|token|ssh_args，多目标用分号或换行分隔。" \
         "  --domain DOMAIN      兼容旧参数：没有 --ddns-domain 时同时作为 source-key 和 DDNS 域名。" \
         "  --ssh-extra-args STR 可选 SSH 参数，例如 '-i /path/key -J jump-host'；不是私钥短语。" \
@@ -459,6 +468,10 @@ save_local_settings() {
         write_env_assignment "SELF_REPORT_HTTPS_DOMAIN" "${SELF_REPORT_HTTPS_DOMAIN}"
         write_env_assignment "SELF_REPORT_HTTPS_BACKEND" "${SELF_REPORT_HTTPS_BACKEND}"
         write_env_assignment "SELF_REPORT_CADDY_SNIPPET" "${SELF_REPORT_CADDY_SNIPPET}"
+        write_env_assignment "MANAGER_UPDATE_LISTEN" "${MANAGER_UPDATE_LISTEN}"
+        write_env_assignment "MANAGER_UPDATE_DOMAIN" "${MANAGER_UPDATE_DOMAIN}"
+        write_env_assignment "MANAGER_UPDATE_BACKEND" "${MANAGER_UPDATE_BACKEND}"
+        write_env_assignment "MANAGER_UPDATE_CADDY_SNIPPET" "${MANAGER_UPDATE_CADDY_SNIPPET}"
         write_env_assignment "CADDYFILE_PATH" "${CADDYFILE_PATH}"
     } > "${tmp}" || {
         umask "${old_umask}"
@@ -535,6 +548,7 @@ load_settings_from_installed_services() {
     local loaded="${1:-0}"
     local self_unit="/etc/systemd/system/po0-lan-self-report.service"
     local webauth_unit="/etc/systemd/system/po0-lan-webauth.service"
+    local manager_update_unit="/etc/systemd/system/po0-lan-manager-update.service"
     fill_setting_from_unit_arg "${loaded}" SELF_REPORT_LISTEN "${self_unit}" "--self-report-listen"
     fill_setting_from_unit_arg "${loaded}" SELF_REPORT_SECRET "${self_unit}" "--self-report-secret"
     fill_setting_from_unit_arg "${loaded}" SELF_REPORT_SOURCE "${self_unit}" "--self-report-source"
@@ -550,6 +564,7 @@ load_settings_from_installed_services() {
     fill_setting_from_unit_arg "${loaded}" WEBAUTH_TOKEN "${webauth_unit}" "--webauth-token"
     fill_setting_from_unit_arg "${loaded}" WEBAUTH_TTL_SECONDS "${webauth_unit}" "--webauth-ttl"
     fill_setting_from_unit_arg "${loaded}" WEBAUTH_TARGETS "${webauth_unit}" "--webauth-targets"
+    fill_setting_from_unit_arg "${loaded}" MANAGER_UPDATE_LISTEN "${manager_update_unit}" "--manager-update-listen"
 }
 
 sh_quote() {
@@ -3319,6 +3334,152 @@ sha256_file() {
     fi
 }
 
+manager_update_tokens_env() {
+    local tokens="" seen=";" line token
+    if [[ -n "${RESOURCE_TOKEN}" ]]; then
+        token="$(sanitize_field "${RESOURCE_TOKEN}")"
+        if [[ -n "${token}" && "${seen}" != *";${token};"* ]]; then
+            tokens+="${token}"$'\n'
+            seen+="${token};"
+        fi
+    fi
+    ensure_config_file || true
+    if [[ -r "${CONFIG_FILE}" ]]; then
+        while IFS= read -r line || [[ -n "${line}" ]]; do
+            parse_target_line "${line}" || continue
+            [[ "${TARGET_ENABLED}" == "1" ]] || continue
+            token="$(sanitize_field "${TARGET_RESOURCE_TOKEN}")"
+            [[ -n "${token}" ]] || continue
+            if [[ "${seen}" != *";${token};"* ]]; then
+                tokens+="${token}"$'\n'
+                seen+="${token};"
+            fi
+        done < "${CONFIG_FILE}"
+    fi
+    printf '%s' "${tokens}"
+}
+
+run_manager_update_mirror_server() {
+    local py listen_host listen_port tokens
+    tokens="$(manager_update_tokens_env)" || return 1
+    [[ -n "${tokens}" ]] || {
+        printf '没有可用的 resource token，无法启动 manager 更新镜像。\n' >&2
+        return 1
+    }
+    if have_cmd python3; then
+        py="python3"
+    elif have_cmd python; then
+        py="python"
+    else
+        printf 'missing python3/python; cannot run manager update mirror server.\n' >&2
+        return 1
+    fi
+    listen_host="${MANAGER_UPDATE_LISTEN%:*}"
+    listen_port="${MANAGER_UPDATE_LISTEN##*:}"
+    [[ -n "${listen_host}" && "${listen_host}" != "${MANAGER_UPDATE_LISTEN}" ]] || listen_host="127.0.0.1"
+    [[ "${listen_port}" =~ ^[0-9]+$ ]] || listen_port="8789"
+    export PO0_MANAGER_UPDATE_TOKENS="${tokens}"
+    export PO0_MANAGER_RAW_URL="${MANAGER_RAW_URL}"
+    printf 'Manager update mirror listening on %s:%s; PO0 pulls over HTTP, mirror pulls GitHub over HTTPS.\n' "${listen_host}" "${listen_port}"
+    "${py}" - "${listen_host}" "${listen_port}" <<'PY'
+import hashlib
+import hmac
+import http.server
+import re
+import socketserver
+import sys
+import time
+import urllib.parse
+import urllib.request
+import os
+
+listen_host, listen_port = sys.argv[1], int(sys.argv[2])
+raw_url = os.environ.get("PO0_MANAGER_RAW_URL", "")
+tokens = [t.strip() for t in os.environ.get("PO0_MANAGER_UPDATE_TOKENS", "").splitlines() if t.strip()]
+token_by_id = {hashlib.sha256(t.encode("utf-8")).hexdigest(): t for t in tokens}
+PATH = "/po0-manager-update/nftables-relay-manager.sh"
+HEALTH = "/po0-manager-update/health"
+
+if not raw_url.startswith("https://"):
+    raise SystemExit("manager raw URL must use HTTPS")
+if not token_by_id:
+    raise SystemExit("missing manager update tokens")
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    server_version = "po0-manager-update-mirror/1"
+
+    def log_message(self, fmt, *args):
+        sys.stderr.write("%s - - [%s] %s\n" % (self.client_address[0], self.log_date_time_string(), fmt % args))
+
+    def send_text(self, code, text):
+        data = text.encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def do_GET(self):
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == HEALTH:
+            self.send_text(200, "OK\n")
+            return
+        if parsed.path != PATH:
+            self.send_text(404, "not found\n")
+            return
+        query = urllib.parse.parse_qs(parsed.query)
+        nonce = query.get("nonce", [""])[0]
+        token_id = query.get("token_id", [""])[0]
+        if not re.fullmatch(r"[A-Za-z0-9._:-]{8,128}", nonce or ""):
+            self.send_text(400, "invalid nonce\n")
+            return
+        if not re.fullmatch(r"[a-f0-9]{64}", token_id or ""):
+            self.send_text(400, "invalid token_id\n")
+            return
+        token = token_by_id.get(token_id)
+        if not token:
+            self.send_text(403, "unknown token_id\n")
+            return
+        try:
+            req = urllib.request.Request(raw_url, headers={"User-Agent": self.server_version})
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                body = resp.read(2 * 1024 * 1024)
+        except Exception as exc:
+            self.send_text(502, "fetch failed: %s\n" % exc)
+            return
+        if len(body) == 0 or len(body) >= 2 * 1024 * 1024:
+            self.send_text(502, "invalid script size\n")
+            return
+        text = body.decode("utf-8", "replace")
+        if 'SCRIPT_NAME="po0-nftables-relay-manager"' not in text or "# CHANGELOG_BEGIN" not in text or "# CHANGELOG_END" not in text:
+            self.send_text(502, "fetched file is not po0 manager script\n")
+            return
+        version_match = re.search(r'^SCRIPT_VERSION="([^"]+)"', text, re.MULTILINE)
+        version = version_match.group(1) if version_match else "unknown"
+        sha = hashlib.sha256(body).hexdigest()
+        size = str(len(body))
+        message = "|".join([nonce, sha, size, version])
+        sig = hmac.new(token.encode("utf-8"), message.encode("utf-8"), hashlib.sha256).hexdigest()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/x-shellscript; charset=utf-8")
+        self.send_header("Content-Length", size)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-PO0-Manager-Version", version)
+        self.send_header("X-PO0-Manager-SHA256", sha)
+        self.send_header("X-PO0-Manager-Size", size)
+        self.send_header("X-PO0-Manager-Nonce", nonce)
+        self.send_header("X-PO0-Manager-HMAC", sig)
+        self.end_headers()
+        self.wfile.write(body)
+
+class ReusableThreadingTCPServer(socketserver.ThreadingTCPServer):
+    allow_reuse_address = True
+
+with ReusableThreadingTCPServer((listen_host, listen_port), Handler) as httpd:
+    httpd.serve_forever()
+PY
+}
+
 report_resource_failure() {
     local task_id="$1" worker_id="$2" reason="$3" host="$4" port="$5" user="$6" script="$7" token="$8" extra="$9"
     local remote_cmd
@@ -4545,6 +4706,34 @@ current_self_report_https_domain() {
     fi
 }
 
+normalize_manager_update_domain() {
+    local domain="$1"
+    domain="$(trim "${domain}")"
+    domain="${domain#http://}"
+    domain="${domain#https://}"
+    domain="${domain%%/*}"
+    domain="${domain%%:*}"
+    domain="${domain,,}"
+    printf '%s\n' "${domain}"
+}
+
+validate_manager_update_domain() {
+    local domain="$1"
+    [[ -n "${domain}" ]] || {
+        printf '缺少 PO0 manager 更新 HTTP 域名。\n' >&2
+        return 1
+    }
+    [[ "${domain}" == *.* && "${domain}" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$ ]] || {
+        printf 'PO0 manager 更新 HTTP 域名格式无效：%s\n' "${domain}" >&2
+        return 1
+    }
+    [[ "${domain}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] && {
+        printf 'PO0 manager 更新 HTTP 入口需要域名，不能直接使用 IP：%s\n' "${domain}" >&2
+        return 1
+    }
+    return 0
+}
+
 ensure_caddy_installed() {
     if have_cmd caddy; then
         return 0
@@ -4572,10 +4761,11 @@ ensure_caddy_installed() {
 }
 
 ensure_caddyfile_import() {
-    local caddy_dir snippet_dir import_line
+    local caddy_dir snippet_dir manager_snippet_dir import_line manager_import_line
     caddy_dir="$(path_dirname "${CADDYFILE_PATH}")"
     snippet_dir="$(path_dirname "${SELF_REPORT_CADDY_SNIPPET}")"
-    mkdir -p "${caddy_dir}" "${snippet_dir}" || return 1
+    manager_snippet_dir="$(path_dirname "${MANAGER_UPDATE_CADDY_SNIPPET}")"
+    mkdir -p "${caddy_dir}" "${snippet_dir}" "${manager_snippet_dir}" || return 1
     [[ -f "${CADDYFILE_PATH}" ]] || : > "${CADDYFILE_PATH}" || return 1
     import_line="import ${snippet_dir%/}/*.caddy"
     if ! awk '{$1=$1; print}' "${CADDYFILE_PATH}" 2>/dev/null | grep -Fxq "${import_line}"; then
@@ -4584,6 +4774,11 @@ ensure_caddyfile_import() {
             printf '# PO0 LAN Worker managed snippets\n'
             printf '%s\n' "${import_line}"
         } >> "${CADDYFILE_PATH}" || return 1
+    fi
+    manager_import_line="import ${manager_snippet_dir%/}/*.caddy"
+    if [[ "${manager_import_line}" != "${import_line}" ]] \
+        && ! awk '{$1=$1; print}' "${CADDYFILE_PATH}" 2>/dev/null | grep -Fxq "${manager_import_line}"; then
+        printf '%s\n' "${manager_import_line}" >> "${CADDYFILE_PATH}" || return 1
     fi
 }
 
@@ -4659,6 +4854,162 @@ install_self_report_https() {
     printf 'Self-report HTTPS 已配置：https://%s/report\n' "${domain}"
     printf '健康检查：curl -fsS https://%s/health\n' "${domain}"
     printf '注意：公网建议只放行 80/443，不建议继续放行 8788。\n'
+}
+
+write_manager_update_caddy_config() {
+    local domain="$1" backend_host backend_port
+    backend_host="${MANAGER_UPDATE_BACKEND%:*}"
+    backend_port="${MANAGER_UPDATE_BACKEND##*:}"
+    [[ -n "${backend_host}" && "${backend_host}" != "${MANAGER_UPDATE_BACKEND}" ]] || backend_host="127.0.0.1"
+    [[ "${backend_port}" =~ ^[0-9]+$ ]] || backend_port="8789"
+    mkdir -p "$(path_dirname "${MANAGER_UPDATE_CADDY_SNIPPET}")" || return 1
+    cat > "${MANAGER_UPDATE_CADDY_SNIPPET}" <<EOF
+# Managed by po0-lan-client. HTTP-only PO0 manager update mirror.
+http://${domain} {
+    route {
+        handle /po0-manager-update/nftables-relay-manager.sh {
+            reverse_proxy ${backend_host}:${backend_port}
+        }
+        handle /po0-manager-update/health {
+            reverse_proxy ${backend_host}:${backend_port}
+        }
+        respond 404
+    }
+}
+EOF
+}
+
+manager_update_service_summary() {
+    local name="po0-lan-manager-update.service" active enabled
+    have_cmd systemctl || {
+        printf 'systemctl 不可用'
+        return 0
+    }
+    active="$(systemctl is-active "${name}" 2>/dev/null || true)"
+    enabled="$(systemctl is-enabled "${name}" 2>/dev/null || true)"
+    printf 'active=%s enabled=%s' "${active:-unknown}" "${enabled:-unknown}"
+}
+
+show_manager_update_http_status() {
+    local name="caddy" token_count
+    token_count="$(manager_update_tokens_env | awk 'NF { count++ } END { print count + 0 }')"
+    print_panel_section "PO0 manager HTTP 更新镜像"
+    print_panel_row "HTTP 域名" "${MANAGER_UPDATE_DOMAIN:-未配置}"
+    print_panel_row "公网入口" "$(if [[ -n "${MANAGER_UPDATE_DOMAIN}" ]]; then printf 'http://%s/po0-manager-update/nftables-relay-manager.sh' "${MANAGER_UPDATE_DOMAIN}"; else printf '未配置'; fi)"
+    print_panel_row "本机监听" "${MANAGER_UPDATE_LISTEN}"
+    print_panel_row "Caddy 后端" "${MANAGER_UPDATE_BACKEND}"
+    print_panel_row "Caddy snippet" "${MANAGER_UPDATE_CADDY_SNIPPET}"
+    print_panel_row "可用 token" "${token_count} 个 resource token"
+    print_panel_row "镜像服务" "$(manager_update_service_summary)"
+    if have_cmd systemctl; then
+        print_panel_row "Caddy 服务" "active=$(systemctl is-active "${name}" 2>/dev/null || true) enabled=$(systemctl is-enabled "${name}" 2>/dev/null || true)"
+    fi
+    if have_cmd caddy; then
+        printf '\n'
+        caddy validate --config "${CADDYFILE_PATH}" || true
+    fi
+}
+
+install_manager_update_mirror_service() {
+    local script_path unit name="po0-lan-manager-update.service" tokens
+    [[ "${EUID:-$(id -u 2>/dev/null || printf 1)}" -eq 0 ]] || {
+        printf '安装 systemd 服务需要 root。\n' >&2
+        return 1
+    }
+    command -v systemctl >/dev/null 2>&1 || {
+        printf '当前系统没有 systemctl，无法安装服务。\n' >&2
+        return 1
+    }
+    tokens="$(manager_update_tokens_env)" || return 1
+    [[ -n "${tokens}" ]] || {
+        printf '没有可用的 resource token，无法安装 manager 更新镜像服务。\n' >&2
+        return 1
+    }
+    script_path="$(ensure_persistent_script)" || return 1
+    save_local_settings || return 1
+    unit="/etc/systemd/system/${name}"
+    cat > "${unit}" <<EOF
+[Unit]
+Description=PO0 manager HTTP update mirror
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/env bash $(sh_quote "${script_path}") --config $(sh_quote "${CONFIG_FILE}") --manager-update-mirror-server --manager-update-listen $(sh_quote "${MANAGER_UPDATE_LISTEN}")
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    systemctl daemon-reload || return 1
+    systemctl reset-failed "${name}" 2>/dev/null || true
+    systemctl enable "${name}" || return 1
+    systemctl restart "${name}" || return 1
+    printf '已安装并启动 PO0 manager 更新镜像服务：%s\n' "${name}"
+}
+
+install_manager_update_http() {
+    local domain ip_csv
+    domain="$(normalize_manager_update_domain "${MANAGER_UPDATE_DOMAIN}")"
+    validate_manager_update_domain "${domain}" || return 1
+    if ip_csv="$(resolve_ddns_ipv4_csv "${domain}" 2>/dev/null)"; then
+        printf 'DNS A 记录：%s -> %s\n' "${domain}" "${ip_csv}"
+    else
+        printf '警告：当前机器未解析到 %s 的公网 IPv4。请确认 DNS 已指向 LAN Worker，且 80 已放行。\n' "${domain}" >&2
+    fi
+    ensure_caddy_installed || return 1
+    ensure_caddyfile_import || return 1
+    write_manager_update_caddy_config "${domain}" || return 1
+    caddy validate --config "${CADDYFILE_PATH}" || return 1
+    MANAGER_UPDATE_DOMAIN="${domain}"
+    save_local_settings || return 1
+    install_manager_update_mirror_service || return 1
+    if have_cmd systemctl; then
+        systemctl enable caddy || return 1
+        systemctl reload caddy 2>/dev/null || systemctl restart caddy || return 1
+    fi
+    printf 'PO0 manager HTTP 更新镜像已配置：http://%s/po0-manager-update/nftables-relay-manager.sh\n' "${domain}"
+    printf '健康检查：curl -fsS http://%s/po0-manager-update/health\n' "${domain}"
+    printf '注意：该入口按要求使用 HTTP；请限制可访问来源或使用防火墙保护 80 端口。\n'
+}
+
+edit_manager_update_http_settings() {
+    MANAGER_UPDATE_DOMAIN="$(prompt_default "PO0 manager 更新 HTTP 域名" "${MANAGER_UPDATE_DOMAIN}")"
+    MANAGER_UPDATE_DOMAIN="$(normalize_manager_update_domain "${MANAGER_UPDATE_DOMAIN}")"
+    validate_manager_update_domain "${MANAGER_UPDATE_DOMAIN}" || return 1
+    MANAGER_UPDATE_LISTEN="$(prompt_default "本机镜像服务监听地址" "${MANAGER_UPDATE_LISTEN:-127.0.0.1:8789}")"
+    [[ -n "${MANAGER_UPDATE_LISTEN}" ]] || MANAGER_UPDATE_LISTEN="127.0.0.1:8789"
+    MANAGER_UPDATE_BACKEND="$(prompt_default "Caddy 反代后端" "${MANAGER_UPDATE_BACKEND:-127.0.0.1:8789}")"
+    [[ -n "${MANAGER_UPDATE_BACKEND}" ]] || MANAGER_UPDATE_BACKEND="127.0.0.1:8789"
+    MANAGER_UPDATE_CADDY_SNIPPET="$(prompt_default "Caddy snippet 路径" "${MANAGER_UPDATE_CADDY_SNIPPET:-/etc/caddy/conf.d/po0-manager-update.caddy}")"
+    save_local_settings || return 1
+    printf '已保存 PO0 manager 更新镜像设置：%s\n' "${SETTINGS_FILE}"
+}
+
+manage_manager_update_http_interactive() {
+    local choice
+    while true; do
+        menu_clear_screen
+        print_title "PO0 manager 更新镜像"
+        show_manager_update_http_status
+        print_menu_section "操作"
+        print_menu_pair 1 "查看状态 / 日志" 2 "配置域名与监听"
+        print_menu_pair 3 "安装 / 更新 HTTP 入口" 4 "前台启动镜像服务"
+        print_menu_item 0 "返回"
+        print_menu_footer
+        read_menu_choice_or_return choice "请选择操作 [0-4]: " || return 0
+        case "${choice}" in
+            1) show_manager_update_http_status; pause_before_return ;;
+            2) edit_manager_update_http_settings; pause_before_return ;;
+            3) install_manager_update_http; pause_before_return ;;
+            4) run_manager_update_mirror_server ;;
+            0) return 0 ;;
+            "") ;;
+            *) printf '无效选择。\n' >&2; pause_before_return ;;
+        esac
+    done
 }
 
 self_report_service_summary() {
@@ -5423,7 +5774,9 @@ lan_backup_export() {
         write_managed_cron_block_to_file "${work}/system/crontab.managed" || true
         copy_file_to_stage "/etc/systemd/system/po0-lan-webauth.service" "${work}/system/po0-lan-webauth.service" || true
         copy_file_to_stage "/etc/systemd/system/po0-lan-self-report.service" "${work}/system/po0-lan-self-report.service" || true
+        copy_file_to_stage "/etc/systemd/system/po0-lan-manager-update.service" "${work}/system/po0-lan-manager-update.service" || true
         copy_file_to_stage "${SELF_REPORT_CADDY_SNIPPET}" "${work}/system/po0-self-report.caddy" || true
+        copy_file_to_stage "${MANAGER_UPDATE_CADDY_SNIPPET}" "${work}/system/po0-manager-update.caddy" || true
         copy_file_to_stage "${CADDYFILE_PATH}" "${work}/system/Caddyfile" || true
         script_path="$(script_source_path)"
         copy_file_to_stage "${script_path}" "${work}/scripts/po0-lan-client.sh" || true
@@ -5577,8 +5930,16 @@ restore_managed_cron_from_stage() {
 
 restore_caddy_from_stage() {
     local work="$1"
-    [[ -f "${work}/system/po0-self-report.caddy" ]] || { printf '备份包没有 Self-report Caddy snippet。\n'; return 0; }
-    restore_file_from_stage "${work}/system/po0-self-report.caddy" "${SELF_REPORT_CADDY_SNIPPET}" 644 || return 1
+    local restored=0
+    if [[ -f "${work}/system/po0-self-report.caddy" ]]; then
+        restore_file_from_stage "${work}/system/po0-self-report.caddy" "${SELF_REPORT_CADDY_SNIPPET}" 644 || return 1
+        restored=1
+    fi
+    if [[ -f "${work}/system/po0-manager-update.caddy" ]]; then
+        restore_file_from_stage "${work}/system/po0-manager-update.caddy" "${MANAGER_UPDATE_CADDY_SNIPPET}" 644 || return 1
+        restored=1
+    fi
+    [[ "${restored}" == "1" ]] || { printf '备份包没有 LAN Worker Caddy snippet。\n'; return 0; }
     if [[ "${RESTORE_DRY_RUN}" == "1" ]]; then
         printf '[dry-run] ensure Caddyfile import and reload caddy\n'
         return 0
@@ -5590,7 +5951,7 @@ restore_caddy_from_stage() {
     if have_cmd systemctl; then
         systemctl reload caddy 2>/dev/null || systemctl restart caddy || return 1
     fi
-    printf '已恢复 Self-report Caddy snippet 并刷新 Caddy。\n'
+    printf '已恢复 LAN Worker Caddy snippet 并刷新 Caddy。\n'
 }
 
 restore_systemd_from_stage() {
@@ -5605,6 +5966,10 @@ restore_systemd_from_stage() {
     fi
     if [[ -f "${work}/system/po0-lan-webauth.service" ]]; then
         install_webauth_service || return 1
+        restored=1
+    fi
+    if [[ -f "${work}/system/po0-lan-manager-update.service" ]]; then
+        install_manager_update_mirror_service || return 1
         restored=1
     fi
     [[ "${restored}" == "1" ]] || printf '备份包没有 LAN Worker systemd service 快照。\n'
@@ -5925,11 +6290,12 @@ menu_loop() {
         print_menu_pair 22 "安装 / 更新本机轮询器" 23 "删除本机轮询器"
         print_menu_pair 24 "查看本机轮询器状态" 25 "查看脚本版本 / 本机状态"
         print_menu_pair 26 "从 GitHub 更新脚本" 27 "备份 / 导入恢复"
+        print_menu_item 28 "PO0 manager 更新镜像"
 
         print_menu_section "退出"
         print_menu_item 0 "退出"
         print_menu_footer
-        read_menu_choice_or_return choice "请选择操作 [0-27]: " || return 0
+        read_menu_choice_or_return choice "请选择操作 [0-28]: " || return 0
         case "${choice}" in
             1) list_resource_stats; pause_before_return ;;
             2) show_remote_resource_task_cron_status; pause_before_return ;;
@@ -5958,6 +6324,7 @@ menu_loop() {
             25) show_local_script_status; pause_before_return ;;
             26) upgrade_self_from_raw --reopen-menu || pause_before_return ;;
             27) backup_restore_interactive; pause_before_return ;;
+            28) manage_manager_update_http_interactive ;;
             0) return 0 ;;
             "") ;;
             *) printf '无效选择。\n' >&2; pause_before_return ;;
@@ -6130,6 +6497,26 @@ while [[ $# -gt 0 ]]; do
             SELF_REPORT_HTTPS_DOMAIN="${2:-}"
             shift 2
             ;;
+        --manager-update-listen)
+            require_arg_value "$@"
+            MANAGER_UPDATE_LISTEN="${2:-}"
+            shift 2
+            ;;
+        --manager-update-domain)
+            require_arg_value "$@"
+            MANAGER_UPDATE_DOMAIN="${2:-}"
+            shift 2
+            ;;
+        --manager-update-backend)
+            require_arg_value "$@"
+            MANAGER_UPDATE_BACKEND="${2:-}"
+            shift 2
+            ;;
+        --manager-update-caddy-snippet)
+            require_arg_value "$@"
+            MANAGER_UPDATE_CADDY_SNIPPET="${2:-}"
+            shift 2
+            ;;
         --label)
             require_arg_value "$@"
             BOOTSTRAP_LABEL="${2:-}"
@@ -6197,6 +6584,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --install-self-report-https)
             ACTION="install-self-report-https"
+            shift
+            ;;
+        --manager-update-mirror-server)
+            ACTION="manager-update-mirror-server"
+            shift
+            ;;
+        --install-manager-update-http)
+            ACTION="install-manager-update-http"
             shift
             ;;
         --install-webauth-service)
@@ -6368,6 +6763,14 @@ case "${ACTION}" in
         ;;
     install-self-report-https)
         install_self_report_https
+        exit $?
+        ;;
+    manager-update-mirror-server)
+        run_manager_update_mirror_server
+        exit $?
+        ;;
+    install-manager-update-http)
+        install_manager_update_http
         exit $?
         ;;
     webauth-probe)

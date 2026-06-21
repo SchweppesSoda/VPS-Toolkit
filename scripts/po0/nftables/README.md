@@ -7,6 +7,7 @@
 - PO0 不开放 HTTP / WebAuth / Secret URL。
 - PO0 不做本地 DDNS 解析；`--refresh-ddns` 只按外部已上报且仍在 TTL 内的 DDNS 结果重建/应用，不延长原上报 TTL。
 - LAN Worker 负责 DDNS 解析上报、`iplist/ipdb` 资源任务、WebAuth Client、Self-report 接收端。
+- LAN Worker 可选提供 PO0 manager HTTP 更新镜像；只代理固定 manager 脚本，PO0 用 resource token HMAC 校验后才替换本机脚本。
 - Egern 负责移动设备当前出口 IPv4 上报，不再解析 DDNS。
 - 资源任务只允许 `iplist`、`ipdb`，不支持任意远程 shell。
 
@@ -20,6 +21,7 @@
 | 找 PO0 主菜单功能分组、导出/导入、版本和 token bundle | “PO0 主控菜单”、“完整备份与导入恢复” |
 | 管理源 IP 白名单、DDNS、动态来源、attack mode | “源 IP 白名单模式”、“DDNS Resolver 上报”、“attack mode” |
 | 让内网机器领取 iplist/ipdb 资源任务 | “LAN Worker 资源任务” |
+| 让 PO0 从 LAN Worker 一键拉取更新 manager | “PO0 manager HTTP 更新镜像” |
 | 让访问设备自上报当前出口 IPv4 | “LAN Worker Self-report” |
 | 配置 Egern 当前出口 IPv4 SSH 上报 | “Egern 当前出口 IP 上报”，以及 [`clients/egern/README.md`](./clients/egern/README.md) |
 | 配置 Cloudflare Access / WebAuth 放行 | “LAN Worker WebAuth” |
@@ -81,6 +83,24 @@ PO0 主控和 LAN Worker 脚本统一使用 `YYYY.MM.DD+build.N` 混合版本格
 po0-lan-client --upgrade-self
 po0-lan-client --version
 ```
+
+## PO0 manager HTTP 更新镜像
+
+这个功能用于“日常只登录 PO0，也能从 LAN Worker 拉取新版 manager”。先在 LAN Worker 上配置一次 HTTP-only 更新镜像；LAN Worker 到 GitHub raw 使用 HTTPS，PO0 到 LAN Worker 按显式 HTTP URL 拉取。该入口只服务固定路径 `/po0-manager-update/nftables-relay-manager.sh`，不是任意 URL 代理，也不是 PO0 HTTP 控制面。
+
+LAN Worker 上配置镜像域名：
+
+```bash
+po0-lan-client --install-manager-update-http --manager-update-domain <MANAGER_UPDATE_DOMAIN>
+```
+
+PO0 上拉取更新：
+
+```bash
+bash /root/nftables-relay-manager.sh --upgrade-manager-from-lan http://<MANAGER_UPDATE_DOMAIN>/po0-manager-update/nftables-relay-manager.sh
+```
+
+也可以在 PO0 主菜单进入 `脚本版本 / 更新 -> 从 LAN Worker HTTP 更新 manager`，第一次输入 URL 后会保存到 PO0 设置文件。更新时 PO0 会读取本机 resource token，向 LAN Worker 发送随机 nonce 和 `token_id`，下载后校验 HMAC、SHA-256、size、脚本标识、changelog 和 `bash -n`；通过后备份旧脚本并原子替换。更新成功后会询问是否刷新受限 SSH wrapper，不会自动应用 nftables，也不会自动运行诊断。
 
 也可以显式进入向导：
 

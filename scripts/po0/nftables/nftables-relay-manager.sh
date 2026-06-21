@@ -2,9 +2,10 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-nftables-relay-manager"
-SCRIPT_VERSION="2026.06.21+build.5"
+SCRIPT_VERSION="2026.06.21+build.6"
 SCRIPT_RELEASE_DATE="2026-06-21"
 # CHANGELOG_BEGIN
+# - 新增从 LAN Worker HTTP 更新 PO0 manager：校验 resource token HMAC、sha256、脚本语法后原子替换主控脚本。
 # - 脚本 --version 输出改为参考 LAN Worker 的版本面板，并单独显示 build 构建标识。
 # - 修复当前 SSH 临时放行同一 /32 再次加入时只命中过期旧记录、不刷新过期时间的问题。
 # - PO0 受限 authorized_keys 备份改为按 passwd/getent 扫描用户 home，避免漏掉非 /home 路径的上报用户。
@@ -109,6 +110,7 @@ ENABLE_SRC_ALLOWLIST="0"
 SRC_ALLOWLIST_MODE="trusted_dynamic"
 SRC_ALLOWLIST_REGION_IDS=""
 AUTOMATION_MODE="regular"
+MANAGER_UPDATE_URL=""
 declare -a RULES=()
 declare -a IMPORTED_RULES=()
 declare -a DISCOVERED_RULES=()
@@ -6889,6 +6891,9 @@ read_settings_file() {
             AUTOMATION_MODE)
                 AUTOMATION_MODE="${value}"
                 ;;
+            MANAGER_UPDATE_URL)
+                MANAGER_UPDATE_URL="${value}"
+                ;;
         esac
     done < "${SETTINGS_FILE}"
 }
@@ -6912,6 +6917,7 @@ load_settings() {
     SRC_ALLOWLIST_MODE="trusted_dynamic"
     SRC_ALLOWLIST_REGION_IDS=""
     AUTOMATION_MODE="regular"
+    MANAGER_UPDATE_URL=""
     RELAY_LAN_IP_SOURCE="none"
     PUBLIC_IP_SOURCE="none"
     read_settings_file
@@ -6987,6 +6993,7 @@ ENABLE_SRC_ALLOWLIST="${ENABLE_SRC_ALLOWLIST}"
 SRC_ALLOWLIST_MODE="${SRC_ALLOWLIST_MODE}"
 SRC_ALLOWLIST_REGION_IDS="${SRC_ALLOWLIST_REGION_IDS}"
 AUTOMATION_MODE="${AUTOMATION_MODE}"
+MANAGER_UPDATE_URL="${MANAGER_UPDATE_URL}"
 EOF
     mv -f "${tmp}" "${SETTINGS_FILE}"
     SETTINGS_CACHE_READY="1"
@@ -11539,6 +11546,274 @@ script_changelog_lines() {
     [[ "${found}" == "1" ]]
 }
 
+script_file_var() {
+    local file="$1"
+    local name="$2"
+    local line value
+    [[ -r "${file}" ]] || return 1
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        [[ "${line}" == "${name}="* ]] || continue
+        value="${line#*=}"
+        value="${value%\"}"
+        value="${value#\"}"
+        printf '%s\n' "${value}"
+        return 0
+    done < "${file}"
+    return 1
+}
+
+sha256_file_full() {
+    local file="$1"
+    command -v sha256sum >/dev/null 2>&1 || return 1
+    sha256sum "${file}" 2>/dev/null | awk '{ print $1 }'
+}
+
+sha256_string() {
+    local value="$1"
+    if command -v sha256sum >/dev/null 2>&1; then
+        printf '%s' "${value}" | sha256sum | awk '{ print $1 }'
+    elif command -v openssl >/dev/null 2>&1; then
+        printf '%s' "${value}" | openssl dgst -sha256 2>/dev/null | awk '{ print $NF }'
+    else
+        return 1
+    fi
+}
+
+hmac_sha256_hex() {
+    local key="$1"
+    local message="$2"
+    local py
+    if command -v openssl >/dev/null 2>&1; then
+        printf '%s' "${message}" | openssl dgst -sha256 -hmac "${key}" 2>/dev/null | awk '{ print $NF }'
+        return 0
+    fi
+    if command -v python3 >/dev/null 2>&1; then
+        py="python3"
+    elif command -v python >/dev/null 2>&1; then
+        py="python"
+    else
+        return 1
+    fi
+    HMAC_KEY="${key}" HMAC_MESSAGE="${message}" "${py}" - <<'PY'
+import hashlib
+import hmac
+import os
+print(hmac.new(os.environ["HMAC_KEY"].encode(), os.environ["HMAC_MESSAGE"].encode(), hashlib.sha256).hexdigest())
+PY
+}
+
+random_update_nonce() {
+    local nonce
+    if command -v openssl >/dev/null 2>&1; then
+        nonce="$(openssl rand -hex 16 2>/dev/null || true)"
+    fi
+    if [[ -z "${nonce:-}" && -r /dev/urandom ]]; then
+        nonce="$(od -An -N16 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')"
+    fi
+    [[ -n "${nonce:-}" ]] || nonce="$(date -u '+%Y%m%dT%H%M%SZ')-$RANDOM"
+    printf '%s\n' "${nonce}"
+}
+
+normalize_manager_update_url() {
+    local url="$1"
+    url="$(trim "${url}")"
+    [[ -n "${url}" ]] || return 1
+    case "${url}" in
+        http://*|https://*) ;;
+        *) url="http://${url}" ;;
+    esac
+    case "${url}" in
+        http://*) ;;
+        https://*)
+            err "PO0 到 LAN Worker 的 manager 更新入口必须使用 HTTP，不允许 HTTPS：${url}"
+            return 1
+            ;;
+        *)
+            err "manager 更新 URL 必须使用 http://"
+            return 1
+            ;;
+    esac
+    case "${url}" in
+        *\?*)
+            err "manager 更新 URL 不需要查询参数；脚本会自动追加 nonce 和 token_id。"
+            return 1
+            ;;
+    esac
+    case "${url}" in
+        */po0-manager-update/nftables-relay-manager.sh)
+            ;;
+        */)
+            url="${url}po0-manager-update/nftables-relay-manager.sh"
+            ;;
+        *)
+            url="${url}/po0-manager-update/nftables-relay-manager.sh"
+            ;;
+    esac
+    printf '%s\n' "${url}"
+}
+
+append_manager_update_query() {
+    local url="$1"
+    local nonce="$2"
+    local token_id="$3"
+    if [[ "${url}" == *"?"* ]]; then
+        printf '%s&nonce=%s&token_id=%s\n' "${url}" "${nonce}" "${token_id}"
+    else
+        printf '%s?nonce=%s&token_id=%s\n' "${url}" "${nonce}" "${token_id}"
+    fi
+}
+
+http_header_value() {
+    local headers="$1"
+    local name="$2"
+    awk -v name="$(printf '%s' "${name}" | tr '[:upper:]' '[:lower:]')" '
+        BEGIN { FS=":" }
+        {
+            key=tolower($1)
+            if (key == name) {
+                sub(/^[^:]*:[[:space:]]*/, "", $0)
+                sub(/\r$/, "", $0)
+                value=$0
+            }
+        }
+        END {
+            if (value != "") print value
+        }
+    ' "${headers}"
+}
+
+validate_manager_update_candidate() {
+    local file="$1"
+    local name version
+    [[ -s "${file}" ]] || { err "下载到的 manager 脚本为空。"; return 1; }
+    name="$(script_file_var "${file}" "SCRIPT_NAME" 2>/dev/null || true)"
+    [[ "${name}" == "${SCRIPT_NAME}" ]] || {
+        err "下载到的脚本不是 ${SCRIPT_NAME}：SCRIPT_NAME=${name:-missing}"
+        return 1
+    }
+    version="$(script_file_var "${file}" "SCRIPT_VERSION" 2>/dev/null || true)"
+    [[ -n "${version}" ]] || { err "下载到的脚本缺少 SCRIPT_VERSION。"; return 1; }
+    script_changelog_lines "${file}" >/dev/null || {
+        err "下载到的脚本缺少 CHANGELOG 更新内容。"
+        return 1
+    }
+    bash -n "${file}" || {
+        err "下载到的脚本未通过 bash -n。"
+        return 1
+    }
+}
+
+install_manager_update_candidate() {
+    local candidate="$1"
+    local old_version="$2"
+    local new_version="$3"
+    local target="${MANAGER_INSTALL_PATH}"
+    local backup changelog line
+    mkdir -p "$(dirname "${target}")" "${BACKUP_DIR}" || return 1
+    if [[ -f "${target}" ]]; then
+        backup="${BACKUP_DIR}/nftables-relay-manager.sh.${old_version}.$(date '+%Y%m%d_%H%M%S')"
+        cp -p -- "${target}" "${backup}" 2>/dev/null || {
+            err "备份当前 manager 脚本失败：${target}"
+            return 1
+        }
+    fi
+    chmod 0755 "${candidate}" || return 1
+    mv -f -- "${candidate}" "${target}" || return 1
+    printf 'PO0 manager 已更新：%s\n' "${target}"
+    if [[ -n "${backup:-}" ]]; then
+        printf '旧脚本备份：%s\n' "${backup}"
+    fi
+    if [[ "${old_version}" == "${new_version}" ]]; then
+        printf '版本：%s（与当前执行脚本相同）\n' "${new_version}"
+    else
+        printf '版本：%s -> %s\n' "${old_version}" "${new_version}"
+    fi
+    changelog="$(script_changelog_lines "${target}" 2>/dev/null || true)"
+    if [[ -n "${changelog}" ]]; then
+        printf '更新内容：\n'
+        while IFS= read -r line || [[ -n "${line}" ]]; do
+            printf '  %s\n' "${line}"
+        done <<< "${changelog}"
+    fi
+}
+
+do_upgrade_manager_from_lan() {
+    local raw_url="${1:-}" url token token_id nonce request_url headers tmp
+    local header_sha header_size header_version header_nonce header_sig actual_sha actual_size expected_sig message candidate_version
+    ensure_layout || return 1
+    load_settings 1
+    [[ -n "${raw_url}" ]] || raw_url="${MANAGER_UPDATE_URL}"
+    url="$(normalize_manager_update_url "${raw_url}")" || {
+        err "缺少 LAN Worker manager 更新 HTTP URL。"
+        return 1
+    }
+    token="$(resource_task_token_value 2>/dev/null || true)"
+    [[ -n "${token}" ]] || {
+        err "资源任务 Token 尚未生成，无法校验 LAN Worker HTTP 更新响应。"
+        return 1
+    }
+    command -v curl >/dev/null 2>&1 || {
+        err "系统缺少 curl，无法从 LAN Worker 拉取 manager 更新。"
+        return 1
+    }
+    command -v sha256sum >/dev/null 2>&1 || {
+        err "系统缺少 sha256sum，无法校验 manager 更新。"
+        return 1
+    }
+    token_id="$(sha256_string "${token}")" || {
+        err "系统缺少 SHA-256 工具，无法生成 token_id。"
+        return 1
+    }
+    nonce="$(random_update_nonce)"
+    request_url="$(append_manager_update_query "${url}" "${nonce}" "${token_id}")"
+    make_temp_file "${MANAGER_INSTALL_PATH}.headers" || return 1
+    headers="${TEMP_FILE_RESULT}"
+    make_temp_file "${MANAGER_INSTALL_PATH}" || return 1
+    tmp="${TEMP_FILE_RESULT}"
+    printf '从 LAN Worker 拉取 PO0 manager：%s\n' "${url}"
+    curl -fsSL --connect-timeout 15 --max-time 120 -D "${headers}" -o "${tmp}" "${request_url}" || {
+        err "从 LAN Worker 拉取 manager 更新失败。"
+        return 1
+    }
+    header_sha="$(http_header_value "${headers}" "X-PO0-Manager-SHA256")"
+    header_size="$(http_header_value "${headers}" "X-PO0-Manager-Size")"
+    header_version="$(http_header_value "${headers}" "X-PO0-Manager-Version")"
+    header_nonce="$(http_header_value "${headers}" "X-PO0-Manager-Nonce")"
+    header_sig="$(http_header_value "${headers}" "X-PO0-Manager-HMAC")"
+    [[ "${header_nonce}" == "${nonce}" ]] || { err "更新响应 nonce 不匹配。"; return 1; }
+    [[ "${header_sha}" =~ ^[A-Fa-f0-9]{64}$ ]] || { err "更新响应缺少有效 SHA-256。"; return 1; }
+    [[ "${header_size}" =~ ^[0-9]+$ ]] || { err "更新响应缺少有效 size。"; return 1; }
+    [[ -n "${header_version}" ]] || { err "更新响应缺少版本号。"; return 1; }
+    [[ "${header_sig}" =~ ^[A-Fa-f0-9]{64}$ ]] || { err "更新响应缺少有效 HMAC。"; return 1; }
+    actual_sha="$(sha256_file_full "${tmp}")" || return 1
+    actual_size="$(wc -c < "${tmp}" | tr -d '[:space:]')"
+    [[ "${actual_sha}" == "${header_sha}" && "${actual_size}" == "${header_size}" ]] || {
+        err "更新脚本 SHA-256 或 size 与响应头不一致。"
+        return 1
+    }
+    message="${nonce}|${header_sha}|${header_size}|${header_version}"
+    expected_sig="$(hmac_sha256_hex "${token}" "${message}")" || {
+        err "系统缺少 openssl 或 python，无法校验 HMAC。"
+        return 1
+    }
+    [[ "${expected_sig}" == "${header_sig}" ]] || {
+        err "更新响应 HMAC 校验失败，已拒绝安装。"
+        return 1
+    }
+    validate_manager_update_candidate "${tmp}" || return 1
+    candidate_version="$(script_file_var "${tmp}" "SCRIPT_VERSION" 2>/dev/null)" || return 1
+    [[ "${header_version}" == "${candidate_version}" ]] || {
+        err "更新响应版本号与脚本 SCRIPT_VERSION 不一致。"
+        return 1
+    }
+    install_manager_update_candidate "${tmp}" "${SCRIPT_VERSION}" "${candidate_version}" || return 1
+    if [[ -r /dev/tty && -w /dev/tty ]]; then
+        if confirm_yes "是否使用更新后的脚本刷新专用受限 SSH wrapper"; then
+            bash "${MANAGER_INSTALL_PATH}" --refresh-report-key-wrapper
+        fi
+    fi
+}
+
 current_script_changelog() {
     local script_path
     script_path="$(current_script_path 2>/dev/null || true)"
@@ -11604,6 +11879,41 @@ do_show_version_panel() {
     else
         print_panel_note "未提供当前版本更新内容"
     fi
+}
+
+do_upgrade_manager_from_lan_interactive() {
+    local url
+    load_settings 1
+    if [[ -n "${MANAGER_UPDATE_URL}" ]]; then
+        url="$(prompt_with_default "LAN Worker manager 更新 HTTP URL" "${MANAGER_UPDATE_URL}")"
+    else
+        url="$(read_prompt "LAN Worker manager 更新 HTTP URL: ")" || return 1
+    fi
+    [[ -n "$(trim "${url}")" ]] || { err "更新 URL 不能为空。"; return 1; }
+    url="$(normalize_manager_update_url "${url}")" || return 1
+    MANAGER_UPDATE_URL="${url}"
+    save_settings || return 1
+    do_upgrade_manager_from_lan "${url}"
+}
+
+do_manage_version_update() {
+    local choice
+    while true; do
+        menu_clear_screen
+        do_show_version_panel
+        print_menu_section "更新"
+        print_menu_pair 1 "从 LAN Worker HTTP 更新 manager" 2 "显示当前版本更新内容"
+        print_menu_item 0 "返回"
+        print_menu_footer
+        read_menu_choice_or_return choice "请选择操作 [0-2]: " || return 0
+        case "${choice}" in
+            1) do_upgrade_manager_from_lan_interactive; pause_before_return ;;
+            2) do_show_changelog; pause_before_return ;;
+            0) return 0 ;;
+            "") ;;
+            *) err "无效选择。"; pause_before_return ;;
+        esac
+    done
 }
 
 full_backup_default_path() {
@@ -12090,6 +12400,8 @@ print_cli_usage() {
         "常用命令:" \
         "  --version        以面板显示当前脚本名称、版本、build 构建标识、路径和默认安装路径。" \
         "  --changelog      显示当前版本更新内容；适合 scp 上传后确认本次变化。" \
+        "  --upgrade-manager-from-lan [URL]" \
+        "                   从 LAN Worker HTTP 更新镜像拉取新版 PO0 manager，校验 resource token HMAC 后原子替换脚本。" \
         "  --backup-export [PATH]" \
         "                   导出 PO0 完整备份；默认包含 token、状态、资源文件、受限 key 信息和脚本快照，备份包 chmod 600。" \
         "  --backup-import PATH [--restore-cron] [--restore-systemd] [--restore-nftables] [--restore-report-keys] [--restore-all] [--dry-run]" \
@@ -12196,7 +12508,7 @@ main_menu() {
         print_menu_item 13 "内网资源更新任务"
         print_menu_section "系统维护"
         print_menu_pair 14 "中转机参数" 15 "诊断 / 自检"
-        print_menu_pair 16 "查看脚本版本" 17 "可选开启 BBR + fq"
+        print_menu_pair 16 "脚本版本 / 更新" 17 "可选开启 BBR + fq"
         print_menu_item 18 "完整备份 / 导入恢复"
         print_menu_section "退出"
         print_menu_item 0 "退出"
@@ -12218,7 +12530,7 @@ main_menu() {
             13) do_manage_resource_tasks ;;
             14) do_edit_settings; pause_before_return ;;
             15) do_diagnose; pause_before_return ;;
-            16) do_show_version_panel; pause_before_return ;;
+            16) do_manage_version_update ;;
             17) do_enable_bbr; pause_before_return ;;
             18) do_full_backup_restore_interactive; pause_before_return ;;
             0)
@@ -12266,6 +12578,14 @@ case "${1:-}" in
         ;;
     --backup-import)
         do_full_backup_import "${@:2}"
+        exit $?
+        ;;
+    --upgrade-manager-from-lan)
+        if [[ -n "${2:-}" && "${2:-}" != --* ]]; then
+            do_upgrade_manager_from_lan "${2:-}"
+        else
+            do_upgrade_manager_from_lan
+        fi
         exit $?
         ;;
     --refresh-ddns)

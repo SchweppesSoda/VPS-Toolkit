@@ -16,7 +16,8 @@
 - LAN Worker 的 DDNS resolver 上报计划和资源任务领取计划必须分开；资源任务只领取 PO0 已创建的 pending 任务，不复用 DDNS TTL / 上报频率作为资源轮询逻辑。
 - Egern 模块只做当前出口 IPv4 的 SSH report，不做 DDNS。
 - Self-report 客户端上报到 LAN Worker，再由 LAN Worker SSH 到 PO0。
-- PO0 manager 推荐本地 `scp` 上传更新；LAN Worker client 才使用 `po0-lan-client --upgrade-self`。
+- PO0 manager 首次部署仍推荐本地 `scp` 上传；后续可由 PO0 通过 LAN Worker HTTP 更新镜像拉取固定 manager 脚本，必须校验 resource token HMAC 后才替换。
+- LAN Worker client 才使用 `po0-lan-client --upgrade-self`；LAN Worker 的 manager 更新镜像只服务固定脚本路径，不做任意 URL 代理。
 
 ## 交互脚本规则
 
@@ -32,6 +33,7 @@
 - PO0 负责创建资源任务和导入结果；LAN Worker 负责轮询、领取、下载和上传结果。
 - 受限 key / wrapper 改动要同时考虑刷新入口和拒绝日志，不能只改脚本正文。
 - 资源上传通过 PO0 manager 的受控 stdin 上传路径，不回退到 SCP。
+- PO0 manager HTTP 更新不是资源任务；HTTP 入口在 LAN Worker，PO0 只在 HMAC、sha256、size、脚本标识和 `bash -n` 全部通过后安装。
 - SSH 参数处理要集中复用 helper，不能各调用点各自拆参数。
 
 ## 文档同步
