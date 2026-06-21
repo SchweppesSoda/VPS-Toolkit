@@ -2,9 +2,13 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-nftables-relay-manager"
-SCRIPT_VERSION="2026.06.20+build.3"
-SCRIPT_RELEASE_DATE="2026-06-20"
+SCRIPT_VERSION="2026.06.21+build.3"
+SCRIPT_RELEASE_DATE="2026-06-21"
 # CHANGELOG_BEGIN
+# - PO0 受限 authorized_keys 备份改为按 passwd/getent 扫描用户 home，避免漏掉非 /home 路径的上报用户。
+# - 修复完整备份导出指定相对路径时可能写入临时目录并随清理丢失的问题；恢复 cron 时优先从备份的 cron block 识别旧脚本路径。
+# - 新增 PO0 全功能备份 / 导入恢复：默认导出 token、状态、资源任务、iplist/ipdb、resource inbox、wrapper、受限 authorized_keys 信息和脚本快照；导入默认只恢复配置/状态文件。
+# - PO0 导入新增显式恢复 flag：cron、systemd/nftables、/etc/nftables.conf/sysctl、受限 authorized_keys 需明确确认或使用 --restore-all。
 # - Self-report client 部署示例改为每 60 分钟上报一次，匹配客户端新的默认间隔和更长间隔支持。
 # - Self-report 部署示例改为 HTTPS 域名/Caddy 模式，访问设备默认上报到 https://<SELF_REPORT_DOMAIN>/report。
 # - Self-report HTTP 直连示例下沉为兼容模式，不再作为默认推荐路径。
@@ -11538,6 +11542,472 @@ do_show_version_panel() {
     fi
 }
 
+full_backup_default_path() {
+    local prefix="" stamp
+    validate_node_name "${NODE_NAME}" || NODE_NAME=""
+    [[ -n "${NODE_NAME}" ]] && prefix="${NODE_NAME}-"
+    stamp="$(date '+%Y%m%d_%H%M%S')"
+    printf '%s/%spo0-manager-full-backup-%s.tar.gz\n' "${BACKUP_DIR}" "${prefix}" "${stamp}"
+}
+
+absolute_output_path() {
+    local path="$1"
+    case "${path}" in
+        /*)
+            printf '%s\n' "${path}"
+            ;;
+        *)
+            printf '%s/%s\n' "$(pwd -P)" "${path#./}"
+            ;;
+    esac
+}
+
+po0_backup_copy_file() {
+    local src="$1"
+    local dst="$2"
+    [[ -r "${src}" ]] || return 1
+    mkdir -p "$(dirname "${dst}")" || return 1
+    cp -p -- "${src}" "${dst}" || return 1
+}
+
+write_cron_block_to_file() {
+    local begin="$1"
+    local end="$2"
+    local output="$3"
+    local line in_block=0 found=0
+    command -v crontab >/dev/null 2>&1 || return 1
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        if [[ "${line}" == "${begin}" ]]; then
+            in_block=1
+            found=1
+        fi
+        [[ "${in_block}" == "1" ]] && printf '%s\n' "${line}"
+        if [[ "${line}" == "${end}" ]]; then
+            in_block=0
+        fi
+    done < <(crontab -l 2>/dev/null || true) > "${output}"
+    [[ "${found}" == "1" ]]
+}
+
+discover_report_keys_to_file() {
+    local output="$1"
+    local auth user home line scope public_part raw seen="|"
+    : > "${output}" || return 1
+    while IFS=: read -r user _ _ _ _ home _ || [[ -n "${user}${home}" ]]; do
+        [[ -n "${user}" && -n "${home}" ]] || continue
+        auth="${home}/.ssh/authorized_keys"
+        [[ -r "${auth}" ]] || continue
+        case "${seen}" in
+            *"|${auth}|"*) continue ;;
+        esac
+        seen+="${auth}|"
+        while IFS= read -r line || [[ -n "${line}" ]]; do
+            [[ "${line}" == *"po0-report:scope="* ]] || continue
+            public_part="$(report_key_public_part "${line}" || true)"
+            [[ -n "${public_part}" ]] || continue
+            scope="${line#*po0-report:scope=}"
+            scope="${scope%%,*}"
+            scope="$(normalize_report_key_scope "${scope}")"
+            raw="${line//|/ }"
+            printf '%s|%s|%s|%s\n' "${user}" "${scope}" "${public_part}" "${raw}" >> "${output}"
+        done < "${auth}"
+    done < <(getent passwd 2>/dev/null || cat /etc/passwd 2>/dev/null || true)
+    for auth in /root/.ssh/authorized_keys /home/*/.ssh/authorized_keys; do
+        [[ -r "${auth}" ]] || continue
+        case "${seen}" in
+            *"|${auth}|"*) continue ;;
+        esac
+        seen+="${auth}|"
+        case "${auth}" in
+            /root/*)
+                user="root"
+                ;;
+            /home/*/.ssh/authorized_keys)
+                user="${auth#/home/}"
+                user="${user%%/*}"
+                ;;
+            *)
+                continue
+                ;;
+        esac
+        while IFS= read -r line || [[ -n "${line}" ]]; do
+            [[ "${line}" == *"po0-report:scope="* ]] || continue
+            public_part="$(report_key_public_part "${line}" || true)"
+            [[ -n "${public_part}" ]] || continue
+            scope="${line#*po0-report:scope=}"
+            scope="${scope%%,*}"
+            scope="$(normalize_report_key_scope "${scope}")"
+            raw="${line//|/ }"
+            printf '%s|%s|%s|%s\n' "${user}" "${scope}" "${public_part}" "${raw}" >> "${output}"
+        done < "${auth}"
+    done
+}
+
+write_system_state_to_stage() {
+    local dir="$1"
+    mkdir -p "${dir}" || return 1
+    {
+        printf 'manager_install_path=%s\n' "${MANAGER_INSTALL_PATH}"
+        printf 'main_conf=%s\n' "${MAIN_CONF}"
+        printf 'sysctl_conf=%s\n' "${SYSCTL_CONF}"
+        printf 'nftables_active=%s\n' "$(systemctl is-active nftables 2>/dev/null || true)"
+        printf 'nftables_enabled=%s\n' "$(systemctl is-enabled nftables 2>/dev/null || true)"
+        printf 'learn_service_active=%s\n' "$(systemctl is-active "${LEARN_SERVICE_NAME}" 2>/dev/null || true)"
+        printf 'learn_service_enabled=%s\n' "$(systemctl is-enabled "${LEARN_SERVICE_NAME}" 2>/dev/null || true)"
+    } > "${dir}/system-state.env"
+    write_cron_block_to_file "$(resource_task_cron_begin_marker)" "$(resource_task_cron_end_marker)" "${dir}/resource-task-cron.managed" || true
+    write_cron_block_to_file "$(dynamic_allowlist_cron_begin_marker)" "$(dynamic_allowlist_cron_end_marker)" "${dir}/dynamic-allowlist-cron.managed" || true
+    discover_report_keys_to_file "${dir}/report-keys.tsv" || true
+    po0_backup_copy_file "${MAIN_CONF}" "${dir}/nftables.conf" || true
+    po0_backup_copy_file "${SYSCTL_CONF}" "${dir}/sysctl.conf" || true
+    po0_backup_copy_file "${LEARN_SERVICE_FILE}" "${dir}/nftables-relay-learn.service" || true
+    po0_backup_copy_file "${LEARN_RUNNER}" "${dir}/nftables-relay-learn" || true
+}
+
+do_full_backup_export() {
+    local output="${1:-}" work script_path old_umask local_status
+    command -v tar >/dev/null 2>&1 || { err "缺少 tar，无法创建完整备份。"; return 1; }
+    ensure_layout || return 1
+    load_settings 1
+    [[ -n "${output}" ]] || output="$(full_backup_default_path)"
+    output="$(absolute_output_path "${output}")"
+    mkdir -p "$(dirname "${output}")" || return 1
+    make_temp_dir "${BACKUP_DIR}" "po0-full-backup" || return 1
+    work="${TEMP_DIR_RESULT}"
+    chmod 700 "${work}" 2>/dev/null || true
+    old_umask="$(umask)"
+    umask 077
+    (
+        mkdir -p "${work}/files/conf-dir" "${work}/system" "${work}/scripts" || exit 1
+        {
+            printf 'format=po0-manager-full-backup-v1\n'
+            printf 'script_name=%s\n' "${SCRIPT_NAME}"
+            printf 'script_version=%s\n' "${SCRIPT_VERSION}"
+            printf 'created_at=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+            printf 'conf_dir=%s\n' "${CONF_DIR}"
+            printf 'manager_install_path=%s\n' "${MANAGER_INSTALL_PATH}"
+            printf 'contains_secrets=1\n'
+        } > "${work}/manifest.env" || exit 1
+        tar -cf - \
+            --exclude './backups' \
+            --exclude './po0-ipdb-venv' \
+            --exclude '*.lock' \
+            -C "${CONF_DIR}" . | tar -xf - -C "${work}/files/conf-dir" || exit 1
+        write_system_state_to_stage "${work}/system" || exit 1
+        script_path="$(current_script_path 2>/dev/null || true)"
+        [[ -n "${script_path}" && -r "${script_path}" ]] && po0_backup_copy_file "${script_path}" "${work}/scripts/nftables-relay-manager.sh" || true
+        (cd "${work}" && tar -czf "${output}" .) || exit 1
+    )
+    local_status=$?
+    umask "${old_umask}"
+    [[ "${local_status}" == "0" ]] || return 1
+    chmod 600 "${output}" 2>/dev/null || true
+    success "PO0 完整备份已导出：${output}"
+    info "备份包默认包含 token、动态状态、resource inbox、Egern/Worker public key 信息和脚本快照；已尝试设置 chmod 600。"
+}
+
+validate_full_backup_tar_members() {
+    local archive="$1" list line
+    list="$(mktemp "${TMPDIR:-/tmp}/po0-full-backup-list.XXXXXX")" || return 1
+    TEMP_FILES+=("${list}")
+    tar -tzf "${archive}" > "${list}" || return 1
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        case "${line}" in
+            ""|/*|../*|*/../*)
+                err "备份包包含不安全路径：${line}"
+                return 1
+                ;;
+        esac
+    done < "${list}"
+}
+
+backup_current_conf_dir_before_restore() {
+    local path
+    mkdir -p "${BACKUP_DIR}" || return 1
+    path="${BACKUP_DIR}/pre-full-restore-$(date '+%Y%m%d_%H%M%S').tar.gz"
+    tar -czf "${path}" \
+        --exclude './backups' \
+        --exclude './po0-ipdb-venv' \
+        --exclude '*.lock' \
+        -C "${CONF_DIR}" . 2>/dev/null || true
+    chmod 600 "${path}" 2>/dev/null || true
+    info "恢复前已备份当前 ${CONF_DIR}：${path}"
+}
+
+restore_file_from_full_backup() {
+    local src="$1"
+    local dst="$2"
+    local mode="${3:-600}"
+    local backup
+    [[ -f "${src}" ]] || return 0
+    if [[ "${PO0_FULL_RESTORE_DRY_RUN:-0}" == "1" ]]; then
+        printf '[dry-run] restore %s -> %s\n' "${src}" "${dst}"
+        return 0
+    fi
+    mkdir -p "$(dirname "${dst}")" || return 1
+    if [[ -e "${dst}" ]]; then
+        backup="${dst}.bak.$(date '+%Y%m%d_%H%M%S')"
+        cp -p -- "${dst}" "${backup}" 2>/dev/null || true
+    fi
+    cp -p -- "${src}" "${dst}" || return 1
+    chmod "${mode}" "${dst}" 2>/dev/null || true
+}
+
+restore_conf_dir_from_full_backup() {
+    local work="$1"
+    [[ -d "${work}/files/conf-dir" ]] || { err "备份包缺少 files/conf-dir。"; return 1; }
+    if [[ "${PO0_FULL_RESTORE_DRY_RUN:-0}" == "1" ]]; then
+        printf '[dry-run] restore files/conf-dir -> %s\n' "${CONF_DIR}"
+        return 0
+    fi
+    mkdir -p "${CONF_DIR}" || return 1
+    backup_current_conf_dir_before_restore || true
+    tar -cf - -C "${work}/files/conf-dir" . | tar -xf - -C "${CONF_DIR}" || return 1
+    chmod 700 "${RESOURCE_INBOX_DIR}" 2>/dev/null || true
+    ensure_report_key_wrapper || return 1
+}
+
+full_backup_manifest_value() {
+    local manifest="$1"
+    local key="$2"
+    local line
+    [[ -r "${manifest}" ]] || return 1
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        [[ "${line}" == "${key}="* ]] || continue
+        printf '%s\n' "${line#*=}"
+        return 0
+    done < "${manifest}"
+    return 1
+}
+
+rewrite_manager_cron_block_for_current_path() {
+    local block="$1"
+    local old_path="$2"
+    local current_path="$3"
+    local line
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        [[ -n "${old_path}" ]] && line="${line//${old_path}/${current_path}}"
+        printf '%s\n' "${line}"
+    done < "${block}"
+}
+
+cron_block_bash_script_path() {
+    local block line value
+    for block in "$@"; do
+        [[ -r "${block}" ]] || continue
+        while IFS= read -r line || [[ -n "${line}" ]]; do
+            [[ -n "${line}" && "${line}" != \#* ]] || continue
+            case "${line}" in
+                *" bash '"*)
+                    value="${line#* bash \'}"
+                    value="${value%%\'*}"
+                    [[ -n "${value}" ]] && { printf '%s\n' "${value}"; return 0; }
+                    ;;
+                *" bash "*)
+                    value="${line#* bash }"
+                    value="${value%% *}"
+                    [[ -n "${value}" ]] && { printf '%s\n' "${value}"; return 0; }
+                    ;;
+            esac
+        done < "${block}"
+    done
+    return 1
+}
+
+restore_managed_cron_blocks_from_full_backup() {
+    local work="$1" tmp restored=0 old_path script_path
+    command -v crontab >/dev/null 2>&1 || { err "缺少 crontab，无法恢复 cron。"; return 1; }
+    if [[ "${PO0_FULL_RESTORE_DRY_RUN:-0}" == "1" ]]; then
+        printf '[dry-run] restore PO0 managed cron blocks\n'
+        return 0
+    fi
+    old_path="$(cron_block_bash_script_path "${work}/system/resource-task-cron.managed" "${work}/system/dynamic-allowlist-cron.managed" 2>/dev/null || true)"
+    [[ -n "${old_path}" ]] || old_path="$(full_backup_manifest_value "${work}/system/system-state.env" "manager_install_path" 2>/dev/null || true)"
+    script_path="$(ensure_persistent_manager_script)" || return 1
+    tmp="${CONF_DIR}/po0-full-cron.restore.$$"
+    {
+        crontab -l 2>/dev/null | write_resource_task_cron_without_managed_block | write_dynamic_allowlist_cron_without_managed_block || true
+        if [[ -s "${work}/system/resource-task-cron.managed" ]]; then
+            rewrite_manager_cron_block_for_current_path "${work}/system/resource-task-cron.managed" "${old_path}" "${script_path}"
+            restored=1
+        fi
+        if [[ -s "${work}/system/dynamic-allowlist-cron.managed" ]]; then
+            rewrite_manager_cron_block_for_current_path "${work}/system/dynamic-allowlist-cron.managed" "${old_path}" "${script_path}"
+            restored=1
+        fi
+    } > "${tmp}" || return 1
+    crontab "${tmp}" || {
+        rm -f -- "${tmp}" 2>/dev/null || true
+        return 1
+    }
+    rm -f -- "${tmp}" 2>/dev/null || true
+    [[ "${restored}" == "1" ]] && success "已恢复 PO0 managed cron block。" || info "备份包没有 PO0 managed cron block。"
+}
+
+restore_nftables_system_from_full_backup() {
+    local work="$1"
+    restore_file_from_full_backup "${work}/system/nftables.conf" "${MAIN_CONF}" 644 || return 1
+    restore_file_from_full_backup "${work}/system/sysctl.conf" "${SYSCTL_CONF}" 644 || return 1
+    if [[ "${PO0_FULL_RESTORE_DRY_RUN:-0}" == "1" ]]; then
+        printf '[dry-run] enable/apply nftables and sysctl\n'
+        return 0
+    fi
+    enable_ip_forward || true
+    if [[ -f "${MAIN_CONF}" ]]; then
+        apply_full_config || return 1
+    fi
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl enable --now nftables 2>/dev/null || warn "无法自动启用 nftables 服务，请手动检查。"
+    fi
+    success "已恢复 /etc/nftables.conf、sysctl 并尝试应用 nftables。"
+}
+
+restore_systemd_from_full_backup() {
+    local work="$1"
+    if [[ "${PO0_FULL_RESTORE_DRY_RUN:-0}" == "1" ]]; then
+        printf '[dry-run] regenerate PO0 systemd services\n'
+        return 0
+    fi
+    if [[ -f "${work}/system/nftables-relay-learn.service" || -f "${work}/system/nftables-relay-learn" ]]; then
+        enable_learning_service || return 1
+        success "已用当前脚本重新生成并启用学习服务：${LEARN_SERVICE_NAME}"
+    else
+        info "备份包没有学习服务快照，跳过 systemd 学习服务恢复。"
+    fi
+}
+
+restore_report_keys_from_full_backup() {
+    local work="$1" file user scope public_part raw restored=0
+    file="${work}/system/report-keys.tsv"
+    [[ -s "${file}" ]] || { info "备份包没有 PO0 受限 authorized_keys 记录。"; return 0; }
+    if [[ "${PO0_FULL_RESTORE_DRY_RUN:-0}" == "1" ]]; then
+        printf '[dry-run] restore PO0 restricted authorized_keys from %s\n' "${file}"
+        return 0
+    fi
+    ensure_report_key_wrapper || return 1
+    while IFS='|' read -r user scope public_part raw || [[ -n "${user}${scope}${public_part}" ]]; do
+        [[ -n "${user}" && -n "${scope}" && -n "${public_part}" ]] || continue
+        install_report_public_key "${user}" "${scope}" "${public_part}" || return 1
+        restored=1
+    done < "${file}"
+    [[ "${restored}" == "1" ]] && success "已恢复 PO0 受限 authorized_keys 条目。" || info "没有可恢复的 PO0 受限 key。"
+}
+
+do_full_backup_import() {
+    local archive="${1:-}" restore_cron=0 restore_systemd=0 restore_nftables=0 restore_keys=0 work local_status arg temp_parent
+    PO0_FULL_RESTORE_DRY_RUN=0
+    shift || true
+    while [[ $# -gt 0 ]]; do
+        arg="$1"
+        case "${arg}" in
+            --restore-cron)
+                restore_cron=1
+                ;;
+            --restore-systemd)
+                restore_systemd=1
+                ;;
+            --restore-nftables|--restore-system)
+                restore_nftables=1
+                ;;
+            --restore-report-keys|--restore-authorized-keys)
+                restore_keys=1
+                ;;
+            --restore-all)
+                restore_cron=1
+                restore_systemd=1
+                restore_nftables=1
+                restore_keys=1
+                ;;
+            --dry-run)
+                PO0_FULL_RESTORE_DRY_RUN=1
+                ;;
+            *)
+                err "未知导入参数：${arg}"
+                return 1
+                ;;
+        esac
+        shift
+    done
+    [[ -n "${archive}" ]] || { err "缺少备份包路径。"; return 1; }
+    [[ -r "${archive}" ]] || { err "无法读取备份包：${archive}"; return 1; }
+    command -v tar >/dev/null 2>&1 || { err "缺少 tar，无法导入完整备份。"; return 1; }
+    validate_full_backup_tar_members "${archive}" || return 1
+    if [[ "${PO0_FULL_RESTORE_DRY_RUN:-0}" == "1" ]]; then
+        temp_parent="${TMPDIR:-/tmp}"
+    else
+        ensure_layout || return 1
+        temp_parent="${BACKUP_DIR}"
+    fi
+    make_temp_dir "${temp_parent}" "po0-full-restore" || return 1
+    work="${TEMP_DIR_RESULT}"
+    chmod 700 "${work}" 2>/dev/null || true
+    tar -xzf "${archive}" -C "${work}" || return 1
+    [[ -f "${work}/manifest.env" ]] || { err "备份包缺少 manifest.env。"; return 1; }
+    local_status=0
+    restore_conf_dir_from_full_backup "${work}" || local_status=1
+    if [[ "${local_status}" == "0" && "${PO0_FULL_RESTORE_DRY_RUN:-0}" != "1" ]]; then
+        load_settings 1 || true
+        load_rules 1 || true
+    fi
+    if [[ "${restore_cron}" == "1" ]]; then
+        restore_managed_cron_blocks_from_full_backup "${work}" || local_status=1
+    fi
+    if [[ "${restore_nftables}" == "1" ]]; then
+        restore_nftables_system_from_full_backup "${work}" || local_status=1
+    fi
+    if [[ "${restore_systemd}" == "1" ]]; then
+        restore_systemd_from_full_backup "${work}" || local_status=1
+    fi
+    if [[ "${restore_keys}" == "1" ]]; then
+        restore_report_keys_from_full_backup "${work}" || local_status=1
+    fi
+    [[ "${local_status}" == "0" ]] || return 1
+    if [[ "${PO0_FULL_RESTORE_DRY_RUN:-0}" == "1" ]]; then
+        success "PO0 完整备份 dry-run 完成，未写入 live state：${archive}"
+    else
+        success "PO0 完整备份已导入：${archive}"
+    fi
+    if (( restore_cron == 0 && restore_systemd == 0 && restore_nftables == 0 && restore_keys == 0 )); then
+        info "默认仅恢复 ${CONF_DIR} 下的配置、token、状态和资源文件；cron、systemd/nftables 和 authorized_keys 未恢复。需要时加 --restore-cron、--restore-systemd、--restore-nftables、--restore-report-keys 或 --restore-all。"
+    fi
+}
+
+do_full_backup_restore_interactive() {
+    local choice path
+    print_menu_section "PO0 完整备份 / 恢复"
+    print_menu_item 1 "导出完整备份"
+    print_menu_item 2 "导入：只恢复配置、token、状态和资源文件"
+    print_menu_item 3 "导入：恢复全部（含 cron/systemd/nftables/authorized_keys）"
+    print_menu_item 0 "返回"
+    print_menu_footer
+    read_menu_choice_or_return choice "请选择操作 [0-3]: " || return 0
+    case "${choice}" in
+        1)
+            path="$(prompt_with_default "备份输出路径" "$(full_backup_default_path)")"
+            do_full_backup_export "${path}"
+            ;;
+        2)
+            path="$(prompt_with_default "备份包路径" "")"
+            [[ -n "${path}" ]] || return 0
+            do_full_backup_import "${path}"
+            ;;
+        3)
+            path="$(prompt_with_default "备份包路径" "")"
+            [[ -n "${path}" ]] || return 0
+            warn "即将恢复 cron、systemd/nftables 和 PO0 受限 authorized_keys；这会修改本机运行入口。"
+            confirm_strong_yes "确认恢复全部" || return 0
+            do_full_backup_import "${path}" --restore-all
+            ;;
+        0)
+            return 0
+            ;;
+        *)
+            err "无效选择。"
+            return 1
+            ;;
+    esac
+}
+
 print_cli_usage() {
     printf '%s\n' \
         "用法: nftables-relay-manager.sh [命令]" \
@@ -11556,6 +12026,10 @@ print_cli_usage() {
         "常用命令:" \
         "  --version        显示当前脚本名称、版本、发布日期和安装路径。" \
         "  --changelog      显示当前版本更新内容；适合 scp 上传后确认本次变化。" \
+        "  --backup-export [PATH]" \
+        "                   导出 PO0 完整备份；默认包含 token、状态、资源文件、受限 key 信息和脚本快照，备份包 chmod 600。" \
+        "  --backup-import PATH [--restore-cron] [--restore-systemd] [--restore-nftables] [--restore-report-keys] [--restore-all] [--dry-run]" \
+        "                   导入完整备份；默认只恢复 ${CONF_DIR} 下的配置、token、状态和资源文件。" \
         "  --render         将计划生成的 nftables 配置输出到标准输出。" \
         "  --refresh-ddns   按 LAN Worker/路由器已上报且仍在 TTL 内的 DDNS 结果重建/应用；PO0 不做本地 DNS 解析，也不延长原上报 TTL。" \
         "  --collect-blocked [since]" \
@@ -11659,10 +12133,11 @@ main_menu() {
         print_menu_section "系统维护"
         print_menu_pair 14 "中转机参数" 15 "诊断 / 自检"
         print_menu_pair 16 "查看脚本版本" 17 "可选开启 BBR + fq"
+        print_menu_item 18 "完整备份 / 导入恢复"
         print_menu_section "退出"
         print_menu_item 0 "退出"
         print_menu_footer
-        read_menu_choice_or_return choice "请选择操作 [0-17]: " || exit 0
+        read_menu_choice_or_return choice "请选择操作 [0-18]: " || exit 0
         case "${choice}" in
             1) do_install; pause_before_return ;;
             2) do_refresh_public_ip ;;
@@ -11681,12 +12156,13 @@ main_menu() {
             15) do_diagnose; pause_before_return ;;
             16) do_show_version_panel; pause_before_return ;;
             17) do_enable_bbr; pause_before_return ;;
+            18) do_full_backup_restore_interactive; pause_before_return ;;
             0)
                 info "再见。"
                 exit 0
                 ;;
             *)
-                err "无效选择，请输入 0-17。"
+                err "无效选择，请输入 0-18。"
                 pause_before_return
                 ;;
         esac
@@ -11714,6 +12190,18 @@ case "${1:-}" in
         ;;
     --render)
         do_render
+        exit $?
+        ;;
+    --backup-export)
+        if [[ -n "${2:-}" && "${2:-}" != --* ]]; then
+            do_full_backup_export "${2:-}"
+        else
+            do_full_backup_export
+        fi
+        exit $?
+        ;;
+    --backup-import)
+        do_full_backup_import "${@:2}"
         exit $?
         ;;
     --refresh-ddns)

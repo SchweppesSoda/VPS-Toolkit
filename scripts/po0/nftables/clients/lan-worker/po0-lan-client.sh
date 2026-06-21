@@ -3,9 +3,14 @@ set -uo pipefail
 
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh"
 SCRIPT_NAME="po0-lan-worker-client"
-SCRIPT_VERSION="2026.06.20+build.9"
-SCRIPT_RELEASE_DATE="2026-06-20"
+SCRIPT_VERSION="2026.06.21+build.4"
+SCRIPT_RELEASE_DATE="2026-06-21"
 # CHANGELOG_BEGIN
+# - 兼容旧安装：settings.env 不存在或字段为空时，从已安装的 Self-report/WebAuth systemd unit 回填 secret、监听地址、目标和 token，避免升级后导出空 secret。
+# - 修复完整备份导出指定相对路径时可能写入临时目录并随清理丢失的问题；恢复 cron 时优先从备份的 cron block 识别旧脚本路径；Caddy import 跟随当前 snippet 目录且恢复权限改为 644。
+# - 新增 LAN Worker 完整备份 / 导入恢复：默认导出 Token、SSH 私钥、SELF_REPORT_SECRET 和状态文件；导入默认只恢复配置/状态/密钥，cron、systemd、Caddy 需显式 flag 或 --restore-all。
+# - 新增本机 settings.env 持久化 Self-report secret、监听地址、HTTPS/Caddy、Worker ID、资源任务超时和轮询间隔，避免升级脚本后重新生成 secret。
+# - Self-report secret 设置完成后同时输出 Linux/macOS/OpenWrt export 和 Windows PowerShell 环境变量示例。
 # - 修复 Self-report HTTPS Caddy snippet 使用 respond 404 时被 directive order 提前执行，导致 /health 和 /report 返回 404 的问题。
 # - 修复 Self-report HTTPS 域名校验对合法域名静默失败，导致菜单未写入 Caddy 配置的问题。
 # - Self-report 新增 HTTPS 域名模式，可在菜单配置 Caddy 自动证书并将后端切到 127.0.0.1:8788。
@@ -35,6 +40,7 @@ CLIENT_IP_TOKEN="${PO0_CLIENT_IP_TOKEN:-${CLIENT_IP_TOKEN:-}}"
 RESOURCE_TOKEN="${PO0_RESOURCE_TOKEN:-}"
 SSH_EXTRA_ARGS="${SSH_EXTRA_ARGS:-}"
 CONFIG_FILE="${PO0_LAN_CLIENT_CONFIG:-}"
+SETTINGS_FILE="${PO0_LAN_CLIENT_SETTINGS:-}"
 STATS_FILE="${PO0_LAN_CLIENT_STATS:-}"
 RESOURCE_STATS_FILE="${PO0_LAN_RESOURCE_STATS:-}"
 RESOURCE_EVENTS_FILE="${PO0_LAN_RESOURCE_EVENTS:-}"
@@ -51,6 +57,11 @@ SSH_CONNECT_TIMEOUT_SECONDS="${PO0_SSH_CONNECT_TIMEOUT_SECONDS:-15}"
 WORKER_ID="${PO0_WORKER_ID:-$(hostname 2>/dev/null || printf 'po0-worker')}"
 STATS_FILE_EXPLICIT="0"
 ACTION=""
+BACKUP_ARCHIVE=""
+RESTORE_CRON="0"
+RESTORE_SYSTEMD="0"
+RESTORE_CADDY="0"
+RESTORE_DRY_RUN="0"
 CRON_MINUTES="5"
 DDNS_CRON_MINUTES="${PO0_DDNS_CRON_MINUTES:-${DDNS_CRON_MINUTES:-5}}"
 DDNS_CRON_MAX_MINUTES="${PO0_DDNS_CRON_MAX_MINUTES:-1440}"
@@ -294,6 +305,13 @@ usage() {
         "  --self-report-probe  检查自上报接收端依赖和 PO0 client-ip token。" \
         "  --version            显示当前脚本名称、版本、发布日期、路径和本机状态。" \
         "  --upgrade-self       从 ${RAW_URL} 覆盖更新本机 po0-lan-client 命令，设置权限，并输出版本变化和更新内容。" \
+        "  --backup-export [PATH] 导出 LAN Worker 完整备份；默认包含 Token、SSH 私钥和 SELF_REPORT_SECRET，备份包 chmod 600。" \
+        "  --backup-import PATH  导入备份；默认只恢复配置、状态和密钥。" \
+        "  --restore-cron       导入时恢复本机 managed cron block。" \
+        "  --restore-systemd    导入时重新生成并启用 LAN Worker systemd service。" \
+        "  --restore-caddy      导入时恢复 Self-report Caddy snippet 并刷新 Caddy。" \
+        "  --restore-all        导入时恢复 cron、systemd service 和 Caddy snippet。" \
+        "  --dry-run            配合 --backup-import 只显示将恢复的文件和入口。" \
         "  --wizard             进入交互式安装向导。" \
         "  --menu               进入高级菜单。" \
         "" \
@@ -333,6 +351,18 @@ path_dirname() {
     esac
 }
 
+default_settings_file() {
+    if [[ -n "${SETTINGS_FILE}" ]]; then
+        printf '%s\n' "${SETTINGS_FILE}"
+    else
+        printf '%s/settings.env\n' "$(path_dirname "${CONFIG_FILE}")"
+    fi
+}
+
+refresh_settings_file() {
+    [[ -n "${SETTINGS_FILE}" ]] || SETTINGS_FILE="$(default_settings_file)"
+}
+
 refresh_stats_file() {
     if [[ "${STATS_FILE_EXPLICIT}" != "1" || -z "${STATS_FILE}" ]]; then
         STATS_FILE="$(path_dirname "${CONFIG_FILE}")/stats.tsv"
@@ -351,9 +381,186 @@ refresh_resource_events_file() {
     fi
 }
 
+prime_config_paths_from_args() {
+    local arg next
+    while [[ $# -gt 0 ]]; do
+        arg="$1"
+        case "${arg}" in
+            --config)
+                next="${2:-}"
+                [[ -n "${next}" ]] && CONFIG_FILE="${next}"
+                shift 2 2>/dev/null || shift
+                ;;
+            --settings-file)
+                next="${2:-}"
+                [[ -n "${next}" ]] && SETTINGS_FILE="${next}"
+                shift 2 2>/dev/null || shift
+                ;;
+            --config=* )
+                CONFIG_FILE="${arg#--config=}"
+                shift
+                ;;
+            --settings-file=* )
+                SETTINGS_FILE="${arg#--settings-file=}"
+                shift
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+}
+
+write_env_assignment() {
+    local name="$1"
+    local value="${2:-}"
+    printf '%s=%s\n' "${name}" "$(sh_quote "${value}")"
+}
+
+save_local_settings() {
+    local dir tmp old_umask
+    refresh_settings_file
+    dir="$(path_dirname "${SETTINGS_FILE}")"
+    mkdir -p "${dir}" || return 1
+    tmp="${SETTINGS_FILE}.tmp.$$"
+    old_umask="$(umask)"
+    umask 077
+    {
+        printf '# Managed by po0-lan-client. Contains local runtime settings and secrets.\n'
+        write_env_assignment "CONFIG_FILE" "${CONFIG_FILE}"
+        write_env_assignment "STATS_FILE" "${STATS_FILE}"
+        write_env_assignment "RESOURCE_STATS_FILE" "${RESOURCE_STATS_FILE}"
+        write_env_assignment "RESOURCE_EVENTS_FILE" "${RESOURCE_EVENTS_FILE}"
+        write_env_assignment "INSTALL_PATH" "${INSTALL_PATH}"
+        write_env_assignment "WORKER_ID" "${WORKER_ID}"
+        write_env_assignment "IPDB_DOWNLOAD_URL" "${IPDB_DOWNLOAD_URL}"
+        write_env_assignment "IPLIST_JOBS" "${IPLIST_JOBS}"
+        write_env_assignment "RESOURCE_TASK_MAX_PER_RUN" "${RESOURCE_TASK_MAX_PER_RUN}"
+        write_env_assignment "RESOURCE_UPLOAD_TIMEOUT_SECONDS" "${RESOURCE_UPLOAD_TIMEOUT_SECONDS}"
+        write_env_assignment "RESOURCE_COMPLETE_TIMEOUT_SECONDS" "${RESOURCE_COMPLETE_TIMEOUT_SECONDS}"
+        write_env_assignment "RESOURCE_CONTROL_TIMEOUT_SECONDS" "${RESOURCE_CONTROL_TIMEOUT_SECONDS}"
+        write_env_assignment "RESOURCE_EVENTS_KEEP" "${RESOURCE_EVENTS_KEEP}"
+        write_env_assignment "REMOTE_STATUS_TIMEOUT_SECONDS" "${REMOTE_STATUS_TIMEOUT_SECONDS}"
+        write_env_assignment "SSH_CONNECT_TIMEOUT_SECONDS" "${SSH_CONNECT_TIMEOUT_SECONDS}"
+        write_env_assignment "DDNS_CRON_MINUTES" "${DDNS_CRON_MINUTES}"
+        write_env_assignment "DDNS_CRON_MAX_MINUTES" "${DDNS_CRON_MAX_MINUTES}"
+        write_env_assignment "RESOURCE_CRON_MINUTES" "${RESOURCE_CRON_MINUTES}"
+        write_env_assignment "RESOURCE_CRON_MAX_MINUTES" "${RESOURCE_CRON_MAX_MINUTES}"
+        write_env_assignment "WEBAUTH_LISTEN" "${WEBAUTH_LISTEN}"
+        write_env_assignment "WEBAUTH_SOURCE" "${WEBAUTH_SOURCE}"
+        write_env_assignment "WEBAUTH_TOKEN" "${WEBAUTH_TOKEN}"
+        write_env_assignment "WEBAUTH_TTL_SECONDS" "${WEBAUTH_TTL_SECONDS}"
+        write_env_assignment "WEBAUTH_TARGETS" "${WEBAUTH_TARGETS}"
+        write_env_assignment "SELF_REPORT_LISTEN" "${SELF_REPORT_LISTEN}"
+        write_env_assignment "SELF_REPORT_SOURCE" "${SELF_REPORT_SOURCE}"
+        write_env_assignment "SELF_REPORT_SECRET" "${SELF_REPORT_SECRET}"
+        write_env_assignment "SELF_REPORT_TTL_SECONDS" "${SELF_REPORT_TTL_SECONDS}"
+        write_env_assignment "SELF_REPORT_TARGETS" "${SELF_REPORT_TARGETS}"
+        write_env_assignment "SELF_REPORT_HTTPS_DOMAIN" "${SELF_REPORT_HTTPS_DOMAIN}"
+        write_env_assignment "SELF_REPORT_HTTPS_BACKEND" "${SELF_REPORT_HTTPS_BACKEND}"
+        write_env_assignment "SELF_REPORT_CADDY_SNIPPET" "${SELF_REPORT_CADDY_SNIPPET}"
+        write_env_assignment "CADDYFILE_PATH" "${CADDYFILE_PATH}"
+    } > "${tmp}" || {
+        umask "${old_umask}"
+        rm -f -- "${tmp}" 2>/dev/null || true
+        return 1
+    }
+    umask "${old_umask}"
+    replace_file_from_tmp "${tmp}" "${SETTINGS_FILE}" || return 1
+    chmod 600 "${SETTINGS_FILE}" 2>/dev/null || true
+}
+
+load_local_settings() {
+    local keep_config keep_settings keep_stats keep_resource_stats keep_resource_events loaded=0
+    refresh_settings_file
+    keep_config="${CONFIG_FILE}"
+    keep_settings="${SETTINGS_FILE}"
+    keep_stats="${STATS_FILE}"
+    keep_resource_stats="${RESOURCE_STATS_FILE}"
+    keep_resource_events="${RESOURCE_EVENTS_FILE}"
+    if [[ -r "${SETTINGS_FILE}" ]]; then
+        # Local file is created by this script with chmod 600 and may contain secrets.
+        # shellcheck disable=SC1090
+        . "${SETTINGS_FILE}" || return 1
+        loaded=1
+    fi
+    CONFIG_FILE="${keep_config}"
+    SETTINGS_FILE="${keep_settings}"
+    STATS_FILE="${keep_stats}"
+    RESOURCE_STATS_FILE="${keep_resource_stats}"
+    RESOURCE_EVENTS_FILE="${keep_resource_events}"
+    refresh_stats_file
+    refresh_resource_stats_file
+    refresh_resource_events_file
+    load_settings_from_installed_services "${loaded}" || true
+}
+
+unit_exec_arg_value() {
+    local unit="$1"
+    local flag="$2"
+    local line rest value
+    [[ -r "${unit}" ]] || return 1
+    line="$(grep -E '^ExecStart=' "${unit}" 2>/dev/null | tail -n 1)" || return 1
+    [[ -n "${line}" ]] || return 1
+    rest="${line#* ${flag} }"
+    [[ "${rest}" != "${line}" ]] || return 1
+    case "${rest}" in
+        \'*)
+            value="${rest#\'}"
+            value="${value%%\'*}"
+            ;;
+        *)
+            value="${rest%%[[:space:]]*}"
+            ;;
+    esac
+    [[ -n "${value}" ]] || return 1
+    printf '%s\n' "${value}"
+}
+
+fill_setting_from_unit_arg() {
+    local loaded="$1"
+    local var_name="$2"
+    local unit="$3"
+    local flag="$4"
+    local value
+    if [[ "${loaded}" == "1" && -n "${!var_name:-}" ]]; then
+        return 0
+    fi
+    value="$(unit_exec_arg_value "${unit}" "${flag}" 2>/dev/null || true)"
+    [[ -n "${value}" ]] || return 0
+    printf -v "${var_name}" '%s' "${value}"
+}
+
+load_settings_from_installed_services() {
+    local loaded="${1:-0}"
+    local self_unit="/etc/systemd/system/po0-lan-self-report.service"
+    local webauth_unit="/etc/systemd/system/po0-lan-webauth.service"
+    fill_setting_from_unit_arg "${loaded}" SELF_REPORT_LISTEN "${self_unit}" "--self-report-listen"
+    fill_setting_from_unit_arg "${loaded}" SELF_REPORT_SECRET "${self_unit}" "--self-report-secret"
+    fill_setting_from_unit_arg "${loaded}" SELF_REPORT_SOURCE "${self_unit}" "--self-report-source"
+    fill_setting_from_unit_arg "${loaded}" SELF_REPORT_TTL_SECONDS "${self_unit}" "--self-report-ttl"
+    fill_setting_from_unit_arg "${loaded}" SELF_REPORT_TARGETS "${self_unit}" "--self-report-targets"
+    fill_setting_from_unit_arg "${loaded}" PO0_HOST "${self_unit}" "--po0-host"
+    fill_setting_from_unit_arg "${loaded}" PO0_PORT "${self_unit}" "--po0-port"
+    fill_setting_from_unit_arg "${loaded}" PO0_USER "${self_unit}" "--po0-user"
+    fill_setting_from_unit_arg "${loaded}" PO0_SCRIPT "${self_unit}" "--po0-script"
+    fill_setting_from_unit_arg "${loaded}" CLIENT_IP_TOKEN "${self_unit}" "--client-ip-token"
+    fill_setting_from_unit_arg "${loaded}" WEBAUTH_LISTEN "${webauth_unit}" "--listen"
+    fill_setting_from_unit_arg "${loaded}" WEBAUTH_SOURCE "${webauth_unit}" "--webauth-source"
+    fill_setting_from_unit_arg "${loaded}" WEBAUTH_TOKEN "${webauth_unit}" "--webauth-token"
+    fill_setting_from_unit_arg "${loaded}" WEBAUTH_TTL_SECONDS "${webauth_unit}" "--webauth-ttl"
+    fill_setting_from_unit_arg "${loaded}" WEBAUTH_TARGETS "${webauth_unit}" "--webauth-targets"
+}
+
 sh_quote() {
     local value="$1"
     value="${value//\'/\'\\\'\'}"
+    printf "'%s'" "${value}"
+}
+
+ps_quote() {
+    local value="$1" quote="'"
+    value="${value//${quote}/${quote}${quote}}"
     printf "'%s'" "${value}"
 }
 
@@ -2524,7 +2731,9 @@ po0_lan_wizard() {
     label="$(prompt_default "显示名" "${BOOTSTRAP_LABEL:-${DDNS_DOMAIN:-resource-${PO0_HOST}}}")"
     upsert_target "1" "${label}" "${DDNS_DOMAIN}" "${REPORT_KEY}" "${PO0_HOST}" "${PO0_PORT}" "${PO0_USER}" "${PO0_SCRIPT}" "${DDNS_TOKEN}" "${SSH_EXTRA_ARGS}" "${RESOURCE_TOKEN}" "${REPORT_MODE}" "${DDNS_RESOLVE_DOMAIN}" "${CLIENT_IP_TOKEN}" "${SELF_REPORT_SOURCE}" "${SELF_REPORT_TTL_SECONDS}" "${WEBAUTH_TOKEN}" "${WEBAUTH_SOURCE}" "${WEBAUTH_TTL_SECONDS}" "${SSH_EXTRA_ARGS}" || return 1
     chmod 600 "${CONFIG_FILE}" 2>/dev/null || true
+    save_local_settings || return 1
     printf '\n[OK] 已写入配置：%s\n' "${CONFIG_FILE}"
+    printf '[OK] 已写入本机设置：%s\n' "${SETTINGS_FILE}"
     script_path="$(ensure_persistent_script)" || return 1
     printf '[OK] 已安装本机命令：%s\n' "${script_path}"
 
@@ -3802,6 +4011,7 @@ install_webauth_service() {
     script_path="$(ensure_persistent_script)" || return 1
     unit="/etc/systemd/system/${name}"
     [[ -n "${WEBAUTH_TARGETS}" ]] && target_args=" --webauth-targets $(sh_quote "${WEBAUTH_TARGETS}")"
+    save_local_settings || return 1
     cat > "${unit}" <<EOF
 [Unit]
 Description=PO0 LAN WebAuth client reporter
@@ -4257,6 +4467,7 @@ install_self_report_service() {
         fallback_args=" --po0-host $(sh_quote "${PO0_HOST}") --po0-port $(sh_quote "${PO0_PORT}") --po0-user $(sh_quote "${PO0_USER}") --po0-script $(sh_quote "${PO0_SCRIPT}") --self-report-source $(sh_quote "${SELF_REPORT_SOURCE}") --client-ip-token $(sh_quote "${CLIENT_IP_TOKEN}") --self-report-ttl $(sh_quote "${SELF_REPORT_TTL_SECONDS}")"
     fi
     [[ -n "${SELF_REPORT_SECRET}" ]] && secret_args=" --self-report-secret $(sh_quote "${SELF_REPORT_SECRET}")"
+    save_local_settings || return 1
     cat > "${unit}" <<EOF
 [Unit]
 Description=PO0 LAN self-report receiver
@@ -4361,12 +4572,13 @@ ensure_caddy_installed() {
 }
 
 ensure_caddyfile_import() {
-    local caddy_dir import_line
+    local caddy_dir snippet_dir import_line
     caddy_dir="$(path_dirname "${CADDYFILE_PATH}")"
-    mkdir -p "${caddy_dir}" "$(path_dirname "${SELF_REPORT_CADDY_SNIPPET}")" || return 1
+    snippet_dir="$(path_dirname "${SELF_REPORT_CADDY_SNIPPET}")"
+    mkdir -p "${caddy_dir}" "${snippet_dir}" || return 1
     [[ -f "${CADDYFILE_PATH}" ]] || : > "${CADDYFILE_PATH}" || return 1
-    import_line="import /etc/caddy/conf.d/*.caddy"
-    if ! grep -Eq '^[[:space:]]*import[[:space:]]+/etc/caddy/conf\.d/\*\.caddy[[:space:]]*$' "${CADDYFILE_PATH}" 2>/dev/null; then
+    import_line="import ${snippet_dir%/}/*.caddy"
+    if ! awk '{$1=$1; print}' "${CADDYFILE_PATH}" 2>/dev/null | grep -Fxq "${import_line}"; then
         {
             printf '\n'
             printf '# PO0 LAN Worker managed snippets\n'
@@ -4438,6 +4650,7 @@ install_self_report_https() {
     caddy validate --config "${CADDYFILE_PATH}" || return 1
     SELF_REPORT_HTTPS_DOMAIN="${domain}"
     SELF_REPORT_LISTEN="${SELF_REPORT_HTTPS_BACKEND}"
+    save_local_settings || return 1
     install_self_report_service || return 1
     if have_cmd systemctl; then
         systemctl enable caddy || return 1
@@ -4931,6 +5144,9 @@ install_worker_crons() {
         fi
     fi
     printf '提示：资源任务创建周期由 PO0 nft manager 控制；DDNS TTL 在 PO0 端 DDNS 来源里设置，本机只设置上报间隔。\n'
+    [[ -n "${ddns_minutes}" ]] && DDNS_CRON_MINUTES="${ddns_minutes}"
+    [[ -n "${resource_minutes}" ]] && RESOURCE_CRON_MINUTES="${resource_minutes}"
+    save_local_settings || return 1
 }
 
 install_cron_minutes() {
@@ -4982,7 +5198,9 @@ bootstrap_worker() {
 
     upsert_target "1" "${label}" "${DDNS_DOMAIN}" "${REPORT_KEY}" "${PO0_HOST}" "${PO0_PORT}" "${PO0_USER}" "${PO0_SCRIPT}" "${DDNS_TOKEN}" "${SSH_EXTRA_ARGS}" "${RESOURCE_TOKEN}" "${mode}" "${ddns_resolve_domain}" "${CLIENT_IP_TOKEN}" "${SELF_REPORT_SOURCE}" "${SELF_REPORT_TTL_SECONDS}" "${WEBAUTH_TOKEN}" "${WEBAUTH_SOURCE}" "${WEBAUTH_TTL_SECONDS}" "${SSH_EXTRA_ARGS}" || return 1
     chmod 600 "${CONFIG_FILE}" 2>/dev/null || true
+    save_local_settings || return 1
     printf '已写入 worker 目标配置：%s\n' "${CONFIG_FILE}"
+    printf '已写入本机设置：%s\n' "${SETTINGS_FILE}"
 
     if [[ "${INSTALL_CRON}" == "1" ]]; then
         script_path="$(ensure_persistent_script)" || return 1
@@ -5037,6 +5255,446 @@ show_cron_status() {
         fi
     done < <(crontab -l 2>/dev/null || true)
     [[ "${found}" == "1" ]] || print_panel_row "当前计划" "未安装本脚本管理的 Worker 轮询器"
+}
+
+lan_backup_default_path() {
+    local dir stamp
+    dir="$(path_dirname "${CONFIG_FILE}")/backups"
+    stamp="$(date '+%Y%m%d_%H%M%S')"
+    printf '%s/po0-lan-client-backup-%s.tar.gz\n' "${dir}" "${stamp}"
+}
+
+absolute_output_path() {
+    local path="$1"
+    case "${path}" in
+        /*)
+            printf '%s\n' "${path}"
+            ;;
+        *)
+            printf '%s/%s\n' "$(pwd -P)" "${path#./}"
+            ;;
+    esac
+}
+
+copy_file_to_stage() {
+    local src="$1"
+    local dst="$2"
+    [[ -r "${src}" ]] || return 1
+    mkdir -p "$(path_dirname "${dst}")" || return 1
+    cp -p "${src}" "${dst}" || return 1
+}
+
+expand_identity_path() {
+    local path="$1"
+    case "${path}" in
+        "~/"*)
+            printf '%s/%s\n' "${HOME:-}" "${path#~/}"
+            ;;
+        *)
+            printf '%s\n' "${path}"
+            ;;
+    esac
+}
+
+emit_identity_paths_from_extra() {
+    local extra="$1"
+    local -a parts=()
+    local i token next
+    [[ -n "${extra}" ]] || return 0
+    read -r -a parts <<< "${extra}"
+    for ((i = 0; i < ${#parts[@]}; i++)); do
+        token="${parts[$i]}"
+        next="${parts[$((i + 1))]:-}"
+        case "${token}" in
+            -i)
+                [[ -n "${next}" ]] && printf '%s\n' "$(expand_identity_path "${next}")"
+                i=$((i + 1))
+                ;;
+            -i*)
+                [[ "${token}" != "-i" ]] && printf '%s\n' "$(expand_identity_path "${token#-i}")"
+                ;;
+            IdentityFile=*)
+                printf '%s\n' "$(expand_identity_path "${token#IdentityFile=}")"
+                ;;
+            -o)
+                case "${next}" in
+                    IdentityFile=*)
+                        printf '%s\n' "$(expand_identity_path "${next#IdentityFile=}")"
+                        i=$((i + 1))
+                        ;;
+                esac
+                ;;
+            -oIdentityFile=*)
+                printf '%s\n' "$(expand_identity_path "${token#-oIdentityFile=}")"
+                ;;
+        esac
+    done
+}
+
+lan_backup_collect_identity_files() {
+    local line path seen=","
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        parse_target_line "${line}" || continue
+        while IFS= read -r path || [[ -n "${path}" ]]; do
+            path="$(trim "${path}")"
+            [[ -n "${path}" && -r "${path}" ]] || continue
+            case "${seen}" in
+                *,"${path}",*) continue ;;
+            esac
+            seen+="${path},"
+            printf '%s\n' "${path}"
+        done < <({
+            emit_identity_paths_from_extra "${TARGET_SSH_EXTRA_ARGS}"
+            emit_identity_paths_from_extra "${TARGET_REPORT_SSH_EXTRA_ARGS}"
+        } || true)
+    done < "${CONFIG_FILE}"
+}
+
+write_managed_cron_block_to_file() {
+    local output="$1"
+    local begin end line in_block=0 found=0
+    command -v crontab >/dev/null 2>&1 || return 1
+    begin="$(cron_begin_marker)"
+    end="$(cron_end_marker)"
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        if [[ "${line}" == "${begin}" ]]; then
+            in_block=1
+            found=1
+        fi
+        [[ "${in_block}" == "1" ]] && printf '%s\n' "${line}"
+        if [[ "${line}" == "${end}" ]]; then
+            in_block=0
+        fi
+    done < <(crontab -l 2>/dev/null || true) > "${output}"
+    [[ "${found}" == "1" ]]
+}
+
+lan_backup_export() {
+    local output="${1:-}" work config_dir script_path rel name path idx old_umask local_status
+    have_cmd tar || { printf '缺少 tar，无法创建备份包。\n' >&2; return 1; }
+    ensure_config_file || return 1
+    ensure_stats_file || return 1
+    ensure_resource_stats_file || return 1
+    ensure_resource_events_file || return 1
+    save_local_settings || return 1
+    [[ -n "${output}" ]] || output="$(lan_backup_default_path)"
+    output="$(absolute_output_path "${output}")"
+    mkdir -p "$(path_dirname "${output}")" || return 1
+    work="$(mktemp -d "${TMPDIR:-/tmp}/po0-lan-backup.XXXXXX")" || return 1
+    chmod 700 "${work}" 2>/dev/null || true
+    old_umask="$(umask)"
+    umask 077
+    (
+        mkdir -p "${work}/files/config" "${work}/files/state" "${work}/files/secrets/config-ssh-keys" "${work}/files/secrets/identity-files" "${work}/system" "${work}/scripts" || exit 1
+        {
+            printf 'format=po0-lan-client-backup-v1\n'
+            printf 'script_name=%s\n' "${SCRIPT_NAME}"
+            printf 'script_version=%s\n' "${SCRIPT_VERSION}"
+            printf 'created_at=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+            printf 'config_file=%s\n' "${CONFIG_FILE}"
+            printf 'settings_file=%s\n' "${SETTINGS_FILE}"
+            printf 'stats_file=%s\n' "${STATS_FILE}"
+            printf 'resource_stats_file=%s\n' "${RESOURCE_STATS_FILE}"
+            printf 'resource_events_file=%s\n' "${RESOURCE_EVENTS_FILE}"
+            printf 'install_path=%s\n' "$(default_install_path)"
+            printf 'contains_secrets=1\n'
+        } > "${work}/manifest.env" || exit 1
+        copy_file_to_stage "${CONFIG_FILE}" "${work}/files/config/targets.tsv" || exit 1
+        copy_file_to_stage "${SETTINGS_FILE}" "${work}/files/config/settings.env" || exit 1
+        copy_file_to_stage "${STATS_FILE}" "${work}/files/state/stats.tsv" || true
+        copy_file_to_stage "${RESOURCE_STATS_FILE}" "${work}/files/state/resource-stats.tsv" || true
+        copy_file_to_stage "${RESOURCE_EVENTS_FILE}" "${work}/files/state/resource-events.tsv" || true
+        config_dir="$(path_dirname "${CONFIG_FILE}")"
+        for path in "${config_dir}"/ssh-key-*; do
+            [[ -f "${path}" && -r "${path}" ]] || continue
+            name="${path##*/}"
+            copy_file_to_stage "${path}" "${work}/files/secrets/config-ssh-keys/${name}" || exit 1
+        done
+        idx=0
+        : > "${work}/files/secrets/identity-files.tsv" || exit 1
+        while IFS= read -r path || [[ -n "${path}" ]]; do
+            [[ -n "${path}" && -r "${path}" ]] || continue
+            idx=$((idx + 1))
+            name="$(safe_filename_token "${idx}-${path##*/}")"
+            rel="files/secrets/identity-files/${name}"
+            copy_file_to_stage "${path}" "${work}/${rel}" || exit 1
+            printf '%s|%s\n' "${rel}" "${path}" >> "${work}/files/secrets/identity-files.tsv"
+        done < <(lan_backup_collect_identity_files || true)
+        write_managed_cron_block_to_file "${work}/system/crontab.managed" || true
+        copy_file_to_stage "/etc/systemd/system/po0-lan-webauth.service" "${work}/system/po0-lan-webauth.service" || true
+        copy_file_to_stage "/etc/systemd/system/po0-lan-self-report.service" "${work}/system/po0-lan-self-report.service" || true
+        copy_file_to_stage "${SELF_REPORT_CADDY_SNIPPET}" "${work}/system/po0-self-report.caddy" || true
+        copy_file_to_stage "${CADDYFILE_PATH}" "${work}/system/Caddyfile" || true
+        script_path="$(script_source_path)"
+        copy_file_to_stage "${script_path}" "${work}/scripts/po0-lan-client.sh" || true
+        (cd "${work}" && tar -czf "${output}" .) || exit 1
+    )
+    local_status=$?
+    umask "${old_umask}"
+    rm -rf "${work}" 2>/dev/null || true
+    [[ "${local_status}" == "0" ]] || return 1
+    chmod 600 "${output}" 2>/dev/null || true
+    printf 'LAN Worker 备份已导出：%s\n' "${output}"
+    printf '备份包包含 Token、SSH 私钥和 SELF_REPORT_SECRET；已尝试设置 chmod 600。\n'
+}
+
+validate_backup_tar_members() {
+    local archive="$1" list line
+    list="$(mktemp "${TMPDIR:-/tmp}/po0-lan-backup-list.XXXXXX")" || return 1
+    tar -tzf "${archive}" > "${list}" || {
+        rm -f -- "${list}" 2>/dev/null || true
+        return 1
+    }
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        case "${line}" in
+            ""|/*|../*|*/../*)
+                rm -f -- "${list}" 2>/dev/null || true
+                printf '备份包包含不安全路径：%s\n' "${line}" >&2
+                return 1
+                ;;
+        esac
+    done < "${list}"
+    rm -f -- "${list}" 2>/dev/null || true
+}
+
+restore_file_from_stage() {
+    local src="$1"
+    local dst="$2"
+    local mode="${3:-600}"
+    local backup
+    [[ -f "${src}" ]] || return 0
+    if [[ "${RESTORE_DRY_RUN}" == "1" ]]; then
+        printf '[dry-run] restore %s -> %s\n' "${src}" "${dst}"
+        return 0
+    fi
+    mkdir -p "$(path_dirname "${dst}")" || return 1
+    if [[ -e "${dst}" ]]; then
+        backup="${dst}.bak.$(date '+%Y%m%d_%H%M%S')"
+        cp -p "${dst}" "${backup}" 2>/dev/null || true
+    fi
+    cp -p "${src}" "${dst}" || return 1
+    chmod "${mode}" "${dst}" 2>/dev/null || true
+}
+
+restore_config_ssh_keys_from_stage() {
+    local work="$1"
+    local config_dir path name
+    config_dir="$(path_dirname "${CONFIG_FILE}")"
+    if [[ "${RESTORE_DRY_RUN}" != "1" ]]; then
+        mkdir -p "${config_dir}" || return 1
+    fi
+    for path in "${work}/files/secrets/config-ssh-keys/"*; do
+        [[ -f "${path}" ]] || continue
+        name="${path##*/}"
+        restore_file_from_stage "${path}" "${config_dir}/${name}" 600 || return 1
+    done
+}
+
+restore_identity_files_from_stage() {
+    local work="$1"
+    local map="${work}/files/secrets/identity-files.tsv"
+    local rel path
+    [[ -f "${map}" ]] || return 0
+    while IFS='|' read -r rel path || [[ -n "${rel}${path}" ]]; do
+        [[ -n "${rel}" && -n "${path}" ]] || continue
+        restore_file_from_stage "${work}/${rel}" "${path}" 600 || return 1
+    done < "${map}"
+}
+
+backup_manifest_value() {
+    local manifest="$1"
+    local key="$2"
+    local line
+    [[ -r "${manifest}" ]] || return 1
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        [[ "${line}" == "${key}="* ]] || continue
+        printf '%s\n' "${line#*=}"
+        return 0
+    done < "${manifest}"
+    return 1
+}
+
+rewrite_lan_cron_block_for_current_paths() {
+    local block="$1"
+    local old_config="$2"
+    local old_script="$3"
+    local current_script="$4"
+    local line
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        [[ -n "${old_config}" ]] && line="${line//${old_config}/${CONFIG_FILE}}"
+        [[ -n "${old_script}" ]] && line="${line//${old_script}/${current_script}}"
+        printf '%s\n' "${line}"
+    done < "${block}"
+}
+
+cron_block_bash_script_path() {
+    local block="$1" line value
+    [[ -r "${block}" ]] || return 1
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        [[ -n "${line}" && "${line}" != \#* ]] || continue
+        case "${line}" in
+            *" bash '"*)
+                value="${line#* bash \'}"
+                value="${value%%\'*}"
+                [[ -n "${value}" ]] && { printf '%s\n' "${value}"; return 0; }
+                ;;
+            *" bash "*)
+                value="${line#* bash }"
+                value="${value%% *}"
+                [[ -n "${value}" ]] && { printf '%s\n' "${value}"; return 0; }
+                ;;
+        esac
+    done < "${block}"
+    return 1
+}
+
+restore_managed_cron_from_stage() {
+    local work="$1"
+    local block="${work}/system/crontab.managed"
+    local tmp old_config old_script script_path
+    [[ -s "${block}" ]] || { printf '备份包没有 LAN Worker managed cron block。\n'; return 0; }
+    command -v crontab >/dev/null 2>&1 || { printf '缺少 crontab，无法恢复 cron。\n' >&2; return 1; }
+    if [[ "${RESTORE_DRY_RUN}" == "1" ]]; then
+        printf '[dry-run] restore managed cron block\n'
+        return 0
+    fi
+    old_config="$(backup_manifest_value "${work}/manifest.env" "config_file" 2>/dev/null || true)"
+    old_script="$(cron_block_bash_script_path "${block}" 2>/dev/null || true)"
+    [[ -n "${old_script}" ]] || old_script="$(backup_manifest_value "${work}/manifest.env" "install_path" 2>/dev/null || true)"
+    script_path="$(ensure_persistent_script)" || return 1
+    tmp="${CONFIG_FILE}.cron.restore.$$"
+    {
+        crontab -l 2>/dev/null | write_cron_without_managed_block || true
+        rewrite_lan_cron_block_for_current_paths "${block}" "${old_config}" "${old_script}" "${script_path}"
+    } > "${tmp}" || return 1
+    crontab "${tmp}" || {
+        rm -f "${tmp}" 2>/dev/null || true
+        return 1
+    }
+    rm -f "${tmp}" 2>/dev/null || true
+    printf '已恢复 LAN Worker managed cron block。\n'
+}
+
+restore_caddy_from_stage() {
+    local work="$1"
+    [[ -f "${work}/system/po0-self-report.caddy" ]] || { printf '备份包没有 Self-report Caddy snippet。\n'; return 0; }
+    restore_file_from_stage "${work}/system/po0-self-report.caddy" "${SELF_REPORT_CADDY_SNIPPET}" 644 || return 1
+    if [[ "${RESTORE_DRY_RUN}" == "1" ]]; then
+        printf '[dry-run] ensure Caddyfile import and reload caddy\n'
+        return 0
+    fi
+    ensure_caddyfile_import || return 1
+    if have_cmd caddy; then
+        caddy validate --config "${CADDYFILE_PATH}" || return 1
+    fi
+    if have_cmd systemctl; then
+        systemctl reload caddy 2>/dev/null || systemctl restart caddy || return 1
+    fi
+    printf '已恢复 Self-report Caddy snippet 并刷新 Caddy。\n'
+}
+
+restore_systemd_from_stage() {
+    local work="$1" restored=0
+    if [[ "${RESTORE_DRY_RUN}" == "1" ]]; then
+        printf '[dry-run] regenerate LAN Worker systemd services from restored settings\n'
+        return 0
+    fi
+    if [[ -f "${work}/system/po0-lan-self-report.service" ]]; then
+        install_self_report_service || return 1
+        restored=1
+    fi
+    if [[ -f "${work}/system/po0-lan-webauth.service" ]]; then
+        install_webauth_service || return 1
+        restored=1
+    fi
+    [[ "${restored}" == "1" ]] || printf '备份包没有 LAN Worker systemd service 快照。\n'
+}
+
+lan_backup_import() {
+    local archive="$1" work local_status
+    [[ -n "${archive}" ]] || { printf '缺少备份包路径。\n' >&2; return 1; }
+    [[ -r "${archive}" ]] || { printf '无法读取备份包：%s\n' "${archive}" >&2; return 1; }
+    have_cmd tar || { printf '缺少 tar，无法导入备份包。\n' >&2; return 1; }
+    validate_backup_tar_members "${archive}" || return 1
+    work="$(mktemp -d "${TMPDIR:-/tmp}/po0-lan-restore.XXXXXX")" || return 1
+    chmod 700 "${work}" 2>/dev/null || true
+    tar -xzf "${archive}" -C "${work}" || {
+        rm -rf "${work}" 2>/dev/null || true
+        return 1
+    }
+    [[ -f "${work}/manifest.env" ]] || {
+        rm -rf "${work}" 2>/dev/null || true
+        printf '备份包缺少 manifest.env。\n' >&2
+        return 1
+    }
+    local_status=0
+    restore_file_from_stage "${work}/files/config/targets.tsv" "${CONFIG_FILE}" 600 || local_status=1
+    restore_file_from_stage "${work}/files/config/settings.env" "${SETTINGS_FILE}" 600 || local_status=1
+    restore_file_from_stage "${work}/files/state/stats.tsv" "${STATS_FILE}" 600 || local_status=1
+    restore_file_from_stage "${work}/files/state/resource-stats.tsv" "${RESOURCE_STATS_FILE}" 600 || local_status=1
+    restore_file_from_stage "${work}/files/state/resource-events.tsv" "${RESOURCE_EVENTS_FILE}" 600 || local_status=1
+    restore_config_ssh_keys_from_stage "${work}" || local_status=1
+    restore_identity_files_from_stage "${work}" || local_status=1
+    if [[ "${local_status}" == "0" && "${RESTORE_DRY_RUN}" != "1" ]]; then
+        load_local_settings || local_status=1
+    fi
+    if [[ "${RESTORE_CRON}" == "1" ]]; then
+        restore_managed_cron_from_stage "${work}" || local_status=1
+    fi
+    if [[ "${RESTORE_CADDY}" == "1" ]]; then
+        restore_caddy_from_stage "${work}" || local_status=1
+    fi
+    if [[ "${RESTORE_SYSTEMD}" == "1" ]]; then
+        restore_systemd_from_stage "${work}" || local_status=1
+    fi
+    rm -rf "${work}" 2>/dev/null || true
+    [[ "${local_status}" == "0" ]] || return 1
+    if [[ "${RESTORE_DRY_RUN}" == "1" ]]; then
+        printf 'LAN Worker 备份 dry-run 完成，未写入文件：%s\n' "${archive}"
+    else
+        printf 'LAN Worker 备份已导入：%s\n' "${archive}"
+    fi
+    if [[ "${RESTORE_CRON}${RESTORE_SYSTEMD}${RESTORE_CADDY}" == "000" ]]; then
+        printf '默认仅恢复配置、状态和密钥；cron/systemd/Caddy 未恢复。需要时加 --restore-cron、--restore-systemd、--restore-caddy 或 --restore-all。\n'
+    fi
+}
+
+backup_restore_interactive() {
+    local choice path flags
+    print_menu_section "LAN Worker 备份 / 恢复"
+    print_menu_item 1 "导出完整备份"
+    print_menu_item 2 "导入：只恢复配置、状态和密钥"
+    print_menu_item 3 "导入：恢复全部（含 cron/systemd/Caddy）"
+    print_menu_item 0 "返回"
+    print_menu_footer
+    read_menu_choice_or_return choice "请选择操作 [0-3]: " || return 0
+    case "${choice}" in
+        1)
+            path="$(prompt_default "备份输出路径" "$(lan_backup_default_path)")"
+            lan_backup_export "${path}"
+            ;;
+        2)
+            path="$(prompt_default "备份包路径" "")"
+            [[ -n "${path}" ]] || return 0
+            RESTORE_CRON="0" RESTORE_SYSTEMD="0" RESTORE_CADDY="0"
+            lan_backup_import "${path}"
+            ;;
+        3)
+            path="$(prompt_default "备份包路径" "")"
+            [[ -n "${path}" ]] || return 0
+            printf '即将恢复 cron、systemd service 和 Caddy snippet；这会修改本机运行入口。\n'
+            prompt_yes_no "确认继续" "n" || return 0
+            RESTORE_CRON="1" RESTORE_SYSTEMD="1" RESTORE_CADDY="1"
+            lan_backup_import "${path}"
+            ;;
+        0)
+            return 0
+            ;;
+        *)
+            printf '无效选择。\n' >&2
+            return 1
+            ;;
+    esac
 }
 
 show_webauth_cloudflare_guide() {
@@ -5129,7 +5787,9 @@ show_self_report_settings() {
 edit_self_report_listen_interactive() {
     SELF_REPORT_LISTEN="$(prompt_default "Self-report 本地监听地址" "${SELF_REPORT_LISTEN:-127.0.0.1:8788}")"
     [[ -n "${SELF_REPORT_LISTEN}" ]] || SELF_REPORT_LISTEN="127.0.0.1:8788"
+    save_local_settings || return 1
     printf '已设置本次菜单会话监听地址：%s\n' "${SELF_REPORT_LISTEN}"
+    printf '已保存本机设置：%s\n' "${SETTINGS_FILE}"
     printf '安装 / 更新后台服务后，该监听地址会写入 systemd service。\n'
 }
 
@@ -5158,10 +5818,13 @@ edit_self_report_secret_interactive() {
     fi
     if [[ -n "${SELF_REPORT_SECRET}" ]]; then
         printf 'Self-report secret 已设置为：%s\n' "${SELF_REPORT_SECRET}"
-        printf "Windows PowerShell 使用：\$env:PO0_SELF_REPORT_SECRET='%s'\n" "${SELF_REPORT_SECRET}"
+        printf 'Linux/macOS/OpenWrt 使用：export PO0_SELF_REPORT_SECRET=%s\n' "$(sh_quote "${SELF_REPORT_SECRET}")"
+        printf 'Windows PowerShell 使用：$env:PO0_SELF_REPORT_SECRET=%s\n' "$(ps_quote "${SELF_REPORT_SECRET}")"
     else
         printf 'Self-report secret 已清空；接收端将不校验访问设备 secret。\n'
     fi
+    save_local_settings || return 1
+    printf '已保存本机设置：%s\n' "${SETTINGS_FILE}"
 }
 
 configure_self_report_https_interactive() {
@@ -5172,6 +5835,7 @@ configure_self_report_https_interactive() {
     validate_self_report_https_domain "${domain}" || return 1
     SELF_REPORT_HTTPS_DOMAIN="${domain}"
     SELF_REPORT_LISTEN="${SELF_REPORT_HTTPS_BACKEND}"
+    save_local_settings || return 1
     printf '将配置 HTTPS 入口：https://%s/report\n' "${domain}"
     printf 'Self-report 后端将只监听本机：%s\n' "${SELF_REPORT_LISTEN}"
     printf '请确认云安全组/防火墙已放行 TCP 80/443；公网不建议放行 8788。\n'
@@ -5260,12 +5924,12 @@ menu_loop() {
         print_menu_section "维护"
         print_menu_pair 22 "安装 / 更新本机轮询器" 23 "删除本机轮询器"
         print_menu_pair 24 "查看本机轮询器状态" 25 "查看脚本版本 / 本机状态"
-        print_menu_item 26 "从 GitHub 更新脚本"
+        print_menu_pair 26 "从 GitHub 更新脚本" 27 "备份 / 导入恢复"
 
         print_menu_section "退出"
         print_menu_item 0 "退出"
         print_menu_footer
-        read_menu_choice_or_return choice "请选择操作 [0-26]: " || return 0
+        read_menu_choice_or_return choice "请选择操作 [0-27]: " || return 0
         case "${choice}" in
             1) list_resource_stats; pause_before_return ;;
             2) show_remote_resource_task_cron_status; pause_before_return ;;
@@ -5293,11 +5957,19 @@ menu_loop() {
             24) show_cron_status; pause_before_return ;;
             25) show_local_script_status; pause_before_return ;;
             26) upgrade_self_from_raw --reopen-menu || pause_before_return ;;
+            27) backup_restore_interactive; pause_before_return ;;
             0) return 0 ;;
             "") ;;
             *) printf '无效选择。\n' >&2; pause_before_return ;;
         esac
     done
+}
+
+prime_config_paths_from_args "$@"
+refresh_settings_file
+load_local_settings || {
+    printf '加载本机设置失败：%s\n' "${SETTINGS_FILE}" >&2
+    exit 1
 }
 
 ORIGINAL_ARGC="$#"
@@ -5307,6 +5979,12 @@ while [[ $# -gt 0 ]]; do
         --config)
             require_arg_value "$@"
             CONFIG_FILE="${2:-}"
+            refresh_settings_file
+            shift 2
+            ;;
+        --settings-file)
+            require_arg_value "$@"
+            SETTINGS_FILE="${2:-}"
             shift 2
             ;;
         --po0-host)
@@ -5537,6 +6215,43 @@ while [[ $# -gt 0 ]]; do
             ACTION="upgrade-self"
             shift
             ;;
+        --backup-export)
+            ACTION="backup-export"
+            if [[ -n "${2:-}" && "${2:-}" != --* ]]; then
+                BACKUP_ARCHIVE="${2:-}"
+                shift 2
+            else
+                shift
+            fi
+            ;;
+        --backup-import)
+            ACTION="backup-import"
+            require_arg_value "$@"
+            BACKUP_ARCHIVE="${2:-}"
+            shift 2
+            ;;
+        --restore-cron)
+            RESTORE_CRON="1"
+            shift
+            ;;
+        --restore-systemd)
+            RESTORE_SYSTEMD="1"
+            shift
+            ;;
+        --restore-caddy)
+            RESTORE_CADDY="1"
+            shift
+            ;;
+        --restore-all)
+            RESTORE_CRON="1"
+            RESTORE_SYSTEMD="1"
+            RESTORE_CADDY="1"
+            shift
+            ;;
+        --dry-run)
+            RESTORE_DRY_RUN="1"
+            shift
+            ;;
         --version)
             ACTION="version"
             shift
@@ -5669,6 +6384,14 @@ case "${ACTION}" in
         ;;
     upgrade-self)
         upgrade_self_from_raw
+        exit $?
+        ;;
+    backup-export)
+        lan_backup_export "${BACKUP_ARCHIVE}"
+        exit $?
+        ;;
+    backup-import)
+        lan_backup_import "${BACKUP_ARCHIVE}"
         exit $?
         ;;
     version)

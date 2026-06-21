@@ -80,6 +80,14 @@ mask_secret() {
     fi
 }
 
+self_report_completed() {
+    printf 'Self-report 已完成：%s\n' "$1"
+}
+
+self_report_incomplete() {
+    printf 'Self-report 未完成：%s\n' "$1" >&2
+}
+
 read_prompt() {
     local prompt="$1"
     local value
@@ -378,13 +386,14 @@ build_cron_job() {
 
 install_cron() {
     local script job tmp ip_args http_arg="" run_cmd
-    validate_cron_minutes || return 1
-    validate_worker_url || return 1
+    validate_cron_minutes || { self_report_incomplete "上报间隔配置无效，未安装 cron。"; return 1; }
+    validate_worker_url || { self_report_incomplete "LAN Worker URL 未通过检查，未安装 cron。"; return 1; }
     command -v crontab >/dev/null 2>&1 || {
         echo "未找到 crontab 命令。" >&2
+        self_report_incomplete "缺少 crontab，未安装 cron。"
         return 1
     }
-    script="$(install_self)" || return 1
+    script="$(install_self)" || { self_report_incomplete "脚本落盘失败，未安装 cron。"; return 1; }
     if [[ -n "${IP_CHECK_URLS}" ]]; then
         ip_args="--ip-check-urls $(sh_quote "${IP_CHECK_URLS}")"
     else
@@ -399,30 +408,35 @@ install_cron() {
         echo "$(cron_begin_marker)"
         echo "${job}"
         echo "$(cron_end_marker)"
-    } > "${tmp}" || return 1
+    } > "${tmp}" || { self_report_incomplete "写入临时 cron 配置失败。"; return 1; }
     crontab "${tmp}" || {
         rm -f "${tmp}" 2>/dev/null || true
+        self_report_incomplete "crontab 写入失败，未安装 cron。"
         return 1
     }
     rm -f "${tmp}" 2>/dev/null || true
     echo "已安装 self-report cron：$(cron_interval_label "${CRON_MINUTES}")上报一次。"
     echo "脚本路径：${script}"
+    self_report_completed "定时上报已安装 / 更新，$(cron_interval_label "${CRON_MINUTES}")执行一次。"
 }
 
 remove_cron() {
     local tmp
     command -v crontab >/dev/null 2>&1 || {
         echo "未找到 crontab 命令。" >&2
+        self_report_incomplete "缺少 crontab，未删除 cron。"
         return 1
     }
     tmp="/tmp/po0-self-report-cron.$$"
     crontab -l 2>/dev/null | write_cron_without_managed_block > "${tmp}" || true
     crontab "${tmp}" || {
         rm -f "${tmp}" 2>/dev/null || true
+        self_report_incomplete "crontab 写入失败，未删除 cron。"
         return 1
     }
     rm -f "${tmp}" 2>/dev/null || true
     echo "已删除本脚本管理的 self-report cron。"
+    self_report_completed "已删除本脚本管理的定时上报。"
 }
 
 show_cron_status() {
@@ -442,23 +456,32 @@ show_cron_status() {
 }
 
 report_once() {
-    local ip secret_header=()
-    validate_worker_url || return 1
+    local ip response curl_rc secret_header=()
+    validate_worker_url || { self_report_incomplete "LAN Worker URL 未通过检查。"; return 1; }
     command -v curl >/dev/null 2>&1 || {
         echo "缺少 curl，无法上报到 LAN Worker。" >&2
+        self_report_incomplete "缺少 curl，无法发起上报。"
         return 1
     }
     ip="$(detect_outbound_ipv4)" || {
         echo "未能探测到当前公网出口 IPv4。" >&2
+        self_report_incomplete "未能探测到当前公网出口 IPv4。"
         return 1
     }
     [[ -n "${SECRET}" ]] && secret_header=(-H "X-PO0-Token: ${SECRET}")
     echo "上报当前公网出口 IPv4 ${ip} 到 LAN Worker：${WORKER_URL}"
-    curl -fsS --get "${secret_header[@]}" \
+    if response="$(curl -fsS --get "${secret_header[@]}" \
         --data-urlencode "source=${SOURCE_ID}" \
         --data-urlencode "ip=${ip}" \
         --data-urlencode "identity=${IDENTITY}" \
-        "${WORKER_URL}"
+        "${WORKER_URL}")"; then
+        [[ -n "${response}" ]] && printf '%s\n' "${response}"
+        self_report_completed "公网出口 IPv4 ${ip} 已被 LAN Worker 接收。"
+    else
+        curl_rc=$?
+        self_report_incomplete "LAN Worker 未确认本次上报（curl exit ${curl_rc}）。"
+        return "${curl_rc}"
+    fi
 }
 
 show_current_config() {

@@ -7,6 +7,7 @@
     [string[]]$IpCheckUrls = @(),
     [switch]$InstallTask,
     [int]$Minutes = $(if ($env:PO0_SELF_REPORT_MINUTES) { [int]$env:PO0_SELF_REPORT_MINUTES } elseif ($env:MINUTES) { [int]$env:MINUTES } else { 60 }),
+    [string]$LogPath = $(if ($env:PO0_SELF_REPORT_LOG) { $env:PO0_SELF_REPORT_LOG } elseif ($env:SELF_REPORT_LOG) { $env:SELF_REPORT_LOG } else { "" }),
     [switch]$AllowHttp,
     [switch]$Menu,
     [switch]$Help
@@ -15,6 +16,44 @@
 $ErrorActionPreference = "Stop"
 $RawUrl = "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1"
 $MaxMinutes = 10080
+
+function Write-SelfReportLogLine {
+    param(
+        [string]$Level,
+        [string]$Message
+    )
+    if (-not $script:LogPath) { return }
+    try {
+        $dir = Split-Path -Parent $script:LogPath
+        if ($dir -and -not (Test-Path -LiteralPath $dir)) {
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        }
+        $stamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss zzz"
+        foreach ($line in (($Message -replace "`r", "") -split "`n")) {
+            if ($line) {
+                Add-Content -LiteralPath $script:LogPath -Encoding UTF8 -Value "[$stamp] [$Level] $line"
+            }
+        }
+    } catch {}
+}
+
+function Write-SelfReportInfo {
+    param([string]$Message)
+    Write-Host $Message
+    Write-SelfReportLogLine "INFO" $Message
+}
+
+function Write-SelfReportCompleted {
+    param([string]$Message)
+    Write-Host "Self-report 已完成：$Message"
+    Write-SelfReportLogLine "OK" "Self-report 已完成：$Message"
+}
+
+function Write-SelfReportIncomplete {
+    param([string]$Message)
+    [Console]::Error.WriteLine("Self-report 未完成：$Message")
+    Write-SelfReportLogLine "ERROR" "Self-report 未完成：$Message"
+}
 
 if ($env:INSTALL_TASK -match "^(1|true|yes)$") {
     $InstallTask = $true
@@ -55,6 +94,7 @@ self-report 接收服务。访问设备不直接连接 PO0。
   -IpCheckUrl URL     第一个公网 IPv4 探测地址。默认: $IpCheckUrl
   -InstallTask        安装/更新 Windows 计划任务。
   -Minutes N          计划任务间隔分钟数，范围 1-$MaxMinutes。默认: 60。
+  -LogPath PATH       计划任务运行日志路径；安装计划任务时默认写到 PO0 配置目录。
                       Self-report 放行 TTL 由 LAN Worker 接收端配置，不由客户端决定。
 
 默认公网 IPv4 探测顺序:
@@ -226,7 +266,7 @@ function Invoke-SelfReport {
     $builder.Query = $query.ToString()
     $headers = @{}
     if ($Secret) { $headers["X-PO0-Token"] = $Secret }
-    Write-Host "上报当前公网出口 IPv4 $ip 到 LAN Worker：$script:WorkerUrl"
+    Write-SelfReportInfo "上报当前公网出口 IPv4 $ip 到 LAN Worker：$script:WorkerUrl"
     $resp = Invoke-WebRequest -UseBasicParsing -Uri $builder.Uri.AbsoluteUri -Headers $headers -TimeoutSec 30
     $content = $resp.Content
     if ($content -is [byte[]]) {
@@ -234,7 +274,12 @@ function Invoke-SelfReport {
     } elseif ($null -ne $content) {
         $content = [string]$content
     }
-    Write-Output ($content.TrimEnd())
+    if ($content) {
+        $trimmedContent = $content.TrimEnd()
+        Write-Output $trimmedContent
+        Write-SelfReportLogLine "RESPONSE" $trimmedContent
+    }
+    Write-SelfReportCompleted "公网出口 IPv4 $ip 已被 LAN Worker 接收（HTTP $([int]$resp.StatusCode)）。"
 }
 
 function Quote-TaskArg {
@@ -250,6 +295,8 @@ function Install-ScheduledReporter {
     $dir = if ($isAdmin) { Join-Path $env:ProgramData "PO0" } else { Join-Path $env:LOCALAPPDATA "PO0" }
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
     $dest = Join-Path $dir "po0-self-report.ps1"
+    $logPath = if ($script:LogPath) { $script:LogPath } else { Join-Path $dir "po0-self-report.log" }
+    $script:LogPath = $logPath
     if ($PSCommandPath -and (Test-Path -LiteralPath $PSCommandPath)) {
         Copy-Item -LiteralPath $PSCommandPath -Destination $dest -Force
     } else {
@@ -263,7 +310,8 @@ function Install-ScheduledReporter {
         "-WorkerUrl", (Quote-TaskArg $script:WorkerUrl),
         "-SourceId", (Quote-TaskArg $SourceId),
         "-Identity", (Quote-TaskArg $Identity),
-        "-Secret", (Quote-TaskArg $Secret)
+        "-Secret", (Quote-TaskArg $Secret),
+        "-LogPath", (Quote-TaskArg $logPath)
     )
     if ($script:AllowHttp) {
         $taskArgList += "-AllowHttp"
@@ -284,6 +332,8 @@ function Install-ScheduledReporter {
     Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Description $description -Force | Out-Null
     Write-Host "已安装计划任务：$taskName，每 $script:Minutes 分钟执行一次。"
     Write-Host "脚本路径：$dest"
+    Write-Host "运行日志：$logPath"
+    Write-SelfReportCompleted "计划任务已安装 / 更新：$taskName；脚本路径：$dest；日志路径：$logPath。"
 }
 
 function Get-MaskedSecret {
@@ -333,6 +383,50 @@ function Assert-Minutes {
         throw "计划任务间隔必须在 1-$script:MaxMinutes 分钟之间。"
     }
     $script:Minutes = $parsed
+}
+
+function Format-TaskTime {
+    param($Value)
+    if ($Value -and $Value.Year -gt 1900) { return $Value }
+    return "尚未运行"
+}
+
+function Format-TaskResult {
+    param([long]$Value)
+    if ($Value -eq 0) { return "0 (成功)" }
+    return ("{0} (0x{0:X8})" -f $Value)
+}
+
+function Get-ScheduledReporterLogPath {
+    param($Task)
+    if ($script:LogPath) { return $script:LogPath }
+    if (-not $Task) { return "" }
+    foreach ($action in $Task.Actions) {
+        $args = [string]$action.Arguments
+        if ($args -match '(?i)-LogPath\s+"([^"]+)"') { return $matches[1] }
+        if ($args -match '(?i)-LogPath\s+(\S+)') { return $matches[1].Trim('"') }
+    }
+    return ""
+}
+
+function Show-SelfReportLogTail {
+    param(
+        [string]$Path,
+        [int]$Lines = 12
+    )
+    if (-not $Path) {
+        Write-Host "  运行日志: 旧计划任务未配置日志；重新安装 / 更新定时上报后启用。"
+        return
+    }
+    Write-Host "  运行日志: $Path"
+    if (-not (Test-Path -LiteralPath $Path)) {
+        Write-Host "  最近日志: 暂无；等待计划任务运行一次，或先手动立即上报一次。"
+        return
+    }
+    Write-Host "  最近日志:"
+    Get-Content -LiteralPath $Path -Tail $Lines -ErrorAction SilentlyContinue | ForEach-Object {
+        Write-Host "    $_"
+    }
 }
 
 function Show-ClientConfig {
@@ -393,6 +487,13 @@ function Show-ScheduledReporter {
         foreach ($trigger in $task.Triggers) {
             Write-Host ("  触发器: {0}" -f $trigger.ToString())
         }
+        $info = Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction SilentlyContinue
+        if ($info) {
+            Write-Host ("  上次运行: {0}" -f (Format-TaskTime $info.LastRunTime))
+            Write-Host ("  上次结果: {0}" -f (Format-TaskResult $info.LastTaskResult))
+            Write-Host ("  下次运行: {0}" -f (Format-TaskTime $info.NextRunTime))
+        }
+        Show-SelfReportLogTail -Path (Get-ScheduledReporterLogPath -Task $task)
     } catch {
         Write-Host "无法读取计划任务状态：$($_.Exception.Message)"
     }
@@ -404,10 +505,12 @@ function Remove-ScheduledReporter {
         $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
         if (-not $task) {
             Write-Host "未安装本脚本管理的计划任务。"
+            Write-SelfReportCompleted "当前没有本脚本管理的计划任务。"
             return
         }
         Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
         Write-Host "已删除计划任务：$taskName"
+        Write-SelfReportCompleted "已删除本脚本管理的计划任务。"
     } catch {
         throw "删除计划任务失败：$($_.Exception.Message)"
     }
@@ -459,7 +562,7 @@ function Invoke-InteractiveMenu {
                 default { Write-Host "无效选择。"; Pause-Menu }
             }
         } catch {
-            Write-Host $_.Exception.Message
+            Write-SelfReportIncomplete $_.Exception.Message
             Pause-Menu
         }
     }
@@ -475,8 +578,13 @@ if ($Menu -or (-not $PSBoundParameters.ContainsKey("WorkerUrl") -and -not $Insta
     exit 0
 }
 
-if ($InstallTask) {
-    Install-ScheduledReporter
-} else {
-    Invoke-SelfReport
+try {
+    if ($InstallTask) {
+        Install-ScheduledReporter
+    } else {
+        Invoke-SelfReport
+    }
+} catch {
+    Write-SelfReportIncomplete $_.Exception.Message
+    exit 1
 }
