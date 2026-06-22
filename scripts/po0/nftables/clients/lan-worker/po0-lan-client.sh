@@ -4,9 +4,10 @@ set -uo pipefail
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh"
 MANAGER_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/nftables-relay-manager.sh"
 SCRIPT_NAME="po0-lan-worker-client"
-SCRIPT_VERSION="2026.06.22+build.7"
+SCRIPT_VERSION="2026.06.22+build.8"
 SCRIPT_RELEASE_DATE="2026-06-22"
 # CHANGELOG_BEGIN
+# - Self-report 子菜单的 source / TTL 入口改为只维护 Self-report 字段，不再同时提示或修改 WebAuth 字段。
 # - Self-report 后台服务摘要会提示 systemd unit 中仍显式保留的 TTL 覆盖值，便于发现旧服务未刷新。
 # - 读取旧安装的本机 settings.env 时，把遗留默认 Self-report TTL 3600 迁移为 43200、WebAuth TTL 3600 迁移为 21600；目标行显式 TTL 不自动改写。
 # - Self-report 放行 TTL 默认改为 43200 秒（12 小时），WebAuth 默认继续保持 21600 秒（6 小时）。
@@ -2484,6 +2485,57 @@ update_target_report_ttl_by_index() {
             "${TARGET_ENABLED}" "${TARGET_LABEL}" "${TARGET_DOMAIN}" "${TARGET_REPORT_KEY}" "${TARGET_PO0_HOST}" "${TARGET_PO0_PORT}" "${TARGET_PO0_USER}" "${TARGET_PO0_SCRIPT}" "${TARGET_TOKEN}" "${TARGET_SSH_EXTRA_ARGS}" "${TARGET_RESOURCE_TOKEN}" "${TARGET_REPORT_MODE}" "${TARGET_DDNS_RESOLVE_DOMAIN}" "${TARGET_CLIENT_IP_TOKEN}" "${TARGET_CLIENT_IP_SOURCE}" "${TARGET_CLIENT_IP_TTL}" "${TARGET_WEBAUTH_TOKEN}" "${TARGET_WEBAUTH_SOURCE}" "${TARGET_WEBAUTH_TTL}" "${TARGET_REPORT_SSH_EXTRA_ARGS}" >> "${tmp}"
     done < "${CONFIG_FILE}"
     replace_config_from_tmp "${tmp}"
+}
+
+update_target_self_report_ttl_by_index() {
+    local selected="$1"
+    local client_ip_source="$2"
+    local client_ip_ttl="$3"
+    local line idx=0 tmp
+    ensure_config_file || return 1
+    tmp="${CONFIG_FILE}.tmp.$$"
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        if ! parse_target_line "${line}"; then
+            printf '%s\n' "${line}" >> "${tmp}"
+            continue
+        fi
+        ((idx++))
+        if [[ "${idx}" == "${selected}" ]]; then
+            TARGET_CLIENT_IP_SOURCE="$(sanitize_field "${client_ip_source}")"
+            TARGET_CLIENT_IP_TTL="$(sanitize_field "${client_ip_ttl}")"
+        fi
+        printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
+            "${TARGET_ENABLED}" "${TARGET_LABEL}" "${TARGET_DOMAIN}" "${TARGET_REPORT_KEY}" "${TARGET_PO0_HOST}" "${TARGET_PO0_PORT}" "${TARGET_PO0_USER}" "${TARGET_PO0_SCRIPT}" "${TARGET_TOKEN}" "${TARGET_SSH_EXTRA_ARGS}" "${TARGET_RESOURCE_TOKEN}" "${TARGET_REPORT_MODE}" "${TARGET_DDNS_RESOLVE_DOMAIN}" "${TARGET_CLIENT_IP_TOKEN}" "${TARGET_CLIENT_IP_SOURCE}" "${TARGET_CLIENT_IP_TTL}" "${TARGET_WEBAUTH_TOKEN}" "${TARGET_WEBAUTH_SOURCE}" "${TARGET_WEBAUTH_TTL}" "${TARGET_REPORT_SSH_EXTRA_ARGS}" >> "${tmp}"
+    done < "${CONFIG_FILE}"
+    replace_config_from_tmp "${tmp}"
+}
+
+manage_target_self_report_ttl_interactive() {
+    local selected line idx=0
+    local client_ip_source client_ip_ttl
+    select_target_index || return 1
+    selected="${SELECTED_TARGET_INDEX}"
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        parse_target_line "${line}" || continue
+        ((idx++))
+        if [[ "${idx}" == "${selected}" ]]; then
+            client_ip_source="${TARGET_CLIENT_IP_SOURCE}"
+            client_ip_ttl="${TARGET_CLIENT_IP_TTL}"
+            break
+        fi
+    done < "${CONFIG_FILE}"
+    printf '\nSelf-report source 与 TTL 维护；直接回车保留当前值，输入 - 可清空目标覆盖。\n'
+    client_ip_source="$(prompt_default "Self-report source id" "${client_ip_source:-${SELF_REPORT_SOURCE}}")"
+    client_ip_ttl="$(prompt_default "Self-report 放行 TTL 秒数" "${client_ip_ttl:-${SELF_REPORT_TTL_SECONDS:-43200}}")"
+    [[ "${client_ip_source}" == "-" ]] && client_ip_source=""
+    [[ "${client_ip_ttl}" == "-" ]] && client_ip_ttl=""
+    if [[ -n "${client_ip_ttl}" && ! "${client_ip_ttl}" =~ ^[0-9]+$ ]]; then
+        printf 'Self-report TTL 必须是秒数，或输入 - 清空目标覆盖。\n' >&2
+        return 1
+    fi
+    [[ -n "${client_ip_ttl}" ]] && client_ip_ttl="$(normalize_report_ttl_seconds "${client_ip_ttl}" "${SELF_REPORT_TTL_SECONDS:-43200}")"
+    update_target_self_report_ttl_by_index "${selected}" "${client_ip_source}" "${client_ip_ttl}" || return 1
+    printf '已更新目标 %s 的 Self-report source 与 TTL。\n' "${selected}"
 }
 
 manage_target_report_ttl_interactive() {
@@ -6328,7 +6380,7 @@ manage_self_report_server_interactive() {
         case "${choice}" in
             1) list_targets; pause_before_return ;;
             2) manage_target_tokens_interactive; pause_before_return ;;
-            3) manage_target_report_ttl_interactive; pause_before_return ;;
+            3) manage_target_self_report_ttl_interactive; pause_before_return ;;
             4) edit_self_report_listen_interactive; pause_before_return ;;
             5) edit_self_report_secret_interactive; pause_before_return ;;
             6) probe_self_report_target; pause_before_return ;;
