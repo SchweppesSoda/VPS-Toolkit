@@ -4,9 +4,10 @@ set -uo pipefail
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh"
 MANAGER_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/nftables-relay-manager.sh"
 SCRIPT_NAME="po0-lan-worker-client"
-SCRIPT_VERSION="2026.06.22+build.5"
+SCRIPT_VERSION="2026.06.22+build.6"
 SCRIPT_RELEASE_DATE="2026-06-22"
 # CHANGELOG_BEGIN
+# - 读取旧安装的本机 settings.env 时，把遗留默认 Self-report TTL 3600 迁移为 43200、WebAuth TTL 3600 迁移为 21600；目标行显式 TTL 不自动改写。
 # - Self-report 放行 TTL 默认改为 43200 秒（12 小时），WebAuth 默认继续保持 21600 秒（6 小时）。
 # - Self-report / WebAuth TTL 统一限制在 60-604800 秒，避免误配造成过短或超长放行。
 # - 安装 WebAuth systemd 服务前检查可用 PO0 目标，避免写入空参数后反复重启失败。
@@ -513,6 +514,7 @@ load_local_settings() {
     refresh_resource_stats_file
     refresh_resource_events_file
     load_settings_from_installed_services "${loaded}" || true
+    migrate_legacy_report_ttl_defaults
     normalize_report_ttl_settings
 }
 
@@ -560,6 +562,11 @@ normalize_report_ttl_seconds() {
     (( ttl >= 60 )) || ttl=60
     (( ttl <= 604800 )) || ttl=604800
     printf '%s\n' "${ttl}"
+}
+
+migrate_legacy_report_ttl_defaults() {
+    [[ "${SELF_REPORT_TTL_SECONDS:-}" == "3600" ]] && SELF_REPORT_TTL_SECONDS="43200"
+    [[ "${WEBAUTH_TTL_SECONDS:-}" == "3600" ]] && WEBAUTH_TTL_SECONDS="21600"
 }
 
 normalize_report_ttl_settings() {
