@@ -26,10 +26,11 @@
 $ErrorActionPreference = "Stop"
 $RawUrl = "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1"
 $ScriptName = "po0-self-report"
-$ScriptVersion = "2026.06.22+build.5"
+$ScriptVersion = "2026.06.22+build.6"
 $ScriptReleaseDate = "2026-06-22"
 # CHANGELOG_BEGIN
-# - 菜单“安装 / 更新定时上报”会直接提示计划任务间隔，避免反复按 3 只用旧分钟数重装任务。
+# - 菜单更新脚本成功后先停留显示安装路径、版本变化和更新内容，按回车后再打开新版菜单。
+# - 状态面板的上报间隔文案与 Linux/OpenWrt 版统一为“每 N 分钟”。
 # CHANGELOG_END
 $PanelValueColumn = 24
 $MenuRightColumn = 46
@@ -651,6 +652,7 @@ function Upgrade-SelfFromRaw {
             Write-Host "更新内容：新脚本未提供更新说明。"
         }
         if ($ReopenMenu) {
+            Read-Host "更新完成。按回车打开新版菜单" | Out-Null
             Write-Host "正在重新打开新版菜单：$dest -Menu"
             & powershell -NoProfile -ExecutionPolicy Bypass -File $dest -ConfigPath $script:ConfigPath -Menu
             exit $LASTEXITCODE
@@ -839,7 +841,7 @@ function Show-ClientConfig {
     Write-PanelRow "Identity" $script:Identity
     Write-PanelRow "Secret" (Get-MaskedSecret $script:Secret)
     Write-PanelRow "HTTP 上报" $(if ($script:AllowHttp) { "已显式允许" } else { "默认拒绝" })
-    Write-PanelRow "上报间隔" ("每 {0} 分钟（安装计划任务时使用）" -f $script:Minutes)
+    Write-PanelRow "上报间隔" ("每 {0} 分钟（安装定时上报时使用）" -f $script:Minutes)
     Write-PanelRow "定时暂停" $(if ($script:SchedulePaused) { "已暂停" } else { "未暂停" })
     Write-PanelRow "计划任务" (Get-ScheduledReporterSummary)
     Write-PanelRow "放行 TTL" "由 LAN Worker Self-report 目标控制，默认 43200 秒"
@@ -884,7 +886,7 @@ function Install-ScheduledReporterInteractive {
     if (-not (Test-ClientConfigComplete)) {
         Set-ClientConfigInteractive
     } else {
-        $script:Minutes = Read-Default "计划任务每几分钟上报一次（1-$script:MaxMinutes）" ([string]$script:Minutes)
+        $script:Minutes = Read-Default "定时上报每几分钟执行一次（1-$script:MaxMinutes）" ([string]$script:Minutes)
         Assert-Minutes
     }
     Install-ScheduledReporter

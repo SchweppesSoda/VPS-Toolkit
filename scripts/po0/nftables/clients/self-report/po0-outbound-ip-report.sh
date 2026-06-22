@@ -3,10 +3,11 @@ set -uo pipefail
 
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh"
 SCRIPT_NAME="po0-self-report"
-SCRIPT_VERSION="2026.06.22+build.3"
+SCRIPT_VERSION="2026.06.22+build.7"
 SCRIPT_RELEASE_DATE="2026-06-22"
 # CHANGELOG_BEGIN
-# - 当前版本更新内容只显示本次版本条目；完整版本历史迁移到 scripts/po0/nftables/CHANGELOG.md，避免脚本内 changelog 越积越长。
+# - Linux/OpenWrt 默认从 hostname + machine-id/MAC 生成 Source ID，并用设备名作为 Identity，避免多台设备都落到 self-report 来源。
+# - 修复从已安装路径再次安装 / 更新定时上报时，脚本复制到自身导致 cron 安装中止的问题。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24
@@ -20,8 +21,10 @@ ENV_INSTALL_PATH="${INSTALL_PATH-}"
 ENV_MINUTES="${MINUTES-}"
 CONFIG_FILE="${PO0_SELF_REPORT_CONFIG:-${SELF_REPORT_CONFIG:-}}"
 WORKER_URL=""
-SOURCE_ID="self-report"
-IDENTITY="$(hostname 2>/dev/null || printf 'self-report')"
+SOURCE_ID=""
+IDENTITY=""
+SOURCE_ID_EXPLICIT="0"
+IDENTITY_EXPLICIT="0"
 SECRET=""
 ALLOW_HTTP=""
 IP_CHECK_URL="https://ip9.com.cn/get"
@@ -331,10 +334,22 @@ load_saved_config() {
 apply_env_overrides() {
     [[ -n "${PO0_LAN_WORKER_URL+x}" ]] && WORKER_URL="${PO0_LAN_WORKER_URL}"
     [[ -n "${ENV_WORKER_URL}" ]] && WORKER_URL="${ENV_WORKER_URL}"
-    [[ -n "${PO0_SELF_REPORT_SOURCE+x}" ]] && SOURCE_ID="${PO0_SELF_REPORT_SOURCE}"
-    [[ -n "${ENV_SOURCE_ID}" ]] && SOURCE_ID="${ENV_SOURCE_ID}"
-    [[ -n "${PO0_SELF_REPORT_IDENTITY+x}" ]] && IDENTITY="${PO0_SELF_REPORT_IDENTITY}"
-    [[ -n "${ENV_IDENTITY}" ]] && IDENTITY="${ENV_IDENTITY}"
+    if [[ -n "${PO0_SELF_REPORT_SOURCE+x}" ]]; then
+        SOURCE_ID="${PO0_SELF_REPORT_SOURCE}"
+        SOURCE_ID_EXPLICIT="1"
+    fi
+    if [[ -n "${ENV_SOURCE_ID}" ]]; then
+        SOURCE_ID="${ENV_SOURCE_ID}"
+        SOURCE_ID_EXPLICIT="1"
+    fi
+    if [[ -n "${PO0_SELF_REPORT_IDENTITY+x}" ]]; then
+        IDENTITY="${PO0_SELF_REPORT_IDENTITY}"
+        IDENTITY_EXPLICIT="1"
+    fi
+    if [[ -n "${ENV_IDENTITY}" ]]; then
+        IDENTITY="${ENV_IDENTITY}"
+        IDENTITY_EXPLICIT="1"
+    fi
     [[ -n "${PO0_SELF_REPORT_SECRET+x}" ]] && SECRET="${PO0_SELF_REPORT_SECRET}"
     [[ -n "${SELF_REPORT_SECRET+x}" ]] && SECRET="${SELF_REPORT_SECRET}"
     [[ -n "${PO0_SELF_REPORT_ALLOW_HTTP+x}" ]] && ALLOW_HTTP="${PO0_SELF_REPORT_ALLOW_HTTP}"
@@ -347,6 +362,93 @@ apply_env_overrides() {
     [[ -n "${ENV_MINUTES}" ]] && CRON_MINUTES="${ENV_MINUTES}"
     [[ -n "${PO0_SELF_REPORT_MAX_MINUTES+x}" ]] && MAX_CRON_MINUTES="${PO0_SELF_REPORT_MAX_MINUTES}"
     [[ -n "${PO0_SELF_REPORT_PAUSED+x}" ]] && SCHEDULE_PAUSED="${PO0_SELF_REPORT_PAUSED}"
+}
+
+sanitize_device_id_part() {
+    local value="$1"
+    value="$(trim "${value}")"
+    value="$(printf '%s' "${value}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g; s/--*/-/g; s/^-//; s/-$//')"
+    [[ -n "${value}" ]] || return 1
+    [[ ${#value} -le 48 ]] || value="${value:0:48}"
+    value="${value%-}"
+    printf '%s\n' "${value}"
+}
+
+default_device_hostname() {
+    local value
+    value="$(hostname 2>/dev/null || true)"
+    value="$(trim "${value}")"
+    case "${value,,}" in
+        ""|"(none)"|"localhost"|"localhost.localdomain")
+            value=""
+            ;;
+    esac
+    if [[ -z "${value}" && -r /proc/sys/kernel/hostname ]]; then
+        IFS= read -r value < /proc/sys/kernel/hostname || value=""
+        value="$(trim "${value}")"
+    fi
+    [[ -n "${value}" ]] || value="linux-device"
+    printf '%s\n' "${value}"
+}
+
+default_machine_id_part() {
+    local path value
+    for path in /etc/machine-id /var/lib/dbus/machine-id; do
+        [[ -r "${path}" ]] || continue
+        IFS= read -r value < "${path}" || value=""
+        value="$(printf '%s' "${value}" | tr -cd 'A-Fa-f0-9')"
+        if [[ ${#value} -ge 8 ]]; then
+            printf '%s\n' "${value:0:16}"
+            return 0
+        fi
+    done
+    return 1
+}
+
+default_mac_id_part() {
+    local path iface value
+    for path in /sys/class/net/*/address; do
+        [[ -r "${path}" ]] || continue
+        iface="${path%/address}"
+        iface="${iface##*/}"
+        [[ "${iface}" == "lo" ]] && continue
+        IFS= read -r value < "${path}" || value=""
+        value="$(printf '%s' "${value}" | tr -cd 'A-Fa-f0-9')"
+        [[ ${#value} -eq 12 ]] || continue
+        [[ "${value}" =~ ^0+$ ]] && continue
+        printf '%s\n' "${value}"
+        return 0
+    done
+    return 1
+}
+
+default_source_id() {
+    local host host_part id_part
+    host="$(default_device_hostname)"
+    host_part="$(sanitize_device_id_part "${host}" 2>/dev/null || printf 'linux-device')"
+    id_part="$(default_machine_id_part 2>/dev/null || default_mac_id_part 2>/dev/null || true)"
+    if [[ -n "${id_part}" ]]; then
+        printf '%s-%s\n' "${host_part}" "${id_part}"
+    else
+        printf '%s\n' "${host_part}"
+    fi
+}
+
+apply_device_defaults() {
+    if [[ "${IDENTITY_EXPLICIT}" != "1" ]]; then
+        case "${IDENTITY}" in
+            ""|"self-report"|"linux-self-report")
+                IDENTITY="$(default_device_hostname)"
+                ;;
+        esac
+    fi
+    if [[ "${SOURCE_ID_EXPLICIT}" != "1" ]]; then
+        case "${SOURCE_ID}" in
+            ""|"self-report"|"linux-self-report")
+                SOURCE_ID="$(default_source_id)"
+                ;;
+        esac
+    fi
 }
 
 save_config_file() {
@@ -462,14 +564,8 @@ validate_cron_minutes() {
 
 cron_interval_label() {
     local minutes="$1"
-    if (( minutes == 1440 )); then
-        printf '每天'
-    elif (( minutes > 1440 && minutes % 1440 == 0 )); then
-        printf '每 %s 天' "$((minutes / 1440))"
-    elif (( minutes == 60 )); then
-        printf '每小时'
-    elif (( minutes > 60 && minutes % 60 == 0 )); then
-        printf '每 %s 小时' "$((minutes / 60))"
+    if [[ "${minutes}" =~ ^[0-9]+$ ]]; then
+        printf '每 %s 分钟' "$((10#${minutes}))"
     else
         printf '每 %s 分钟' "${minutes}"
     fi
@@ -589,12 +685,17 @@ default_install_path() {
 }
 
 install_self() {
-    local dest dir
+    local dest dir source
     dest="$(default_install_path)"
     dir="$(dirname "${dest}")"
+    source="${BASH_SOURCE[0]}"
     mkdir -p "${dir}" || return 1
-    if [[ -r "${BASH_SOURCE[0]}" && "${BASH_SOURCE[0]}" != /dev/fd/* && "${BASH_SOURCE[0]}" != /proc/* && "${BASH_SOURCE[0]}" != /dev/stdin ]]; then
-        cp "${BASH_SOURCE[0]}" "${dest}" || return 1
+    if [[ -r "${source}" && "${source}" != /dev/fd/* && "${source}" != /proc/* && "${source}" != /dev/stdin ]]; then
+        if [[ -e "${dest}" && "${source}" -ef "${dest}" ]]; then
+            :
+        else
+            cp "${source}" "${dest}" || return 1
+        fi
     elif command -v curl >/dev/null 2>&1; then
         curl -fsSL "${RAW_URL}" -o "${dest}" || return 1
     elif command -v wget >/dev/null 2>&1; then
@@ -671,6 +772,7 @@ upgrade_self_from_raw() {
         printf '更新内容：新脚本未提供更新说明。\n'
     fi
     if [[ "${reopen_mode}" == "--reopen-menu" ]]; then
+        read_prompt "更新完成。按回车打开新版菜单..." >/dev/null || true
         printf '正在重新打开新版菜单：%s --menu\n' "${dest}"
         exec "${BASH:-bash}" "${dest}" --config "${CONFIG_FILE}" --install-path "${dest}" --menu
         printf '重新打开新版脚本失败，请手动执行：%s --menu\n' "${dest}" >&2
@@ -859,7 +961,7 @@ show_current_config() {
     print_panel_row "Identity" "${IDENTITY:-未设置}"
     print_panel_row "Secret" "$(mask_secret "${SECRET}")"
     print_panel_row "HTTP 上报" "$(if http_allowed; then printf '已显式允许'; else printf '默认拒绝'; fi)"
-    print_panel_row "上报间隔" "$(cron_interval_label "${CRON_MINUTES}")（安装 cron 时使用）"
+    print_panel_row "上报间隔" "$(cron_interval_label "${CRON_MINUTES}")（安装定时上报时使用）"
     print_panel_row "定时暂停" "$(schedule_paused && printf '已暂停' || printf '未暂停')"
     print_panel_row "放行 TTL" "由 LAN Worker Self-report 目标控制，默认 43200 秒"
     if [[ -n "${IP_CHECK_URLS}" ]]; then
@@ -882,7 +984,7 @@ configure_interactive() {
         fi
     fi
     validate_worker_url || return 1
-    SOURCE_ID="$(prompt_default "Source ID" "${SOURCE_ID:-self-report}")"
+    SOURCE_ID="$(prompt_default "Source ID" "${SOURCE_ID:-$(default_source_id)}")"
     IDENTITY="$(prompt_default "Identity" "${IDENTITY}")"
     if [[ -n "${SECRET}" ]]; then
         secret_input="$(read_prompt "Self-report secret [已设置，回车保留，输入 - 清空]: ")" || secret_input=""
@@ -914,6 +1016,9 @@ run_once_interactive() {
 install_cron_interactive() {
     if ! config_complete; then
         configure_interactive || return 1
+    else
+        CRON_MINUTES="$(prompt_default "定时上报每几分钟执行一次（1-${MAX_CRON_MINUTES}）" "${CRON_MINUTES}")"
+        validate_cron_minutes || return 1
     fi
     install_cron
 }
@@ -1049,10 +1154,12 @@ parse_args() {
                 ;;
             --source-id)
                 SOURCE_ID="${2:-}"
+                SOURCE_ID_EXPLICIT="1"
                 shift 2
                 ;;
             --identity)
                 IDENTITY="${2:-}"
+                IDENTITY_EXPLICIT="1"
                 shift 2
                 ;;
             --secret|--self-report-secret)
@@ -1117,7 +1224,9 @@ prime_config_path_from_args "$@"
 CONFIG_FILE="$(default_config_file)"
 load_saved_config
 apply_env_overrides
+apply_device_defaults
 parse_args "$@"
+apply_device_defaults
 CONFIG_FILE="$(default_config_file)"
 
 if [[ "${SHOW_VERSION}" == "1" ]]; then

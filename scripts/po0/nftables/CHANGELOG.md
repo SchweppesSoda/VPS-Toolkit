@@ -82,6 +82,20 @@
 
 ## po0-self-report（Linux/OpenWrt）
 
+### 2026.06.22+build.7
+
+- Linux/OpenWrt 默认从 hostname + machine-id/MAC 生成 Source ID，并用设备名作为 Identity，避免多台设备都落到 `self-report` 来源。
+- 修复从已安装路径再次安装 / 更新定时上报时，脚本复制到自身导致 cron 安装中止的问题。
+
+### 2026.06.22+build.6
+
+- 菜单更新脚本成功后先停留显示安装路径、版本变化和更新内容，按回车后再打开新版菜单。
+- 菜单“安装 / 更新定时上报”会直接提示上报间隔；状态面板统一显示“每 N 分钟”。
+
+### 2026.06.22+build.5
+
+- 修复从已安装路径再次安装 / 更新定时上报时，脚本复制到自身导致 cron 安装中止的问题。
+
 ### 2026.06.22+build.3
 
 - 当前版本更新内容只显示本次版本条目；完整版本历史迁移到 `scripts/po0/nftables/CHANGELOG.md`，避免脚本内 changelog 越积越长。
@@ -94,6 +108,11 @@
 - 新增 `--version` 和 `--changelog` 只读入口。
 
 ## po0-self-report（Windows PowerShell）
+
+### 2026.06.22+build.6
+
+- 菜单更新脚本成功后先停留显示安装路径、版本变化和更新内容，按回车后再打开新版菜单。
+- 状态面板的上报间隔文案与 Linux/OpenWrt 版统一为“每 N 分钟”。
 
 ### 2026.06.22+build.5
 
