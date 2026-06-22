@@ -3,10 +3,11 @@ const ERROR_STORAGE_KEY = 'po0-ssh-ip-report:last-error';
 const IP_CHECK_INDEX_KEY = 'po0-ssh-ip-report:ip-check-index';
 const DEVICE_ID_KEY = 'po0-ssh-ip-report:device-id';
 const DEVICE_ID_FALLBACK = 'egern';
-const DEFAULT_TTL_SECONDS = 21600;
+const DEFAULT_TTL_SECONDS = 43200;
 const DEFAULT_AUTO_REPORT_INTERVAL_SECONDS = 3600;
 const MIN_AUTO_REPORT_INTERVAL_SECONDS = 600;
 const MAX_AUTO_REPORT_INTERVAL_SECONDS = 86400;
+const DEFAULT_CELLULAR_CIDR_PREFIX = 24;
 const REPORT_TITLE = 'PO0 SSH IP 上报';
 const REPORT_FAILED_TITLE = 'PO0 SSH IP 上报失败';
 
@@ -87,7 +88,6 @@ function defaultIpCheckUrls(env) {
     'https://r.inews.qq.com/api/ip2city?otype=json',
     'https://data.video.iqiyi.com/v.f4v',
     'https://ip.apps.cntv.cn/whereis?client=json',
-    'https://exservice.12306.cn/excater/bonree/grip',
     'https://myip.ipip.net/json',
   ].filter(Boolean);
 }
@@ -116,10 +116,10 @@ async function detectCurrentIPv4(ctx, url, policy) {
     const fields = [data.ip, data.origin, data.query, data.address, data.IPv4, data.ipv4];
     for (const field of fields) {
       const ips = extractIPv4FromText(field);
-      if (ips.length > 0) return ips[0];
+      if (ips.length > 0) return { ip: ips[0], ipProfile: extractIpProfile(data) };
     }
     const ips = extractIPv4FromText(JSON.stringify(data));
-    if (ips.length > 0) return ips[0];
+    if (ips.length > 0) return { ip: ips[0], ipProfile: extractIpProfile(data) };
   }
 
   const text = await responseText(resp);
@@ -127,7 +127,7 @@ async function detectCurrentIPv4(ctx, url, policy) {
   if (ips.length === 0) {
     throw new Error(`未从 ${url} 提取到公网 IPv4`);
   }
-  return ips[0];
+  return { ip: ips[0], ipProfile: extractIpProfile(text) };
 }
 
 async function detectCurrentIPv4WithFallback(ctx, env, policy) {
@@ -144,9 +144,9 @@ async function detectCurrentIPv4WithFallback(ctx, env, policy) {
     const index = (start + i) % urls.length;
     const url = urls[index];
     try {
-      const ip = await detectCurrentIPv4(ctx, url, policy);
+      const result = await detectCurrentIPv4(ctx, url, policy);
       await storageSet(ctx, IP_CHECK_INDEX_KEY, String((index + 1) % urls.length));
-      return ip;
+      return result;
     } catch (error) {
       errors.push(`${url}: ${error?.message || error}`);
     }
@@ -161,6 +161,73 @@ function normalizeIpProfile(value) {
     location: String(value.location || '').trim(),
     isp: String(value.isp || value.org || '').trim(),
   };
+}
+
+function compactParts(parts) {
+  const seen = new Set();
+  return (parts || [])
+    .map((part) => String(part || '').trim())
+    .filter((part) => part && !/^unknown$/i.test(part))
+    .filter((part) => {
+      const key = part.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function firstValue(...values) {
+  for (const value of values) {
+    const text = String(value || '').trim();
+    if (text && !/^unknown$/i.test(text)) return text;
+  }
+  return '';
+}
+
+function extractIpProfileFromObject(data) {
+  if (!data || typeof data !== 'object') return { location: '', isp: '' };
+  const candidates = [data, data.data, data.result].filter((item) => item && typeof item === 'object');
+  for (const item of candidates) {
+    if (Array.isArray(item.location)) {
+      const locationParts = compactParts(item.location.slice(0, 4));
+      const isp = firstValue(item.location[4], item.isp, item.org, item.company, item.operator);
+      if (locationParts.length || isp) return { location: locationParts.join(' '), isp };
+    }
+
+    const locationParts = compactParts([
+      item.country,
+      item.prov,
+      item.province,
+      item.regionName,
+      item.city,
+      item.county,
+      item.district,
+    ]);
+    const isp = firstValue(item.isp, item.org, item.company, item.operator);
+    if (locationParts.length || isp) return { location: locationParts.join(' '), isp };
+  }
+  return { location: '', isp: '' };
+}
+
+function extractIpProfileFromText(text) {
+  const value = String(text || '');
+  const iqiyi = value.match(/"t"\s*:\s*"([^"|]+)\|([^"-]+)(?:-[0-9.]+)?"/);
+  if (iqiyi) {
+    return {
+      location: iqiyi[2].replace(/_/g, ' ').trim(),
+      isp: iqiyi[1].trim(),
+    };
+  }
+  return { location: '', isp: '' };
+}
+
+function extractIpProfile(value) {
+  if (value && typeof value === 'object') {
+    const profile = normalizeIpProfile(extractIpProfileFromObject(value));
+    if (profile.location || profile.isp) return profile;
+    return normalizeIpProfile(extractIpProfileFromText(JSON.stringify(value)));
+  }
+  return normalizeIpProfile(extractIpProfileFromText(value));
 }
 
 function trimDisplayText(value, maxLength = 18) {
@@ -451,6 +518,7 @@ function widgetFromState(state, ctx, deviceId = '') {
   const isSmall = family.includes('small');
   const network = normalizeNetworkInfo(state?.network);
   const ipProfile = normalizeIpProfile(state?.ipProfile);
+  const reportedCidr = state?.reportedCidr || (state?.ip ? `${state.ip}/32` : '');
   const deviceName = deviceDisplayName(deviceId || state?.deviceId || '');
   const targets = Array.isArray(state?.targets) ? state.targets : [];
   const successCount = state?.successCount ?? targets.filter((target) => target.ok).length;
@@ -465,6 +533,7 @@ function widgetFromState(state, ctx, deviceId = '') {
 
   const publicRows = [
     rowNode('globe.asia.australia.fill', WIDGET_COLORS.blue, '公网', state.ip || '未知'),
+    rowNode('point.3.connected.trianglepath.dotted', WIDGET_COLORS.blue, 'CIDR', reportedCidr || '未知'),
     rowNode('mappin.and.ellipse', WIDGET_COLORS.blue, '位置', trimDisplayText(ipProfile.location || '未知', 28)),
     rowNode('building.2.fill', WIDGET_COLORS.blue, '运营商', trimDisplayText(ipProfile.isp || '未知', 28)),
   ];
@@ -567,6 +636,7 @@ function networkInfo(ctx) {
 
   if (wifiName) {
     return {
+      kind: 'wifi',
       label: 'Wi-Fi',
       value: wifiName,
       icon: 'wifi',
@@ -577,6 +647,7 @@ function networkInfo(ctx) {
 
   if (radio || carrier) {
     return {
+      kind: 'cellular',
       label: '蜂窝',
       value: [carrier, radio].filter(Boolean).join(' ') || '未知',
       icon: 'antenna.radiowaves.left.and.right',
@@ -586,6 +657,7 @@ function networkInfo(ctx) {
   }
 
   return {
+    kind: 'unknown',
     label: '网络',
     value: '未知',
     icon: 'network',
@@ -597,6 +669,7 @@ function networkInfo(ctx) {
 function normalizeNetworkInfo(value) {
   if (value && typeof value === 'object') {
     return {
+      kind: value.kind || 'unknown',
       label: value.label || '网络',
       value: value.value || '未知',
       icon: value.icon || 'network',
@@ -605,6 +678,7 @@ function normalizeNetworkInfo(value) {
     };
   }
   return {
+    kind: 'unknown',
     label: '网络',
     value: String(value || '未知'),
     icon: 'network',
@@ -699,6 +773,7 @@ function targetConfigSignature(target) {
     target.script || '',
     target.identity || '',
     String(target.ttlSeconds || ''),
+    String(target.cidrPrefix || 32),
     shortHash(target.token || ''),
   ].join('|');
 }
@@ -726,6 +801,50 @@ function autoReportIntervalSeconds(env) {
   );
 }
 
+function normalizeCidrPrefix(value, fallback = 32) {
+  const text = String(value ?? '').trim();
+  const parsed = text ? Number.parseInt(text, 10) : fallback;
+  if (parsed === 24 || parsed === 32) return parsed;
+  return fallback === 24 ? 24 : 32;
+}
+
+function reportCidrPrefixForNetwork(env, network) {
+  if (network?.kind === 'cellular') {
+    return normalizeCidrPrefix(env?.CELLULAR_CIDR_PREFIX, DEFAULT_CELLULAR_CIDR_PREFIX);
+  }
+  return 32;
+}
+
+function cidrForIPv4(ip, prefix) {
+  const parts = String(ip || '').trim().split('.').map((part) => Number.parseInt(part, 10));
+  if (parts.length !== 4 || parts.some((part) => !Number.isFinite(part) || part < 0 || part > 255)) {
+    throw new Error(`invalid IPv4 for CIDR: ${ip}`);
+  }
+  const normalizedPrefix = normalizeCidrPrefix(prefix, 32);
+  if (normalizedPrefix === 24) return `${parts[0]}.${parts[1]}.${parts[2]}.0/24`;
+  return `${parts[0]}.${parts[1]}.${parts[2]}.${parts[3]}/32`;
+}
+
+function stateReportedCidr(state) {
+  if (state?.reportedCidr) return String(state.reportedCidr);
+  if (state?.ip) {
+    try {
+      return cidrForIPv4(state.ip, state?.cidrPrefix || 32);
+    } catch (_) {
+      return String(state.ip);
+    }
+  }
+  return '';
+}
+
+function attachReportCidr(targets, cidrPrefix, reportedCidr) {
+  return (targets || []).map((target) => ({
+    ...target,
+    cidrPrefix,
+    reportedCidr,
+  }));
+}
+
 function minTargetTtlSeconds(targets) {
   const ttls = (targets || [])
     .map((target) => Number(target?.ttlSeconds))
@@ -741,11 +860,11 @@ function effectiveAutoRefreshAfterSeconds(env, targets) {
   return Math.min(configured, ttlSafeRefreshAfter);
 }
 
-async function shouldSkipUnchangedAutoReport(ctx, env, targets, ip) {
+async function shouldSkipUnchangedAutoReport(ctx, env, targets, ip, reportedCidr) {
   if (isManualRun(ctx) || isWidgetRun(ctx)) return { skip: false };
 
   const previous = parseStoredState(await storageGet(ctx, STORAGE_KEY));
-  if (!previous || !previous.ok || previous.ip !== ip) return { skip: false };
+  if (!previous || !previous.ok || stateReportedCidr(previous) !== reportedCidr) return { skip: false };
 
   const currentConfigSignature = targetConfigSignatures(targets);
   if (previous.targetConfigSignature) {
@@ -768,6 +887,7 @@ async function shouldSkipUnchangedAutoReport(ctx, env, targets, ip) {
     ageSeconds,
     refreshAfter,
     currentConfigSignature,
+    previousIp: previous.ip || '',
   };
 }
 
@@ -1056,6 +1176,7 @@ async function reportToPO0(ctx, env, target, ip) {
       shQuote(target.token),
       shQuote(target.identity),
       shQuote(String(target.ttlSeconds)),
+      shQuote(String(target.cidrPrefix || 32)),
     ].join(' ');
     const result = await session.exec(command);
     const code = result.code ?? result.exitCode ?? 0;
@@ -1084,24 +1205,41 @@ export default async function(ctx) {
   let targets = [];
   let ip = '';
   let ipProfile = { location: '', isp: '' };
+  let network = networkInfo(ctx);
+  let cidrPrefix = 32;
+  let reportedCidr = '';
 
   try {
     targets = parseTargets(env, deviceId);
-    ip = await detectCurrentIPv4WithFallback(ctx, env, policy);
-    ipProfile = await fetchIpProfile(ctx, ip, policy);
-    const skipDecision = await shouldSkipUnchangedAutoReport(ctx, env, targets, ip);
+    const detected = await detectCurrentIPv4WithFallback(ctx, env, policy);
+    ip = detected.ip;
+    ipProfile = normalizeIpProfile(detected.ipProfile);
+    if (!ipProfile.location && !ipProfile.isp) {
+      ipProfile = await fetchIpProfile(ctx, ip, policy);
+    }
+    network = networkInfo(ctx);
+    cidrPrefix = reportCidrPrefixForNetwork(env, network);
+    reportedCidr = cidrForIPv4(ip, cidrPrefix);
+    targets = attachReportCidr(targets, cidrPrefix, reportedCidr);
+    const skipDecision = await shouldSkipUnchangedAutoReport(ctx, env, targets, ip, reportedCidr);
     if (skipDecision.skip) {
       const previousIpProfile = normalizeIpProfile(skipDecision.previous?.ipProfile);
       if (!ipProfile.location && !ipProfile.isp && (previousIpProfile.location || previousIpProfile.isp)) {
         ipProfile = previousIpProfile;
       }
+      const changedInsideCidr = skipDecision.previousIp && skipDecision.previousIp !== ip
+        ? `；本次 IP ${ip} 仍在 ${reportedCidr}`
+        : '';
       const state = {
         ...skipDecision.previous,
+        ip,
+        reportedCidr,
+        cidrPrefix,
         skipped: true,
         checkedAt: new Date().toISOString(),
         targetConfigSignature: skipDecision.currentConfigSignature,
-        skipReason: `IP 未变化，距离上次成功 ${skipDecision.ageSeconds}s，小于自动刷新间隔 ${skipDecision.refreshAfter}s`,
-        network: networkInfo(ctx),
+        skipReason: `上报 CIDR 未变化${changedInsideCidr}，距离上次成功 ${skipDecision.ageSeconds}s，小于自动刷新间隔 ${skipDecision.refreshAfter}s`,
+        network,
         ipProfile,
         deviceId,
       };
@@ -1124,6 +1262,8 @@ export default async function(ctx) {
           port: target.port,
           identity: target.identity,
           ttlSeconds: target.ttlSeconds,
+          cidrPrefix: target.cidrPrefix,
+          reportedCidr: target.reportedCidr,
           expiresAt: new Date(startedAt.getTime() + Math.max(60, target.ttlSeconds) * 1000).toISOString(),
           output: String(output || '').trim(),
         };
@@ -1137,6 +1277,8 @@ export default async function(ctx) {
           sourceId: target.sourceId,
           host: target.host,
           port: target.port,
+          cidrPrefix: target.cidrPrefix,
+          reportedCidr: target.reportedCidr,
           error: errorText,
         };
         failures.push(report);
@@ -1148,10 +1290,12 @@ export default async function(ctx) {
       ok: failures.length === 0,
       sourceId: targets.map((target) => target.sourceId).join(','),
       ip,
+      reportedCidr,
+      cidrPrefix,
       ipProfile,
       po0Host: targets.map((target) => target.host).join(','),
       identity: targets.map((target) => target.identity).filter(Boolean).join(','),
-      network: networkInfo(ctx),
+      network,
       at: startedAt.toISOString(),
       deviceId,
       targetCount: targets.length,
@@ -1181,8 +1325,10 @@ export default async function(ctx) {
       sourceId: targets.map((target) => target.sourceId).join(',') || String(env.SSH_REPORT_SOURCE || 'egern').trim() || 'egern',
       po0Host: targets.map((target) => target.host).join(',') || env.PO0_HOST || '',
       ip,
+      reportedCidr,
+      cidrPrefix,
       ipProfile,
-      network: networkInfo(ctx),
+      network,
       at: new Date().toISOString(),
       deviceId,
       targetCount: targets.length,

@@ -4,10 +4,11 @@ set -uo pipefail
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh"
 MANAGER_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/nftables-relay-manager.sh"
 SCRIPT_NAME="po0-lan-worker-client"
-SCRIPT_VERSION="2026.06.22+build.10"
+SCRIPT_VERSION="2026.06.22+build.11"
 SCRIPT_RELEASE_DATE="2026-06-22"
 # CHANGELOG_BEGIN
-# - 更新内容显示只输出当前版本条目；完整版本历史迁移到 scripts/po0/nftables/CHANGELOG.md，避免脚本内 changelog 越积越长。
+# - DDNS resolver 默认上报间隔改为 3600 秒，并新增 --ddns-interval-seconds / PO0_DDNS_INTERVAL_SECONDS。
+# - WebAuth 默认 TTL 调整为 43200 秒，和 Self-report 默认 TTL 保持一致。
 # CHANGELOG_END
 DEFAULT_PO0_SCRIPT="/root/nftables-relay-manager.sh"
 PO0_HOST="${PO0_HOST:-}"
@@ -46,8 +47,14 @@ RESTORE_CRON="0"
 RESTORE_SYSTEMD="0"
 RESTORE_CADDY="0"
 RESTORE_DRY_RUN="0"
-CRON_MINUTES="5"
-DDNS_CRON_MINUTES="${PO0_DDNS_CRON_MINUTES:-${DDNS_CRON_MINUTES:-5}}"
+CRON_MINUTES="60"
+DDNS_CRON_MINUTES="${PO0_DDNS_CRON_MINUTES:-${DDNS_CRON_MINUTES:-60}}"
+DDNS_INTERVAL_SECONDS_INPUT="${PO0_DDNS_INTERVAL_SECONDS:-${DDNS_INTERVAL_SECONDS:-}}"
+DDNS_INTERVAL_SECONDS_EXPLICIT="0"
+if [[ "${DDNS_INTERVAL_SECONDS_INPUT}" =~ ^[0-9]+$ && "${DDNS_INTERVAL_SECONDS_INPUT}" -ge 60 && $((10#${DDNS_INTERVAL_SECONDS_INPUT} % 60)) -eq 0 ]]; then
+    DDNS_CRON_MINUTES="$((10#${DDNS_INTERVAL_SECONDS_INPUT} / 60))"
+    DDNS_INTERVAL_SECONDS_EXPLICIT="1"
+fi
 DDNS_CRON_MAX_MINUTES="${PO0_DDNS_CRON_MAX_MINUTES:-1440}"
 RESOURCE_CRON_MINUTES="${PO0_RESOURCE_CRON_MINUTES:-${RESOURCE_CRON_MINUTES:-1440}}"
 RESOURCE_CRON_MAX_MINUTES="${PO0_RESOURCE_CRON_MAX_MINUTES:-10080}"
@@ -58,7 +65,7 @@ BOOTSTRAP_LABEL=""
 WEBAUTH_LISTEN="${PO0_WEBAUTH_LISTEN:-127.0.0.1:8787}"
 WEBAUTH_SOURCE="${PO0_WEBAUTH_SOURCE:-cf-access}"
 WEBAUTH_TOKEN="${PO0_WEBAUTH_TOKEN:-}"
-WEBAUTH_TTL_SECONDS="${PO0_WEBAUTH_TTL_SECONDS:-21600}"
+WEBAUTH_TTL_SECONDS="${PO0_WEBAUTH_TTL_SECONDS:-43200}"
 WEBAUTH_TARGETS="${PO0_WEBAUTH_TARGETS:-}"
 SELF_REPORT_LISTEN="${PO0_SELF_REPORT_LISTEN:-127.0.0.1:8788}"
 SELF_REPORT_SOURCE="${PO0_SELF_REPORT_SOURCE:-self-report}"
@@ -245,9 +252,9 @@ usage() {
         "  bash po0-lan-client.sh --wizard" \
         "  bash po0-lan-client.sh --menu" \
         "  bash po0-lan-client.sh --probe --po0-host HOST --source-key home --ddns-domain home.example.com --token TOKEN --resource-token TOKEN" \
-        "  bash po0-lan-client.sh --bootstrap --po0-host HOST --source-key home --ddns-domain home.example.com --token TOKEN --resource-token TOKEN --install-cron 5" \
+        "  bash po0-lan-client.sh --bootstrap --po0-host HOST --source-key home --ddns-domain home.example.com --token TOKEN --resource-token TOKEN --ddns-interval-seconds 3600 --install-cron" \
         "  bash po0-lan-client.sh --bootstrap --po0-host HOST --resource-token TOKEN --install-cron 1440" \
-        "  curl -fsSL ${RAW_URL} | bash -s -- --bootstrap --po0-host HOST --source-key home --ddns-domain home.example.com --token TOKEN --resource-token TOKEN --install-cron 5" \
+        "  curl -fsSL ${RAW_URL} | bash -s -- --bootstrap --po0-host HOST --source-key home --ddns-domain home.example.com --token TOKEN --resource-token TOKEN --ddns-interval-seconds 3600 --install-cron" \
         "  po0-lan-client --webauth-server --listen 127.0.0.1:8787 --po0-host HOST --webauth-token TOKEN" \
         "  po0-lan-client --install-self-report-https --self-report-https-domain report.example.com --po0-host HOST --client-ip-token TOKEN --self-report-secret SECRET" \
         "  po0-lan-client --install-manager-update-http --manager-update-domain 172.81.111.68" \
@@ -256,8 +263,9 @@ usage() {
         "常用命令:" \
         "  --probe              只做依赖、DDNS 解析、SSH、PO0 token 连通性/权限检查，不修改 PO0 白名单。" \
         "  --bootstrap          写入本机目标配置，默认先做连通性/权限检查，再执行一次 --run。" \
-        "  --install-cron [N]   安装/更新本机 Worker 轮询器；N 为兼容参数，会同时作为 DDNS/资源间隔。" \
-        "                        不带 N 时，DDNS 默认 ${DDNS_CRON_MINUTES} 分钟，资源任务默认 ${RESOURCE_CRON_MINUTES} 分钟。" \
+        "  --install-cron [N]   安装/更新本机 Worker 轮询器；N 为兼容分钟参数，会作为资源间隔，并在未显式设置 DDNS 秒数时作为 DDNS 间隔。" \
+        "                        不带 N 时，DDNS 默认 $(cron_minutes_to_seconds "${DDNS_CRON_MINUTES}") 秒，资源任务默认 ${RESOURCE_CRON_MINUTES} 分钟。" \
+        "  --ddns-interval-seconds N  设置 DDNS resolver 上报间隔秒数，必须是 60 的倍数，默认 3600。" \
         "                        资源任务创建周期在 PO0 nft manager 里设置，本机只定期领取已创建任务。" \
         "                        如果目标启用了 DDNS resolver，DDNS 间隔应小于 PO0 端该 DDNS 来源 TTL。" \
         "  PO0_IPLIST_JOBS=N   iplist txt 并发下载数，默认 16，范围 1-50。" \
@@ -424,6 +432,7 @@ save_local_settings() {
         write_env_assignment "REMOTE_STATUS_TIMEOUT_SECONDS" "${REMOTE_STATUS_TIMEOUT_SECONDS}"
         write_env_assignment "SSH_CONNECT_TIMEOUT_SECONDS" "${SSH_CONNECT_TIMEOUT_SECONDS}"
         write_env_assignment "DDNS_CRON_MINUTES" "${DDNS_CRON_MINUTES}"
+        write_env_assignment "DDNS_INTERVAL_SECONDS" "$((10#${DDNS_CRON_MINUTES:-60} * 60))"
         write_env_assignment "DDNS_CRON_MAX_MINUTES" "${DDNS_CRON_MAX_MINUTES}"
         write_env_assignment "RESOURCE_CRON_MINUTES" "${RESOURCE_CRON_MINUTES}"
         write_env_assignment "RESOURCE_CRON_MAX_MINUTES" "${RESOURCE_CRON_MAX_MINUTES}"
@@ -478,6 +487,9 @@ load_local_settings() {
     refresh_resource_stats_file
     refresh_resource_events_file
     load_settings_from_installed_services "${loaded}" || true
+    if [[ -n "${DDNS_INTERVAL_SECONDS:-}" ]]; then
+        DDNS_CRON_MINUTES="$(normalize_interval_seconds_to_minutes "${DDNS_INTERVAL_SECONDS}" "${DDNS_CRON_MAX_MINUTES}" 2>/dev/null || printf '%s' "${DDNS_CRON_MINUTES}")"
+    fi
     migrate_legacy_report_ttl_defaults
     normalize_report_ttl_settings
 }
@@ -520,8 +532,8 @@ fill_setting_from_unit_arg() {
 
 normalize_report_ttl_seconds() {
     local ttl="${1:-}"
-    local fallback="${2:-21600}"
-    [[ "${fallback}" =~ ^[0-9]+$ ]] || fallback="21600"
+    local fallback="${2:-43200}"
+    [[ "${fallback}" =~ ^[0-9]+$ ]] || fallback="43200"
     [[ "${ttl}" =~ ^[0-9]+$ ]] || ttl="${fallback}"
     (( ttl >= 60 )) || ttl=60
     (( ttl <= 604800 )) || ttl=604800
@@ -530,12 +542,14 @@ normalize_report_ttl_seconds() {
 
 migrate_legacy_report_ttl_defaults() {
     [[ "${SELF_REPORT_TTL_SECONDS:-}" == "3600" ]] && SELF_REPORT_TTL_SECONDS="43200"
-    [[ "${WEBAUTH_TTL_SECONDS:-}" == "3600" ]] && WEBAUTH_TTL_SECONDS="21600"
+    case "${WEBAUTH_TTL_SECONDS:-}" in
+        3600|21600) WEBAUTH_TTL_SECONDS="43200" ;;
+    esac
 }
 
 normalize_report_ttl_settings() {
     SELF_REPORT_TTL_SECONDS="$(normalize_report_ttl_seconds "${SELF_REPORT_TTL_SECONDS}" 43200)"
-    WEBAUTH_TTL_SECONDS="$(normalize_report_ttl_seconds "${WEBAUTH_TTL_SECONDS}" 21600)"
+    WEBAUTH_TTL_SECONDS="$(normalize_report_ttl_seconds "${WEBAUTH_TTL_SECONDS}" 43200)"
 }
 
 load_settings_from_installed_services() {
@@ -2519,7 +2533,7 @@ manage_target_report_ttl_interactive() {
     client_ip_source="$(prompt_default "Self-report source id" "${client_ip_source:-${SELF_REPORT_SOURCE}}")"
     client_ip_ttl="$(prompt_default "Self-report 放行 TTL 秒数" "${client_ip_ttl:-${SELF_REPORT_TTL_SECONDS:-43200}}")"
     webauth_source="$(prompt_default "WebAuth source id" "${webauth_source:-${WEBAUTH_SOURCE}}")"
-    webauth_ttl="$(prompt_default "WebAuth 放行 TTL 秒数" "${webauth_ttl:-${WEBAUTH_TTL_SECONDS:-21600}}")"
+    webauth_ttl="$(prompt_default "WebAuth 放行 TTL 秒数" "${webauth_ttl:-${WEBAUTH_TTL_SECONDS:-43200}}")"
     [[ "${client_ip_source}" == "-" ]] && client_ip_source=""
     [[ "${client_ip_ttl}" == "-" ]] && client_ip_ttl=""
     [[ "${webauth_source}" == "-" ]] && webauth_source=""
@@ -2533,7 +2547,7 @@ manage_target_report_ttl_interactive() {
         return 1
     fi
     [[ -n "${client_ip_ttl}" ]] && client_ip_ttl="$(normalize_report_ttl_seconds "${client_ip_ttl}" "${SELF_REPORT_TTL_SECONDS:-43200}")"
-    [[ -n "${webauth_ttl}" ]] && webauth_ttl="$(normalize_report_ttl_seconds "${webauth_ttl}" "${WEBAUTH_TTL_SECONDS:-21600}")"
+    [[ -n "${webauth_ttl}" ]] && webauth_ttl="$(normalize_report_ttl_seconds "${webauth_ttl}" "${WEBAUTH_TTL_SECONDS:-43200}")"
     update_target_report_ttl_by_index "${selected}" "${client_ip_source}" "${client_ip_ttl}" "${webauth_source}" "${webauth_ttl}" || return 1
     printf '已更新目标 %s 的 Self-report / WebAuth source 与 TTL。\n' "${selected}"
 }
@@ -2785,8 +2799,8 @@ po0_lan_wizard() {
         [[ -n "${WEBAUTH_TOKEN}" ]] || { printf 'WebAuth 需要 webauth token。\n' >&2; return 1; }
         WEBAUTH_SOURCE="$(prompt_default "WebAuth source id" "${WEBAUTH_SOURCE:-cf-access}")"
         WEBAUTH_LISTEN="$(prompt_default "WebAuth 本地监听地址" "${WEBAUTH_LISTEN:-127.0.0.1:8787}")"
-        WEBAUTH_TTL_SECONDS="$(prompt_default "WebAuth 放行 TTL 秒数" "${WEBAUTH_TTL_SECONDS:-21600}")"
-        WEBAUTH_TTL_SECONDS="$(normalize_report_ttl_seconds "${WEBAUTH_TTL_SECONDS}" 21600)"
+        WEBAUTH_TTL_SECONDS="$(prompt_default "WebAuth 放行 TTL 秒数" "${WEBAUTH_TTL_SECONDS:-43200}")"
+        WEBAUTH_TTL_SECONDS="$(normalize_report_ttl_seconds "${WEBAUTH_TTL_SECONDS}" 43200)"
     else
         WEBAUTH_TOKEN=""
     fi
@@ -2816,7 +2830,11 @@ po0_lan_wizard() {
                     resource_cron_minutes="$(prompt_default "资源任务每几分钟检查一次（1-${RESOURCE_CRON_MAX_MINUTES}；只领取 PO0 已创建任务）" "${RESOURCE_CRON_MINUTES}")"
                 fi
                 if (( use_ddns == 1 )); then
-                    ddns_cron_minutes="$(prompt_default "DDNS resolver 每几分钟上报一次（1-${DDNS_CRON_MAX_MINUTES}；应小于 PO0 端 DDNS 来源 TTL）" "${DDNS_CRON_MINUTES}")"
+                    ddns_cron_seconds="$(prompt_default "DDNS resolver 每几秒上报一次（60-$((DDNS_CRON_MAX_MINUTES * 60))；必须是 60 的倍数）" "$(cron_minutes_to_seconds "${DDNS_CRON_MINUTES}")")"
+                    ddns_cron_minutes="$(normalize_interval_seconds_to_minutes "${ddns_cron_seconds}" "${DDNS_CRON_MAX_MINUTES}")" || {
+                        printf 'DDNS 上报间隔秒数无效：请输入 60-%s 且为 60 倍数的整数。\n' "$((DDNS_CRON_MAX_MINUTES * 60))" >&2
+                        return 1
+                    }
                 fi
                 install_worker_crons "${ddns_cron_minutes:-}" "${resource_cron_minutes:-}" "${script_path}" || return 1
             fi
@@ -3820,15 +3838,15 @@ webauth_targets_env() {
         [[ "${TARGET_ENABLED}" == "1" ]] || continue
         [[ -n "${TARGET_WEBAUTH_TOKEN}" ]] || continue
         source="${TARGET_WEBAUTH_SOURCE:-${WEBAUTH_SOURCE}}"
-        ttl="$(normalize_report_ttl_seconds "${TARGET_WEBAUTH_TTL:-${WEBAUTH_TTL_SECONDS}}" "${WEBAUTH_TTL_SECONDS:-21600}")"
+        ttl="$(normalize_report_ttl_seconds "${TARGET_WEBAUTH_TTL:-${WEBAUTH_TTL_SECONDS}}" "${WEBAUTH_TTL_SECONDS:-43200}")"
         extra="${TARGET_REPORT_SSH_EXTRA_ARGS:-${TARGET_SSH_EXTRA_ARGS}}"
         printf '%s|%s|%s|%s|%s|%s|%s|%s\n' \
-            "${source}" "${TARGET_PO0_HOST}" "${TARGET_PO0_PORT:-22}" "${TARGET_PO0_USER:-root}" "${TARGET_PO0_SCRIPT:-${DEFAULT_PO0_SCRIPT}}" "${TARGET_WEBAUTH_TOKEN}" "${ttl:-21600}" "${extra}"
+            "${source}" "${TARGET_PO0_HOST}" "${TARGET_PO0_PORT:-22}" "${TARGET_PO0_USER:-root}" "${TARGET_PO0_SCRIPT:-${DEFAULT_PO0_SCRIPT}}" "${TARGET_WEBAUTH_TOKEN}" "${ttl:-43200}" "${extra}"
         count=$((count + 1))
     done < "${CONFIG_FILE}"
     if [[ "${count}" == "0" && -n "${PO0_HOST}" && -n "${WEBAUTH_TOKEN}" ]]; then
         printf '%s|%s|%s|%s|%s|%s|%s|%s\n' \
-            "${WEBAUTH_SOURCE}" "${PO0_HOST}" "${PO0_PORT:-22}" "${PO0_USER:-root}" "${PO0_SCRIPT:-${DEFAULT_PO0_SCRIPT}}" "${WEBAUTH_TOKEN}" "$(normalize_report_ttl_seconds "${WEBAUTH_TTL_SECONDS}" 21600)" "${SSH_EXTRA_ARGS}"
+            "${WEBAUTH_SOURCE}" "${PO0_HOST}" "${PO0_PORT:-22}" "${PO0_USER:-root}" "${PO0_SCRIPT:-${DEFAULT_PO0_SCRIPT}}" "${WEBAUTH_TOKEN}" "$(normalize_report_ttl_seconds "${WEBAUTH_TTL_SECONDS}" 43200)" "${SSH_EXTRA_ARGS}"
     fi
 }
 
@@ -3945,12 +3963,12 @@ def parse_targets(raw):
             'user': user or 'root',
             'script': script or '/root/nftables-relay-manager.sh',
             'token': token,
-            'ttl': ttl or '21600',
+            'ttl': ttl or '43200',
             'extra': extra,
         })
     return targets
 
-def normalized_ttl(value, fallback=21600):
+def normalized_ttl(value, fallback=43200):
     try:
         ttl = int(value or fallback)
     except ValueError:
@@ -4115,7 +4133,7 @@ if not TARGETS:
     raise SystemExit('missing PO0_WEBAUTH_TARGETS')
 
 def report_target(target, ip, identity, note):
-    ttl = normalized_ttl(target.get('ttl'), 21600)
+    ttl = normalized_ttl(target.get('ttl'), 43200)
     expires_at = str(int(time.time()) + max(60, ttl))
     remote = " ".join([
         "bash",
@@ -5179,6 +5197,25 @@ normalize_cron_minutes() {
     printf '%s\n' "${minutes}"
 }
 
+normalize_interval_seconds_to_minutes() {
+    local seconds="${1:-}"
+    local max_minutes="${2:-1440}"
+    local max_seconds
+    seconds="$(trim "${seconds}")"
+    [[ "${max_minutes}" =~ ^[0-9]+$ && "${max_minutes}" -ge 1 ]] || max_minutes=1440
+    max_seconds=$((max_minutes * 60))
+    [[ "${seconds}" =~ ^[0-9]+$ ]] || return 1
+    (( seconds >= 60 && seconds <= max_seconds )) || return 1
+    (( seconds % 60 == 0 )) || return 1
+    printf '%s\n' "$((seconds / 60))"
+}
+
+cron_minutes_to_seconds() {
+    local minutes="${1:-}"
+    [[ "${minutes}" =~ ^[0-9]+$ && "${minutes}" -ge 1 ]] || minutes=60
+    printf '%s\n' "$((10#${minutes} * 60))"
+}
+
 cron_interval_label() {
     local minutes="$1"
     if (( minutes == 1440 )); then
@@ -5220,16 +5257,17 @@ build_worker_cron_job() {
 }
 
 print_cron_example() {
-    local minutes="$1"
+    local requested_ddns_minutes="${1:-}"
+    local requested_resource_minutes="${2:-}"
     local script_path resource_minutes ddns_minutes resource_label ddns_label
-    if ! resource_minutes="$(normalize_cron_minutes "${minutes}" "${RESOURCE_CRON_MAX_MINUTES}")"; then
+    if ! resource_minutes="$(normalize_cron_minutes "${requested_resource_minutes:-${RESOURCE_CRON_MINUTES}}" "${RESOURCE_CRON_MAX_MINUTES}")"; then
         resource_minutes="$(normalize_cron_minutes "${RESOURCE_CRON_MINUTES}" "${RESOURCE_CRON_MAX_MINUTES}" 2>/dev/null || printf '1440')"
     fi
-    if ! ddns_minutes="$(normalize_cron_minutes "${minutes}" "${DDNS_CRON_MAX_MINUTES}")"; then
-        ddns_minutes="$(normalize_cron_minutes "${DDNS_CRON_MINUTES}" "${DDNS_CRON_MAX_MINUTES}" 2>/dev/null || printf '5')"
+    if ! ddns_minutes="$(normalize_cron_minutes "${requested_ddns_minutes:-${DDNS_CRON_MINUTES}}" "${DDNS_CRON_MAX_MINUTES}")"; then
+        ddns_minutes="$(normalize_cron_minutes "${DDNS_CRON_MINUTES}" "${DDNS_CRON_MAX_MINUTES}" 2>/dev/null || printf '60')"
     fi
     resource_label="$(cron_interval_label "${resource_minutes}")"
-    ddns_label="$(cron_interval_label "${ddns_minutes}")"
+    ddns_label="$(cron_minutes_to_seconds "${ddns_minutes}") 秒"
     script_path="$(script_self_path)"
     printf '%s\n' \
         "本机资源任务领取示例（${resource_label}检查 PO0 pending 任务）：" \
@@ -5488,7 +5526,11 @@ install_cron_interactive() {
         print_panel_row "资源任务" "未配置启用目标，跳过资源领取计划"
     fi
     if (( ddns_count > 0 )); then
-        ddns_minutes="$(prompt_default "DDNS resolver 每几分钟上报一次（1-${DDNS_CRON_MAX_MINUTES}；应小于 PO0 端 DDNS 来源 TTL）" "${DDNS_CRON_MINUTES}")"
+        ddns_seconds="$(prompt_default "DDNS resolver 每几秒上报一次（60-$((DDNS_CRON_MAX_MINUTES * 60))；必须是 60 的倍数）" "$(cron_minutes_to_seconds "${DDNS_CRON_MINUTES}")")"
+        ddns_minutes="$(normalize_interval_seconds_to_minutes "${ddns_seconds}" "${DDNS_CRON_MAX_MINUTES}")" || {
+            printf 'DDNS 上报间隔秒数无效：请输入 60-%s 且为 60 倍数的整数。\n' "$((DDNS_CRON_MAX_MINUTES * 60))" >&2
+            return 1
+        }
     else
         print_panel_row "DDNS resolver" "未配置启用目标，跳过 DDNS 上报计划"
     fi
@@ -5513,7 +5555,11 @@ install_ddns_cron_interactive() {
         printf '没有启用的 DDNS resolver 目标。请先在 DDNS 目标设置里添加或编辑目标。\n' >&2
         return 1
     fi
-    ddns_minutes="$(prompt_default "DDNS resolver 每几分钟上报一次（1-${DDNS_CRON_MAX_MINUTES}；应小于 PO0 端 DDNS 来源 TTL）" "${DDNS_CRON_MINUTES}")"
+    ddns_seconds="$(prompt_default "DDNS resolver 每几秒上报一次（60-$((DDNS_CRON_MAX_MINUTES * 60))；必须是 60 的倍数）" "$(cron_minutes_to_seconds "${DDNS_CRON_MINUTES}")")"
+    ddns_minutes="$(normalize_interval_seconds_to_minutes "${ddns_seconds}" "${DDNS_CRON_MAX_MINUTES}")" || {
+        printf 'DDNS 上报间隔秒数无效：请输入 60-%s 且为 60 倍数的整数。\n' "$((DDNS_CRON_MAX_MINUTES * 60))" >&2
+        return 1
+    }
     script_path="$(ensure_persistent_script)" || return 1
     install_worker_crons "${ddns_minutes}" "" "${script_path}" "ddns"
 }
@@ -5555,7 +5601,7 @@ install_worker_crons() {
                 printf 'DDNS 分钟数无效：请输入 1-%s 的整数。\n' "${DDNS_CRON_MAX_MINUTES}" >&2
                 return 1
             fi
-            ddns_label="$(cron_interval_label "${ddns_minutes}")"
+            ddns_label="$(cron_minutes_to_seconds "${ddns_minutes}") 秒"
             ddns_job="$(build_worker_cron_job "${ddns_minutes}" "--run-ddns" "${script_path}" "/tmp/po0-lan-ddns.log")"
         elif ddns_job="$(managed_cron_job_for_action "--run-ddns" 2>/dev/null)"; then
             preserved_ddns=1
@@ -6488,6 +6534,15 @@ while [[ $# -gt 0 ]]; do
             DDNS_TARGETS="${2:-}"
             shift 2
             ;;
+        --ddns-interval-seconds)
+            require_arg_value "$@"
+            DDNS_CRON_MINUTES="$(normalize_interval_seconds_to_minutes "${2:-}" "${DDNS_CRON_MAX_MINUTES}")" || {
+                printf 'DDNS 上报间隔秒数无效：请输入 60-%s 且为 60 倍数的整数。\n' "$((DDNS_CRON_MAX_MINUTES * 60))" >&2
+                exit 1
+            }
+            DDNS_INTERVAL_SECONDS_EXPLICIT="1"
+            shift 2
+            ;;
         --report-mode)
             require_arg_value "$@"
             REPORT_MODE="${2:-}"
@@ -6753,7 +6808,7 @@ while [[ $# -gt 0 ]]; do
             INSTALL_CRON="1"
             if [[ -n "${2:-}" && "${2:-}" =~ ^[0-9]+$ ]]; then
                 CRON_MINUTES="${2:-}"
-                DDNS_CRON_MINUTES="${CRON_MINUTES}"
+                [[ "${DDNS_INTERVAL_SECONDS_EXPLICIT}" == "1" ]] || DDNS_CRON_MINUTES="${CRON_MINUTES}"
                 RESOURCE_CRON_MINUTES="${CRON_MINUTES}"
                 shift 2
             else
@@ -6779,7 +6834,7 @@ while [[ $# -gt 0 ]]; do
             ACTION="print-cron"
             if [[ -n "${2:-}" && "${2:-}" =~ ^[0-9]+$ ]]; then
                 CRON_MINUTES="${2:-}"
-                DDNS_CRON_MINUTES="${CRON_MINUTES}"
+                [[ "${DDNS_INTERVAL_SECONDS_EXPLICIT}" == "1" ]] || DDNS_CRON_MINUTES="${CRON_MINUTES}"
                 RESOURCE_CRON_MINUTES="${CRON_MINUTES}"
                 shift 2
             else
@@ -6907,7 +6962,7 @@ case "${ACTION}" in
         exit $?
         ;;
     print-cron)
-        print_cron_example "${CRON_MINUTES}"
+        print_cron_example "${DDNS_CRON_MINUTES}" "${RESOURCE_CRON_MINUTES}"
         exit $?
         ;;
 esac

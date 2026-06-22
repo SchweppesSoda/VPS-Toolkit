@@ -6,6 +6,16 @@
 
 ## po0-nftables-relay-manager
 
+### 2026.06.22+build.7
+
+- 移除 `ssh_report` 同源宽网段替换策略；`/24` 和 `/32` 现在统一作为 CIDR 条目保留，按 TTL 和每 `source_type + source-id` `12` 条上限裁剪。
+
+### 2026.06.22+build.6
+
+- 动态来源默认按 `source_type + source-id` 每组保留 `12` 个有效 CIDR，菜单总览和“来源 / IP 明细”显示每个 source-id 的 `n/12` 用量。
+- `--ssh-ip-report` 新增第 6 个可选参数 `cidr-prefix`，仅允许 `32` 或 `24`；`24` 会规范化为 `/24`，`32` 保持 `/32`。
+- Egern / ssh-report 默认 TTL 调整为 `43200` 秒（12 小时），受限 SSH wrapper 同步允许并校验 `cidr-prefix`。
+
 ### 2026.06.22+build.5
 
 - 当前版本更新内容只显示本次版本条目；完整版本历史迁移到 `scripts/po0/nftables/CHANGELOG.md`，避免脚本内 changelog 越积越长。
@@ -40,6 +50,11 @@
 - 状态面板和资源任务创建计划摘要增加彩色状态提示。
 
 ## po0-lan-worker-client
+
+### 2026.06.22+build.11
+
+- DDNS resolver 默认上报间隔调整为 `3600` 秒，新增 `--ddns-interval-seconds` / `PO0_DDNS_INTERVAL_SECONDS`，旧分钟参数继续兼容。
+- WebAuth 默认放行 TTL 调整为 `43200` 秒，和 Self-report 默认 TTL 保持一致。
 
 ### 2026.06.22+build.10
 
@@ -80,12 +95,27 @@
 - 资源任务本机检查间隔默认改为 1440 分钟，可设置到 10080 分钟。
 - DDNS 菜单新增目标 / 上报计划入口，说明 PO0 DDNS TTL 设置位置并可直接更新本机 DDNS 上报计划。
 
+## Egern SSH IP Report
+
+### 2026-06-23
+
+- 默认公网 IPv4 探测列表删除 12306 grip 接口，继续以 IP9 为首选并轮询其它国内接口和 `myip.ipip.net`。
+- 状态页 / Widget 优先复用 IP9、163、126、myip.ipip 等 IP 查询接口返回的归属地 / 运营商信息，拿不到时才额外查询。
+
 ## po0-self-report（Linux/OpenWrt）
+
+### 2026.06.23+build.9
+
+- 默认公网 IPv4 探测列表删除 12306 grip 接口，继续以 IP9 为首选并轮询其它国内接口和 `myip.ipip.net`。
+
+### 2026.06.22+build.8
+
+- 新增 `--interval-seconds` / `PO0_SELF_REPORT_INTERVAL_SECONDS`，默认按 `3600` 秒安装定时上报，旧分钟参数继续兼容。
+- 配置文件新增 `INTERVAL_SECONDS`，菜单、状态和安装输出统一用秒显示上报间隔。
 
 ### 2026.06.22+build.7
 
 - Linux/OpenWrt 默认从 hostname + machine-id/MAC 生成 Source ID，并用设备名作为 Identity，避免多台设备都落到 `self-report` 来源。
-- 修复从已安装路径再次安装 / 更新定时上报时，脚本复制到自身导致 cron 安装中止的问题。
 
 ### 2026.06.22+build.6
 
@@ -108,6 +138,15 @@
 - 新增 `--version` 和 `--changelog` 只读入口。
 
 ## po0-self-report（Windows PowerShell）
+
+### 2026.06.23+build.8
+
+- 默认公网 IPv4 探测列表删除 12306 grip 接口，继续以 IP9 为首选并轮询其它国内接口和 `myip.ipip.net`。
+
+### 2026.06.22+build.7
+
+- 新增 `-IntervalSeconds` / `PO0_SELF_REPORT_INTERVAL_SECONDS`，默认按 `3600` 秒安装计划任务，旧 `-Minutes` 继续兼容。
+- 配置 JSON 新增 `IntervalSeconds`，菜单、状态和安装输出统一用秒显示上报间隔。
 
 ### 2026.06.22+build.6
 

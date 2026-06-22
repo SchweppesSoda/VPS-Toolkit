@@ -3,11 +3,10 @@ set -uo pipefail
 
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh"
 SCRIPT_NAME="po0-self-report"
-SCRIPT_VERSION="2026.06.22+build.7"
-SCRIPT_RELEASE_DATE="2026-06-22"
+SCRIPT_VERSION="2026.06.23+build.9"
+SCRIPT_RELEASE_DATE="2026-06-23"
 # CHANGELOG_BEGIN
-# - Linux/OpenWrt 默认从 hostname + machine-id/MAC 生成 Source ID，并用设备名作为 Identity，避免多台设备都落到 self-report 来源。
-# - 修复从已安装路径再次安装 / 更新定时上报时，脚本复制到自身导致 cron 安装中止的问题。
+# - 默认公网 IPv4 探测列表删除 12306 grip 接口，继续以 IP9 为首选并轮询其它国内接口。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24
@@ -19,6 +18,7 @@ ENV_IP_CHECK_URL="${IP_CHECK_URL-}"
 ENV_IP_CHECK_URLS="${IP_CHECK_URLS-}"
 ENV_INSTALL_PATH="${INSTALL_PATH-}"
 ENV_MINUTES="${MINUTES-}"
+ENV_INTERVAL_SECONDS="${INTERVAL_SECONDS-}"
 CONFIG_FILE="${PO0_SELF_REPORT_CONFIG:-${SELF_REPORT_CONFIG:-}}"
 WORKER_URL=""
 SOURCE_ID=""
@@ -42,6 +42,7 @@ SHOW_SCHEDULE_STATUS=""
 SCHEDULE_PAUSED="0"
 CRON_MINUTES="60"
 MAX_CRON_MINUTES="10080"
+INTERVAL_SECONDS=""
 HAD_ARGS=0
 [[ "$#" -gt 0 ]] && HAD_ARGS=1
 
@@ -360,18 +361,33 @@ apply_env_overrides() {
     [[ -n "${ENV_INSTALL_PATH}" ]] && INSTALL_PATH="${ENV_INSTALL_PATH}"
     [[ -n "${PO0_SELF_REPORT_MINUTES+x}" ]] && CRON_MINUTES="${PO0_SELF_REPORT_MINUTES}"
     [[ -n "${ENV_MINUTES}" ]] && CRON_MINUTES="${ENV_MINUTES}"
+    [[ -n "${PO0_SELF_REPORT_INTERVAL_SECONDS+x}" ]] && INTERVAL_SECONDS="${PO0_SELF_REPORT_INTERVAL_SECONDS}"
+    [[ -n "${ENV_INTERVAL_SECONDS}" ]] && INTERVAL_SECONDS="${ENV_INTERVAL_SECONDS}"
     [[ -n "${PO0_SELF_REPORT_MAX_MINUTES+x}" ]] && MAX_CRON_MINUTES="${PO0_SELF_REPORT_MAX_MINUTES}"
     [[ -n "${PO0_SELF_REPORT_PAUSED+x}" ]] && SCHEDULE_PAUSED="${PO0_SELF_REPORT_PAUSED}"
 }
 
 sanitize_device_id_part() {
-    local value="$1"
+    local value="$1" out="" ch i
     value="$(trim "${value}")"
-    value="$(printf '%s' "${value}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g; s/--*/-/g; s/^-//; s/-$//')"
-    [[ -n "${value}" ]] || return 1
-    [[ ${#value} -le 48 ]] || value="${value:0:48}"
-    value="${value%-}"
-    printf '%s\n' "${value}"
+    value="${value,,}"
+    for ((i = 0; i < ${#value}; i++)); do
+        ch="${value:i:1}"
+        case "${ch}" in
+            [a-z0-9._-])
+                out+="${ch}"
+                ;;
+            *)
+                [[ "${out}" == *- ]] || out+="-"
+                ;;
+        esac
+    done
+    while [[ "${out}" == -* ]]; do out="${out#-}"; done
+    while [[ "${out}" == *- ]]; do out="${out%-}"; done
+    [[ -n "${out}" ]] || return 1
+    [[ ${#out} -le 48 ]] || out="${out:0:48}"
+    while [[ "${out}" == *- ]]; do out="${out%-}"; done
+    printf '%s\n' "${out}"
 }
 
 default_device_hostname() {
@@ -396,7 +412,10 @@ default_machine_id_part() {
     for path in /etc/machine-id /var/lib/dbus/machine-id; do
         [[ -r "${path}" ]] || continue
         IFS= read -r value < "${path}" || value=""
-        value="$(printf '%s' "${value}" | tr -cd 'A-Fa-f0-9')"
+        value="$(trim "${value}")"
+        value="${value//-/}"
+        value="${value,,}"
+        [[ "${value}" =~ ^[0-9a-f]+$ ]] || continue
         if [[ ${#value} -ge 8 ]]; then
             printf '%s\n' "${value:0:16}"
             return 0
@@ -413,8 +432,11 @@ default_mac_id_part() {
         iface="${iface##*/}"
         [[ "${iface}" == "lo" ]] && continue
         IFS= read -r value < "${path}" || value=""
-        value="$(printf '%s' "${value}" | tr -cd 'A-Fa-f0-9')"
+        value="$(trim "${value}")"
+        value="${value//:/}"
+        value="${value,,}"
         [[ ${#value} -eq 12 ]] || continue
+        [[ "${value}" =~ ^[0-9a-f]+$ ]] || continue
         [[ "${value}" =~ ^0+$ ]] && continue
         printf '%s\n' "${value}"
         return 0
@@ -425,7 +447,8 @@ default_mac_id_part() {
 default_source_id() {
     local host host_part id_part
     host="$(default_device_hostname)"
-    host_part="$(sanitize_device_id_part "${host}" 2>/dev/null || printf 'linux-device')"
+    host_part="$(sanitize_device_id_part "${host}" 2>/dev/null || true)"
+    [[ -n "${host_part}" ]] || host_part="linux-device"
     id_part="$(default_machine_id_part 2>/dev/null || default_mac_id_part 2>/dev/null || true)"
     if [[ -n "${id_part}" ]]; then
         printf '%s-%s\n' "${host_part}" "${id_part}"
@@ -470,6 +493,7 @@ save_config_file() {
         write_env_assignment "IP_CHECK_URLS" "${IP_CHECK_URLS}"
         write_env_assignment "INSTALL_PATH" "${INSTALL_PATH}"
         write_env_assignment "CRON_MINUTES" "${CRON_MINUTES}"
+        write_env_assignment "INTERVAL_SECONDS" "$((10#${CRON_MINUTES:-60} * 60))"
         write_env_assignment "MAX_CRON_MINUTES" "${MAX_CRON_MINUTES}"
         write_env_assignment "SCHEDULE_PAUSED" "${SCHEDULE_PAUSED}"
     } > "${tmp}" || {
@@ -562,6 +586,42 @@ validate_cron_minutes() {
     CRON_MINUTES="$((10#${CRON_MINUTES}))"
 }
 
+normalize_interval_seconds_to_minutes() {
+    local seconds="${1:-}"
+    local max_minutes="${2:-10080}"
+    local max_seconds
+    seconds="$(trim "${seconds}")"
+    [[ "${max_minutes}" =~ ^[0-9]+$ && "${max_minutes}" -ge 1 ]] || max_minutes="10080"
+    max_seconds=$((10#${max_minutes} * 60))
+    [[ "${seconds}" =~ ^[0-9]+$ ]] || return 1
+    (( 10#${seconds} >= 60 && 10#${seconds} <= max_seconds )) || return 1
+    (( 10#${seconds} % 60 == 0 )) || return 1
+    printf '%s\n' "$((10#${seconds} / 60))"
+}
+
+cron_minutes_to_seconds() {
+    local minutes="${1:-}"
+    [[ "${minutes}" =~ ^[0-9]+$ && "${minutes}" -ge 1 ]] || minutes="60"
+    printf '%s\n' "$((10#${minutes} * 60))"
+}
+
+max_interval_seconds() {
+    local max="${MAX_CRON_MINUTES:-10080}"
+    [[ "${max}" =~ ^[0-9]+$ && "${max}" -ge 1 ]] || max="10080"
+    printf '%s\n' "$((10#${max} * 60))"
+}
+
+apply_interval_seconds_override() {
+    local max_display
+    [[ -n "${INTERVAL_SECONDS:-}" ]] || return 0
+    max_display="${MAX_CRON_MINUTES:-10080}"
+    [[ "${max_display}" =~ ^[0-9]+$ && "${max_display}" -ge 1 ]] || max_display="10080"
+    CRON_MINUTES="$(normalize_interval_seconds_to_minutes "${INTERVAL_SECONDS}" "${MAX_CRON_MINUTES}")" || {
+        printf '上报间隔秒数无效：请输入 60-%s 且为 60 倍数的整数。\n' "$((10#${max_display} * 60))" >&2
+        return 1
+    }
+}
+
 cron_interval_label() {
     local minutes="$1"
     if [[ "${minutes}" =~ ^[0-9]+$ ]]; then
@@ -649,7 +709,7 @@ detect_outbound_ipv4() {
     if [[ -n "${IP_CHECK_URLS}" ]]; then
         urls="${IP_CHECK_URLS}"
     else
-        urls="${IP_CHECK_URL},https://mail.163.com/fgw/mailsrv-ipdetail/detail,https://api.live.bilibili.com/client/v1/Ip/getInfoNew,https://ipservice.ws.126.net/locate/api/getLocByIp,https://r.inews.qq.com/api/ip2city?otype=json,https://data.video.iqiyi.com/v.f4v,https://ip.apps.cntv.cn/whereis?client=json,https://exservice.12306.cn/excater/bonree/grip,https://myip.ipip.net/json"
+        urls="${IP_CHECK_URL},https://mail.163.com/fgw/mailsrv-ipdetail/detail,https://api.live.bilibili.com/client/v1/Ip/getInfoNew,https://ipservice.ws.126.net/locate/api/getLocByIp,https://r.inews.qq.com/api/ip2city?otype=json,https://data.video.iqiyi.com/v.f4v,https://ip.apps.cntv.cn/whereis?client=json,https://myip.ipip.net/json"
     fi
     IFS=',' read -r -a url_array <<< "${urls}"
     count="${#url_array[@]}"
@@ -848,13 +908,13 @@ install_cron() {
         return 1
     }
     rm -f "${tmp}" 2>/dev/null || true
-    echo "已安装 self-report cron：$(cron_interval_label "${CRON_MINUTES}")上报一次。"
+    echo "已安装 self-report cron：每 $(cron_minutes_to_seconds "${CRON_MINUTES}") 秒上报一次。"
     echo "脚本路径：${script}"
     echo "配置文件：${CONFIG_FILE}"
     if schedule_paused; then
         self_report_completed "定时上报已安装 / 更新，但当前保持暂停。"
     else
-        self_report_completed "定时上报已安装 / 更新，$(cron_interval_label "${CRON_MINUTES}")执行一次。"
+        self_report_completed "定时上报已安装 / 更新，每 $(cron_minutes_to_seconds "${CRON_MINUTES}") 秒执行一次。"
     fi
 }
 
@@ -961,7 +1021,7 @@ show_current_config() {
     print_panel_row "Identity" "${IDENTITY:-未设置}"
     print_panel_row "Secret" "$(mask_secret "${SECRET}")"
     print_panel_row "HTTP 上报" "$(if http_allowed; then printf '已显式允许'; else printf '默认拒绝'; fi)"
-    print_panel_row "上报间隔" "$(cron_interval_label "${CRON_MINUTES}")（安装定时上报时使用）"
+    print_panel_row "上报间隔" "$(cron_minutes_to_seconds "${CRON_MINUTES}") 秒（安装定时上报时使用）"
     print_panel_row "定时暂停" "$(schedule_paused && printf '已暂停' || printf '未暂停')"
     print_panel_row "放行 TTL" "由 LAN Worker Self-report 目标控制，默认 43200 秒"
     if [[ -n "${IP_CHECK_URLS}" ]]; then
@@ -972,7 +1032,7 @@ show_current_config() {
 }
 
 configure_interactive() {
-    local secret_input
+    local secret_input cron_seconds
     WORKER_URL="$(prompt_default "LAN Worker self-report HTTPS 接收地址（域名或 https://域名/report）" "${WORKER_URL:-https://report.example.com/report}")"
     WORKER_URL="$(normalize_worker_url "${WORKER_URL}")"
     if [[ "${WORKER_URL}" == http://* ]] && ! http_allowed; then
@@ -997,8 +1057,11 @@ configure_interactive() {
     else
         SECRET="$(prompt_default "Self-report secret，可空" "")"
     fi
-    CRON_MINUTES="$(prompt_default "客户端每几分钟上报一次（1-${MAX_CRON_MINUTES}）" "${CRON_MINUTES}")"
-    validate_cron_minutes || return 1
+    cron_seconds="$(prompt_default "客户端每几秒上报一次（60-$(max_interval_seconds)；必须是 60 的倍数）" "$(cron_minutes_to_seconds "${CRON_MINUTES}")")"
+    CRON_MINUTES="$(normalize_interval_seconds_to_minutes "${cron_seconds}" "${MAX_CRON_MINUTES}")" || {
+        printf '上报间隔秒数无效：请输入 60-%s 且为 60 倍数的整数。\n' "$(max_interval_seconds)" >&2
+        return 1
+    }
     IP_CHECK_URL="$(prompt_default "首选公网 IPv4 探测 URL" "${IP_CHECK_URL}")"
     if prompt_yes_no "是否覆盖完整 IP 探测 URL 列表" "n"; then
         IP_CHECK_URLS="$(prompt_default "完整探测 URL 列表，逗号分隔" "${IP_CHECK_URLS}")"
@@ -1014,11 +1077,15 @@ run_once_interactive() {
 }
 
 install_cron_interactive() {
+    local cron_seconds
     if ! config_complete; then
         configure_interactive || return 1
     else
-        CRON_MINUTES="$(prompt_default "定时上报每几分钟执行一次（1-${MAX_CRON_MINUTES}）" "${CRON_MINUTES}")"
-        validate_cron_minutes || return 1
+        cron_seconds="$(prompt_default "定时上报每几秒执行一次（60-$(max_interval_seconds)；必须是 60 的倍数）" "$(cron_minutes_to_seconds "${CRON_MINUTES}")")"
+        CRON_MINUTES="$(normalize_interval_seconds_to_minutes "${cron_seconds}" "${MAX_CRON_MINUTES}")" || {
+            printf '上报间隔秒数无效：请输入 60-%s 且为 60 倍数的整数。\n' "$(max_interval_seconds)" >&2
+            return 1
+        }
     fi
     install_cron
 }
@@ -1078,8 +1145,8 @@ usage() {
         "  bash po0-outbound-ip-report.sh --menu" \
         "  bash po0-outbound-ip-report.sh --version" \
         "  bash po0-outbound-ip-report.sh --upgrade-self" \
-        "  bash po0-outbound-ip-report.sh --worker-url https://report.example.com/report --source-id laptop --secret SECRET --save-config" \
-        "  curl -fsSL ${RAW_URL} | bash -s -- --worker-url https://report.example.com/report --source-id laptop --secret SECRET --install-cron 60" \
+        "  bash po0-outbound-ip-report.sh --worker-url https://report.example.com/report --secret SECRET --save-config" \
+        "  curl -fsSL ${RAW_URL} | bash -s -- --worker-url https://report.example.com/report --secret SECRET --interval-seconds 3600 --install-cron" \
         "" \
         "参数:" \
         "  --menu                打开交互菜单。" \
@@ -1090,16 +1157,17 @@ usage() {
         "  --save-config         保存当前参数到本地配置文件，不安装 cron。" \
         "  --worker-url URL      LAN Worker self-report HTTPS 接收地址，例如 https://report.example.com/report；裸域名会自动补全。" \
         "  --allow-http          允许 http:// 上报；仅用于本地调试或临时旧环境。" \
-        "  --source-id ID        写入 PO0 client_ip 记录的来源 ID。默认: ${SOURCE_ID}" \
-        "  --identity ID         LAN Worker/PO0 日志里的设备或用户标签。默认: ${IDENTITY}" \
+        "  --source-id ID        写入 PO0 client_ip 记录的来源 ID；默认由 hostname + machine-id/MAC 生成: ${SOURCE_ID}" \
+        "  --identity ID         LAN Worker/PO0 日志里的设备或用户标签；默认使用设备名: ${IDENTITY}" \
         "  --secret SECRET       可选的 LAN Worker self-report 共享密钥。" \
         "  --ip-check-url URL    第一个公网 IPv4 探测地址。默认: ${IP_CHECK_URL}" \
         "  --ip-check-urls CSV   覆盖完整探测地址列表，多个 URL 用逗号分隔。" \
-        "  --install-cron [N]    安装 / 更新 cron，每 N 分钟自上报一次。默认: ${CRON_MINUTES}。" \
+        "  --install-cron [N]    安装 / 更新 cron；N 为兼容分钟参数，不带 N 时默认 3600 秒。" \
         "  --pause-schedule      暂停本脚本管理的定时上报；手动立即上报仍可用。" \
         "  --resume-schedule     恢复本脚本管理的定时上报。" \
         "  --schedule-status     查看本脚本管理的定时上报状态。" \
-        "  --minutes N           设置 cron 上报间隔，范围 1-${MAX_CRON_MINUTES}。" \
+        "  --interval-seconds N  设置 cron 上报间隔秒数，必须是 60 的倍数，默认 3600。" \
+        "  --minutes N           兼容旧参数：设置 cron 上报间隔分钟数，范围 1-${MAX_CRON_MINUTES}。" \
         "" \
         "默认公网 IPv4 探测顺序:" \
         "  https://ip9.com.cn/get" \
@@ -1109,7 +1177,6 @@ usage() {
         "  https://r.inews.qq.com/api/ip2city?otype=json" \
         "  https://data.video.iqiyi.com/v.f4v" \
         "  https://ip.apps.cntv.cn/whereis?client=json" \
-        "  https://exservice.12306.cn/excater/bonree/grip" \
         "  https://myip.ipip.net/json"
 }
 
@@ -1180,12 +1247,18 @@ parse_args() {
                 ;;
             --minutes|--cron-minutes)
                 CRON_MINUTES="${2:-}"
+                INTERVAL_SECONDS=""
+                shift 2
+                ;;
+            --interval-seconds)
+                INTERVAL_SECONDS="${2:-}"
                 shift 2
                 ;;
             --install-cron)
                 INSTALL_CRON="1"
                 if [[ "${2:-}" =~ ^[0-9]+$ ]]; then
                     CRON_MINUTES="${2:-}"
+                    INTERVAL_SECONDS=""
                     shift 2
                 else
                     shift
@@ -1226,6 +1299,9 @@ load_saved_config
 apply_env_overrides
 apply_device_defaults
 parse_args "$@"
+if [[ "${SHOW_VERSION}" != "1" && "${SHOW_CHANGELOG}" != "1" && "${UPGRADE_SELF}" != "1" ]]; then
+    apply_interval_seconds_override || exit 1
+fi
 apply_device_defaults
 CONFIG_FILE="$(default_config_file)"
 

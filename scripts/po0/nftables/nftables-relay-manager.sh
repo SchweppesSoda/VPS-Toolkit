@@ -2,10 +2,10 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-nftables-relay-manager"
-SCRIPT_VERSION="2026.06.22+build.5"
+SCRIPT_VERSION="2026.06.22+build.7"
 SCRIPT_RELEASE_DATE="2026-06-22"
 # CHANGELOG_BEGIN
-# - 当前版本更新内容只显示本次版本条目；完整版本历史迁移到 scripts/po0/nftables/CHANGELOG.md，避免脚本内 changelog 越积越长。
+# - 移除 ssh_report 同源宽网段替换策略，/24 和 /32 统一按每 source-id 12 条 CIDR 上限裁剪。
 # CHANGELOG_END
 CONF_DIR="${PO0_CONF_DIR:-/etc/nftables.d}"
 MAIN_CONF="/etc/nftables.conf"
@@ -37,8 +37,8 @@ RESOURCE_TASK_TOKEN_FILE="${CONF_DIR}/po0-relay-resource-task.token"
 RESOURCE_INBOX_DIR="${CONF_DIR}/po0-relay-resource-inbox"
 RESOURCE_TASK_LOCK_FILE="${CONF_DIR}/po0-relay-resource-tasks.lock"
 RESOURCE_TASK_HISTORY_LIMIT=500
-DYNAMIC_ALLOWLIST_MAX_PER_SOURCE="${PO0_DYNAMIC_ALLOWLIST_MAX_PER_SOURCE:-5}"
-SSH_REPORT_ALLOWLIST_MAX_PER_SOURCE="${PO0_SSH_REPORT_ALLOWLIST_MAX_PER_SOURCE:-10}"
+DYNAMIC_ALLOWLIST_MAX_PER_SOURCE="${PO0_DYNAMIC_ALLOWLIST_MAX_PER_SOURCE:-12}"
+SSH_REPORT_ALLOWLIST_MAX_PER_SOURCE="${PO0_SSH_REPORT_ALLOWLIST_MAX_PER_SOURCE:-12}"
 ALLOWLIST_PROFILE_DIR="${CONF_DIR}/po0-relay-allowlist-profiles"
 ALLOWLIST_LAST_PROFILE_NAME="_last"
 ALLOWLIST_PROFILE_MAX_COUNT=10
@@ -1704,13 +1704,12 @@ dynamic_allowlist_source_type() {
 }
 
 dynamic_allowlist_max_per_source() {
-    local source_type="${1:-}" normalized_type value fallback="5"
+    local source_type="${1:-}" normalized_type value fallback="12"
     normalized_type="$(normalize_allowlist_entry_source_type "${source_type}" 2>/dev/null || true)"
     if [[ "${normalized_type}" == "ssh_report" ]]; then
-        value="${SSH_REPORT_ALLOWLIST_MAX_PER_SOURCE:-10}"
-        fallback="10"
+        value="${SSH_REPORT_ALLOWLIST_MAX_PER_SOURCE:-12}"
     else
-        value="${DYNAMIC_ALLOWLIST_MAX_PER_SOURCE:-5}"
+        value="${DYNAMIC_ALLOWLIST_MAX_PER_SOURCE:-12}"
     fi
     [[ "${value}" =~ ^[0-9]+$ ]] || value="${fallback}"
     (( value >= 1 )) || value="1"
@@ -1719,9 +1718,15 @@ dynamic_allowlist_max_per_source() {
 }
 
 dynamic_allowlist_limits_label() {
-    printf 'ddns/client_ip/webauth 每个来源最多保留 %s 个有效 IP；ssh_report/Egern 每个来源最多保留 %s 个有效 IP' \
-        "$(dynamic_allowlist_max_per_source ddns)" \
-        "$(dynamic_allowlist_max_per_source ssh_report)"
+    local regular ssh_report
+    regular="$(dynamic_allowlist_max_per_source ddns)"
+    ssh_report="$(dynamic_allowlist_max_per_source ssh_report)"
+    if [[ "${regular}" == "${ssh_report}" ]]; then
+        printf '每 source-id 默认最多保留 %s 个有效 CIDR；过期条目不进入最终缓存' "${regular}"
+    else
+        printf 'ddns/client_ip/webauth 每 source-id 最多保留 %s 个有效 CIDR；ssh_report/Egern 每 source-id 最多保留 %s 个有效 CIDR；过期条目不进入最终缓存' \
+            "${regular}" "${ssh_report}"
+    fi
 }
 
 write_auto_pending_header() {
@@ -2144,11 +2149,11 @@ replace_allowlist_entries_for_source_with_expiry() {
                 && "${ALLOWLIST_ENTRY_SOURCE_VALUE}" == "${normalized_value}" ]]; then
                 if [[ "${dynamic_mode}" == "1" ]]; then
                     allowlist_entry_is_expired "${ALLOWLIST_ENTRY_EXPIRES_AT}" && continue
+                    existing_seen+="${ALLOWLIST_ENTRY_CIDR} "
                     dynamic_cidrs+=("${ALLOWLIST_ENTRY_CIDR}")
                     dynamic_notes+=("${ALLOWLIST_ENTRY_NOTE}")
                     dynamic_created+=("${ALLOWLIST_ENTRY_CREATED_AT}")
                     dynamic_expires+=("${ALLOWLIST_ENTRY_EXPIRES_AT}")
-                    existing_seen+="${ALLOWLIST_ENTRY_CIDR} "
                 else
                     existing_seen+="${ALLOWLIST_ENTRY_CIDR} "
                 fi
@@ -2671,12 +2676,36 @@ remove_ddns_report_stats() {
 
 normalize_client_ttl_seconds() {
     local ttl="${1:-}"
-    local fallback="${2:-21600}"
-    [[ "${fallback}" =~ ^[0-9]+$ ]] || fallback="21600"
+    local fallback="${2:-43200}"
+    [[ "${fallback}" =~ ^[0-9]+$ ]] || fallback="43200"
     [[ "${ttl}" =~ ^[0-9]+$ ]] || ttl="${fallback}"
     (( ttl >= 60 )) || ttl=60
     (( ttl <= 604800 )) || ttl=604800
     printf '%s\n' "${ttl}"
+}
+
+normalize_ssh_report_cidr_prefix() {
+    local prefix="${1:-32}"
+    [[ -n "${prefix}" ]] || prefix="32"
+    [[ "${prefix}" =~ ^[0-9]+$ ]] || return 1
+    case "${prefix}" in
+        24|32)
+            printf '%s\n' "${prefix}"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+ssh_report_cidr_for_ip_prefix() {
+    local ip="$1"
+    local prefix="${2:-32}"
+    local cidr
+    is_public_ipv4 "${ip}" || return 1
+    prefix="$(normalize_ssh_report_cidr_prefix "${prefix}")" || return 1
+    cidr="$(normalize_ipv4_cidr_or_host "${ip}/${prefix}")" || return 1
+    printf '%s\n' "${cidr}"
 }
 
 normalize_report_expires_at() {
@@ -2688,7 +2717,7 @@ normalize_report_expires_at() {
     elif [[ "${value}" =~ ^[0-9]+$ ]]; then
         parsed="$(date -u -d "@${value}" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || true)"
     fi
-    [[ -n "${parsed:-}" ]] || parsed="$(utc_after_seconds_iso 21600)"
+    [[ -n "${parsed:-}" ]] || parsed="$(utc_after_seconds_iso 43200)"
     max_expires_at="$(utc_after_seconds_iso 604800)"
     if [[ "${parsed}" > "${max_expires_at}" ]]; then
         printf '%s\n' "${max_expires_at}"
@@ -2740,7 +2769,9 @@ report_ssh_ip_source() {
     local ip="$2"
     local token="$3"
     local identity="${4:-}"
-    local ttl="${5:-21600}"
+    local ttl="${5:-43200}"
+    local cidr_prefix="${6:-32}"
+    local raw_cidr_prefix
     local expires_at note cidr
     source_id="$(sanitize_allowlist_source_text "${source_id}")"
     identity="$(sanitize_allowlist_source_text "${identity}")"
@@ -2759,16 +2790,28 @@ report_ssh_ip_source() {
         err "invalid ssh report token"
         return 1
     }
-    ttl="$(normalize_client_ttl_seconds "${ttl}" 21600)"
+    ttl="$(normalize_client_ttl_seconds "${ttl}" 43200)"
+    raw_cidr_prefix="${cidr_prefix}"
+    cidr_prefix="$(normalize_ssh_report_cidr_prefix "${cidr_prefix}")" || {
+        update_generic_report_stats "${SSH_REPORT_STATS_FILE}" "${source_id}" "rejected" "${ip}" "invalid_cidr_prefix" || true
+        err "invalid ssh report cidr prefix: ${raw_cidr_prefix:-}"
+        return 1
+    }
     expires_at="$(utc_after_seconds_iso "${ttl}")"
-    cidr="${ip}/32"
+    cidr="$(ssh_report_cidr_for_ip_prefix "${ip}" "${cidr_prefix}")" || {
+        update_generic_report_stats "${SSH_REPORT_STATS_FILE}" "${source_id}" "rejected" "${ip}" "invalid_cidr" || true
+        err "invalid ssh report CIDR: ${ip}/${cidr_prefix}"
+        return 1
+    }
     note="ssh_report ${source_id}"
     [[ -n "${identity}" ]] && note="${note} identity=${identity}"
-    note="${note} ttl=${ttl} $(ipdb_snapshot_for_ip "${ip}")"
+    note="${note} ttl=${ttl} prefix=${cidr_prefix} $(ipdb_snapshot_for_ip "${ip}")"
     replace_allowlist_entries_for_source_with_expiry "default" "ssh_report" "${source_id}" "${note}" "${expires_at}" "${cidr}" || return 1
-    update_generic_report_stats "${SSH_REPORT_STATS_FILE}" "${source_id}" "accepted" "${ip}" "pending=${DYNAMIC_REPORT_PENDING_COUNT:-0}" || true
+    update_generic_report_stats "${SSH_REPORT_STATS_FILE}" "${source_id}" "accepted" "${ip}" "cidr=${cidr} pending=${DYNAMIC_REPORT_PENDING_COUNT:-0}" || true
     SSH_REPORT_SOURCE="${source_id}"
     SSH_REPORT_IP="${ip}"
+    SSH_REPORT_CIDR="${cidr}"
+    SSH_REPORT_CIDR_PREFIX="${cidr_prefix}"
     SSH_REPORT_IDENTITY="${identity}"
     SSH_REPORT_TTL="${ttl}"
 }
@@ -5744,6 +5787,34 @@ show_allowlist_entry_table() {
     done < "${ALLOWLIST_ENTRIES_FILE}"
 }
 
+show_dynamic_allowlist_source_usage() {
+    local line key source_type source_value limit count
+    declare -A counts=()
+    local -a rows=()
+    ensure_allowlist_entries_file || return 1
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        parse_allowlist_entry_line "${line}" || continue
+        dynamic_allowlist_source_type "${ALLOWLIST_ENTRY_SOURCE_TYPE}" || continue
+        allowlist_entry_is_expired "${ALLOWLIST_ENTRY_EXPIRES_AT}" && continue
+        key="${ALLOWLIST_ENTRY_SOURCE_TYPE}|${ALLOWLIST_ENTRY_SOURCE_VALUE}"
+        counts["${key}"]=$(( ${counts["${key}"]:-0} + 1 ))
+    done < "${ALLOWLIST_ENTRIES_FILE}"
+
+    print_panel_section "动态来源用量"
+    printf '  %-12s %-28s %s\n' "来源类型" "source-id" "有效条目"
+    for key in "${!counts[@]}"; do
+        IFS='|' read -r source_type source_value <<< "${key}"
+        limit="$(dynamic_allowlist_max_per_source "${source_type}")"
+        count="${counts["${key}"]:-0}"
+        rows+=("$(printf '  %-12s %-28s %s/%s' "${source_type}" "${source_value:-"-"}" "${count}" "${limit}")")
+    done
+    if [[ "${#rows[@]}" -eq 0 ]]; then
+        printf '  %s\n' "暂无未过期动态来源条目"
+    else
+        printf '%s\n' "${rows[@]}" | sort
+    fi
+}
+
 do_show_allowlist_source_entries() {
     ensure_layout || return 1
     load_settings 1
@@ -5755,6 +5826,7 @@ do_show_allowlist_source_entries() {
     print_panel_row "entries 文件" "${ALLOWLIST_ENTRIES_FILE}"
     print_panel_note "手动 CIDR、SSH 临时、DDNS、Client IP、SSH report、WebAuth、学习提升等条目显示在下方"
     print_panel_note "地区库的海量 CIDR 不逐条存在 entries 文件，最终展开结果看“最终 CIDR 缓存”"
+    show_dynamic_allowlist_source_usage
     show_allowlist_entry_table
 }
 
@@ -9171,20 +9243,21 @@ do_report_ssh_ip_source() {
     local ip="${2:-}"
     local token="${3:-}"
     local identity="${4:-}"
-    local ttl="${5:-21600}"
+    local ttl="${5:-43200}"
+    local cidr_prefix="${6:-32}"
     [[ -n "${source_id}" && -n "${ip}" ]] || {
-        err "用法：--ssh-ip-report <source-id> <ipv4> <token> [identity] [ttl]"
+        err "用法：--ssh-ip-report <source-id> <ipv4> <token> [identity] [ttl] [cidr-prefix]"
         return 1
     }
     ensure_layout || return 1
     load_settings 1
-    report_ssh_ip_source "${source_id}" "${ip}" "${token}" "${identity}" "${ttl}" || return 1
+    report_ssh_ip_source "${source_id}" "${ip}" "${token}" "${identity}" "${ttl}" "${cidr_prefix}" || return 1
     enable_allowlist_for_custom_add
     apply_src_allowlist_changes || return 1
     if [[ "${DYNAMIC_REPORT_PENDING_COUNT:-0}" -gt 0 ]]; then
         printf 'SSH report IP 已记录为待审核（attack mode）：%s -> %s\n' "${SSH_REPORT_SOURCE:-${source_id}}" "${SSH_REPORT_IP:-${ip}}"
     else
-        printf 'SSH report 已接收：%s -> %s，TTL %ss\n' "${SSH_REPORT_SOURCE:-${source_id}}" "${SSH_REPORT_IP:-${ip}}" "${SSH_REPORT_TTL:-${ttl}}"
+        printf 'SSH report 已接收：%s -> %s，CIDR %s，TTL %ss\n' "${SSH_REPORT_SOURCE:-${source_id}}" "${SSH_REPORT_IP:-${ip}}" "${SSH_REPORT_CIDR:-${ip}/32}" "${SSH_REPORT_TTL:-${ttl}}"
     fi
 }
 
@@ -9408,7 +9481,13 @@ else
 fi
 allow_action "${action}" || deny "action ${action} not allowed for scope ${scope}"
 case "${action}" in
-    --ssh-ip-report|--client-ip-report)
+    --ssh-ip-report)
+        [[ "${#args[@]}" -ge 3 ]] || deny "${action} needs source ip token"
+        is_public_ipv4 "${args[1]}" || deny "invalid public IPv4"
+        [[ "${#args[@]}" -lt 5 || "${args[4]}" =~ ^[0-9]+$ ]] || deny "invalid ttl"
+        [[ "${#args[@]}" -lt 6 || "${args[5]}" == "24" || "${args[5]}" == "32" ]] || deny "invalid cidr prefix"
+        ;;
+    --client-ip-report)
         [[ "${#args[@]}" -ge 3 ]] || deny "${action} needs source ip token"
         is_public_ipv4 "${args[1]}" || deny "invalid public IPv4"
         [[ "${#args[@]}" -lt 5 || "${args[4]}" =~ ^[0-9]+$ ]] || deny "invalid ttl"
@@ -9601,7 +9680,7 @@ do_show_ssh_report_token() {
     printf 'Token      : %s\n' "${token}"
     echo ""
     echo "PO0 SSH-only report command:"
-    printf '  bash %s --ssh-ip-report iphone 1.2.3.4 %s egern 21600\n' "$(basename "$0")" "${token}"
+    printf '  bash %s --ssh-ip-report iphone 1.2.3.4 %s egern 43200 32\n' "$(basename "$0")" "${token}"
     echo ""
     echo "Egern module:"
     printf '  Module URL: %s\n' "${EGERN_SSH_REPORT_MODULE_RAW_URL}"
@@ -9610,7 +9689,7 @@ do_show_ssh_report_token() {
     echo ""
     echo "Multiple PO0: import one Egern module and merge all target rows into SSH_REPORT_TARGETS."
     printf '  SSH_REPORT_TARGETS row: source_id|host|port|user|script|token|identity|ttl\n'
-    printf '    egern-po0|<PO0_HOST>|22|root|%s|%s|egern|21600\n' "${MANAGER_INSTALL_PATH}" "${token}"
+    printf '    egern-po0|<PO0_HOST>|22|root|%s|%s|egern|43200\n' "${MANAGER_INSTALL_PATH}" "${token}"
 }
 
 do_show_webauth_report_token() {
@@ -9623,7 +9702,7 @@ do_show_webauth_report_token() {
     echo ""
     echo "WebAuth 上报示例（由 LAN Worker 通过 SSH 调用）："
     printf '  bash %s --webauth-report cf-access 1.2.3.4 user@example.com %s %s\n' \
-        "$(basename "$0")" "$(utc_after_seconds_iso 21600)" "${token}"
+        "$(basename "$0")" "$(utc_after_seconds_iso 43200)" "${token}"
 }
 
 set_automation_mode() {
@@ -9743,22 +9822,22 @@ do_check_ddns_report_source() {
 print_lan_worker_ddns_bootstrap_example() {
     local ddns_token="${1:-<SOURCE_TOKEN>}"
     local install_cmd
-    printf -v install_cmd 'curl -fsSL %s | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script %s --source-key <DDNS_SOURCE_KEY> --ddns-domain <DDNS_DOMAIN> --token %s --install-cron 5' \
+    printf -v install_cmd 'curl -fsSL %s | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script %s --source-key <DDNS_SOURCE_KEY> --ddns-domain <DDNS_DOMAIN> --token %s --ddns-interval-seconds 3600 --install-cron' \
         "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "${ddns_token}"
     print_panel_section "LAN Worker DDNS 部署"
-    print_panel_row "说明" "--install-cron 5 安装的是 Worker 本机轮询器/自动运行器"
+    print_panel_row "说明" "--ddns-interval-seconds 3600 设置 DDNS 默认 3600 秒上报；--install-cron 安装本机计划任务"
     print_panel_row "安装命令" "${install_cmd}"
 }
 
 print_lan_worker_resource_bootstrap_example() {
     local resource_token="${1:-<RESOURCE_TOKEN>}"
     local install_cmd probe_cmd
-    printf -v install_cmd 'curl -fsSL %s | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script %s --resource-token %s --install-cron 5' \
+    printf -v install_cmd 'curl -fsSL %s | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script %s --resource-token %s --install-cron 1440' \
         "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "${resource_token}"
     printf -v probe_cmd 'curl -fsSL %s | bash -s -- --probe --po0-host <PO0_HOST> --po0-script %s --resource-token %s' \
         "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "${resource_token}"
     print_panel_section "LAN Worker 资源任务部署"
-    print_panel_row "说明" "资源创建周期在 PO0 端设置；--install-cron 5 只安装 Worker 本机轮询器"
+    print_panel_row "说明" "资源创建周期在 PO0 端设置；--install-cron 1440 只安装 Worker 本机轮询器"
     print_panel_row "安装命令" "${install_cmd}"
     print_panel_row "探测命令" "${probe_cmd}"
 }
@@ -9842,7 +9921,7 @@ do_show_lan_resource_worker_commands() {
     ensure_layout || return 1
     deploy_token_values
     deploy_ensure_resource_token
-    printf -v install_cmd 'curl -fsSL %s | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script %s --resource-token %s --install-cron 5' \
+    printf -v install_cmd 'curl -fsSL %s | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script %s --resource-token %s --install-cron 1440' \
         "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${DEPLOY_RESOURCE_TOKEN}")"
     printf -v probe_cmd 'curl -fsSL %s | bash -s -- --probe --po0-host <PO0_HOST> --po0-script %s --resource-token %s' \
         "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${DEPLOY_RESOURCE_TOKEN}")"
@@ -9851,7 +9930,7 @@ do_show_lan_resource_worker_commands() {
     print_panel_row "执行位置" "LAN Worker 机器"
     print_panel_row "任务范围" "只负责轮询、领取和上传 iplist/ipdb 资源任务"
     print_panel_row "资源周期" "在 PO0 端设置：内网资源更新任务 -> 安装 / 更新 PO0 定时创建"
-    print_panel_row "轮询器" "--install-cron 5 只安装 Worker 本机轮询器，不决定资源更新频率"
+    print_panel_row "轮询器" "--install-cron 1440 只安装 Worker 本机轮询器，不决定资源更新频率"
     if [[ "${DEPLOY_RESOURCE_TOKEN}" == "<RESOURCE_TOKEN>" ]]; then
         print_panel_row "Token 状态" "未生成；请进入 [13] 内网资源更新任务 -> [7] 生成任务 Token"
     fi
@@ -9865,9 +9944,9 @@ do_show_lan_ddns_worker_commands() {
     deploy_token_values
     print_title "LAN Worker DDNS 解析"
     echo "在 LAN Worker 机器上执行；LAN Worker 解析 DDNS 后通过 SSH 上报 PO0。"
-    echo "--install-cron 5 安装的是 Worker 本机自动运行器，用于定期 DDNS 上报。"
+    echo "--ddns-interval-seconds 3600 设置 DDNS 默认 3600 秒上报；--install-cron 安装本机计划任务，资源任务领取周期保持 LAN Worker 默认值。"
     echo ""
-    printf '  curl -fsSL %s | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script %s --source-key <DDNS_SOURCE_KEY> --ddns-domain <DDNS_DOMAIN> --token %s --install-cron 5\n' \
+    printf '  curl -fsSL %s | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script %s --source-key <DDNS_SOURCE_KEY> --ddns-domain <DDNS_DOMAIN> --token %s --ddns-interval-seconds 3600 --install-cron\n' \
         "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${DEPLOY_DDNS_TOKEN}")"
     echo ""
     printf 'DDNS 目标行: source_key|ddns_domain|host|port|user|script|token|ssh_args\n'
@@ -9887,7 +9966,7 @@ do_show_self_report_server_commands() {
     printf '  po0-lan-client --install-self-report-https --self-report-https-domain <SELF_REPORT_DOMAIN> --po0-host <PO0_HOST> --po0-script %s --self-report-source self-report --client-ip-token %s --self-report-secret <SELF_REPORT_SECRET>\n' \
         "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${DEPLOY_CLIENT_TOKEN}")"
     echo ""
-    printf 'Self-report 默认放行 TTL 为 43200 秒（12 小时）；WebAuth 默认 21600 秒（6 小时）。\n'
+    printf 'Self-report / WebAuth 默认放行 TTL 均为 43200 秒（12 小时）。\n'
     printf 'Self-report PO0 目标行: source|host|port|user|script|token|ttl|ssh_args\n'
     printf '  self-report|<PO0_HOST>|22|root|%s|%s|43200|\n' "${MANAGER_INSTALL_PATH}" "${DEPLOY_CLIENT_TOKEN}"
     echo ""
@@ -9920,7 +9999,7 @@ do_show_webauth_worker_commands() {
         "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${DEPLOY_WEBAUTH_TOKEN}")"
     echo ""
     printf 'WebAuth PO0 目标行: source|host|port|user|script|token|ttl|ssh_args\n'
-    printf '  cf-access|<PO0_HOST>|22|root|%s|%s|21600|\n' "${MANAGER_INSTALL_PATH}" "${DEPLOY_WEBAUTH_TOKEN}"
+    printf '  cf-access|<PO0_HOST>|22|root|%s|%s|43200|\n' "${MANAGER_INSTALL_PATH}" "${DEPLOY_WEBAUTH_TOKEN}"
     echo ""
     printf '合并多个目标行：\n'
     printf '  po0-lan-client --webauth-server --webauth-targets "<TARGET1;TARGET2>" --listen 127.0.0.1:8787\n'
@@ -9937,7 +10016,7 @@ do_show_egern_deploy_commands() {
     printf 'PO0_SCRIPT        : %s\n' "${MANAGER_INSTALL_PATH}"
     echo ""
     printf 'SSH_REPORT_TARGETS row: source_id|host|port|user|script|token|identity|ttl\n'
-    printf '  egern-po0|<PO0_HOST>|22|root|%s|%s|egern|21600\n' "${MANAGER_INSTALL_PATH}" "${DEPLOY_SSH_TOKEN}"
+    printf '  egern-po0|<PO0_HOST>|22|root|%s|%s|egern|43200\n' "${MANAGER_INSTALL_PATH}" "${DEPLOY_SSH_TOKEN}"
 }
 
 do_show_restricted_report_key_commands() {
@@ -12418,8 +12497,8 @@ print_cli_usage() {
         "                   接收 LAN Worker self-report 代报的访问设备公网 IPv4。" \
         "  --client-ip-report-check <source-id> [token]" \
         "                   只读检查客户端 IP 上报 token。" \
-        "  --ssh-ip-report <source-id> <ipv4> <token> [identity] [ttl]" \
-        "                   接收 Egern / 直接 SSH 上报的当前出口公网 IPv4，写入 ssh_report 来源。" \
+        "  --ssh-ip-report <source-id> <ipv4> <token> [identity] [ttl] [cidr-prefix]" \
+        "                   接收 Egern / 直接 SSH 上报的当前出口公网 IPv4，写入 ssh_report 来源；cidr-prefix 仅允许 32 或 24。" \
         "  --ssh-ip-report-check <source-id> [token]" \
         "                   只读检查 SSH report token。" \
         "  --webauth-report <source-id> <ipv4> <identity> <expires-at> <token> [note]" \
@@ -12431,9 +12510,9 @@ print_cli_usage() {
         "  --pending-auto-sources" \
         "                   查看自动来源待审核 IP。" \
         "  --cleanup-dynamic-allowlist" \
-        "                   清理 ddns/client_ip/ssh_report/webauth 的过期和超量 IP；普通来源默认 5 个，ssh_report/Egern 默认 10 个。" \
+        "                   清理 ddns/client_ip/ssh_report/webauth 的过期和超量 IP；默认每 source-id 保留 12 个有效 CIDR。" \
         "  --install-dynamic-allowlist-cleanup-cron [hourly|daily|weekly|monthly|CRON_EXPR]" \
-        "                   安装/更新动态来源清理 cron，默认 daily；普通动态来源默认保留 5 个，ssh_report/Egern 默认保留 10 个。" \
+        "                   安装/更新动态来源清理 cron，默认 daily；默认每 source-id 保留 12 个有效 CIDR。" \
         "  --remove-dynamic-allowlist-cleanup-cron" \
         "                   删除动态来源清理 cron。" \
         "  --show-client-deploy-commands [lan-resource|lan-ddns|self-server|self-client|webauth|egern|all]" \
@@ -12603,7 +12682,7 @@ case "${1:-}" in
         exit $?
         ;;
     --ssh-ip-report)
-        do_report_ssh_ip_source "${2:-}" "${3:-}" "${4:-}" "${5:-}" "${6:-}"
+        do_report_ssh_ip_source "${2:-}" "${3:-}" "${4:-}" "${5:-}" "${6:-}" "${7:-}"
         exit $?
         ;;
     --ssh-ip-report-check)

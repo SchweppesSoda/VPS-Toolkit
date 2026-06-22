@@ -305,7 +305,7 @@ webauth      LAN Worker WebAuth 验证后上报的访问设备 IP
 region       旧地区白名单文件直接进入缓存，不逐条写 entries
 ```
 
-动态来源按 `source_type + source_value` 分组裁剪。`ddns`、`client_ip`、`webauth` 每组默认最多保留最近 5 个有效 IP；`ssh_report` / Egern 每组默认最多保留最近 10 个有效 IP。过期 entries 保留作审计，但生成有效白名单缓存时跳过。
+动态来源按 `source_type + source-id` 分组裁剪；底层 `entries.tsv` 的 `source_value` 就是 source-id。`ddns`、`client_ip`、`ssh_report`、`webauth` 每组默认最多保留最近 `12` 个有效 CIDR，`/32` 和 `/24` 都各算 1 条并共享同一个上限。过期 entries 保留作审计，但生成有效白名单缓存时跳过。`source-id` 是分组、续期和裁剪的稳定 key；`identity` 只做备注和审计。
 
 ### 3.5 白名单 sources 模型
 
@@ -647,10 +647,10 @@ chmod 755 /usr/local/sbin/po0-lan-client
 自动化场景仍可使用公开仓库一键部署命令：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script /root/nftables-relay-manager.sh --source-key home --ddns-domain home.example.com --token <DDNS_TOKEN> --resource-token <RESOURCE_TOKEN> --install-cron 5
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script /root/nftables-relay-manager.sh --source-key home --ddns-domain home.example.com --token <DDNS_TOKEN> --resource-token <RESOURCE_TOKEN> --ddns-interval-seconds 3600 --install-cron
 ```
 
-Self-report client 适合运行在访问设备上：它检测自身当前出口公网 IPv4，并通过 `https://<SELF_REPORT_DOMAIN>/report` 上报给 LAN Worker self-report server；LAN Worker 的 Caddy HTTPS 入口反代到本机后端，再通过 SSH 调 PO0。客户端菜单里的“配置并保存上报参数”会持久写入本地配置文件；“安装 / 更新定时上报”只读取已保存配置并创建 cron / Windows 计划任务；“暂停 / 恢复定时上报”只影响自动任务，不影响手动立即上报：
+Self-report client 适合运行在访问设备上：它检测自身当前出口公网 IPv4，并通过 `https://<SELF_REPORT_DOMAIN>/report` 上报给 LAN Worker self-report server；LAN Worker 的 Caddy HTTPS 入口反代到本机后端，再通过 SSH 调 PO0。客户端菜单里的“配置并保存上报参数”会持久写入本地配置文件；“安装 / 更新定时上报”只读取已保存配置并创建 cron / Windows 计划任务；“暂停 / 恢复定时上报”只影响自动任务，不影响手动立即上报。Linux/OpenWrt 客户端未传 `--source-id` / `--identity` 时，会用 hostname + machine-id/MAC 生成默认 Source ID，并用设备名作为 Identity；显式参数、环境变量和已保存配置优先：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh | bash
@@ -659,19 +659,19 @@ curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scri
 Linux/OpenWrt 非交互保存配置，不安装 cron：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --save-config
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --secret <SELF_REPORT_SECRET> --save-config
 ```
 
 Linux/OpenWrt 非交互立即上报一次；不传 `--worker-url` 等参数时会读取已保存配置：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET>
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --secret <SELF_REPORT_SECRET>
 ```
 
-Linux/OpenWrt 非交互安装 cron 时，默认和示例推荐每 60 分钟上报一次；`--install-cron N` 的 `N` 可在 1-10080 分钟内调整。安装时会保存配置；cron 后续只引用配置文件，不再把 token 展开写入 cron 命令行：
+Linux/OpenWrt 非交互安装 cron 时，默认和示例推荐每 `3600` 秒上报一次；`--interval-seconds N` 必须是 60 的倍数，旧 `--install-cron N` 兼容分钟参数仍可用。安装时会保存配置；cron 后续只引用配置文件，不再把 token 展开写入 cron 命令行：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --install-cron 60
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --secret <SELF_REPORT_SECRET> --interval-seconds 3600 --install-cron
 ```
 
 Linux/OpenWrt 查看本脚本管理的 cron 计划：
@@ -711,10 +711,10 @@ Windows PowerShell 非交互立即上报一次；不传 `-WorkerUrl` 等参数�
 $script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script; powershell -ExecutionPolicy Bypass -File $script -WorkerUrl "https://<SELF_REPORT_DOMAIN>/report" -SourceId $env:COMPUTERNAME -Identity $env:COMPUTERNAME -Secret "<SELF_REPORT_SECRET>"
 ```
 
-Windows PowerShell 非交互安装 / 更新计划任务，默认每 60 分钟上报一次。安装 / 更新计划任务时建议从 `$env:TEMP` 下载脚本再运行，让脚本覆盖安装到 `%LOCALAPPDATA%\PO0\po0-self-report.ps1` 或 `%ProgramData%\PO0\po0-self-report.ps1`。安装时会保存配置；计划任务后续只引用配置文件，不再把 token 展开写入计划任务参数：
+Windows PowerShell 非交互安装 / 更新计划任务，默认每 `3600` 秒上报一次。安装 / 更新计划任务时建议从 `$env:TEMP` 下载脚本再运行，让脚本覆盖安装到 `%LOCALAPPDATA%\PO0\po0-self-report.ps1` 或 `%ProgramData%\PO0\po0-self-report.ps1`。安装时会保存配置；计划任务后续只引用配置文件，不再把 token 展开写入计划任务参数：
 
 ```powershell
-$script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script; powershell -ExecutionPolicy Bypass -File $script -WorkerUrl "https://<SELF_REPORT_DOMAIN>/report" -SourceId $env:COMPUTERNAME -Identity $env:COMPUTERNAME -Secret "<SELF_REPORT_SECRET>" -InstallTask -Minutes 60
+$script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script; powershell -ExecutionPolicy Bypass -File $script -WorkerUrl "https://<SELF_REPORT_DOMAIN>/report" -SourceId $env:COMPUTERNAME -Identity $env:COMPUTERNAME -Secret "<SELF_REPORT_SECRET>" -InstallTask -IntervalSeconds 3600
 ```
 
 `<SELF_REPORT_SECRET>` 只替换为 secret 本身，不要带 `secret:` 或中文冒号前缀。
@@ -740,9 +740,9 @@ PowerShell 客户端交互式无参数运行默认进入菜单，也支持显式
 
 访问设备客户端的用户可见结果行统一为 `Self-report 已完成：...` 或 `Self-report 未完成：...`。一次性上报只有在本机探测到公网 IPv4、LAN Worker HTTP 返回 2xx，且 LAN Worker 已成功代报 PO0 后才打印完成；否则保留底层错误并返回非零状态。Linux/OpenWrt cron 的每次运行输出重定向到 `/tmp/po0-self-report.log`，其中也包含同样的结果行。Windows 计划任务不会依赖一闪而过的控制台窗口；`-InstallTask` 会把 `-LogPath` 写入任务参数，管理员安装默认日志为 `%ProgramData%\PO0\po0-self-report.log`，普通用户安装默认日志为 `%LOCALAPPDATA%\PO0\po0-self-report.log`，每次运行会记录开始、LAN Worker 返回体和完成/未完成结果；菜单“查看定时上报状态”会展示 `Get-ScheduledTaskInfo` 的上次结果和日志 tail。
 
-Self-report 放行 TTL 默认 `43200` 秒（12 小时），WebAuth 放行 TTL 默认 `21600` 秒（6 小时），由 LAN Worker 上报 PO0 时传入；客户端只控制上报频率，不控制 TTL。TTL 可以通过 `po0-lan-client --self-report-ttl <秒数>` / `--webauth-ttl <秒数>`、bootstrap 向导，或 LAN Worker 菜单 `Self-report TTL / WebAuth TTL` 修改。Self-report / WebAuth TTL 会被限制在 `60-604800` 秒内；WebAuth 由 LAN Worker 传入 expires-at，PO0 端也会把过远的 expires-at 截到 7 天内。旧安装的本机 `settings.env` 如果仍保存旧默认 `3600`，脚本加载时会迁移到新默认；各 PO0 目标行中显式写入的 TTL 不自动改写。
+Self-report / WebAuth 放行 TTL 默认均为 `43200` 秒（12 小时），由 LAN Worker 上报 PO0 时传入；客户端只控制上报频率，不控制 TTL。TTL 可以通过 `po0-lan-client --self-report-ttl <秒数>` / `--webauth-ttl <秒数>`、bootstrap 向导，或 LAN Worker 菜单 `Self-report TTL / WebAuth TTL` 修改。Self-report / WebAuth TTL 会被限制在 `60-604800` 秒内；WebAuth 由 LAN Worker 传入 expires-at，PO0 端也会把过远的 expires-at 截到 7 天内。旧安装的本机 `settings.env` 如果仍保存旧默认 `3600` 或 `21600`，脚本加载时会迁移到新默认；各 PO0 目标行中显式写入的 TTL 不自动改写。
 
-`--bootstrap` 会先 probe，再写入本机目标配置；如果要求安装本机 Worker 轮询器，管道运行时会自动落盘到固定路径。`--install-cron N` 是兼容参数，会把 DDNS 和资源任务两个计划都设为 `N` 分钟；不带 `N` 时，默认 DDNS 每 5 分钟上报、资源任务每 1440 分钟检查一次。Worker 默认调用 PO0 上的 `/root/nftables-relay-manager.sh`，也可以通过 `--po0-script` 覆盖。首次部署推荐 `--wizard`，高级维护菜单仍可管理本机 Worker 的 PO0 目标：查看、添加、编辑、删除、启用/停用，执行 DDNS 解析上报和资源任务轮询领取，并只读查看 PO0 端资源任务创建计划。一个配置文件可以放多台 PO0/VPS。
+`--bootstrap` 会先 probe，再写入本机目标配置；如果要求安装本机 Worker 轮询器，管道运行时会自动落盘到固定路径。`--install-cron N` 是兼容参数，会把 DDNS 和资源任务两个计划都设为 `N` 分钟；不带 `N` 时，默认 DDNS 每 `3600` 秒上报、资源任务每 `1440` 分钟检查一次。推荐用 `--ddns-interval-seconds 3600` 显式设置 DDNS 上报间隔。Worker 默认调用 PO0 上的 `/root/nftables-relay-manager.sh`，也可以通过 `--po0-script` 覆盖。首次部署推荐 `--wizard`，高级维护菜单仍可管理本机 Worker 的 PO0 目标：查看、添加、编辑、删除、启用/停用，执行 DDNS 解析上报和资源任务轮询领取，并只读查看 PO0 端资源任务创建计划。一个配置文件可以放多台 PO0/VPS。
 
 向导自动取 token 使用 PO0 端机器可读接口：
 
@@ -836,7 +836,7 @@ PO0 的 `--upgrade-manager-from-lan [URL]` 只接受 HTTP URL；入口不是 HTT
 Egern 不再承担 DDNS 解析。它只做移动设备当前出口 IPv4 上报：
 
 ```text
-Egern 用 DIRECT 轮询 IP 查询接口，默认列表为 IP9/163/Bilibili/126/腾讯新闻/爱奇艺/央视/12306/myip.ipip；脚本会记住上次起点，下次从下一个接口开始，从响应里提取当前公网 IPv4
+Egern 用 DIRECT 轮询 IP 查询接口，默认列表为 IP9/163/Bilibili/126/腾讯新闻/爱奇艺/央视/myip.ipip；脚本会记住上次起点，下次从下一个接口开始，从响应里提取当前公网 IPv4，并优先复用响应里的归属地 / 运营商信息用于状态页
 Egern 通过一次性 SSH 调 PO0 --ssh-ip-report
 PO0 写 entries.tsv：source_type=ssh_report
 成功后重建并应用白名单
@@ -846,10 +846,10 @@ Egern 把最近状态写入 ctx.storage，Widget 读取显示
 单 PO0 命令等价于：
 
 ```bash
-bash /root/nftables-relay-manager.sh --ssh-ip-report <source-id> <ipv4> <token> <identity> <ttl>
+bash /root/nftables-relay-manager.sh --ssh-ip-report <source-id> <ipv4> <token> [identity] [ttl] [cidr-prefix]
 ```
 
-Egern / ssh-report 放行 TTL 默认 `21600` 秒（6 小时）。单 PO0 可在模块环境变量 `TTL_SECONDS` 覆盖；多个 PO0 可在 `SSH_REPORT_TARGETS` 每行最后一列分别覆盖。实际 SSH 自动上报周期由 `AUTO_REPORT_INTERVAL_SECONDS` 控制，默认 `3600` 秒，可设置 `600` 到 `86400` 秒；建议 TTL 大于自动上报周期并留出余量。模块 schedule 每 10 分钟轻量检查一次；如果 TTL 小于自动上报周期，脚本会提前续期，尽量避免过期空窗。
+Egern / ssh-report 放行 TTL 默认 `43200` 秒（12 小时）。单 PO0 可在模块环境变量 `TTL_SECONDS` 覆盖；多个 PO0 可在 `SSH_REPORT_TARGETS` 每行最后一列分别覆盖。实际 SSH 自动上报周期由 `AUTO_REPORT_INTERVAL_SECONDS` 控制，默认 `3600` 秒，可设置 `600` 到 `86400` 秒；建议 TTL 大于自动上报周期并留出余量。模块 schedule 每 10 分钟轻量检查一次；如果 TTL 小于自动上报周期，脚本会提前续期，尽量避免过期空窗。Egern 蜂窝网络默认按 `CELLULAR_CIDR_PREFIX=24` 上报 `/24`；Wi-Fi 和未知网络固定 `/32`。
 
 多 PO0 上报由模块环境变量 `SSH_REPORT_TARGETS` 控制，一行一个目标：
 
@@ -860,8 +860,8 @@ source|host|port|user|script|token|identity|ttl
 示例：
 
 ```text
-iphone-sg|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|egern-iphone|21600
-iphone-us|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|egern-iphone|21600
+iphone-sg|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|egern-iphone|43200
+iphone-us|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|egern-iphone|43200
 ```
 
 脚本只查询一次当前 IPv4，然后按目标列表依次 SSH 上报。全部目标成功时状态为成功；部分失败时保留每个目标的成功/失败明细并发出失败通知，但不会回滚已成功的 PO0。
@@ -1056,7 +1056,7 @@ profile 目录：
 bash nftables-relay-manager.sh --render > /tmp/po0-relay.conf
 bash nftables-relay-manager.sh --refresh-ddns
 bash nftables-relay-manager.sh --ddns-report-check <ddns-source-key> TOKEN
-bash nftables-relay-manager.sh --ssh-ip-report <device-id> 1.2.3.4 TOKEN <identity> 21600
+bash nftables-relay-manager.sh --ssh-ip-report <device-id> 1.2.3.4 TOKEN <identity> 43200 32
 bash nftables-relay-manager.sh --client-ip-report <device-id> 1.2.3.4 TOKEN <identity> 43200
 bash nftables-relay-manager.sh --webauth-report <auth-source> 1.2.3.4 <identity> 2026-06-16T12:00:00Z TOKEN
 bash nftables-relay-manager.sh --resource-task-create all

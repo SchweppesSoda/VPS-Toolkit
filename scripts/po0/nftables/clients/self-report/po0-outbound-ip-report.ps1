@@ -9,6 +9,7 @@
     [switch]$InstallTask,
     [switch]$RunOnce,
     [int]$Minutes = $(if ($env:PO0_SELF_REPORT_MINUTES) { [int]$env:PO0_SELF_REPORT_MINUTES } elseif ($env:MINUTES) { [int]$env:MINUTES } else { 60 }),
+    [int]$IntervalSeconds = $(if ($env:PO0_SELF_REPORT_INTERVAL_SECONDS) { [int]$env:PO0_SELF_REPORT_INTERVAL_SECONDS } elseif ($env:INTERVAL_SECONDS) { [int]$env:INTERVAL_SECONDS } else { 0 }),
     [string]$LogPath = $(if ($env:PO0_SELF_REPORT_LOG) { $env:PO0_SELF_REPORT_LOG } elseif ($env:SELF_REPORT_LOG) { $env:SELF_REPORT_LOG } else { "" }),
     [switch]$AllowHttp,
     [switch]$SaveConfig,
@@ -26,11 +27,10 @@
 $ErrorActionPreference = "Stop"
 $RawUrl = "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1"
 $ScriptName = "po0-self-report"
-$ScriptVersion = "2026.06.22+build.6"
-$ScriptReleaseDate = "2026-06-22"
+$ScriptVersion = "2026.06.23+build.8"
+$ScriptReleaseDate = "2026-06-23"
 # CHANGELOG_BEGIN
-# - 菜单更新脚本成功后先停留显示安装路径、版本变化和更新内容，按回车后再打开新版菜单。
-# - 状态面板的上报间隔文案与 Linux/OpenWrt 版统一为“每 N 分钟”。
+# - 默认公网 IPv4 探测列表删除 12306 grip 接口，继续以 IP9 为首选并轮询其它国内接口。
 # CHANGELOG_END
 $PanelValueColumn = 24
 $MenuRightColumn = 46
@@ -86,6 +86,7 @@ if ($env:IP_CHECK_URLS -and -not $PSBoundParameters.ContainsKey("IpCheckUrls")) 
     $script:IpCheckUrls = @($IpCheckUrls)
 }
 $script:Minutes = $Minutes
+$script:IntervalSeconds = $IntervalSeconds
 $script:LogPath = $LogPath
 $script:AllowHttp = [bool]$AllowHttp
 $script:SchedulePaused = $false
@@ -262,7 +263,9 @@ function Load-SavedConfig {
     if (-not $PSBoundParameters.ContainsKey("IpCheckUrls") -and -not $env:IP_CHECK_URLS -and $cfg.IpCheckUrls) {
         $script:IpCheckUrls = @($cfg.IpCheckUrls | Where-Object { $_ })
     }
-    if (-not $PSBoundParameters.ContainsKey("Minutes") -and -not $env:PO0_SELF_REPORT_MINUTES -and -not $env:MINUTES -and $cfg.Minutes) {
+    if (-not $PSBoundParameters.ContainsKey("IntervalSeconds") -and -not $PSBoundParameters.ContainsKey("Minutes") -and -not $env:PO0_SELF_REPORT_INTERVAL_SECONDS -and -not $env:INTERVAL_SECONDS -and -not $env:PO0_SELF_REPORT_MINUTES -and -not $env:MINUTES -and $cfg.IntervalSeconds) {
+        $script:IntervalSeconds = [int]$cfg.IntervalSeconds
+    } elseif (-not $PSBoundParameters.ContainsKey("Minutes") -and -not $env:PO0_SELF_REPORT_MINUTES -and -not $env:MINUTES -and $cfg.Minutes) {
         $script:Minutes = [int]$cfg.Minutes
     }
     if (-not $PSBoundParameters.ContainsKey("LogPath") -and -not $env:PO0_SELF_REPORT_LOG -and -not $env:SELF_REPORT_LOG -and $cfg.LogPath) {
@@ -289,6 +292,7 @@ function Save-ClientConfig {
         Secret = $script:Secret
         AllowHttp = [bool]$script:AllowHttp
         Minutes = [int]$script:Minutes
+        IntervalSeconds = [int](Get-IntervalSeconds)
         IpCheckUrl = $script:IpCheckUrl
         IpCheckUrls = @($script:IpCheckUrls)
         LogPath = $script:LogPath
@@ -312,7 +316,7 @@ self-report 接收服务。访问设备不直接连接 PO0。
   .\po0-outbound-ip-report.ps1 -UpgradeSelf
   .\po0-outbound-ip-report.ps1 -RunOnce
   .\po0-outbound-ip-report.ps1 -WorkerUrl https://report.example.com/report -SourceId laptop -Secret SECRET -SaveConfig
-  .\po0-outbound-ip-report.ps1 -WorkerUrl https://report.example.com/report -SourceId laptop -Secret SECRET -InstallTask -Minutes 60
+  .\po0-outbound-ip-report.ps1 -WorkerUrl https://report.example.com/report -SourceId laptop -Secret SECRET -InstallTask -IntervalSeconds 3600
 
 参数:
   -Menu               打开交互菜单。
@@ -333,7 +337,8 @@ self-report 接收服务。访问设备不直接连接 PO0。
   -PauseSchedule      暂停计划任务；手动立即上报仍可用。
   -ResumeSchedule     恢复计划任务。
   -ScheduleStatus     查看计划任务状态。
-  -Minutes N          计划任务间隔分钟数，范围 1-$MaxMinutes。默认: 60。
+  -IntervalSeconds N  计划任务间隔秒数，必须是 60 的倍数。默认: 3600。
+  -Minutes N          兼容旧参数：计划任务间隔分钟数，范围 1-$MaxMinutes。默认: 60。
   -LogPath PATH       计划任务运行日志路径；安装计划任务时默认写到 PO0 配置目录。
   -Notify             上报完成或失败时显示 Windows 通知；安装计划任务时自动使用。
                       Self-report 放行 TTL 由 LAN Worker 接收端配置，不由客户端决定。
@@ -346,7 +351,6 @@ self-report 接收服务。访问设备不直接连接 PO0。
   https://r.inews.qq.com/api/ip2city?otype=json
   https://data.video.iqiyi.com/v.f4v
   https://ip.apps.cntv.cn/whereis?client=json
-  https://exservice.12306.cn/excater/bonree/grip
   https://myip.ipip.net/json
 "@
 }
@@ -439,6 +443,30 @@ function Assert-Minutes {
         throw "计划任务间隔必须在 1-$script:MaxMinutes 分钟之间。"
     }
     $script:Minutes = $parsed
+}
+
+function Convert-IntervalSecondsToMinutes {
+    param([object]$Seconds)
+    $parsed = 0
+    if (-not [int]::TryParse([string]$Seconds, [ref]$parsed)) {
+        throw "计划任务间隔秒数必须是整数。"
+    }
+    $maxSeconds = $script:MaxMinutes * 60
+    if ($parsed -lt 60 -or $parsed -gt $maxSeconds -or ($parsed % 60) -ne 0) {
+        throw "计划任务间隔秒数必须在 60-$maxSeconds 秒之间，且必须是 60 的倍数。"
+    }
+    return [int]($parsed / 60)
+}
+
+function Apply-IntervalSeconds {
+    if ($script:IntervalSeconds -and [int]$script:IntervalSeconds -gt 0) {
+        $script:Minutes = Convert-IntervalSecondsToMinutes $script:IntervalSeconds
+    }
+}
+
+function Get-IntervalSeconds {
+    Assert-Minutes
+    return [int]($script:Minutes * 60)
 }
 
 function Test-ClientConfigComplete {
@@ -538,7 +566,6 @@ function Get-OutboundIPv4 {
         $urls += "https://r.inews.qq.com/api/ip2city?otype=json"
         $urls += "https://data.video.iqiyi.com/v.f4v"
         $urls += "https://ip.apps.cntv.cn/whereis?client=json"
-        $urls += "https://exservice.12306.cn/excater/bonree/grip"
         $urls += "https://myip.ipip.net/json"
     }
     $count = $urls.Count
@@ -713,7 +740,7 @@ function Install-ScheduledReporter {
     } else {
         Enable-ScheduledTask -TaskName $script:TaskName | Out-Null
     }
-    Write-Host "已安装计划任务：$script:TaskName，每 $script:Minutes 分钟执行一次。"
+    Write-Host ("已安装计划任务：{0}，每 {1} 秒执行一次。" -f $script:TaskName, (Get-IntervalSeconds))
     Write-Host "脚本路径：$dest"
     Write-Host "隐藏启动器：$launcher"
     Write-Host "配置文件：$script:ConfigPath"
@@ -721,7 +748,7 @@ function Install-ScheduledReporter {
     if ($script:SchedulePaused) {
         Write-SelfReportCompleted "计划任务已安装 / 更新，但当前保持暂停。"
     } else {
-        Write-SelfReportCompleted "计划任务已安装 / 更新：$script:TaskName；脚本路径：$dest；日志路径：$script:LogPath。"
+        Write-SelfReportCompleted "计划任务已安装 / 更新：$script:TaskName；间隔：$(Get-IntervalSeconds) 秒；脚本路径：$dest；日志路径：$script:LogPath。"
     }
 }
 
@@ -841,7 +868,7 @@ function Show-ClientConfig {
     Write-PanelRow "Identity" $script:Identity
     Write-PanelRow "Secret" (Get-MaskedSecret $script:Secret)
     Write-PanelRow "HTTP 上报" $(if ($script:AllowHttp) { "已显式允许" } else { "默认拒绝" })
-    Write-PanelRow "上报间隔" ("每 {0} 分钟（安装定时上报时使用）" -f $script:Minutes)
+    Write-PanelRow "上报间隔" ("每 {0} 秒（安装定时上报时使用）" -f (Get-IntervalSeconds))
     Write-PanelRow "定时暂停" $(if ($script:SchedulePaused) { "已暂停" } else { "未暂停" })
     Write-PanelRow "计划任务" (Get-ScheduledReporterSummary)
     Write-PanelRow "放行 TTL" "由 LAN Worker Self-report 目标控制，默认 43200 秒"
@@ -867,8 +894,8 @@ function Set-ClientConfigInteractive {
     $script:SourceId = Read-Default "Source ID" $script:SourceId
     $script:Identity = Read-Default "Identity" $script:Identity
     Read-SecretSetting
-    $script:Minutes = Read-Default "客户端每几分钟上报一次（1-$script:MaxMinutes）" ([string]$script:Minutes)
-    Assert-Minutes
+    $seconds = Read-Default "客户端每几秒上报一次（60-$($script:MaxMinutes * 60)；必须是 60 的倍数）" ([string](Get-IntervalSeconds))
+    $script:Minutes = Convert-IntervalSecondsToMinutes $seconds
     $script:IpCheckUrl = Read-Default "首选公网 IPv4 探测 URL" $script:IpCheckUrl
     $override = Read-Host "是否覆盖完整 IP 探测 URL 列表 [y/N]"
     if ($override -match "^(y|yes)$") {
@@ -886,8 +913,8 @@ function Install-ScheduledReporterInteractive {
     if (-not (Test-ClientConfigComplete)) {
         Set-ClientConfigInteractive
     } else {
-        $script:Minutes = Read-Default "定时上报每几分钟执行一次（1-$script:MaxMinutes）" ([string]$script:Minutes)
-        Assert-Minutes
+        $seconds = Read-Default "定时上报每几秒执行一次（60-$($script:MaxMinutes * 60)；必须是 60 的倍数）" ([string](Get-IntervalSeconds))
+        $script:Minutes = Convert-IntervalSecondsToMinutes $seconds
     }
     Install-ScheduledReporter
 }
@@ -1054,6 +1081,7 @@ if ($UpgradeSelf) {
 }
 
 Load-SavedConfig
+Apply-IntervalSeconds
 
 try {
     if ($SaveConfig) {
