@@ -726,6 +726,21 @@ function autoReportIntervalSeconds(env) {
   );
 }
 
+function minTargetTtlSeconds(targets) {
+  const ttls = (targets || [])
+    .map((target) => Number(target?.ttlSeconds))
+    .filter((ttl) => Number.isFinite(ttl) && ttl > 0);
+  if (!ttls.length) return DEFAULT_TTL_SECONDS;
+  return Math.max(60, Math.min(...ttls));
+}
+
+function effectiveAutoRefreshAfterSeconds(env, targets) {
+  const configured = autoReportIntervalSeconds(env);
+  const ttlSafeRefreshAfter = Math.max(0, minTargetTtlSeconds(targets) - 600);
+  if (ttlSafeRefreshAfter <= 0) return 0;
+  return Math.min(configured, ttlSafeRefreshAfter);
+}
+
 async function shouldSkipUnchangedAutoReport(ctx, env, targets, ip) {
   if (isManualRun(ctx) || isWidgetRun(ctx)) return { skip: false };
 
@@ -742,8 +757,9 @@ async function shouldSkipUnchangedAutoReport(ctx, env, targets, ip) {
   const lastSuccessAt = new Date(previous.at || '').getTime();
   if (!Number.isFinite(lastSuccessAt)) return { skip: false };
 
-  const refreshAfter = autoReportIntervalSeconds(env);
   const ageSeconds = Math.floor((Date.now() - lastSuccessAt) / 1000);
+  const refreshAfter = effectiveAutoRefreshAfterSeconds(env, targets);
+  if (refreshAfter <= 0) return { skip: false, ageSeconds, refreshAfter };
   if (ageSeconds < 0 || ageSeconds >= refreshAfter) return { skip: false, ageSeconds, refreshAfter };
 
   return {

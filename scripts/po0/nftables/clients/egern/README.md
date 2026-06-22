@@ -32,7 +32,7 @@ https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nft
 - `SSH_REPORT_TOKEN`：PO0 端生成的 SSH report token。
 - `REPORT_IDENTITY`：默认 `egern`。
 - `TTL_SECONDS`：默认 `21600` 秒（6 小时）。
-- `AUTO_REPORT_INTERVAL_SECONDS`：实际 SSH 自动上报周期，默认 `3600` 秒，可设置 `600` 到 `86400` 秒。
+- `AUTO_REPORT_INTERVAL_SECONDS`：实际 SSH 自动上报周期，默认 `3600` 秒，可设置 `600` 到 `86400` 秒；建议小于 `TTL_SECONDS` 并留出余量。
 - `IP_CHECK_URL` / `IP_CHECK_URLS`：公网 IPv4 查询接口；默认从 IP9 和国内接口轮询。
 - `POLICY`：默认 `DIRECT`，用于尽量获取当前真实出口 IP。
 - `DEVICE_ID_SETUP`：只在手动运行 `保存本机设备 ID` 时读取，用于把本机设备 ID 写入 `ctx.storage`。定时/网络上报不会直接使用这个同步 env。
@@ -94,7 +94,7 @@ source_id|host|port|user|script|token|identity|ttl
 - `清除本机设备 ID`：清除本机 `ctx.storage` 里的设备 ID。
 - `PO0 SSH 上报状态` / `widget`：显示本机设备 ID、公网 IP、IP 归属地、运营商、每个 PO0 target 的成功/失败、时间、TTL 和错误原因。
 
-自动触发会先探测当前出口 IPv4。如果 IP 和上次成功记录一致、PO0 target 配置未变化，并且距离上次成功还小于 `AUTO_REPORT_INTERVAL_SECONDS`，脚本会跳过 SSH 上报。该周期默认 `3600` 秒，可设置 `600` 到 `86400` 秒；模块定时任务每 10 分钟唤醒检查一次，所以实际执行精度以 10 分钟为粒度。IP 变化、target 配置变化（含 TTL、脚本路径、用户、token 指纹等）、自动周期到达、手动执行和 Widget 刷新都会继续执行 SSH 上报。
+自动触发会先探测当前出口 IPv4。如果 IP 和上次成功记录一致、PO0 target 配置未变化，并且距离上次成功还小于 `AUTO_REPORT_INTERVAL_SECONDS`，脚本会跳过 SSH 上报。该周期默认 `3600` 秒，可设置 `600` 到 `86400` 秒；模块定时任务每 10 分钟唤醒检查一次，所以实际执行精度以 10 分钟为粒度。建议 `TTL_SECONDS` 至少大于自动上报周期；如果 TTL 小于自动上报周期，脚本会提前续期，尽量避免白名单过期空窗。IP 变化、target 配置变化（含 TTL、脚本路径、用户、token 指纹等）、自动周期到达、手动执行和 Widget 刷新都会继续执行 SSH 上报。
 
 手动执行成功/失败都会尽量通知；自动成功默认不通知，失败默认通知。手动执行和 Status 脚本开启 debug，SSH stderr 会写入 Egern 脚本日志；长错误会分段通知，避免只显示半截 `PO0 restricted report key denied`。
 

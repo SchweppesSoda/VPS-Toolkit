@@ -4,13 +4,15 @@ set -uo pipefail
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh"
 MANAGER_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/nftables-relay-manager.sh"
 SCRIPT_NAME="po0-lan-worker-client"
-SCRIPT_VERSION="2026.06.22+build.4"
+SCRIPT_VERSION="2026.06.22+build.5"
 SCRIPT_RELEASE_DATE="2026-06-22"
 # CHANGELOG_BEGIN
+# - Self-report 放行 TTL 默认改为 43200 秒（12 小时），WebAuth 默认继续保持 21600 秒（6 小时）。
+# - Self-report / WebAuth TTL 统一限制在 60-604800 秒，避免误配造成过短或超长放行。
+# - 安装 WebAuth systemd 服务前检查可用 PO0 目标，避免写入空参数后反复重启失败。
 # - PO0 manager HTTP 更新镜像的 Caddy 入口统一改为端口级监听，同一端口同时支持域名和直接 IP 访问。
 # - PO0 manager HTTP 更新镜像默认公网入口改为 2333，并支持直接使用 IP[:端口]；公网入口由 Caddy 监听端口级 HTTP 站点后反代到本机后端。
-# - WebAuth 放行 TTL 默认从 3600 秒调整为 21600 秒（6 小时），与 Self-report 默认保持一致。
-# - Self-report 放行 TTL 默认从 3600 秒调整为 21600 秒（6 小时）。
+# - WebAuth 放行 TTL 默认从 3600 秒调整为 21600 秒（6 小时）。
 # - 新增 PO0 manager HTTP 更新镜像：LAN Worker 通过 HTTPS 拉取 GitHub raw 脚本，并用 resource token 为 PO0 HTTP 拉取响应签名。
 # - 兼容旧安装：settings.env 不存在或字段为空时，从已安装的 Self-report/WebAuth systemd unit 回填 secret、监听地址、目标和 token，避免升级后导出空 secret。
 # - 修复完整备份导出指定相对路径时可能写入临时目录并随清理丢失的问题；恢复 cron 时优先从备份的 cron block 识别旧脚本路径；Caddy import 跟随当前 snippet 目录且恢复权限改为 644。
@@ -85,7 +87,7 @@ WEBAUTH_TARGETS="${PO0_WEBAUTH_TARGETS:-}"
 SELF_REPORT_LISTEN="${PO0_SELF_REPORT_LISTEN:-127.0.0.1:8788}"
 SELF_REPORT_SOURCE="${PO0_SELF_REPORT_SOURCE:-self-report}"
 SELF_REPORT_SECRET="${PO0_SELF_REPORT_SECRET:-}"
-SELF_REPORT_TTL_SECONDS="${PO0_SELF_REPORT_TTL_SECONDS:-21600}"
+SELF_REPORT_TTL_SECONDS="${PO0_SELF_REPORT_TTL_SECONDS:-43200}"
 SELF_REPORT_TARGETS="${PO0_SELF_REPORT_TARGETS:-}"
 SELF_REPORT_HTTPS_DOMAIN="${PO0_SELF_REPORT_HTTPS_DOMAIN:-}"
 SELF_REPORT_HTTPS_BACKEND="${PO0_SELF_REPORT_HTTPS_BACKEND:-127.0.0.1:8788}"
@@ -511,6 +513,7 @@ load_local_settings() {
     refresh_resource_stats_file
     refresh_resource_events_file
     load_settings_from_installed_services "${loaded}" || true
+    normalize_report_ttl_settings
 }
 
 unit_exec_arg_value() {
@@ -547,6 +550,21 @@ fill_setting_from_unit_arg() {
     value="$(unit_exec_arg_value "${unit}" "${flag}" 2>/dev/null || true)"
     [[ -n "${value}" ]] || return 0
     printf -v "${var_name}" '%s' "${value}"
+}
+
+normalize_report_ttl_seconds() {
+    local ttl="${1:-}"
+    local fallback="${2:-21600}"
+    [[ "${fallback}" =~ ^[0-9]+$ ]] || fallback="21600"
+    [[ "${ttl}" =~ ^[0-9]+$ ]] || ttl="${fallback}"
+    (( ttl >= 60 )) || ttl=60
+    (( ttl <= 604800 )) || ttl=604800
+    printf '%s\n' "${ttl}"
+}
+
+normalize_report_ttl_settings() {
+    SELF_REPORT_TTL_SECONDS="$(normalize_report_ttl_seconds "${SELF_REPORT_TTL_SECONDS}" 43200)"
+    WEBAUTH_TTL_SECONDS="$(normalize_report_ttl_seconds "${WEBAUTH_TTL_SECONDS}" 21600)"
 }
 
 load_settings_from_installed_services() {
@@ -2478,7 +2496,7 @@ manage_target_report_ttl_interactive() {
     done < "${CONFIG_FILE}"
     printf '\nSelf-report / WebAuth source 与 TTL 维护；直接回车保留当前值，输入 - 可清空目标覆盖。\n'
     client_ip_source="$(prompt_default "Self-report source id" "${client_ip_source:-${SELF_REPORT_SOURCE}}")"
-    client_ip_ttl="$(prompt_default "Self-report 放行 TTL 秒数" "${client_ip_ttl:-${SELF_REPORT_TTL_SECONDS:-21600}}")"
+    client_ip_ttl="$(prompt_default "Self-report 放行 TTL 秒数" "${client_ip_ttl:-${SELF_REPORT_TTL_SECONDS:-43200}}")"
     webauth_source="$(prompt_default "WebAuth source id" "${webauth_source:-${WEBAUTH_SOURCE}}")"
     webauth_ttl="$(prompt_default "WebAuth 放行 TTL 秒数" "${webauth_ttl:-${WEBAUTH_TTL_SECONDS:-21600}}")"
     [[ "${client_ip_source}" == "-" ]] && client_ip_source=""
@@ -2493,6 +2511,8 @@ manage_target_report_ttl_interactive() {
         printf 'WebAuth TTL 必须是秒数，或输入 - 清空目标覆盖。\n' >&2
         return 1
     fi
+    [[ -n "${client_ip_ttl}" ]] && client_ip_ttl="$(normalize_report_ttl_seconds "${client_ip_ttl}" "${SELF_REPORT_TTL_SECONDS:-43200}")"
+    [[ -n "${webauth_ttl}" ]] && webauth_ttl="$(normalize_report_ttl_seconds "${webauth_ttl}" "${WEBAUTH_TTL_SECONDS:-21600}")"
     update_target_report_ttl_by_index "${selected}" "${client_ip_source}" "${client_ip_ttl}" "${webauth_source}" "${webauth_ttl}" || return 1
     printf '已更新目标 %s 的 Self-report / WebAuth source 与 TTL。\n' "${selected}"
 }
@@ -2733,7 +2753,8 @@ po0_lan_wizard() {
         fi
         generated_secret="$(random_secret)"
         SELF_REPORT_SECRET="$(prompt_default "Self-report secret（访问设备上报 LAN Worker 用）" "${SELF_REPORT_SECRET:-${generated_secret}}")"
-        SELF_REPORT_TTL_SECONDS="$(prompt_default "Self-report 放行 TTL 秒数" "${SELF_REPORT_TTL_SECONDS:-21600}")"
+        SELF_REPORT_TTL_SECONDS="$(prompt_default "Self-report 放行 TTL 秒数" "${SELF_REPORT_TTL_SECONDS:-43200}")"
+        SELF_REPORT_TTL_SECONDS="$(normalize_report_ttl_seconds "${SELF_REPORT_TTL_SECONDS}" 43200)"
     else
         CLIENT_IP_TOKEN=""
     fi
@@ -2744,6 +2765,7 @@ po0_lan_wizard() {
         WEBAUTH_SOURCE="$(prompt_default "WebAuth source id" "${WEBAUTH_SOURCE:-cf-access}")"
         WEBAUTH_LISTEN="$(prompt_default "WebAuth 本地监听地址" "${WEBAUTH_LISTEN:-127.0.0.1:8787}")"
         WEBAUTH_TTL_SECONDS="$(prompt_default "WebAuth 放行 TTL 秒数" "${WEBAUTH_TTL_SECONDS:-21600}")"
+        WEBAUTH_TTL_SECONDS="$(normalize_report_ttl_seconds "${WEBAUTH_TTL_SECONDS}" 21600)"
     else
         WEBAUTH_TOKEN=""
     fi
@@ -3741,15 +3763,15 @@ self_report_targets_env() {
         [[ "${TARGET_ENABLED}" == "1" ]] || continue
         [[ -n "${TARGET_CLIENT_IP_TOKEN}" ]] || continue
         source="${TARGET_CLIENT_IP_SOURCE:-${SELF_REPORT_SOURCE}}"
-        ttl="${TARGET_CLIENT_IP_TTL:-${SELF_REPORT_TTL_SECONDS}}"
+        ttl="$(normalize_report_ttl_seconds "${TARGET_CLIENT_IP_TTL:-${SELF_REPORT_TTL_SECONDS}}" "${SELF_REPORT_TTL_SECONDS:-43200}")"
         extra="${TARGET_REPORT_SSH_EXTRA_ARGS:-${TARGET_SSH_EXTRA_ARGS}}"
         printf '%s|%s|%s|%s|%s|%s|%s|%s\n' \
-            "${source}" "${TARGET_PO0_HOST}" "${TARGET_PO0_PORT:-22}" "${TARGET_PO0_USER:-root}" "${TARGET_PO0_SCRIPT:-${DEFAULT_PO0_SCRIPT}}" "${TARGET_CLIENT_IP_TOKEN}" "${ttl:-21600}" "${extra}"
+            "${source}" "${TARGET_PO0_HOST}" "${TARGET_PO0_PORT:-22}" "${TARGET_PO0_USER:-root}" "${TARGET_PO0_SCRIPT:-${DEFAULT_PO0_SCRIPT}}" "${TARGET_CLIENT_IP_TOKEN}" "${ttl:-43200}" "${extra}"
         count=$((count + 1))
     done < "${CONFIG_FILE}"
     if [[ "${count}" == "0" && -n "${PO0_HOST}" && -n "${CLIENT_IP_TOKEN}" ]]; then
         printf '%s|%s|%s|%s|%s|%s|%s|%s\n' \
-            "${SELF_REPORT_SOURCE}" "${PO0_HOST}" "${PO0_PORT:-22}" "${PO0_USER:-root}" "${PO0_SCRIPT:-${DEFAULT_PO0_SCRIPT}}" "${CLIENT_IP_TOKEN}" "${SELF_REPORT_TTL_SECONDS:-21600}" "${SSH_EXTRA_ARGS}"
+            "${SELF_REPORT_SOURCE}" "${PO0_HOST}" "${PO0_PORT:-22}" "${PO0_USER:-root}" "${PO0_SCRIPT:-${DEFAULT_PO0_SCRIPT}}" "${CLIENT_IP_TOKEN}" "$(normalize_report_ttl_seconds "${SELF_REPORT_TTL_SECONDS}" 43200)" "${SSH_EXTRA_ARGS}"
     fi
 }
 
@@ -3777,7 +3799,7 @@ webauth_targets_env() {
         [[ "${TARGET_ENABLED}" == "1" ]] || continue
         [[ -n "${TARGET_WEBAUTH_TOKEN}" ]] || continue
         source="${TARGET_WEBAUTH_SOURCE:-${WEBAUTH_SOURCE}}"
-        ttl="${TARGET_WEBAUTH_TTL:-${WEBAUTH_TTL_SECONDS}}"
+        ttl="$(normalize_report_ttl_seconds "${TARGET_WEBAUTH_TTL:-${WEBAUTH_TTL_SECONDS}}" "${WEBAUTH_TTL_SECONDS:-21600}")"
         extra="${TARGET_REPORT_SSH_EXTRA_ARGS:-${TARGET_SSH_EXTRA_ARGS}}"
         printf '%s|%s|%s|%s|%s|%s|%s|%s\n' \
             "${source}" "${TARGET_PO0_HOST}" "${TARGET_PO0_PORT:-22}" "${TARGET_PO0_USER:-root}" "${TARGET_PO0_SCRIPT:-${DEFAULT_PO0_SCRIPT}}" "${TARGET_WEBAUTH_TOKEN}" "${ttl:-21600}" "${extra}"
@@ -3785,7 +3807,7 @@ webauth_targets_env() {
     done < "${CONFIG_FILE}"
     if [[ "${count}" == "0" && -n "${PO0_HOST}" && -n "${WEBAUTH_TOKEN}" ]]; then
         printf '%s|%s|%s|%s|%s|%s|%s|%s\n' \
-            "${WEBAUTH_SOURCE}" "${PO0_HOST}" "${PO0_PORT:-22}" "${PO0_USER:-root}" "${PO0_SCRIPT:-${DEFAULT_PO0_SCRIPT}}" "${WEBAUTH_TOKEN}" "${WEBAUTH_TTL_SECONDS:-21600}" "${SSH_EXTRA_ARGS}"
+            "${WEBAUTH_SOURCE}" "${PO0_HOST}" "${PO0_PORT:-22}" "${PO0_USER:-root}" "${PO0_SCRIPT:-${DEFAULT_PO0_SCRIPT}}" "${WEBAUTH_TOKEN}" "$(normalize_report_ttl_seconds "${WEBAUTH_TTL_SECONDS}" 21600)" "${SSH_EXTRA_ARGS}"
     fi
 }
 
@@ -3906,6 +3928,13 @@ def parse_targets(raw):
             'extra': extra,
         })
     return targets
+
+def normalized_ttl(value, fallback=21600):
+    try:
+        ttl = int(value or fallback)
+    except ValueError:
+        ttl = fallback
+    return min(max(60, ttl), 604800)
 
 def warn_ignored_extra(context, reason):
     print(f"[WARN] {context}: ignored SSH extra arg ({reason}).", file=sys.stderr)
@@ -4065,10 +4094,7 @@ if not TARGETS:
     raise SystemExit('missing PO0_WEBAUTH_TARGETS')
 
 def report_target(target, ip, identity, note):
-    try:
-        ttl = int(target.get('ttl') or '21600')
-    except ValueError:
-        ttl = 21600
+    ttl = normalized_ttl(target.get('ttl'), 21600)
     expires_at = str(int(time.time()) + max(60, ttl))
     remote = " ".join([
         "bash",
@@ -4165,7 +4191,7 @@ with socketserver.ThreadingTCPServer((listen_host, listen_port), Handler) as htt
 PY
 }
 install_webauth_service() {
-    local script_path unit target_args="" name="po0-lan-webauth.service"
+    local script_path unit target_args="" name="po0-lan-webauth.service" targets
     [[ "${EUID:-$(id -u 2>/dev/null || printf 1)}" -eq 0 ]] || {
         printf '安装 systemd 服务需要 root。\n' >&2
         return 1
@@ -4174,6 +4200,13 @@ install_webauth_service() {
         printf '当前系统没有 systemctl，无法安装服务。\n' >&2
         return 1
     }
+    targets="$(webauth_targets_env 2>/dev/null || true)"
+    if [[ -z "${targets}" ]]; then
+        printf '没有可用的 WebAuth PO0 目标，未安装后台服务。\n' >&2
+        printf '请先在菜单里配置：PO0 目标、SSH、Token 与 TTL -> 目标 Token -> WebAuth Token。\n' >&2
+        printf '如果还没有 PO0 目标，请先用主菜单“添加 PO0 目标”。\n' >&2
+        return 1
+    fi
     script_path="$(ensure_persistent_script)" || return 1
     unit="/etc/systemd/system/${name}"
     [[ -n "${WEBAUTH_TARGETS}" ]] && target_args=" --webauth-targets $(sh_quote "${WEBAUTH_TARGETS}")"
@@ -4337,10 +4370,17 @@ def parse_targets(raw):
             'user': user or 'root',
             'script': script or '/root/nftables-relay-manager.sh',
             'token': token,
-            'ttl': ttl or '21600',
+            'ttl': ttl or '43200',
             'extra': extra,
         })
     return targets
+
+def normalized_ttl(value, fallback=43200):
+    try:
+        ttl = int(value or fallback)
+    except ValueError:
+        ttl = fallback
+    return min(max(60, ttl), 604800)
 
 def warn_ignored_extra(context, reason):
     print(f"[WARN] {context}: ignored SSH extra arg ({reason}).", file=sys.stderr)
@@ -4501,6 +4541,7 @@ if not TARGETS:
 
 def report_target(target, ip, identity, source_override):
     source = source_override or target['source']
+    ttl = str(normalized_ttl(target.get('ttl'), 43200))
     remote = " ".join([
         "bash",
         shlex.quote(target['script']),
@@ -4509,7 +4550,7 @@ def report_target(target, ip, identity, source_override):
         shlex.quote(ip),
         shlex.quote(target['token']),
         shlex.quote(identity or "self-report"),
-        shlex.quote(target['ttl']),
+        shlex.quote(ttl),
     ])
     cmd = ["ssh", "-p", target['port']]
     cmd.extend(sanitized_extra_args(target.get('extra', ''), f"Self-report {target['user']}@{target['host']}:{target['port']}"))
@@ -6170,14 +6211,14 @@ show_self_report_settings() {
     print_panel_row "HTTPS 入口" "$(if [[ -n "${https_domain}" ]]; then printf 'https://%s/report' "${https_domain}"; else printf '未配置'; fi)"
     print_panel_row "Secret" "$(mask_secret "${SELF_REPORT_SECRET}")"
     print_panel_row "默认 source" "${SELF_REPORT_SOURCE}"
-    print_panel_row "默认 TTL" "${SELF_REPORT_TTL_SECONDS:-21600} 秒"
+    print_panel_row "默认 TTL" "${SELF_REPORT_TTL_SECONDS:-43200} 秒"
     print_panel_row "后台服务" "$(self_report_service_summary)"
     if [[ -n "${targets}" ]]; then
         print_panel_row "PO0 目标" "已配置"
         while IFS= read -r line || [[ -n "${line}" ]]; do
             [[ -n "${line}" ]] || continue
             IFS='|' read -r source host port user script token ttl extra <<< "${line}"
-            print_panel_note "${source:-self-report}@${host}:${port:-22} ttl=${ttl:-21600} token=$(mask_secret "${token}")"
+            print_panel_note "${source:-self-report}@${host}:${port:-22} ttl=${ttl:-43200} token=$(mask_secret "${token}")"
         done <<< "${targets}"
     else
         print_panel_row "PO0 目标" "未配置；先在主菜单添加 PO0 目标并设置 Self-report client-ip Token"
@@ -6734,6 +6775,8 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+normalize_report_ttl_settings
 
 case "${ACTION}" in
     wizard)

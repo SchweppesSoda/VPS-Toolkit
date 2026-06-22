@@ -2,9 +2,13 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-nftables-relay-manager"
-SCRIPT_VERSION="2026.06.22+build.1"
+SCRIPT_VERSION="2026.06.22+build.3"
 SCRIPT_RELEASE_DATE="2026-06-22"
 # CHANGELOG_BEGIN
+# - DDNS 来源新增/无效 TTL 默认改为 43200 秒（12 小时），保留 60-86400 秒输入范围。
+# - WebAuth 上报 expires-at 增加 7 天防御性上限，避免误配造成超长放行。
+# - Self-report 部署命令示例的目标行 TTL 改为 43200 秒（12 小时）。
+# - 从 LAN Worker HTTP 更新 manager 的交互输入增加端口提示：入口不是 80 时必须在 URL 中写明 :端口。
 # - WebAuth 放行 TTL 默认从 3600 秒调整为 21600 秒（6 小时），部署命令同步输出 21600。
 # - Egern / ssh-report 放行 TTL 默认从 3600 秒调整为 21600 秒（6 小时），部署命令同步输出 21600。
 # - Self-report / client-ip 放行 TTL 默认从 3600 秒调整为 21600 秒（6 小时）。
@@ -1961,8 +1965,8 @@ validate_ddns_domain() {
 }
 
 normalize_source_ttl_seconds() {
-    local ttl="${1:-300}"
-    [[ "${ttl}" =~ ^[0-9]+$ ]] || ttl="300"
+    local ttl="${1:-43200}"
+    [[ "${ttl}" =~ ^[0-9]+$ ]] || ttl="43200"
     (( ttl >= 60 )) || ttl=60
     (( ttl <= 86400 )) || ttl=86400
     printf '%s\n' "${ttl}"
@@ -2698,15 +2702,20 @@ normalize_client_ttl_seconds() {
 
 normalize_report_expires_at() {
     local value="${1:-}"
+    local parsed max_expires_at
     value="$(sanitize_allowlist_entry_text "${value}")"
     if [[ "${value}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]; then
-        printf '%s\n' "${value}"
-        return 0
+        parsed="${value}"
+    elif [[ "${value}" =~ ^[0-9]+$ ]]; then
+        parsed="$(date -u -d "@${value}" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || true)"
     fi
-    if [[ "${value}" =~ ^[0-9]+$ ]]; then
-        date -u -d "@${value}" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null && return 0
+    [[ -n "${parsed:-}" ]] || parsed="$(utc_after_seconds_iso 21600)"
+    max_expires_at="$(utc_after_seconds_iso 604800)"
+    if [[ "${parsed}" > "${max_expires_at}" ]]; then
+        printf '%s\n' "${max_expires_at}"
+    else
+        printf '%s\n' "${parsed}"
     fi
-    utc_after_seconds_iso 21600
 }
 
 report_client_ip_source() {
@@ -9898,8 +9907,9 @@ do_show_self_report_server_commands() {
     printf '  po0-lan-client --install-self-report-https --self-report-https-domain <SELF_REPORT_DOMAIN> --po0-host <PO0_HOST> --po0-script %s --self-report-source self-report --client-ip-token %s --self-report-secret <SELF_REPORT_SECRET>\n' \
         "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${DEPLOY_CLIENT_TOKEN}")"
     echo ""
+    printf 'Self-report 默认放行 TTL 为 43200 秒（12 小时）；WebAuth 默认 21600 秒（6 小时）。\n'
     printf 'Self-report PO0 目标行: source|host|port|user|script|token|ttl|ssh_args\n'
-    printf '  self-report|<PO0_HOST>|22|root|%s|%s|21600|\n' "${MANAGER_INSTALL_PATH}" "${DEPLOY_CLIENT_TOKEN}"
+    printf '  self-report|<PO0_HOST>|22|root|%s|%s|43200|\n' "${MANAGER_INSTALL_PATH}" "${DEPLOY_CLIENT_TOKEN}"
     echo ""
     printf '合并多个目标行：\n'
     printf '  po0-lan-client --install-self-report-https --self-report-https-domain <SELF_REPORT_DOMAIN> --self-report-targets "<TARGET1;TARGET2>" --self-report-secret <SELF_REPORT_SECRET>\n'
@@ -10199,7 +10209,7 @@ do_add_ddns_allowlist_source() {
         return 1
     }
     [[ -n "$(trim "${name}")" ]] || name="${domain}"
-    ttl="$(prompt_with_default "请输入刷新 TTL 秒数（60-86400）" "300")"
+    ttl="$(prompt_with_default "请输入刷新 TTL 秒数（60-86400）" "43200")"
     ttl="$(normalize_source_ttl_seconds "${ttl}")"
     answer="$(read_prompt "是否启用这个 DDNS 来源 [Y/n]: ")" || answer=""
     case "${answer,,}" in
@@ -11885,12 +11895,13 @@ do_show_version_panel() {
 }
 
 do_upgrade_manager_from_lan_interactive() {
-    local url
+    local prompt_label url
+    prompt_label="LAN Worker manager 更新 HTTP URL（非 80 端口请加 :端口）"
     load_settings 1
     if [[ -n "${MANAGER_UPDATE_URL}" ]]; then
-        url="$(prompt_with_default "LAN Worker manager 更新 HTTP URL" "${MANAGER_UPDATE_URL}")"
+        url="$(prompt_with_default "${prompt_label}" "${MANAGER_UPDATE_URL}")"
     else
-        url="$(read_prompt "LAN Worker manager 更新 HTTP URL: ")" || return 1
+        url="$(read_prompt "${prompt_label}: ")" || return 1
     fi
     [[ -n "$(trim "${url}")" ]] || { err "更新 URL 不能为空。"; return 1; }
     url="$(normalize_manager_update_url "${url}")" || return 1

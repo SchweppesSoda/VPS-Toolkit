@@ -41,7 +41,7 @@ env_schema:
   AUTO_REPORT_INTERVAL_SECONDS:
     name: 自动上报周期秒数
     default_value: "3600"
-    description: "实际 SSH 自动上报间隔，范围 600..86400 秒。模块每 10 分钟轻量检查一次；IP 或目标配置变化、手动执行和状态刷新仍会立即上报。"
+    description: "实际 SSH 自动上报间隔，范围 600..86400 秒，建议小于 TTL_SECONDS。模块每 10 分钟轻量检查一次；IP 或目标配置变化、手动执行和状态刷新仍会立即上报。TTL 小于自动周期时会提前续期，尽量避免过期空窗。"
   SSH_REPORT_TARGETS:
     name: 多个 PO0 目标
     description: "可选。多个目标可用换行、逗号、分号或空格分隔：source_id|host|port|user|script|token|identity|ttl。source_id 和 identity 支持 {device}，本机 ID 推荐通过 DEVICE_ID_SETUP + “保存本机设备 ID”写入。"

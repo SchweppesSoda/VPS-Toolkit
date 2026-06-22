@@ -318,7 +318,7 @@ set_id|source_type|name|value|enabled|ttl_seconds|last_resolved_at|last_result
 当前 `po0-relay-allowlist-sources.tsv` 只保存 DDNS 来源定义：
 
 ```text
-default|ddns|home|home.example.com|1|300||
+default|ddns|home|home.example.com|1|43200||
 ```
 
 `last_result` 的含义：
@@ -740,9 +740,9 @@ PowerShell 客户端交互式无参数运行默认进入菜单，也支持显式
 
 访问设备客户端的用户可见结果行统一为 `Self-report 已完成：...` 或 `Self-report 未完成：...`。一次性上报只有在本机探测到公网 IPv4、LAN Worker HTTP 返回 2xx，且 LAN Worker 已成功代报 PO0 后才打印完成；否则保留底层错误并返回非零状态。Linux/OpenWrt cron 的每次运行输出重定向到 `/tmp/po0-self-report.log`，其中也包含同样的结果行。Windows 计划任务不会依赖一闪而过的控制台窗口；`-InstallTask` 会把 `-LogPath` 写入任务参数，管理员安装默认日志为 `%ProgramData%\PO0\po0-self-report.log`，普通用户安装默认日志为 `%LOCALAPPDATA%\PO0\po0-self-report.log`，每次运行会记录开始、LAN Worker 返回体和完成/未完成结果；菜单“查看定时上报状态”会展示 `Get-ScheduledTaskInfo` 的上次结果和日志 tail。
 
-Self-report 和 WebAuth 放行 TTL 默认都是 `21600` 秒（6 小时），由 LAN Worker 上报 PO0 时传入；客户端只控制上报频率，不控制 TTL。TTL 可以通过 `po0-lan-client --self-report-ttl <秒数>` / `--webauth-ttl <秒数>`、bootstrap 向导，或 LAN Worker 菜单 `Self-report TTL / WebAuth TTL` 修改。
+Self-report 放行 TTL 默认 `43200` 秒（12 小时），WebAuth 放行 TTL 默认 `21600` 秒（6 小时），由 LAN Worker 上报 PO0 时传入；客户端只控制上报频率，不控制 TTL。TTL 可以通过 `po0-lan-client --self-report-ttl <秒数>` / `--webauth-ttl <秒数>`、bootstrap 向导，或 LAN Worker 菜单 `Self-report TTL / WebAuth TTL` 修改。Self-report / WebAuth TTL 会被限制在 `60-604800` 秒内；WebAuth 由 LAN Worker 传入 expires-at，PO0 端也会把过远的 expires-at 截到 7 天内。
 
-`--bootstrap` 会先 probe，再写入本机目标配置；如果要求安装本机 Worker 轮询器，管道运行时会自动落盘到固定路径。`--install-cron N` 是兼容参数，会把 DDNS 和资源任务两个计划都设为 `N` 分钟；不带 `N` 时，默认 DDNS 每 5 分钟上报、资源任务每 120 分钟检查一次。Worker 默认调用 PO0 上的 `/root/nftables-relay-manager.sh`，也可以通过 `--po0-script` 覆盖。首次部署推荐 `--wizard`，高级维护菜单仍可管理本机 Worker 的 PO0 目标：查看、添加、编辑、删除、启用/停用，执行 DDNS 解析上报和资源任务轮询领取，并只读查看 PO0 端资源任务创建计划。一个配置文件可以放多台 PO0/VPS。
+`--bootstrap` 会先 probe，再写入本机目标配置；如果要求安装本机 Worker 轮询器，管道运行时会自动落盘到固定路径。`--install-cron N` 是兼容参数，会把 DDNS 和资源任务两个计划都设为 `N` 分钟；不带 `N` 时，默认 DDNS 每 5 分钟上报、资源任务每 1440 分钟检查一次。Worker 默认调用 PO0 上的 `/root/nftables-relay-manager.sh`，也可以通过 `--po0-script` 覆盖。首次部署推荐 `--wizard`，高级维护菜单仍可管理本机 Worker 的 PO0 目标：查看、添加、编辑、删除、启用/停用，执行 DDNS 解析上报和资源任务轮询领取，并只读查看 PO0 端资源任务创建计划。一个配置文件可以放多台 PO0/VPS。
 
 向导自动取 token 使用 PO0 端机器可读接口：
 
@@ -829,7 +829,7 @@ HMAC 消息格式固定为：
 nonce|sha256|size|version
 ```
 
-PO0 的 `--upgrade-manager-from-lan [URL]` 只接受 HTTP URL。下载后会校验 nonce、HMAC、sha256、size、`SCRIPT_NAME`、`SCRIPT_VERSION`、`CHANGELOG_BEGIN/END` 和 `bash -n`，然后备份当前 `${MANAGER_INSTALL_PATH}`，以临时文件 + `chmod 0755` + `mv` 原子替换。更新成功后只显示版本变化和 changelog，并询问是否用更新后的脚本执行 `--refresh-report-key-wrapper`；不会自动应用 nftables，也不会自动跑诊断。
+PO0 的 `--upgrade-manager-from-lan [URL]` 只接受 HTTP URL；入口不是 HTTP 默认 80 端口时，URL 必须显式包含 `:PORT`。下载后会校验 nonce、HMAC、sha256、size、`SCRIPT_NAME`、`SCRIPT_VERSION`、`CHANGELOG_BEGIN/END` 和 `bash -n`，然后备份当前 `${MANAGER_INSTALL_PATH}`，以临时文件 + `chmod 0755` + `mv` 原子替换。更新成功后只显示版本变化和 changelog，并询问是否用更新后的脚本执行 `--refresh-report-key-wrapper`；不会自动应用 nftables，也不会自动跑诊断。
 
 ### 5.6.2 Egern SSH report 上报
 
@@ -849,7 +849,7 @@ Egern 把最近状态写入 ctx.storage，Widget 读取显示
 bash /root/nftables-relay-manager.sh --ssh-ip-report <source-id> <ipv4> <token> <identity> <ttl>
 ```
 
-Egern / ssh-report 放行 TTL 默认 `21600` 秒（6 小时）。单 PO0 可在模块环境变量 `TTL_SECONDS` 覆盖；多个 PO0 可在 `SSH_REPORT_TARGETS` 每行最后一列分别覆盖。实际 SSH 自动上报周期由 `AUTO_REPORT_INTERVAL_SECONDS` 控制，默认 `3600` 秒，可设置 `600` 到 `86400` 秒；模块 schedule 每 10 分钟轻量检查一次。
+Egern / ssh-report 放行 TTL 默认 `21600` 秒（6 小时）。单 PO0 可在模块环境变量 `TTL_SECONDS` 覆盖；多个 PO0 可在 `SSH_REPORT_TARGETS` 每行最后一列分别覆盖。实际 SSH 自动上报周期由 `AUTO_REPORT_INTERVAL_SECONDS` 控制，默认 `3600` 秒，可设置 `600` 到 `86400` 秒；建议 TTL 大于自动上报周期并留出余量。模块 schedule 每 10 分钟轻量检查一次；如果 TTL 小于自动上报周期，脚本会提前续期，尽量避免过期空窗。
 
 多 PO0 上报由模块环境变量 `SSH_REPORT_TARGETS` 控制，一行一个目标：
 

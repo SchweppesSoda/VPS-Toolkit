@@ -100,7 +100,7 @@ PO0 上拉取更新：
 bash /root/nftables-relay-manager.sh --upgrade-manager-from-lan http://<LAN_WORKER_IP>:2333/po0-manager-update/nftables-relay-manager.sh
 ```
 
-也可以在 PO0 主菜单进入 `脚本版本 / 更新 -> 从 LAN Worker HTTP 更新 manager`，第一次输入 URL 后会保存到 PO0 设置文件。更新时 PO0 会读取本机 resource token，向 LAN Worker 发送随机 nonce 和 `token_id`，下载后校验 HMAC、SHA-256、size、脚本标识、changelog 和 `bash -n`；通过后备份旧脚本并原子替换。更新成功后会询问是否刷新受限 SSH wrapper，不会自动应用 nftables，也不会自动运行诊断。
+也可以在 PO0 主菜单进入 `脚本版本 / 更新 -> 从 LAN Worker HTTP 更新 manager`，第一次输入 URL 后会保存到 PO0 设置文件；如果入口不是 HTTP 默认 80 端口，必须在 URL 中写明 `:PORT`，例如 `:2333`。更新时 PO0 会读取本机 resource token，向 LAN Worker 发送随机 nonce 和 `token_id`，下载后校验 HMAC、SHA-256、size、脚本标识、changelog 和 `bash -n`；通过后备份旧脚本并原子替换。更新成功后会询问是否刷新受限 SSH wrapper，不会自动应用 nftables，也不会自动运行诊断。
 
 也可以显式进入向导：
 
@@ -338,7 +338,7 @@ bash /root/nftables-relay-manager.sh --ddns-report <source-key> <ipv4[,ipv4...]>
 bash /root/nftables-relay-manager.sh --ddns-report-check <source-key> <token>
 ```
 
-LAN Worker 里 `--source-key` 只是 PO0 DDNS 来源 key/名称，用来匹配 PO0 来源表；`--ddns-domain` 才是真正要解析的 DDNS 域名。旧参数 `--domain` 仍作为兼容别名：没有 `--ddns-domain` 时，同时作为 source key 和 DDNS 域名。
+LAN Worker 里 `--source-key` 只是 PO0 DDNS 来源 key/名称，用来匹配 PO0 来源表；`--ddns-domain` 才是真正要解析的 DDNS 域名。旧参数 `--domain` 仍作为兼容别名：没有 `--ddns-domain` 时，同时作为 source key 和 DDNS 域名。PO0 新增 DDNS 来源默认 TTL 为 `43200` 秒（12 小时），可在 `60-86400` 秒内调整；LAN Worker 的 DDNS 上报间隔应明显小于这个 TTL。
 
 多个 PO0 或多个域名推荐先整理成“DDNS 上报目标”：
 
@@ -435,18 +435,18 @@ curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scri
 po0-lan-client --install-self-report-https --self-report-https-domain <SELF_REPORT_DOMAIN> --po0-host <PO0_HOST> --po0-script /root/nftables-relay-manager.sh --self-report-source self-report --client-ip-token <CLIENT_REPORT_TOKEN> --self-report-secret <SELF_REPORT_SECRET>
 ```
 
-Self-report 和 WebAuth 放行 TTL 默认都是 `21600` 秒（6 小时），由 LAN Worker 上报 PO0 时传入；可以在启动接收端时加 `--self-report-ttl <秒数>` / `--webauth-ttl <秒数>`，也可以在 LAN Worker 菜单 `PO0 目标、SSH、Token 与 TTL -> Self-report TTL / WebAuth TTL` 里修改目标覆盖值。访问设备客户端只决定“多久上报一次”，不决定 TTL。
+Self-report 放行 TTL 默认 `43200` 秒（12 小时），WebAuth 放行 TTL 默认 `21600` 秒（6 小时），由 LAN Worker 上报 PO0 时传入；可以在启动接收端时加 `--self-report-ttl <秒数>` / `--webauth-ttl <秒数>`，也可以在 LAN Worker 菜单 `PO0 目标、SSH、Token 与 TTL -> Self-report TTL / WebAuth TTL` 里修改目标覆盖值。访问设备客户端只决定“多久上报一次”，不决定 TTL。Self-report / WebAuth TTL 会被限制在 `60-604800` 秒内。
 
 多个 PO0 用“设备自上报目标”合并到同一个 LAN Worker：
 
 ```text
 source|host|port|user|script|token|ttl|ssh_args
-self-report|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|21600|
-self-report|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|21600|
+self-report|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|43200|
+self-report|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|43200|
 ```
 
 ```bash
-po0-lan-client --install-self-report-https --self-report-https-domain <SELF_REPORT_DOMAIN> --self-report-targets 'self-report|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|21600|;self-report|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|21600|' --self-report-secret <SELF_REPORT_SECRET>
+po0-lan-client --install-self-report-https --self-report-https-domain <SELF_REPORT_DOMAIN> --self-report-targets 'self-report|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|43200|;self-report|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|43200|' --self-report-secret <SELF_REPORT_SECRET>
 ```
 
 访问设备定时自上报；Linux/OpenWrt 交互式无参数运行默认进入菜单。菜单里的“配置并保存上报参数”只写本地配置文件，不安装 cron；“安装 / 更新定时上报”读取已保存配置并写入 cron；“暂停 / 恢复定时上报”只影响自动 cron，手动“立即上报一次”仍可用：
@@ -558,7 +558,7 @@ Egern 模块不是 DDNS 模块。它的逻辑是：
 bash /root/nftables-relay-manager.sh --ssh-ip-report <source-id> <ipv4> <token> <identity> <ttl>
 ```
 
-Egern 放行 TTL 默认 `21600` 秒（6 小时）。单 PO0 可在模块环境变量 `TTL_SECONDS` 覆盖；多个 PO0 可在 `SSH_REPORT_TARGETS` 每行最后一列分别覆盖。实际 SSH 自动上报周期由 `AUTO_REPORT_INTERVAL_SECONDS` 控制，默认 `3600` 秒，可设置 `600` 到 `86400` 秒；模块 schedule 每 10 分钟轻量检查一次。
+Egern 放行 TTL 默认 `21600` 秒（6 小时）。单 PO0 可在模块环境变量 `TTL_SECONDS` 覆盖；多个 PO0 可在 `SSH_REPORT_TARGETS` 每行最后一列分别覆盖。实际 SSH 自动上报周期由 `AUTO_REPORT_INTERVAL_SECONDS` 控制，默认 `3600` 秒，可设置 `600` 到 `86400` 秒；建议让 TTL 至少大于自动上报周期并留出余量。模块 schedule 每 10 分钟轻量检查一次；如果 TTL 小于自动上报周期，脚本会提前续期，尽量避免过期空窗。
 
 只读检查：
 
