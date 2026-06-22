@@ -47,12 +47,13 @@
   - `AGENTS.md`：维护规则、职责边界、验证规则和文档归属表。
   - `scripts/po0/README.md`：PO0 子系统入口，只链接到子模块主文档。
   - `scripts/po0/*/README.md`：PO0 子模块用户入口；复杂实现才允许一个配套 technical/design 文档。
+  - `scripts/po0/nftables/CHANGELOG.md`：PO0 nftables 子系统版本历史；脚本内只保留当前版本更新内容。
   - `scripts/vps/*/README.md`：VPS 工具用户入口；跨模块约定放 `scripts/vps/docs/*.md`，复杂实现才允许一个 `*-technical.md` 或 `*-guide.md`。
   - `web/vps-toolkit/tools/*/*_technical.md`：复杂网页工具技术说明；网页工具用户入口在页面本身，不新增 README 碎片。
 - 新增、删除、重命名任何长期维护 `.md` 时，必须同步根 `README.md` 的文档索引；如保留英文入口，也同步 `README.en.md`。
 - 修改 `web/vps-toolkit/tools/*` 的 UI 时，先阅读该工具自己的 `*_technical.md`；如果该工具没有 UI 结构说明，可参考 `web/vps-toolkit/tools/proxy-node-manager/proxy_node_manager_technical.md` 的页面设计、信息架构、响应式验证和自测写法，再同步补齐本工具的 technical 文档。不要只新增功能控件而不检查整体布局、控件分组和小屏表现。
-- `scripts/po0/nftables/` 只保留三类长期维护 Markdown：用户主文档 `README.md`、实现主文档 `nftables-relay-manager-technical.md`、Egern 专属文档 `clients/egern/README.md`。
-- nftables 用户行为、菜单、命令示例、默认值、TTL、Token、状态文件和定时任务只更新 `scripts/po0/nftables/README.md`；实现细节、协议、wrapper、兼容规则和内部状态模型只更新 technical 文档；Egern 专属导入、设备 ID、Widget 和多 PO0 行为只更新 Egern README。
+- `scripts/po0/nftables/` 只保留四类长期维护 Markdown：用户主文档 `README.md`、版本历史 `CHANGELOG.md`、实现主文档 `nftables-relay-manager-technical.md`、Egern 专属文档 `clients/egern/README.md`。
+- nftables 用户行为、菜单、命令示例、默认值、TTL、Token、状态文件和定时任务只更新 `scripts/po0/nftables/README.md`；版本历史只更新 `scripts/po0/nftables/CHANGELOG.md`；实现细节、协议、wrapper、兼容规则和内部状态模型只更新 technical 文档；Egern 专属导入、设备 ID、Widget 和多 PO0 行为只更新 Egern README。
 - 不随手新增 `.md`。新增文档前先判断是否能放入现有主文档；除非是独立模块且长期维护，否则不要制造碎片文档。短命令笔记、目录清单、临时排错记录应并入现有 README 或删除。
 - 改菜单名、默认值、TTL、Token、状态文件或定时任务后，必须用 `rg` 扫旧词，避免文档与代码脱节。
 - 修改文档结构时，必须用 `rg --files -g '*.md'` 查看全仓 Markdown 清单，并用旧文件名检索确认被删除文档名与旧链接已清理；旧中文根 README 的检查命令是 `rg "README\\.zh-CN\\.md"`。
@@ -66,7 +67,7 @@
 - Shell 改动至少跑 `bash -n` 和 `git diff --check`。
 - 修改任何带版本输出的交互脚本、客户端脚本或安装脚本的用户可见行为、菜单、CLI 输出、定时任务或部署命令后，必须同步该脚本自己的版本号变量（如 `SCRIPT_VERSION`、`SCRIPT_RELEASE_DATE` 等）；不只限于 nftables manager。
 - 同一功能同时影响 PO0 manager、LAN Worker client、self-report、VPS 工具等多个脚本时，逐个判断并同步受影响脚本的版本号；有 `--version` 的必须用对应脚本的 `--version` 确认输出。
-- 带自更新或部署确认需求的版本化脚本应维护脚本内 `CHANGELOG_BEGIN` / `CHANGELOG_END` 更新内容块；每次 bump 版本时同步写清用户可见变化，不写内部流水账。
+- 带自更新或部署确认需求的版本化脚本应维护脚本内 `CHANGELOG_BEGIN` / `CHANGELOG_END` 当前版本更新内容块；每次 bump 版本时同步写清用户可见变化，不写内部流水账，不把历史条目累积在脚本里。完整版本历史写入对应模块的 `CHANGELOG.md`。
 - 自更新入口（如 `--upgrade-self`）成功输出应说明安装路径、版本变化和更新内容；不要只输出内部实现标记。
 - 没有自更新入口、依赖 `scp` 上传的脚本（如 PO0 nftables manager）应提供 `--changelog` 或等价只读入口，供上传后确认当前版本更新内容。
 - 菜单改动要检查编号、范围、提示和 `case` 一致；能渲染主菜单时，至少输入 `0` 验证可退出。

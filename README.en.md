@@ -46,6 +46,7 @@ For running or maintaining existing behavior, start from README files. Do not st
 
 | Doc | Purpose |
 | --- | --- |
+| [`scripts/po0/nftables/CHANGELOG.md`](./scripts/po0/nftables/CHANGELOG.md) | PO0 nftables subsystem version history. |
 | [`scripts/po0/nftables/nftables-relay-manager-technical.md`](./scripts/po0/nftables/nftables-relay-manager-technical.md) | nftables manager internals, protocol, wrapper, and state model. |
 | [`scripts/po0/proxy-services/vless-raw-enc-argosbx-enhancer-design.md`](./scripts/po0/proxy-services/vless-raw-enc-argosbx-enhancer-design.md) | PO0 proxy-service enhancer design. |
 | [`scripts/vps/ssh-key-only/setup-ssh-key-only-full-technical.md`](./scripts/vps/ssh-key-only/setup-ssh-key-only-full-technical.md) | SSH hardening script technical design. |

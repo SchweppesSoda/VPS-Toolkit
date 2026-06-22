@@ -1,0 +1,107 @@
+# PO0 nftables Changelog
+
+本文件保存 PO0 nftables 子系统的完整版本历史。各可独立部署脚本只在脚本头部保留“当前版本更新内容”，供 `--changelog`、`--upgrade-self` 或更新完成提示在远端单文件环境中显示。
+
+旧脚本内置 changelog 没有给每条历史记录保存完整版本号；这些条目已迁移到对应脚本的“历史迁移条目”小节。自本文件建立后，新增版本必须按脚本名和版本号记录在这里。
+
+## po0-nftables-relay-manager
+
+### 2026.06.22+build.5
+
+- 当前版本更新内容只显示本次版本条目；完整版本历史迁移到 `scripts/po0/nftables/CHANGELOG.md`，避免脚本内 changelog 越积越长。
+
+### 历史迁移条目（来自脚本内旧 changelog，版本未逐条记录）
+
+- 修复 `--client-ip-report` 缺少必填参数时只打印用法但继续执行的问题。
+- Client IP / Self-report 直连上报默认 TTL 统一为 43200 秒（12 小时），Egern / ssh-report 仍默认 21600 秒（6 小时）。
+- DDNS 来源新增/无效 TTL 默认改为 43200 秒（12 小时），保留 60-86400 秒输入范围。
+- WebAuth 上报 `expires-at` 增加 7 天防御性上限，避免误配造成超长放行。
+- Self-report 部署命令示例的目标行 TTL 改为 43200 秒（12 小时）。
+- 从 LAN Worker HTTP 更新 manager 的交互输入增加端口提示：入口不是 80 时必须在 URL 中写明 `:端口`。
+- WebAuth 放行 TTL 默认从 3600 秒调整为 21600 秒（6 小时），部署命令同步输出 21600。
+- Egern / ssh-report 放行 TTL 默认从 3600 秒调整为 21600 秒（6 小时），部署命令同步输出 21600。
+- Self-report / client-ip 放行 TTL 默认从 3600 秒调整为 43200 秒（12 小时）。
+- 新增从 LAN Worker HTTP 更新 PO0 manager：校验 resource token HMAC、sha256、脚本语法后原子替换主控脚本。
+- 脚本 `--version` 输出改为参考 LAN Worker 的版本面板，并单独显示 build 构建标识。
+- 修复当前 SSH 临时放行同一 `/32` 再次加入时只命中过期旧记录、不刷新过期时间的问题。
+- PO0 受限 `authorized_keys` 备份改为按 passwd/getent 扫描用户 home，避免漏掉非 `/home` 路径的上报用户。
+- 修复完整备份导出指定相对路径时可能写入临时目录并随清理丢失的问题；恢复 cron 时优先从备份的 cron block 识别旧脚本路径。
+- 新增 PO0 全功能备份 / 导入恢复：默认导出 token、状态、资源任务、iplist/ipdb、resource inbox、wrapper、受限 `authorized_keys` 信息和脚本快照；导入默认只恢复配置/状态文件。
+- PO0 导入新增显式恢复 flag：cron、systemd/nftables、`/etc/nftables.conf`、sysctl、受限 `authorized_keys` 需明确确认或使用 `--restore-all`。
+- Self-report client 部署示例改为每 60 分钟上报一次，匹配客户端新的默认间隔和更长间隔支持。
+- Self-report 部署示例改为 HTTPS 域名/Caddy 模式，访问设备默认上报到 `https://<SELF_REPORT_DOMAIN>/report`。
+- Self-report HTTP 直连示例下沉为兼容模式，不再作为默认推荐路径。
+- 重排源 IP 白名单菜单：动态来源缓存维护、来源 IP 学习与候选提升、被阻挡访问日志拆成独立子菜单，减少主菜单裸露维护动作。
+- 中转机参数新增“本机名称/导出前缀”，导出规则默认文件名可带 PO0XX- 这类主机前缀。
+- 转发规则列表的“回程模式”改为直接显示“内网回源 / 公网出口 / 透明转发”，避免把 `relay_lan` 简写成 `lan` 造成理解成本。
+- 新增 `--changelog`，用于 scp 上传更新后查看当前版本更新内容。
+- 内网资源更新任务菜单新增“查看 PO0 定时创建状态”，明确 PO0 只创建 pending 任务、LAN Worker 负责领取执行。
+- 脚本版本菜单改为版本信息面板，并显示当前版本更新内容。
+- 状态面板和资源任务创建计划摘要增加彩色状态提示。
+
+## po0-lan-worker-client
+
+### 2026.06.22+build.10
+
+- 更新内容显示只输出当前版本条目；完整版本历史迁移到 `scripts/po0/nftables/CHANGELOG.md`，避免脚本内 changelog 越积越长。
+
+### 2026.06.22+build.9
+
+- 基础信息和 `--version` 不再显示资源上传实现细节；manager stdin 上传说明保留在资源任务文档和排错段落。
+- 从菜单更新脚本成功后会先停留显示安装路径、版本变化和更新内容，按回车后再打开新版菜单。
+
+### 历史迁移条目（来自脚本内旧 changelog，版本未逐条记录）
+
+- Self-report 子菜单的 source / TTL 入口改为只维护 Self-report 字段，不再同时提示或修改 WebAuth 字段。
+- Self-report 后台服务摘要会提示 systemd unit 中仍显式保留的 TTL 覆盖值，便于发现旧服务未刷新。
+- 读取旧安装的本机 `settings.env` 时，把遗留默认 Self-report TTL 3600 迁移为 43200、WebAuth TTL 3600 迁移为 21600；目标行显式 TTL 不自动改写。
+- Self-report 放行 TTL 默认改为 43200 秒（12 小时），WebAuth 默认继续保持 21600 秒（6 小时）。
+- Self-report / WebAuth TTL 统一限制在 60-604800 秒，避免误配造成过短或超长放行。
+- 安装 WebAuth systemd 服务前检查可用 PO0 目标，避免写入空参数后反复重启失败。
+- PO0 manager HTTP 更新镜像的 Caddy 入口统一改为端口级监听，同一端口同时支持域名和直接 IP 访问。
+- PO0 manager HTTP 更新镜像默认公网入口改为 2333，并支持直接使用 IP[:端口]；公网入口由 Caddy 监听端口级 HTTP 站点后反代到本机后端。
+- WebAuth 放行 TTL 默认从 3600 秒调整为 21600 秒（6 小时）。
+- 新增 PO0 manager HTTP 更新镜像：LAN Worker 通过 HTTPS 拉取 GitHub raw 脚本，并用 resource token 为 PO0 HTTP 拉取响应签名。
+- 兼容旧安装：`settings.env` 不存在或字段为空时，从已安装的 Self-report/WebAuth systemd unit 回填 secret、监听地址、目标和 token，避免升级后导出空 secret。
+- 修复完整备份导出指定相对路径时可能写入临时目录并随清理丢失的问题；恢复 cron 时优先从备份的 cron block 识别旧脚本路径；Caddy import 跟随当前 snippet 目录且恢复权限改为 644。
+- 新增 LAN Worker 完整备份 / 导入恢复：默认导出 Token、SSH 私钥、`SELF_REPORT_SECRET` 和状态文件；导入默认只恢复配置/状态/密钥，cron、systemd、Caddy 需显式 flag 或 `--restore-all`。
+- 新增本机 `settings.env` 持久化 Self-report secret、监听地址、HTTPS/Caddy、Worker ID、资源任务超时和轮询间隔，避免升级脚本后重新生成 secret。
+- Self-report secret 设置完成后同时输出 Linux/macOS/OpenWrt export 和 Windows PowerShell 环境变量示例。
+- 修复 Self-report HTTPS Caddy snippet 使用 `respond 404` 时被 directive order 提前执行，导致 `/health` 和 `/report` 返回 404 的问题。
+- 修复 Self-report HTTPS 域名校验对合法域名静默失败，导致菜单未写入 Caddy 配置的问题。
+- Self-report 新增 HTTPS 域名模式，可在菜单配置 Caddy 自动证书并将后端切到 `127.0.0.1:8788`。
+- Self-report 默认监听收紧为 `127.0.0.1:8788`；公网入口默认通过 HTTPS 域名/Caddy。
+- Self-report 后台服务安装/更新后强制 restart，确保旧的失败 unit 立即被新 `ExecStart` 覆盖。
+- Self-report 后台服务安装时 secret 为空则省略参数，避免 systemd unit 因空参数反复重启失败。
+- Self-report 后台服务安装前检查可用 PO0 目标，避免写入空参数后反复重启失败。
+- Self-report 菜单新增后台服务状态、最近日志和实时日志入口。
+- Self-report 主菜单入口改为配置子菜单，避免按菜单项后直接进入前台监听造成误解。
+- Self-report 子菜单新增监听地址、secret 生成/修改、后台服务安装和前台启动入口。
+- 资源任务本机检查间隔默认改为 1440 分钟，可设置到 10080 分钟。
+- DDNS 菜单新增目标 / 上报计划入口，说明 PO0 DDNS TTL 设置位置并可直接更新本机 DDNS 上报计划。
+
+## po0-self-report（Linux/OpenWrt）
+
+### 2026.06.22+build.3
+
+- 当前版本更新内容只显示本次版本条目；完整版本历史迁移到 `scripts/po0/nftables/CHANGELOG.md`，避免脚本内 changelog 越积越长。
+
+### 历史迁移条目（来自脚本内旧 changelog，版本未逐条记录）
+
+- 放行 TTL 状态说明跟随 LAN Worker Self-report 默认值更新为 43200 秒。
+- 修复 Self-report 客户端配置面板和菜单列对齐。
+- 新增从 GitHub 更新脚本入口，并在更新后显示版本变化和更新内容。
+- 新增 `--version` 和 `--changelog` 只读入口。
+
+## po0-self-report（Windows PowerShell）
+
+### 2026.06.22+build.3
+
+- 当前版本更新内容只显示本次版本条目；完整版本历史迁移到 `scripts/po0/nftables/CHANGELOG.md`，避免脚本内 changelog 越积越长。
+
+### 历史迁移条目（来自脚本内旧 changelog，版本未逐条记录）
+
+- 放行 TTL 状态说明跟随 LAN Worker Self-report 默认值更新为 43200 秒。
+- 修复 Self-report 客户端配置面板和菜单列对齐。
+- 新增从 GitHub 更新脚本入口，并在更新后显示版本变化和更新内容。
+- 新增 `-Version` 和 `-Changelog` 只读入口。

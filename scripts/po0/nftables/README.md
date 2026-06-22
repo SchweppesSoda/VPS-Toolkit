@@ -2,6 +2,8 @@
 
 这里是 PO0 nftables 中转管理器、LAN Worker、Egern 当前出口 IP 上报和 self-report client 的文档。
 
+完整版本历史维护在 [`CHANGELOG.md`](./CHANGELOG.md)。各独立部署脚本的 `--changelog` 或更新完成提示只显示当前版本更新内容，避免远端单文件脚本长期累积历史。
+
 核心边界：
 
 - PO0 不开放 HTTP / WebAuth / Secret URL。

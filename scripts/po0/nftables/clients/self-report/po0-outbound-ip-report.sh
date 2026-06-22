@@ -3,13 +3,10 @@ set -uo pipefail
 
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh"
 SCRIPT_NAME="po0-self-report"
-SCRIPT_VERSION="2026.06.22+build.2"
+SCRIPT_VERSION="2026.06.22+build.3"
 SCRIPT_RELEASE_DATE="2026-06-22"
 # CHANGELOG_BEGIN
-# - 放行 TTL 状态说明跟随 LAN Worker Self-report 默认值更新为 43200 秒。
-# - 修复 Self-report 客户端配置面板和菜单列对齐。
-# - 新增从 GitHub 更新脚本入口，并在更新后显示版本变化和更新内容。
-# - 新增 --version 和 --changelog 只读入口。
+# - 当前版本更新内容只显示本次版本条目；完整版本历史迁移到 scripts/po0/nftables/CHANGELOG.md，避免脚本内 changelog 越积越长。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24
@@ -228,14 +225,25 @@ script_file_var() {
 
 script_file_changelog() {
     local file="$1"
-    awk '
-        /^# CHANGELOG_BEGIN/ { in_block=1; next }
-        /^# CHANGELOG_END/ { in_block=0; next }
-        in_block {
-            sub(/^# ?/, "")
-            print
-        }
-    ' "${file}" 2>/dev/null || true
+    local line in_block=0 found=0
+    [[ -r "${file}" ]] || return 1
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        if [[ "${line}" == "# CHANGELOG_BEGIN" ]]; then
+            in_block=1
+            continue
+        fi
+        if [[ "${line}" == "# CHANGELOG_END" ]]; then
+            break
+        fi
+        [[ "${in_block}" == "1" ]] || continue
+        line="${line#\# }"
+        line="${line#\#}"
+        line="$(trim "${line}")"
+        [[ -n "${line}" ]] || continue
+        found=1
+        printf '%s\n' "${line}"
+    done < "${file}"
+    [[ "${found}" == "1" ]]
 }
 
 show_version() {

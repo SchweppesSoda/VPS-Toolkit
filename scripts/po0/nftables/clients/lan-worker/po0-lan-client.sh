@@ -4,38 +4,10 @@ set -uo pipefail
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh"
 MANAGER_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/nftables-relay-manager.sh"
 SCRIPT_NAME="po0-lan-worker-client"
-SCRIPT_VERSION="2026.06.22+build.9"
+SCRIPT_VERSION="2026.06.22+build.10"
 SCRIPT_RELEASE_DATE="2026-06-22"
 # CHANGELOG_BEGIN
-# - 基础信息和 --version 不再显示资源上传实现细节；manager stdin 上传说明保留在资源任务文档和排错段落。
-# - 从菜单更新脚本成功后会先停留显示安装路径、版本变化和更新内容，按回车后再打开新版菜单。
-# - Self-report 子菜单的 source / TTL 入口改为只维护 Self-report 字段，不再同时提示或修改 WebAuth 字段。
-# - Self-report 后台服务摘要会提示 systemd unit 中仍显式保留的 TTL 覆盖值，便于发现旧服务未刷新。
-# - 读取旧安装的本机 settings.env 时，把遗留默认 Self-report TTL 3600 迁移为 43200、WebAuth TTL 3600 迁移为 21600；目标行显式 TTL 不自动改写。
-# - Self-report 放行 TTL 默认改为 43200 秒（12 小时），WebAuth 默认继续保持 21600 秒（6 小时）。
-# - Self-report / WebAuth TTL 统一限制在 60-604800 秒，避免误配造成过短或超长放行。
-# - 安装 WebAuth systemd 服务前检查可用 PO0 目标，避免写入空参数后反复重启失败。
-# - PO0 manager HTTP 更新镜像的 Caddy 入口统一改为端口级监听，同一端口同时支持域名和直接 IP 访问。
-# - PO0 manager HTTP 更新镜像默认公网入口改为 2333，并支持直接使用 IP[:端口]；公网入口由 Caddy 监听端口级 HTTP 站点后反代到本机后端。
-# - WebAuth 放行 TTL 默认从 3600 秒调整为 21600 秒（6 小时）。
-# - 新增 PO0 manager HTTP 更新镜像：LAN Worker 通过 HTTPS 拉取 GitHub raw 脚本，并用 resource token 为 PO0 HTTP 拉取响应签名。
-# - 兼容旧安装：settings.env 不存在或字段为空时，从已安装的 Self-report/WebAuth systemd unit 回填 secret、监听地址、目标和 token，避免升级后导出空 secret。
-# - 修复完整备份导出指定相对路径时可能写入临时目录并随清理丢失的问题；恢复 cron 时优先从备份的 cron block 识别旧脚本路径；Caddy import 跟随当前 snippet 目录且恢复权限改为 644。
-# - 新增 LAN Worker 完整备份 / 导入恢复：默认导出 Token、SSH 私钥、SELF_REPORT_SECRET 和状态文件；导入默认只恢复配置/状态/密钥，cron、systemd、Caddy 需显式 flag 或 --restore-all。
-# - 新增本机 settings.env 持久化 Self-report secret、监听地址、HTTPS/Caddy、Worker ID、资源任务超时和轮询间隔，避免升级脚本后重新生成 secret。
-# - Self-report secret 设置完成后同时输出 Linux/macOS/OpenWrt export 和 Windows PowerShell 环境变量示例。
-# - 修复 Self-report HTTPS Caddy snippet 使用 respond 404 时被 directive order 提前执行，导致 /health 和 /report 返回 404 的问题。
-# - 修复 Self-report HTTPS 域名校验对合法域名静默失败，导致菜单未写入 Caddy 配置的问题。
-# - Self-report 新增 HTTPS 域名模式，可在菜单配置 Caddy 自动证书并将后端切到 127.0.0.1:8788。
-# - Self-report 默认监听收紧为 127.0.0.1:8788；公网入口默认通过 HTTPS 域名/Caddy。
-# - Self-report 后台服务安装/更新后强制 restart，确保旧的失败 unit 立即被新 ExecStart 覆盖。
-# - Self-report 后台服务安装时 secret 为空则省略参数，避免 systemd unit 因空参数反复重启失败。
-# - Self-report 后台服务安装前检查可用 PO0 目标，避免写入空参数后反复重启失败。
-# - Self-report 菜单新增后台服务状态、最近日志和实时日志入口。
-# - Self-report 主菜单入口改为配置子菜单，避免按菜单项后直接进入前台监听造成误解。
-# - Self-report 子菜单新增监听地址、secret 生成/修改、后台服务安装和前台启动入口。
-# - 资源任务本机检查间隔默认改为 1440 分钟，可设置到 10080 分钟。
-# - DDNS 菜单新增目标 / 上报计划入口，说明 PO0 DDNS TTL 设置位置并可直接更新本机 DDNS 上报计划。
+# - 更新内容显示只输出当前版本条目；完整版本历史迁移到 scripts/po0/nftables/CHANGELOG.md，避免脚本内 changelog 越积越长。
 # CHANGELOG_END
 DEFAULT_PO0_SCRIPT="/root/nftables-relay-manager.sh"
 PO0_HOST="${PO0_HOST:-}"

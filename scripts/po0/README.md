@@ -7,6 +7,7 @@
 | 目标 | 文档 | 说明 |
 | --- | --- | --- |
 | 管理 nftables 中转、源 IP 白名单、LAN Worker、Self-report、WebAuth、Egern、iplist/ipdb | [`nftables/README.md`](./nftables/README.md) | PO0 中转系统用户主文档。 |
+| 查看 PO0 nftables 子系统版本历史 | [`nftables/CHANGELOG.md`](./nftables/CHANGELOG.md) | 完整历史在仓库文档中维护；远端单脚本只显示当前版本更新内容。 |
 | 重装 Debian | [`reinstall/README.md`](./reinstall/README.md) | 会重装系统盘，执行前必须单独确认。 |
 | 部署代理服务增强 sidecar | [`proxy-services/README.md`](./proxy-services/README.md) | argosbx/Xray sidecar、VLESS RAW ENC、Shadowsocks 2022。 |
 

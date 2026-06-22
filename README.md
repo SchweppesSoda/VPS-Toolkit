@@ -46,6 +46,7 @@
 
 | 文档 | 用途 |
 | --- | --- |
+| [`scripts/po0/nftables/CHANGELOG.md`](./scripts/po0/nftables/CHANGELOG.md) | PO0 nftables 子系统版本历史。 |
 | [`scripts/po0/nftables/nftables-relay-manager-technical.md`](./scripts/po0/nftables/nftables-relay-manager-technical.md) | nftables manager 内部实现、协议、wrapper 和状态模型。 |
 | [`scripts/po0/proxy-services/vless-raw-enc-argosbx-enhancer-design.md`](./scripts/po0/proxy-services/vless-raw-enc-argosbx-enhancer-design.md) | PO0 代理服务增强脚本设计。 |
 | [`scripts/vps/ssh-key-only/setup-ssh-key-only-full-technical.md`](./scripts/vps/ssh-key-only/setup-ssh-key-only-full-technical.md) | SSH 加固脚本技术设计。 |

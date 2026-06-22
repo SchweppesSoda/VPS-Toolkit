@@ -25,13 +25,10 @@
 $ErrorActionPreference = "Stop"
 $RawUrl = "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1"
 $ScriptName = "po0-self-report"
-$ScriptVersion = "2026.06.22+build.2"
+$ScriptVersion = "2026.06.22+build.3"
 $ScriptReleaseDate = "2026-06-22"
 # CHANGELOG_BEGIN
-# - 放行 TTL 状态说明跟随 LAN Worker Self-report 默认值更新为 43200 秒。
-# - 修复 Self-report 客户端配置面板和菜单列对齐。
-# - 新增从 GitHub 更新脚本入口，并在更新后显示版本变化和更新内容。
-# - 新增 -Version 和 -Changelog 只读入口。
+# - 当前版本更新内容只显示本次版本条目；完整版本历史迁移到 scripts/po0/nftables/CHANGELOG.md，避免脚本内 changelog 越积越长。
 # CHANGELOG_END
 $PanelValueColumn = 24
 $MenuRightColumn = 46
