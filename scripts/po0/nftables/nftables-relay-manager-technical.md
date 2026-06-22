@@ -800,7 +800,7 @@ Worker 的 `resource-stats.tsv` 每个 PO0 端点只保留一行累计统计，�
 
 ### 5.6.1 PO0 manager HTTP 更新镜像
 
-该功能不是资源任务，也不是 PO0 HTTP 控制面。LAN Worker 运行一个本地 HTTP 后端，Caddy 用 `http://<domain>` 站点把固定路径反代到本机后端：
+该功能不是资源任务，也不是 PO0 HTTP 控制面。LAN Worker 运行一个本地 HTTP 后端，Caddy 把固定路径反代到本机后端。公网入口可使用域名或 IP，未写端口时默认补 `2333`；Caddy 入口统一写成 `:<port>` 端口级 HTTP 站点，使域名和直接 IP 都能命中同一反代，不依赖 Host 域名匹配：
 
 ```text
 /po0-manager-update/nftables-relay-manager.sh
@@ -1067,7 +1067,7 @@ bash nftables-relay-manager.sh --learn-service
 bash nftables-relay-manager.sh --backup-export
 bash nftables-relay-manager.sh --backup-import /etc/nftables.d/backups/po0-manager-full-backup-YYYYMMDD_HHMMSS.tar.gz
 bash nftables-relay-manager.sh --backup-import /etc/nftables.d/backups/po0-manager-full-backup-YYYYMMDD_HHMMSS.tar.gz --restore-all
-bash nftables-relay-manager.sh --upgrade-manager-from-lan http://<LAN_WORKER_DOMAIN>/po0-manager-update/nftables-relay-manager.sh
+bash nftables-relay-manager.sh --upgrade-manager-from-lan http://<LAN_WORKER_IP>:2333/po0-manager-update/nftables-relay-manager.sh
 ```
 
 定位：

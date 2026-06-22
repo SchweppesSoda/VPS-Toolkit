@@ -4,9 +4,11 @@ set -uo pipefail
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh"
 MANAGER_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/nftables-relay-manager.sh"
 SCRIPT_NAME="po0-lan-worker-client"
-SCRIPT_VERSION="2026.06.22+build.1"
+SCRIPT_VERSION="2026.06.22+build.4"
 SCRIPT_RELEASE_DATE="2026-06-22"
 # CHANGELOG_BEGIN
+# - PO0 manager HTTP 更新镜像的 Caddy 入口统一改为端口级监听，同一端口同时支持域名和直接 IP 访问。
+# - PO0 manager HTTP 更新镜像默认公网入口改为 2333，并支持直接使用 IP[:端口]；公网入口由 Caddy 监听端口级 HTTP 站点后反代到本机后端。
 # - WebAuth 放行 TTL 默认从 3600 秒调整为 21600 秒（6 小时），与 Self-report 默认保持一致。
 # - Self-report 放行 TTL 默认从 3600 秒调整为 21600 秒（6 小时）。
 # - 新增 PO0 manager HTTP 更新镜像：LAN Worker 通过 HTTPS 拉取 GitHub raw 脚本，并用 resource token 为 PO0 HTTP 拉取响应签名。
@@ -90,6 +92,7 @@ SELF_REPORT_HTTPS_BACKEND="${PO0_SELF_REPORT_HTTPS_BACKEND:-127.0.0.1:8788}"
 SELF_REPORT_CADDY_SNIPPET="${PO0_SELF_REPORT_CADDY_SNIPPET:-/etc/caddy/conf.d/po0-self-report.caddy}"
 MANAGER_UPDATE_LISTEN="${PO0_MANAGER_UPDATE_LISTEN:-127.0.0.1:8789}"
 MANAGER_UPDATE_DOMAIN="${PO0_MANAGER_UPDATE_DOMAIN:-}"
+MANAGER_UPDATE_DEFAULT_PORT="${PO0_MANAGER_UPDATE_DEFAULT_PORT:-2333}"
 MANAGER_UPDATE_BACKEND="${PO0_MANAGER_UPDATE_BACKEND:-127.0.0.1:8789}"
 MANAGER_UPDATE_CADDY_SNIPPET="${PO0_MANAGER_UPDATE_CADDY_SNIPPET:-/etc/caddy/conf.d/po0-manager-update.caddy}"
 CADDYFILE_PATH="${PO0_CADDYFILE:-/etc/caddy/Caddyfile}"
@@ -280,7 +283,7 @@ usage() {
         "  curl -fsSL ${RAW_URL} | bash -s -- --bootstrap --po0-host HOST --source-key home --ddns-domain home.example.com --token TOKEN --resource-token TOKEN --install-cron 5" \
         "  po0-lan-client --webauth-server --listen 127.0.0.1:8787 --po0-host HOST --webauth-token TOKEN" \
         "  po0-lan-client --install-self-report-https --self-report-https-domain report.example.com --po0-host HOST --client-ip-token TOKEN --self-report-secret SECRET" \
-        "  po0-lan-client --install-manager-update-http --manager-update-domain update.example.com" \
+        "  po0-lan-client --install-manager-update-http --manager-update-domain 172.81.111.68" \
         "  po0-lan-client --self-report-server --self-report-listen 127.0.0.1:8788 --po0-host HOST --client-ip-token TOKEN" \
         "" \
         "常用命令:" \
@@ -297,7 +300,7 @@ usage() {
         "  --source-key KEY     PO0 端来源 key/名称；脚本不会解析这个值。" \
         "  --ddns-domain DOMAIN LAN Worker 要解析的 DDNS 域名；结果通过 SSH 上报 PO0。" \
         "  --install-self-report-https --self-report-https-domain DOMAIN  配置 Self-report HTTPS/Caddy，后端监听 127.0.0.1:8788。" \
-        "  --install-manager-update-http --manager-update-domain DOMAIN  配置 PO0 manager HTTP 更新镜像，后端监听 127.0.0.1:8789。" \
+        "  --install-manager-update-http --manager-update-domain HOST[:PORT]  配置 PO0 manager HTTP 更新镜像，默认公网端口 ${MANAGER_UPDATE_DEFAULT_PORT}，后端监听 127.0.0.1:8789；--manager-update-host 等价。" \
         "  --manager-update-mirror-server 启动 PO0 manager 更新镜像 HTTP 后端。" \
         "  --ddns-targets STR  DDNS 上报目标；格式 source_key|ddns_domain|host|port|user|script|token|ssh_args，多目标用分号或换行分隔。" \
         "  --domain DOMAIN      兼容旧参数：没有 --ddns-domain 时同时作为 source-key 和 DDNS 域名。" \
@@ -4708,32 +4711,58 @@ current_self_report_https_domain() {
     fi
 }
 
-normalize_manager_update_domain() {
-    local domain="$1"
-    domain="$(trim "${domain}")"
-    domain="${domain#http://}"
-    domain="${domain#https://}"
-    domain="${domain%%/*}"
-    domain="${domain%%:*}"
-    domain="${domain,,}"
-    printf '%s\n' "${domain}"
+normalize_manager_update_endpoint() {
+    local endpoint="$1" host port
+    endpoint="$(trim "${endpoint}")"
+    endpoint="${endpoint#http://}"
+    endpoint="${endpoint#https://}"
+    endpoint="${endpoint%%/*}"
+    endpoint="${endpoint%%\?*}"
+    endpoint="${endpoint,,}"
+    if [[ "${endpoint}" == *:* ]]; then
+        host="${endpoint%:*}"
+        port="${endpoint##*:}"
+    else
+        host="${endpoint}"
+        port="${MANAGER_UPDATE_DEFAULT_PORT}"
+    fi
+    printf '%s:%s\n' "${host}" "${port}"
 }
 
-validate_manager_update_domain() {
-    local domain="$1"
-    [[ -n "${domain}" ]] || {
-        printf '缺少 PO0 manager 更新 HTTP 域名。\n' >&2
+manager_update_endpoint_host() {
+    local endpoint="$1"
+    printf '%s\n' "${endpoint%:*}"
+}
+
+manager_update_endpoint_port() {
+    local endpoint="$1"
+    printf '%s\n' "${endpoint##*:}"
+}
+
+validate_manager_update_endpoint() {
+    local endpoint="$1" host port
+    host="$(manager_update_endpoint_host "${endpoint}")"
+    port="$(manager_update_endpoint_port "${endpoint}")"
+    [[ -n "${host}" ]] || {
+        printf '缺少 PO0 manager 更新 HTTP 主机/IP。\n' >&2
         return 1
     }
-    [[ "${domain}" == *.* && "${domain}" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$ ]] || {
-        printf 'PO0 manager 更新 HTTP 域名格式无效：%s\n' "${domain}" >&2
+    [[ "${port}" =~ ^[0-9]+$ ]] && (( 10#${port} >= 1 && 10#${port} <= 65535 )) || {
+        printf 'PO0 manager 更新 HTTP 端口无效：%s\n' "${port}" >&2
         return 1
     }
-    [[ "${domain}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] && {
-        printf 'PO0 manager 更新 HTTP 入口需要域名，不能直接使用 IP：%s\n' "${domain}" >&2
+    validate_ip "${host}" && return 0
+    [[ "${host}" == *.* && "${host}" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$ ]] || {
+        printf 'PO0 manager 更新 HTTP 主机/IP 格式无效：%s\n' "${host}" >&2
         return 1
     }
     return 0
+}
+
+manager_update_caddy_site_address() {
+    local endpoint="$1" port
+    port="$(manager_update_endpoint_port "${endpoint}")"
+    printf ':%s\n' "${port}"
 }
 
 ensure_caddy_installed() {
@@ -4859,15 +4888,16 @@ install_self_report_https() {
 }
 
 write_manager_update_caddy_config() {
-    local domain="$1" backend_host backend_port
+    local endpoint="$1" backend_host backend_port site_address
     backend_host="${MANAGER_UPDATE_BACKEND%:*}"
     backend_port="${MANAGER_UPDATE_BACKEND##*:}"
     [[ -n "${backend_host}" && "${backend_host}" != "${MANAGER_UPDATE_BACKEND}" ]] || backend_host="127.0.0.1"
     [[ "${backend_port}" =~ ^[0-9]+$ ]] || backend_port="8789"
+    site_address="$(manager_update_caddy_site_address "${endpoint}")"
     mkdir -p "$(path_dirname "${MANAGER_UPDATE_CADDY_SNIPPET}")" || return 1
     cat > "${MANAGER_UPDATE_CADDY_SNIPPET}" <<EOF
 # Managed by po0-lan-client. HTTP-only PO0 manager update mirror.
-http://${domain} {
+${site_address} {
     route {
         handle /po0-manager-update/nftables-relay-manager.sh {
             reverse_proxy ${backend_host}:${backend_port}
@@ -4896,7 +4926,7 @@ show_manager_update_http_status() {
     local name="caddy" token_count
     token_count="$(manager_update_tokens_env | awk 'NF { count++ } END { print count + 0 }')"
     print_panel_section "PO0 manager HTTP 更新镜像"
-    print_panel_row "HTTP 域名" "${MANAGER_UPDATE_DOMAIN:-未配置}"
+    print_panel_row "HTTP 主机/IP" "${MANAGER_UPDATE_DOMAIN:-未配置}"
     print_panel_row "公网入口" "$(if [[ -n "${MANAGER_UPDATE_DOMAIN}" ]]; then printf 'http://%s/po0-manager-update/nftables-relay-manager.sh' "${MANAGER_UPDATE_DOMAIN}"; else printf '未配置'; fi)"
     print_panel_row "本机监听" "${MANAGER_UPDATE_LISTEN}"
     print_panel_row "Caddy 后端" "${MANAGER_UPDATE_BACKEND}"
@@ -4953,34 +4983,37 @@ EOF
 }
 
 install_manager_update_http() {
-    local domain ip_csv
-    domain="$(normalize_manager_update_domain "${MANAGER_UPDATE_DOMAIN}")"
-    validate_manager_update_domain "${domain}" || return 1
-    if ip_csv="$(resolve_ddns_ipv4_csv "${domain}" 2>/dev/null)"; then
-        printf 'DNS A 记录：%s -> %s\n' "${domain}" "${ip_csv}"
+    local endpoint host ip_csv
+    endpoint="$(normalize_manager_update_endpoint "${MANAGER_UPDATE_DOMAIN}")"
+    validate_manager_update_endpoint "${endpoint}" || return 1
+    host="$(manager_update_endpoint_host "${endpoint}")"
+    if validate_ip "${host}"; then
+        printf 'HTTP 入口使用 IP：%s\n' "${endpoint}"
+    elif ip_csv="$(resolve_ddns_ipv4_csv "${host}" 2>/dev/null)"; then
+        printf 'DNS A 记录：%s -> %s\n' "${host}" "${ip_csv}"
     else
-        printf '警告：当前机器未解析到 %s 的公网 IPv4。请确认 DNS 已指向 LAN Worker，且 80 已放行。\n' "${domain}" >&2
+        printf '警告：当前机器未解析到 %s 的公网 IPv4。请确认 DNS 已指向 LAN Worker，且 %s 端口已放行。\n' "${host}" "$(manager_update_endpoint_port "${endpoint}")" >&2
     fi
     ensure_caddy_installed || return 1
     ensure_caddyfile_import || return 1
-    write_manager_update_caddy_config "${domain}" || return 1
+    write_manager_update_caddy_config "${endpoint}" || return 1
     caddy validate --config "${CADDYFILE_PATH}" || return 1
-    MANAGER_UPDATE_DOMAIN="${domain}"
+    MANAGER_UPDATE_DOMAIN="${endpoint}"
     save_local_settings || return 1
     install_manager_update_mirror_service || return 1
     if have_cmd systemctl; then
         systemctl enable caddy || return 1
         systemctl reload caddy 2>/dev/null || systemctl restart caddy || return 1
     fi
-    printf 'PO0 manager HTTP 更新镜像已配置：http://%s/po0-manager-update/nftables-relay-manager.sh\n' "${domain}"
-    printf '健康检查：curl -fsS http://%s/po0-manager-update/health\n' "${domain}"
-    printf '注意：该入口按要求使用 HTTP；请限制可访问来源或使用防火墙保护 80 端口。\n'
+    printf 'PO0 manager HTTP 更新镜像已配置：http://%s/po0-manager-update/nftables-relay-manager.sh\n' "${endpoint}"
+    printf '健康检查：curl -fsS http://%s/po0-manager-update/health\n' "${endpoint}"
+    printf '注意：该入口按要求使用 HTTP；请限制可访问来源或使用防火墙保护 %s 端口。\n' "$(manager_update_endpoint_port "${endpoint}")"
 }
 
 edit_manager_update_http_settings() {
-    MANAGER_UPDATE_DOMAIN="$(prompt_default "PO0 manager 更新 HTTP 域名" "${MANAGER_UPDATE_DOMAIN}")"
-    MANAGER_UPDATE_DOMAIN="$(normalize_manager_update_domain "${MANAGER_UPDATE_DOMAIN}")"
-    validate_manager_update_domain "${MANAGER_UPDATE_DOMAIN}" || return 1
+    MANAGER_UPDATE_DOMAIN="$(prompt_default "PO0 manager 更新 HTTP 主机/IP[:端口]" "${MANAGER_UPDATE_DOMAIN}")"
+    MANAGER_UPDATE_DOMAIN="$(normalize_manager_update_endpoint "${MANAGER_UPDATE_DOMAIN}")"
+    validate_manager_update_endpoint "${MANAGER_UPDATE_DOMAIN}" || return 1
     MANAGER_UPDATE_LISTEN="$(prompt_default "本机镜像服务监听地址" "${MANAGER_UPDATE_LISTEN:-127.0.0.1:8789}")"
     [[ -n "${MANAGER_UPDATE_LISTEN}" ]] || MANAGER_UPDATE_LISTEN="127.0.0.1:8789"
     MANAGER_UPDATE_BACKEND="$(prompt_default "Caddy 反代后端" "${MANAGER_UPDATE_BACKEND:-127.0.0.1:8789}")"
@@ -4997,7 +5030,7 @@ manage_manager_update_http_interactive() {
         print_title "PO0 manager 更新镜像"
         show_manager_update_http_status
         print_menu_section "操作"
-        print_menu_pair 1 "查看状态 / 日志" 2 "配置域名与监听"
+        print_menu_pair 1 "查看状态 / 日志" 2 "配置入口与监听"
         print_menu_pair 3 "安装 / 更新 HTTP 入口" 4 "前台启动镜像服务"
         print_menu_item 0 "返回"
         print_menu_footer
@@ -6504,7 +6537,7 @@ while [[ $# -gt 0 ]]; do
             MANAGER_UPDATE_LISTEN="${2:-}"
             shift 2
             ;;
-        --manager-update-domain)
+        --manager-update-domain|--manager-update-host)
             require_arg_value "$@"
             MANAGER_UPDATE_DOMAIN="${2:-}"
             shift 2

@@ -88,16 +88,16 @@ po0-lan-client --version
 
 这个功能用于“日常只登录 PO0，也能从 LAN Worker 拉取新版 manager”。先在 LAN Worker 上配置一次 HTTP-only 更新镜像；LAN Worker 到 GitHub raw 使用 HTTPS，PO0 到 LAN Worker 按显式 HTTP URL 拉取。该入口只服务固定路径 `/po0-manager-update/nftables-relay-manager.sh`，不是任意 URL 代理，也不是 PO0 HTTP 控制面。
 
-LAN Worker 上配置镜像域名：
+LAN Worker 上配置镜像公网主机/IP。未写端口时默认使用 `2333`，也可以显式传入 `HOST:PORT`；Caddy 入口按端口监听，同一端口既可用域名访问，也可直接用 IP 访问：
 
 ```bash
-po0-lan-client --install-manager-update-http --manager-update-domain <MANAGER_UPDATE_DOMAIN>
+po0-lan-client --install-manager-update-http --manager-update-domain <LAN_WORKER_IP>
 ```
 
 PO0 上拉取更新：
 
 ```bash
-bash /root/nftables-relay-manager.sh --upgrade-manager-from-lan http://<MANAGER_UPDATE_DOMAIN>/po0-manager-update/nftables-relay-manager.sh
+bash /root/nftables-relay-manager.sh --upgrade-manager-from-lan http://<LAN_WORKER_IP>:2333/po0-manager-update/nftables-relay-manager.sh
 ```
 
 也可以在 PO0 主菜单进入 `脚本版本 / 更新 -> 从 LAN Worker HTTP 更新 manager`，第一次输入 URL 后会保存到 PO0 设置文件。更新时 PO0 会读取本机 resource token，向 LAN Worker 发送随机 nonce 和 `token_id`，下载后校验 HMAC、SHA-256、size、脚本标识、changelog 和 `bash -n`；通过后备份旧脚本并原子替换。更新成功后会询问是否刷新受限 SSH wrapper，不会自动应用 nftables，也不会自动运行诊断。
