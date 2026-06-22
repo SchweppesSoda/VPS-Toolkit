@@ -2,6 +2,16 @@
 set -uo pipefail
 
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh"
+SCRIPT_NAME="po0-self-report"
+SCRIPT_VERSION="2026.06.22+build.1"
+SCRIPT_RELEASE_DATE="2026-06-22"
+# CHANGELOG_BEGIN
+# - 修复 Self-report 客户端配置面板和菜单列对齐。
+# - 新增从 GitHub 更新脚本入口，并在更新后显示版本变化和更新内容。
+# - 新增 --version 和 --changelog 只读入口。
+# CHANGELOG_END
+MENU_RIGHT_COLUMN=46
+PANEL_VALUE_COLUMN=24
 ENV_WORKER_URL="${WORKER_URL-}"
 ENV_SOURCE_ID="${SOURCE_ID-}"
 ENV_IDENTITY="${IDENTITY-}"
@@ -21,6 +31,9 @@ IP_CHECK_URLS=""
 INSTALL_PATH=""
 INSTALL_CRON=""
 SHOW_MENU=""
+SHOW_VERSION=""
+SHOW_CHANGELOG=""
+UPGRADE_SELF=""
 SAVE_CONFIG=""
 PAUSE_SCHEDULE=""
 RESUME_SCHEDULE=""
@@ -134,11 +147,10 @@ print_menu_pair() {
     local left_label="$2"
     local right_number="${3:-}"
     local right_label="${4:-}"
-    local right_column=46
     printf '  %b%2s%b) %s' "${C_CYAN}" "${left_number}" "${C_RESET}" "${left_label}"
     if [[ -n "${right_number}" ]]; then
         if [[ -t 1 ]]; then
-            printf '\033[%sG' "${right_column}"
+            printf '\033[%sG' "${MENU_RIGHT_COLUMN}"
         else
             printf '    '
         fi
@@ -158,7 +170,7 @@ print_panel_section() {
 
 print_panel_value_column() {
     if [[ -t 1 ]]; then
-        printf '\033[24G'
+        printf '\033[%sG' "${PANEL_VALUE_COLUMN}"
     else
         printf '    '
     fi
@@ -196,6 +208,53 @@ self_report_completed() {
 
 self_report_incomplete() {
     printf '%bSelf-report 未完成：%s%b\n' "${C_RED}" "$1" "${C_RESET}" >&2
+}
+
+script_file_var() {
+    local file="$1"
+    local name="$2"
+    awk -F= -v key="${name}" '
+        $1 == key {
+            value=$0
+            sub("^[^=]*=", "", value)
+            gsub(/^[[:space:]]*"/, "", value)
+            gsub(/"[[:space:]]*$/, "", value)
+            print value
+            exit
+        }
+    ' "${file}" 2>/dev/null || true
+}
+
+script_file_changelog() {
+    local file="$1"
+    awk '
+        /^# CHANGELOG_BEGIN/ { in_block=1; next }
+        /^# CHANGELOG_END/ { in_block=0; next }
+        in_block {
+            sub(/^# ?/, "")
+            print
+        }
+    ' "${file}" 2>/dev/null || true
+}
+
+show_version() {
+    printf '%s\n' \
+        "脚本名称：${SCRIPT_NAME}" \
+        "版本：${SCRIPT_VERSION}" \
+        "发布日期：${SCRIPT_RELEASE_DATE}" \
+        "当前脚本：${BASH_SOURCE[0]}" \
+        "默认安装路径：$(default_install_path)" \
+        "raw URL：${RAW_URL}"
+}
+
+show_changelog() {
+    local changelog
+    changelog="$(script_file_changelog "${BASH_SOURCE[0]}")"
+    if [[ -n "${changelog}" ]]; then
+        printf '%s\n' "${changelog}"
+    else
+        printf '当前脚本未提供更新内容。\n'
+    fi
 }
 
 read_prompt() {
@@ -539,6 +598,77 @@ install_self() {
     printf '%s\n' "${dest}"
 }
 
+upgrade_self_from_raw() {
+    local reopen_mode="${1:-}" dest dir tmp new_version changelog chmod_message
+    dest="$(default_install_path)"
+    dir="$(dirname "${dest}")"
+    mkdir -p "${dir}" || return 1
+    if command -v mktemp >/dev/null 2>&1; then
+        tmp="$(mktemp "${dir}/.po0-self-report.XXXXXX")" || return 1
+    else
+        tmp="${dest}.tmp.$$"
+    fi
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL "${RAW_URL}" -o "${tmp}" || {
+            rm -f "${tmp}" 2>/dev/null || true
+            return 1
+        }
+    elif command -v wget >/dev/null 2>&1; then
+        wget -qO "${tmp}" "${RAW_URL}" || {
+            rm -f "${tmp}" 2>/dev/null || true
+            return 1
+        }
+    else
+        rm -f "${tmp}" 2>/dev/null || true
+        printf '无法更新：系统缺少 curl/wget。\n' >&2
+        return 1
+    fi
+    if ! grep -q 'po0-outbound-ip-report.sh' "${tmp}" || ! grep -q 'PO0 自上报客户端（Linux/OpenWrt）' "${tmp}"; then
+        rm -f "${tmp}" 2>/dev/null || true
+        printf '更新文件校验失败：下载到的脚本不是 Self-report Linux/OpenWrt 客户端。\n' >&2
+        return 1
+    fi
+    if ! bash -n "${tmp}"; then
+        rm -f "${tmp}" 2>/dev/null || true
+        printf '更新文件校验失败：下载到的脚本未通过 bash -n。\n' >&2
+        return 1
+    fi
+    new_version="$(script_file_var "${tmp}" "SCRIPT_VERSION")"
+    changelog="$(script_file_changelog "${tmp}")"
+    mv -f "${tmp}" "${dest}" || {
+        rm -f "${tmp}" 2>/dev/null || true
+        return 1
+    }
+    if chmod 755 "${dest}" 2>/dev/null; then
+        chmod_message="已设置执行权限：chmod 755 ${dest}"
+    else
+        chmod_message="警告：已更新，但自动设置执行权限失败；请手动执行 chmod 755 ${dest}"
+    fi
+    printf '已更新 Self-report 客户端脚本：%s\n' "${dest}"
+    printf 'raw URL：%s\n' "${RAW_URL}"
+    printf '%s\n' "${chmod_message}"
+    if [[ -n "${new_version}" ]]; then
+        if [[ "${new_version}" == "${SCRIPT_VERSION}" ]]; then
+            printf '版本：%s（与当前执行脚本相同）\n' "${new_version}"
+        else
+            printf '版本：%s -> %s\n' "${SCRIPT_VERSION}" "${new_version}"
+        fi
+    else
+        printf '版本：无法读取新脚本版本。\n'
+    fi
+    if [[ -n "${changelog}" ]]; then
+        printf '更新内容：\n%s\n' "${changelog}"
+    else
+        printf '更新内容：新脚本未提供更新说明。\n'
+    fi
+    if [[ "${reopen_mode}" == "--reopen-menu" ]]; then
+        printf '正在重新打开新版菜单：%s --menu\n' "${dest}"
+        exec "${BASH:-bash}" "${dest}" --config "${CONFIG_FILE}" --install-path "${dest}" --menu
+        printf '重新打开新版脚本失败，请手动执行：%s --menu\n' "${dest}" >&2
+        return 1
+    fi
+}
+
 cron_begin_marker() {
     printf '# PO0_SELF_REPORT_BEGIN %s\n' "${CONFIG_FILE}"
 }
@@ -791,10 +921,12 @@ menu_loop() {
         print_menu_pair 5 "查看定时上报状态" 6 "删除定时上报"
         print_menu_section "查看"
         print_menu_item 7 "显示当前配置"
+        print_menu_section "维护"
+        print_menu_item 8 "从 GitHub 更新脚本"
         print_menu_section "退出"
         print_menu_item 0 "退出"
         print_menu_footer
-        choice="$(read_prompt "请选择操作 [0-7]: ")" || return 0
+        choice="$(read_prompt "请选择操作 [0-8]: ")" || return 0
         choice="$(trim "${choice}")"
         case "${choice}" in
             1) configure_interactive; pause_before_return ;;
@@ -811,6 +943,7 @@ menu_loop() {
                 pause_before_return
                 ;;
             7) show_current_config; pause_before_return ;;
+            8) upgrade_self_from_raw --reopen-menu || pause_before_return ;;
             0) return 0 ;;
             "") ;;
             *) printf '无效选择。\n' >&2; pause_before_return ;;
@@ -829,11 +962,16 @@ usage() {
         "用法:" \
         "  curl -fsSL ${RAW_URL} | bash" \
         "  bash po0-outbound-ip-report.sh --menu" \
+        "  bash po0-outbound-ip-report.sh --version" \
+        "  bash po0-outbound-ip-report.sh --upgrade-self" \
         "  bash po0-outbound-ip-report.sh --worker-url https://report.example.com/report --source-id laptop --secret SECRET --save-config" \
         "  curl -fsSL ${RAW_URL} | bash -s -- --worker-url https://report.example.com/report --source-id laptop --secret SECRET --install-cron 60" \
         "" \
         "参数:" \
         "  --menu                打开交互菜单。" \
+        "  --version             显示脚本版本、发布日期、当前路径和默认安装路径。" \
+        "  --changelog           显示当前版本更新内容。" \
+        "  --upgrade-self        从 GitHub raw 下载并更新本机脚本；菜单内更新会自动重开新版菜单。" \
         "  --config PATH         self-report 本地配置文件；默认 root 用 /etc/po0-self-report/settings.env，普通用户用 ~/.config/po0-self-report/settings.env。" \
         "  --save-config         保存当前参数到本地配置文件，不安装 cron。" \
         "  --worker-url URL      LAN Worker self-report HTTPS 接收地址，例如 https://report.example.com/report；裸域名会自动补全。" \
@@ -866,6 +1004,18 @@ parse_args() {
         case "$1" in
             --menu)
                 SHOW_MENU="1"
+                shift
+                ;;
+            --version)
+                SHOW_VERSION="1"
+                shift
+                ;;
+            --changelog)
+                SHOW_CHANGELOG="1"
+                shift
+                ;;
+            --upgrade-self)
+                UPGRADE_SELF="1"
                 shift
                 ;;
             --config)
@@ -961,7 +1111,13 @@ apply_env_overrides
 parse_args "$@"
 CONFIG_FILE="$(default_config_file)"
 
-if [[ "${SAVE_CONFIG}" == "1" ]]; then
+if [[ "${SHOW_VERSION}" == "1" ]]; then
+    show_version
+elif [[ "${SHOW_CHANGELOG}" == "1" ]]; then
+    show_changelog
+elif [[ "${UPGRADE_SELF}" == "1" ]]; then
+    upgrade_self_from_raw
+elif [[ "${SAVE_CONFIG}" == "1" ]]; then
     save_config_file
 elif [[ "${PAUSE_SCHEDULE}" == "1" ]]; then
     set_schedule_paused "1"

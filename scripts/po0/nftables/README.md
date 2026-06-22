@@ -138,6 +138,20 @@ Linux/OpenWrt Self-report client（交互式无参数运行默认进入菜单；
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh | bash
 ```
 
+菜单里的 `8) 从 GitHub 更新脚本` 会更新本机 `po0-self-report` 命令并重新打开新版菜单。命令行也可直接更新、查看版本或查看当前更新内容：
+
+```bash
+po0-self-report --upgrade-self
+```
+
+```bash
+po0-self-report --version
+```
+
+```bash
+po0-self-report --changelog
+```
+
 Linux/OpenWrt Self-report client 非交互安装，默认每 60 分钟上报一次；安装时会同步保存本地配置：
 
 ```bash
@@ -150,13 +164,27 @@ Windows Self-report client（交互式无参数运行默认进入菜单；PowerS
 $script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script; powershell -ExecutionPolicy Bypass -File $script -Menu
 ```
 
+菜单里的 `8) 从 GitHub 更新脚本` 会更新本机 `po0-self-report.ps1` 并重新打开新版菜单。命令行也可直接更新、查看版本或查看当前更新内容；普通用户默认脚本路径在 `%LOCALAPPDATA%\PO0\po0-self-report.ps1`，管理员默认脚本路径在 `%ProgramData%\PO0\po0-self-report.ps1`：
+
+```powershell
+$script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script; powershell -ExecutionPolicy Bypass -File $script -UpgradeSelf
+```
+
+```powershell
+$client=Join-Path $env:LOCALAPPDATA 'PO0\po0-self-report.ps1'; powershell -ExecutionPolicy Bypass -File $client -Version
+```
+
+```powershell
+$client=Join-Path $env:LOCALAPPDATA 'PO0\po0-self-report.ps1'; powershell -ExecutionPolicy Bypass -File $client -Changelog
+```
+
 Windows Self-report client 非交互安装 / 更新计划任务，默认每 60 分钟上报一次；安装时会同步保存本地配置。`-SourceId` 和 `-Identity` 推荐填设备名，`-Secret` 只填纯 token，不要带 `secret:` 或中文冒号前缀：
 
 ```powershell
 $script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script; powershell -ExecutionPolicy Bypass -File $script -WorkerUrl "https://<SELF_REPORT_DOMAIN>/report" -SourceId $env:COMPUTERNAME -Identity $env:COMPUTERNAME -Secret "<SELF_REPORT_SECRET>" -InstallTask -Minutes 60
 ```
 
-PowerShell 客户端也支持显式 `-Menu`；非交互一次性上报时去掉 `-InstallTask -Minutes 60` 即可。
+PowerShell 客户端也支持显式 `-Menu` 和 `-RunOnce`；非交互一次性上报时去掉 `-InstallTask -Minutes 60`，或显式使用 `-RunOnce`。
 
 Egern 模块 raw URL：
 

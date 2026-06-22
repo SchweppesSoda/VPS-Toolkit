@@ -7,6 +7,7 @@
     [string]$IpCheckUrl = $(if ($env:IP_CHECK_URL) { $env:IP_CHECK_URL } else { "https://ip9.com.cn/get" }),
     [string[]]$IpCheckUrls = @(),
     [switch]$InstallTask,
+    [switch]$RunOnce,
     [int]$Minutes = $(if ($env:PO0_SELF_REPORT_MINUTES) { [int]$env:PO0_SELF_REPORT_MINUTES } elseif ($env:MINUTES) { [int]$env:MINUTES } else { 60 }),
     [string]$LogPath = $(if ($env:PO0_SELF_REPORT_LOG) { $env:PO0_SELF_REPORT_LOG } elseif ($env:SELF_REPORT_LOG) { $env:SELF_REPORT_LOG } else { "" }),
     [switch]$AllowHttp,
@@ -15,11 +16,24 @@
     [switch]$ResumeSchedule,
     [switch]$ScheduleStatus,
     [switch]$Menu,
+    [switch]$UpgradeSelf,
+    [switch]$Version,
+    [switch]$Changelog,
     [switch]$Help
 )
 
 $ErrorActionPreference = "Stop"
 $RawUrl = "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1"
+$ScriptName = "po0-self-report"
+$ScriptVersion = "2026.06.22+build.1"
+$ScriptReleaseDate = "2026-06-22"
+# CHANGELOG_BEGIN
+# - 修复 Self-report 客户端配置面板和菜单列对齐。
+# - 新增从 GitHub 更新脚本入口，并在更新后显示版本变化和更新内容。
+# - 新增 -Version 和 -Changelog 只读入口。
+# CHANGELOG_END
+$PanelValueColumn = 24
+$MenuRightColumn = 46
 $MaxMinutes = 10080
 $script:TaskName = "PO0 Self Report to LAN Worker"
 
@@ -48,6 +62,10 @@ function Get-DefaultConfigPath {
 function Get-DefaultLogPath {
     if ($script:LogPath) { return $script:LogPath }
     return (Join-Path (Get-DefaultDataDir) "po0-self-report.log")
+}
+
+function Get-DefaultScriptPath {
+    return (Join-Path (Get-DefaultDataDir) "po0-self-report.ps1")
 }
 
 $script:ConfigPath = $ConfigPath
@@ -106,6 +124,23 @@ function Write-SelfReportIncomplete {
     Write-SelfReportLogLine "ERROR" "Self-report 未完成：$Message"
 }
 
+function Set-OutputColumn {
+    param([int]$Column)
+    if ([Console]::IsOutputRedirected) {
+        Write-Host "    " -NoNewline
+        return
+    }
+    try {
+        $target = [Math]::Max(0, $Column - 1)
+        if ([Console]::CursorLeft -gt $target) {
+            Write-Host ""
+        }
+        [Console]::CursorLeft = $target
+    } catch {
+        Write-Host "    " -NoNewline
+    }
+}
+
 function Write-MenuDivider {
     Write-Host "------------------------" -ForegroundColor Cyan
 }
@@ -130,8 +165,9 @@ function Write-MenuPair {
     )
     $left = ("  {0,2}) {1}" -f $LeftNumber, $LeftLabel)
     if ($RightNumber) {
-        $padding = [Math]::Max(4, 44 - $left.Length)
-        Write-Host ($left + (" " * $padding) + ("{0,2}) {1}" -f $RightNumber, $RightLabel)) -ForegroundColor Cyan
+        Write-Host $left -NoNewline -ForegroundColor Cyan
+        Set-OutputColumn $MenuRightColumn
+        Write-Host ("{0,2}) {1}" -f $RightNumber, $RightLabel) -ForegroundColor Cyan
     } else {
         Write-Host $left -ForegroundColor Cyan
     }
@@ -149,12 +185,15 @@ function Write-PanelSection {
 
 function Write-PanelRow {
     param([string]$Label, [string]$Value)
-    Write-Host ("  {0,-18}: {1}" -f $Label, $Value) -ForegroundColor DarkYellow
+    Write-Host "  $Label" -NoNewline -ForegroundColor DarkYellow
+    Set-OutputColumn $PanelValueColumn
+    Write-Host ": $Value" -ForegroundColor DarkYellow
 }
 
 function Write-PanelNote {
     param([string]$Value)
-    Write-Host ("  {0,-18}  {1}" -f "", $Value)
+    Set-OutputColumn $PanelValueColumn
+    Write-Host "  $Value"
 }
 
 function Load-SavedConfig {
@@ -227,13 +266,20 @@ self-report 接收服务。访问设备不直接连接 PO0。
 用法:
   `$script="`$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing '$RawUrl' -OutFile `$script; powershell -ExecutionPolicy Bypass -File `$script
   .\po0-outbound-ip-report.ps1 -Menu
+  .\po0-outbound-ip-report.ps1 -Version
+  .\po0-outbound-ip-report.ps1 -UpgradeSelf
+  .\po0-outbound-ip-report.ps1 -RunOnce
   .\po0-outbound-ip-report.ps1 -WorkerUrl https://report.example.com/report -SourceId laptop -Secret SECRET -SaveConfig
   .\po0-outbound-ip-report.ps1 -WorkerUrl https://report.example.com/report -SourceId laptop -Secret SECRET -InstallTask -Minutes 60
 
 参数:
   -Menu               打开交互菜单。
+  -Version            显示脚本版本、发布日期、当前路径和默认安装路径。
+  -Changelog          显示当前版本更新内容。
+  -UpgradeSelf        从 GitHub raw 下载并更新本机脚本；菜单内更新会自动重开新版菜单。
   -ConfigPath PATH    self-report 本地配置文件；默认管理员用 ProgramData，普通用户用 LocalAppData。
   -SaveConfig         保存当前参数到本地配置文件，不安装计划任务。
+  -RunOnce            从参数或已保存配置立即上报一次，不进入交互菜单。
   -WorkerUrl URL      LAN Worker self-report HTTPS 接收地址；裸域名会自动补全。
   -AllowHttp          允许 http:// 上报；仅用于本地调试或临时旧环境。
   -SourceId ID        写入 PO0 client_ip 记录的来源 ID。默认: 计算机名。
@@ -260,6 +306,57 @@ self-report 接收服务。访问设备不直接连接 PO0。
   https://exservice.12306.cn/excater/bonree/grip
   https://myip.ipip.net/json
 "@
+}
+
+function Get-ScriptFileVersion {
+    param([string]$Path)
+    if (-not $Path -or -not (Test-Path -LiteralPath $Path)) { return "" }
+    $raw = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
+    $match = [regex]::Match($raw, '(?m)^\s*\$ScriptVersion\s*=\s*"([^"]+)"')
+    if ($match.Success) { return $match.Groups[1].Value }
+    return ""
+}
+
+function Get-ScriptFileChangelog {
+    param([string]$Path)
+    if (-not $Path -or -not (Test-Path -LiteralPath $Path)) { return @() }
+    $lines = Get-Content -LiteralPath $Path -Encoding UTF8
+    $inBlock = $false
+    $result = New-Object System.Collections.Generic.List[string]
+    foreach ($line in $lines) {
+        if ($line -match '^# CHANGELOG_BEGIN') {
+            $inBlock = $true
+            continue
+        }
+        if ($line -match '^# CHANGELOG_END') {
+            $inBlock = $false
+            continue
+        }
+        if ($inBlock) {
+            $result.Add(($line -replace '^# ?', ''))
+        }
+    }
+    return $result.ToArray()
+}
+
+function Show-ScriptVersion {
+    $current = $(if ($PSCommandPath) { $PSCommandPath } else { "未知" })
+    Write-Host "脚本名称：$ScriptName"
+    Write-Host "版本：$ScriptVersion"
+    Write-Host "发布日期：$ScriptReleaseDate"
+    Write-Host "当前脚本：$current"
+    Write-Host "默认安装路径：$(Get-DefaultScriptPath)"
+    Write-Host "raw URL：$RawUrl"
+}
+
+function Show-ScriptChangelog {
+    $current = $(if ($PSCommandPath) { $PSCommandPath } else { "" })
+    $lines = Get-ScriptFileChangelog -Path $current
+    if ($lines.Count -gt 0) {
+        $lines | ForEach-Object { Write-Host $_ }
+    } else {
+        Write-Host "当前脚本未提供更新内容。"
+    }
 }
 
 function Normalize-WorkerUrl {
@@ -458,12 +555,69 @@ function Quote-TaskArg {
     return '"' + ($Value -replace '"', '\"') + '"'
 }
 
+function Test-DownloadedScript {
+    param([string]$Path)
+    $raw = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
+    if ($raw -notmatch 'po0-outbound-ip-report\.ps1' -or $raw -notmatch 'PO0 自上报客户端（Windows PowerShell）') {
+        throw "更新文件校验失败：下载到的脚本不是 Self-report Windows PowerShell 客户端。"
+    }
+    $tokens = $null
+    $errors = $null
+    [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$tokens, [ref]$errors) | Out-Null
+    if ($errors -and $errors.Count -gt 0) {
+        throw "更新文件校验失败：下载到的脚本未通过 PowerShell 语法检查：$($errors[0].Message)"
+    }
+}
+
+function Upgrade-SelfFromRaw {
+    param([switch]$ReopenMenu)
+    $dest = Get-DefaultScriptPath
+    $dir = Split-Path -Parent $dest
+    if ($dir -and -not (Test-Path -LiteralPath $dir)) {
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    }
+    $tmp = Join-Path $dir (".po0-self-report.{0}.tmp" -f $PID)
+    try {
+        Invoke-WebRequest -UseBasicParsing -Uri $RawUrl -OutFile $tmp
+        Test-DownloadedScript -Path $tmp
+        $newVersion = Get-ScriptFileVersion -Path $tmp
+        $newChangelog = Get-ScriptFileChangelog -Path $tmp
+        Move-Item -LiteralPath $tmp -Destination $dest -Force
+        Write-Host "已更新 Self-report 客户端脚本：$dest"
+        Write-Host "raw URL：$RawUrl"
+        if ($newVersion) {
+            if ($newVersion -eq $ScriptVersion) {
+                Write-Host "版本：$newVersion（与当前执行脚本相同）"
+            } else {
+                Write-Host "版本：$ScriptVersion -> $newVersion"
+            }
+        } else {
+            Write-Host "版本：无法读取新脚本版本。"
+        }
+        if ($newChangelog.Count -gt 0) {
+            Write-Host "更新内容："
+            $newChangelog | ForEach-Object { Write-Host $_ }
+        } else {
+            Write-Host "更新内容：新脚本未提供更新说明。"
+        }
+        if ($ReopenMenu) {
+            Write-Host "正在重新打开新版菜单：$dest -Menu"
+            & powershell -NoProfile -ExecutionPolicy Bypass -File $dest -ConfigPath $script:ConfigPath -Menu
+            exit $LASTEXITCODE
+        }
+    } finally {
+        if (Test-Path -LiteralPath $tmp) {
+            Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 function Install-ScheduledReporter {
     Assert-WorkerUrl
     Assert-Minutes
     $dir = Get-DefaultDataDir
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
-    $dest = Join-Path $dir "po0-self-report.ps1"
+    $dest = Get-DefaultScriptPath
     $script:LogPath = Get-DefaultLogPath
     Save-ClientConfig
     if ($PSCommandPath -and (Test-Path -LiteralPath $PSCommandPath)) {
@@ -480,7 +634,8 @@ function Install-ScheduledReporter {
         "-ExecutionPolicy", "Bypass",
         "-File", (Quote-TaskArg $dest),
         "-ConfigPath", (Quote-TaskArg $script:ConfigPath),
-        "-LogPath", (Quote-TaskArg $script:LogPath)
+        "-LogPath", (Quote-TaskArg $script:LogPath),
+        "-RunOnce"
     )
     $taskArgs = $taskArgList -join " "
     $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $taskArgs
@@ -733,10 +888,12 @@ function Invoke-InteractiveMenu {
         Write-MenuPair "5" "查看定时上报状态" "6" "删除定时上报"
         Write-MenuSection "查看"
         Write-MenuItem "7" "显示当前配置"
+        Write-MenuSection "维护"
+        Write-MenuItem "8" "从 GitHub 更新脚本"
         Write-MenuSection "退出"
         Write-MenuItem "0" "退出"
         Write-MenuDivider
-        $rawChoice = Read-Host "请选择操作 [0-7]"
+        $rawChoice = Read-Host "请选择操作 [0-8]"
         if ($null -eq $rawChoice) { return }
         $choice = $rawChoice.Trim()
         try {
@@ -765,6 +922,7 @@ function Invoke-InteractiveMenu {
                     Pause-Menu
                 }
                 "7" { Show-ClientConfig; Pause-Menu }
+                "8" { Upgrade-SelfFromRaw -ReopenMenu }
                 "0" { return }
                 "" {}
                 default { Write-Host "无效选择。"; Pause-Menu }
@@ -788,12 +946,27 @@ if ($env:PO0_SELF_REPORT_ALLOW_HTTP -match "^(1|true|yes)$") {
     $script:AllowHttp = $true
 }
 
-Load-SavedConfig
+if ($Version) {
+    Show-ScriptVersion
+    exit 0
+}
+
+if ($Changelog) {
+    Show-ScriptChangelog
+    exit 0
+}
 
 if ($Help) {
     Show-Usage
     exit 0
 }
+
+if ($UpgradeSelf) {
+    Upgrade-SelfFromRaw
+    exit 0
+}
+
+Load-SavedConfig
 
 try {
     if ($SaveConfig) {
@@ -804,7 +977,9 @@ try {
         Set-ScheduledReporterPaused -Paused $false
     } elseif ($ScheduleStatus) {
         Show-ScheduledReporter
-    } elseif ($Menu -or (-not $PSBoundParameters.ContainsKey("WorkerUrl") -and -not $InstallTask -and [Environment]::UserInteractive)) {
+    } elseif ($RunOnce) {
+        Invoke-SelfReport
+    } elseif ($Menu -or (-not $PSBoundParameters.ContainsKey("WorkerUrl") -and -not $InstallTask -and -not $RunOnce -and [Environment]::UserInteractive)) {
         Invoke-InteractiveMenu
     } elseif ($InstallTask) {
         Install-ScheduledReporter
