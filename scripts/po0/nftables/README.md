@@ -497,7 +497,7 @@ Linux/OpenWrt 查看最近 self-report 日志：
 tail -n 40 /tmp/po0-self-report.log
 ```
 
-Windows PowerShell 交互式运行，默认进入菜单；推荐显式加 `-Menu`。菜单里的“配置并保存上报参数”只写本地配置文件，不安装计划任务；“安装 / 更新定时上报”读取已保存配置并写入计划任务；“暂停 / 恢复定时上报”只影响自动计划任务，手动“立即上报一次”仍可用：
+Windows PowerShell 交互式运行，默认进入菜单；推荐显式加 `-Menu`。菜单里的“配置并保存上报参数”只写本地配置文件，不安装计划任务；“安装 / 更新定时上报”会提示计划任务间隔，保存后写入计划任务；“暂停 / 恢复定时上报”只影响自动计划任务，手动“立即上报一次”仍可用：
 
 ```powershell
 $script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script; powershell -ExecutionPolicy Bypass -File $script -Menu

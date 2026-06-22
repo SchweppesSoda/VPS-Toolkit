@@ -26,10 +26,10 @@
 $ErrorActionPreference = "Stop"
 $RawUrl = "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1"
 $ScriptName = "po0-self-report"
-$ScriptVersion = "2026.06.22+build.4"
+$ScriptVersion = "2026.06.22+build.5"
 $ScriptReleaseDate = "2026-06-22"
 # CHANGELOG_BEGIN
-# - Windows 计划任务改用隐藏 launcher 启动 PowerShell，并在自动上报成功或失败后弹出 Windows 通知。
+# - 菜单“安装 / 更新定时上报”会直接提示计划任务间隔，避免反复按 3 只用旧分钟数重装任务。
 # CHANGELOG_END
 $PanelValueColumn = 24
 $MenuRightColumn = 46
@@ -880,6 +880,16 @@ function Set-ClientConfigInteractive {
     Save-ClientConfig
 }
 
+function Install-ScheduledReporterInteractive {
+    if (-not (Test-ClientConfigComplete)) {
+        Set-ClientConfigInteractive
+    } else {
+        $script:Minutes = Read-Default "计划任务每几分钟上报一次（1-$script:MaxMinutes）" ([string]$script:Minutes)
+        Assert-Minutes
+    }
+    Install-ScheduledReporter
+}
+
 function Show-ScheduledReporter {
     Write-PanelSection "Self-report 定时上报"
     Write-PanelRow "配置文件" $script:ConfigPath
@@ -981,8 +991,7 @@ function Invoke-InteractiveMenu {
                     Pause-Menu
                 }
                 "3" {
-                    if (-not (Test-ClientConfigComplete)) { Set-ClientConfigInteractive }
-                    Install-ScheduledReporter
+                    Install-ScheduledReporterInteractive
                     Pause-Menu
                 }
                 "4" { Toggle-ScheduledReporterPaused; Pause-Menu }

@@ -95,6 +95,10 @@
 
 ## po0-self-report（Windows PowerShell）
 
+### 2026.06.22+build.5
+
+- 菜单“安装 / 更新定时上报”会直接提示计划任务间隔，避免反复按 3 只用旧分钟数重装任务。
+
 ### 2026.06.22+build.4
 
 - Windows 计划任务改用隐藏 launcher 启动 PowerShell，并在自动上报成功或失败后弹出 Windows 通知。
