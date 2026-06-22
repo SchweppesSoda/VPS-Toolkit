@@ -4,9 +4,11 @@ set -uo pipefail
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh"
 MANAGER_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/nftables-relay-manager.sh"
 SCRIPT_NAME="po0-lan-worker-client"
-SCRIPT_VERSION="2026.06.22+build.8"
+SCRIPT_VERSION="2026.06.22+build.9"
 SCRIPT_RELEASE_DATE="2026-06-22"
 # CHANGELOG_BEGIN
+# - 基础信息和 --version 不再显示资源上传实现细节；manager stdin 上传说明保留在资源任务文档和排错段落。
+# - 从菜单更新脚本成功后会先停留显示安装路径、版本变化和更新内容，按回车后再打开新版菜单。
 # - Self-report 子菜单的 source / TTL 入口改为只维护 Self-report 字段，不再同时提示或修改 WebAuth 字段。
 # - Self-report 后台服务摘要会提示 systemd unit 中仍显式保留的 TTL 覆盖值，便于发现旧服务未刷新。
 # - 读取旧安装的本机 settings.env 时，把遗留默认 Self-report TTL 3600 迁移为 43200、WebAuth TTL 3600 迁移为 21600；目标行显式 TTL 不自动改写。
@@ -35,7 +37,6 @@ SCRIPT_RELEASE_DATE="2026-06-22"
 # - 资源任务本机检查间隔默认改为 1440 分钟，可设置到 10080 分钟。
 # - DDNS 菜单新增目标 / 上报计划入口，说明 PO0 DDNS TTL 设置位置并可直接更新本机 DDNS 上报计划。
 # CHANGELOG_END
-RESOURCE_UPLOAD_MODE="manager-stdin"
 DEFAULT_PO0_SCRIPT="/root/nftables-relay-manager.sh"
 PO0_HOST="${PO0_HOST:-}"
 PO0_PORT="${PO0_PORT:-22}"
@@ -208,17 +209,6 @@ print_panel_note() {
 
 print_panel_action() {
     print_panel_row "$@"
-}
-
-resource_upload_mode_label() {
-    case "${RESOURCE_UPLOAD_MODE}" in
-        manager-stdin)
-            printf '通过 PO0 manager stdin 上传资源产物（不使用 SCP）'
-            ;;
-        *)
-            printf '%s' "${RESOURCE_UPLOAD_MODE}"
-            ;;
-    esac
 }
 
 script_file_var() {
@@ -2035,7 +2025,6 @@ print_dashboard() {
     print_panel_row "当前脚本" "$(script_source_path)"
     print_panel_row "版本" "${SCRIPT_VERSION}"
     print_panel_row "发布日期" "${SCRIPT_RELEASE_DATE}"
-    print_panel_row "资源上传" "$(resource_upload_mode_label)"
     print_panel_row "配置文件" "${CONFIG_FILE}"
     print_panel_row "统计文件" "${STATS_FILE}"
     print_panel_row "资源统计" "${RESOURCE_STATS_FILE}"
@@ -5429,6 +5418,7 @@ upgrade_self_from_raw() {
         printf '更新内容：新脚本未提供更新说明；请运行 --version 查看当前状态。\n'
     fi
     if [[ "${reopen_mode}" == "--reopen-menu" ]]; then
+        read_prompt "更新完成。按回车打开新版菜单..." >/dev/null || true
         printf '正在重新打开新版菜单：%s --menu\n' "${dest}"
         exec "${BASH:-bash}" "${dest}" --config "${CONFIG_FILE}" --install-path "${dest}" --menu
         printf '重新打开新版脚本失败，请手动执行：%s --menu\n' "${dest}" >&2
@@ -5447,24 +5437,15 @@ ensure_persistent_script() {
 }
 
 show_local_script_status() {
-    local current install_path cron_summary marker_status legacy_scp_cmd legacy_scp_var
+    local current install_path cron_summary
     current="$(script_source_path)"
     install_path="$(default_install_path)"
-    marker_status="$(resource_upload_mode_label)"
-    legacy_scp_cmd="scp .*"
-    legacy_scp_cmd+="upload_path"
-    legacy_scp_var="scp"
-    legacy_scp_var+="_args"
-    if have_cmd grep && [[ -r "${current}" ]] && { grep -q -- "${legacy_scp_cmd}" "${current}" || grep -q -- "${legacy_scp_var}" "${current}"; }; then
-        marker_status="警告：当前脚本内容仍包含 legacy SCP 上传逻辑"
-    fi
     print_panel_section "本机脚本"
     print_panel_row "脚本名称" "${SCRIPT_NAME}"
     print_panel_row "版本" "${SCRIPT_VERSION}"
     print_panel_row "发布日期" "${SCRIPT_RELEASE_DATE}"
     print_panel_row "当前脚本" "${current}"
     print_panel_row "默认安装路径" "${install_path}"
-    print_panel_row "资源上传" "${marker_status}"
     print_panel_row "raw URL" "${RAW_URL}"
     cron_summary="$(cron_status_summary)"
     print_panel_row "本机轮询器" "${cron_summary}"

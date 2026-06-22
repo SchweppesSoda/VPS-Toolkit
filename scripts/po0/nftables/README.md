@@ -400,9 +400,9 @@ non-root: ~/.local/bin/po0-lan-client
 /usr/local/sbin/po0-lan-client --install-cron
 ```
 
-新版自检应显示 `版本` 为 `2026.06.18+build.6` 或更新，`资源上传` 为“通过 PO0 manager stdin 上传资源产物（不使用 SCP）”，不再调用 `scp`。
+新版自检应显示 `版本` 为 `2026.06.18+build.6` 或更新；资源轮询不再调用 `scp`，资源产物通过 PO0 manager stdin 上传。
 
-`--upgrade-self` 更新成功后会输出安装路径、权限设置结果、版本变化和新脚本内置的更新内容；具体状态再用 `--version` 查看。从菜单里选择“从 GitHub 更新脚本”时，更新成功后会自动设置最终安装路径的执行权限，并重新打开新版菜单。命令行直接执行 `--upgrade-self` 仍会更新后退出，方便继续串行执行 `--version` 或 `--install-cron`。
+`--upgrade-self` 更新成功后会输出安装路径、权限设置结果、版本变化和新脚本内置的更新内容；具体状态再用 `--version` 查看。从菜单里选择“从 GitHub 更新脚本”时，更新成功后会自动设置最终安装路径的执行权限，停留显示更新结果，按回车后再打开新版菜单。命令行直接执行 `--upgrade-self` 仍会更新后退出，方便继续串行执行 `--version` 或 `--install-cron`。
 
 如果 LAN Worker 查询 PO0 创建计划时出现 `--resource-task-cron-status not allowed for scope worker`，说明 PO0 上的专用受限 SSH wrapper 还没刷新到新版；在 PO0 上用新版 manager 执行 `--refresh-report-key-wrapper` 即可。这个报错只影响创建计划只读查询，不影响 pending 资源任务领取、上传和完成。
 
