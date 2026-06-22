@@ -170,6 +170,12 @@ $script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://ra
 $script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script; powershell -ExecutionPolicy Bypass -File $script -UpgradeSelf
 ```
 
+以后从本机固定路径打开菜单：
+
+```powershell
+$client=Join-Path $env:LOCALAPPDATA 'PO0\po0-self-report.ps1'; powershell -ExecutionPolicy Bypass -File $client -Menu
+```
+
 ```powershell
 $client=Join-Path $env:LOCALAPPDATA 'PO0\po0-self-report.ps1'; powershell -ExecutionPolicy Bypass -File $client -Version
 ```
