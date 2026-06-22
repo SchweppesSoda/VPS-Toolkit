@@ -3,6 +3,10 @@ const ERROR_STORAGE_KEY = 'po0-ssh-ip-report:last-error';
 const IP_CHECK_INDEX_KEY = 'po0-ssh-ip-report:ip-check-index';
 const DEVICE_ID_KEY = 'po0-ssh-ip-report:device-id';
 const DEVICE_ID_FALLBACK = 'egern';
+const DEFAULT_TTL_SECONDS = 21600;
+const DEFAULT_AUTO_REPORT_INTERVAL_SECONDS = 3600;
+const MIN_AUTO_REPORT_INTERVAL_SECONDS = 600;
+const MAX_AUTO_REPORT_INTERVAL_SECONDS = 86400;
 const REPORT_TITLE = 'PO0 SSH IP 上报';
 const REPORT_FAILED_TITLE = 'PO0 SSH IP 上报失败';
 
@@ -703,22 +707,26 @@ function targetConfigSignatures(targets) {
   return (targets || []).map(targetConfigSignature).sort().join('\n');
 }
 
-function minTargetTtlSeconds(targets) {
-  const ttls = (targets || [])
-    .map((target) => Number(target.ttlSeconds))
-    .filter((ttl) => Number.isFinite(ttl) && ttl > 0);
-  if (ttls.length === 0) return 3600;
-  return Math.min(...ttls);
+function clampInteger(value, fallback, min, max) {
+  if (value === undefined || value === null || String(value).trim() === '') return fallback;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  const integer = Math.floor(parsed);
+  if (integer < min) return min;
+  if (integer > max) return max;
+  return integer;
 }
 
-function automaticRefreshAfterSeconds(targets) {
-  const ttl = minTargetTtlSeconds(targets);
-  const twoThirdsTtl = Math.floor(ttl * 2 / 3);
-  const beforeExpiryMargin = ttl - 10 * 60;
-  return Math.max(60, Math.min(twoThirdsTtl, beforeExpiryMargin));
+function autoReportIntervalSeconds(env) {
+  return clampInteger(
+    env?.AUTO_REPORT_INTERVAL_SECONDS,
+    DEFAULT_AUTO_REPORT_INTERVAL_SECONDS,
+    MIN_AUTO_REPORT_INTERVAL_SECONDS,
+    MAX_AUTO_REPORT_INTERVAL_SECONDS,
+  );
 }
 
-async function shouldSkipUnchangedAutoReport(ctx, targets, ip) {
+async function shouldSkipUnchangedAutoReport(ctx, env, targets, ip) {
   if (isManualRun(ctx) || isWidgetRun(ctx)) return { skip: false };
 
   const previous = parseStoredState(await storageGet(ctx, STORAGE_KEY));
@@ -734,7 +742,7 @@ async function shouldSkipUnchangedAutoReport(ctx, targets, ip) {
   const lastSuccessAt = new Date(previous.at || '').getTime();
   if (!Number.isFinite(lastSuccessAt)) return { skip: false };
 
-  const refreshAfter = automaticRefreshAfterSeconds(targets);
+  const refreshAfter = autoReportIntervalSeconds(env);
   const ageSeconds = Math.floor((Date.now() - lastSuccessAt) / 1000);
   if (ageSeconds < 0 || ageSeconds >= refreshAfter) return { skip: false, ageSeconds, refreshAfter };
 
@@ -928,7 +936,7 @@ function normalizeTarget(env, input, index, deviceId = '') {
   const script = targetValue(target, env, ['script', 'PO0_SCRIPT', 'po0Script'], '/root/nftables-relay-manager.sh');
   const token = targetValue(target, env, ['token', 'SSH_REPORT_TOKEN', 'reportToken']);
   const identity = expandDevicePlaceholder(targetValue(target, env, ['identity', 'REPORT_IDENTITY'], 'egern'), deviceId);
-  const ttl = Number(targetValue(target, env, ['ttl', 'ttlSeconds', 'TTL_SECONDS'], '3600'));
+  const ttl = Number(targetValue(target, env, ['ttl', 'ttlSeconds', 'TTL_SECONDS'], String(DEFAULT_TTL_SECONDS)));
 
   if (!host) throw new Error(`PO0 目标 #${index + 1} 缺少主机`);
   if (!token) throw new Error(`PO0 目标 #${index + 1} 缺少 token`);
@@ -941,7 +949,7 @@ function normalizeTarget(env, input, index, deviceId = '') {
     script,
     token,
     identity,
-    ttlSeconds: Number.isFinite(ttl) && ttl > 0 ? ttl : 3600,
+    ttlSeconds: Number.isFinite(ttl) && ttl > 0 ? ttl : DEFAULT_TTL_SECONDS,
     password: targetValue(target, env, ['password', 'PO0_PASSWORD']),
     privateKey: targetValue(target, env, ['privateKey', 'PO0_PRIVATE_KEY']),
     passphrase: targetValue(target, env, ['passphrase', 'PO0_PASSPHRASE']),
@@ -1065,7 +1073,7 @@ export default async function(ctx) {
     targets = parseTargets(env, deviceId);
     ip = await detectCurrentIPv4WithFallback(ctx, env, policy);
     ipProfile = await fetchIpProfile(ctx, ip, policy);
-    const skipDecision = await shouldSkipUnchangedAutoReport(ctx, targets, ip);
+    const skipDecision = await shouldSkipUnchangedAutoReport(ctx, env, targets, ip);
     if (skipDecision.skip) {
       const previousIpProfile = normalizeIpProfile(skipDecision.previous?.ipProfile);
       if (!ipProfile.location && !ipProfile.isp && (previousIpProfile.location || previousIpProfile.isp)) {

@@ -27,10 +27,10 @@ bash nftables-relay-manager.sh
 常见操作：
 
 ```text
-首次部署：基础操作 -> 安装 / 初始化 nftables
-新增或修改转发：规则管理 -> 新增 / 编辑转发规则
-管理来源白名单：系统维护 -> 管理源 IP 白名单
-看当前状态和自检：基础操作 -> 查看概览，或系统维护 -> 诊断 / 自检
+首次部署：部署与概览 -> 安装 / 初始化 nftables
+新增或修改转发：转发规则 -> 新增 / 编辑规则
+管理来源白名单：来源、客户端与资源 -> 源 IP 白名单
+看当前状态和自检：部署与概览 -> 查看概览，或系统维护 -> 诊断 / 自检
 高级调试渲染：bash nftables-relay-manager.sh --render > /tmp/po0-relay.conf
 ```
 
@@ -110,7 +110,7 @@ DDNS
 如果“访问不了转发端口”，先按这个顺序看：
 
 ```text
-1. 基础操作 -> 查看概览与规则列表
+1. 部署与概览 -> 查看概览与规则列表
 2. 系统维护 -> 诊断 / 自检
 3. 管理源 IP 白名单 -> 来源/IP 明细
 4. 管理源 IP 白名单 -> 被阻挡访问日志 -> 采集最近 1 小时日志
@@ -504,7 +504,7 @@ id<TAB>地区名称<TAB>相对路径<TAB>原始 URL
 导入入口：
 
 ```text
-菜单路径：系统维护 -> 管理源 IP 白名单
+菜单路径：来源、客户端与资源 -> 源 IP 白名单
 6) 导入 / 刷新 iplist 离线包
 ```
 
@@ -740,7 +740,7 @@ PowerShell 客户端交互式无参数运行默认进入菜单，也支持显式
 
 访问设备客户端的用户可见结果行统一为 `Self-report 已完成：...` 或 `Self-report 未完成：...`。一次性上报只有在本机探测到公网 IPv4、LAN Worker HTTP 返回 2xx，且 LAN Worker 已成功代报 PO0 后才打印完成；否则保留底层错误并返回非零状态。Linux/OpenWrt cron 的每次运行输出重定向到 `/tmp/po0-self-report.log`，其中也包含同样的结果行。Windows 计划任务不会依赖一闪而过的控制台窗口；`-InstallTask` 会把 `-LogPath` 写入任务参数，管理员安装默认日志为 `%ProgramData%\PO0\po0-self-report.log`，普通用户安装默认日志为 `%LOCALAPPDATA%\PO0\po0-self-report.log`，每次运行会记录开始、LAN Worker 返回体和完成/未完成结果；菜单“查看定时上报状态”会展示 `Get-ScheduledTaskInfo` 的上次结果和日志 tail。
 
-Self-report 放行 TTL 默认 `3600` 秒，由 LAN Worker self-report server 上报 PO0 时传入；客户端只控制上报频率，不控制 TTL。TTL 可以通过 `po0-lan-client --self-report-ttl <秒数>`、bootstrap 向导，或 LAN Worker 菜单 `Self-report / WebAuth TTL` 修改。
+Self-report 和 WebAuth 放行 TTL 默认都是 `21600` 秒（6 小时），由 LAN Worker 上报 PO0 时传入；客户端只控制上报频率，不控制 TTL。TTL 可以通过 `po0-lan-client --self-report-ttl <秒数>` / `--webauth-ttl <秒数>`、bootstrap 向导，或 LAN Worker 菜单 `Self-report TTL / WebAuth TTL` 修改。
 
 `--bootstrap` 会先 probe，再写入本机目标配置；如果要求安装本机 Worker 轮询器，管道运行时会自动落盘到固定路径。`--install-cron N` 是兼容参数，会把 DDNS 和资源任务两个计划都设为 `N` 分钟；不带 `N` 时，默认 DDNS 每 5 分钟上报、资源任务每 120 分钟检查一次。Worker 默认调用 PO0 上的 `/root/nftables-relay-manager.sh`，也可以通过 `--po0-script` 覆盖。首次部署推荐 `--wizard`，高级维护菜单仍可管理本机 Worker 的 PO0 目标：查看、添加、编辑、删除、启用/停用，执行 DDNS 解析上报和资源任务轮询领取，并只读查看 PO0 端资源任务创建计划。一个配置文件可以放多台 PO0/VPS。
 
@@ -849,6 +849,8 @@ Egern 把最近状态写入 ctx.storage，Widget 读取显示
 bash /root/nftables-relay-manager.sh --ssh-ip-report <source-id> <ipv4> <token> <identity> <ttl>
 ```
 
+Egern / ssh-report 放行 TTL 默认 `21600` 秒（6 小时）。单 PO0 可在模块环境变量 `TTL_SECONDS` 覆盖；多个 PO0 可在 `SSH_REPORT_TARGETS` 每行最后一列分别覆盖。实际 SSH 自动上报周期由 `AUTO_REPORT_INTERVAL_SECONDS` 控制，默认 `3600` 秒，可设置 `600` 到 `86400` 秒；模块 schedule 每 10 分钟轻量检查一次。
+
 多 PO0 上报由模块环境变量 `SSH_REPORT_TARGETS` 控制，一行一个目标：
 
 ```text
@@ -858,8 +860,8 @@ source|host|port|user|script|token|identity|ttl
 示例：
 
 ```text
-iphone-sg|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|egern-iphone|3600
-iphone-us|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|egern-iphone|3600
+iphone-sg|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|egern-iphone|21600
+iphone-us|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|egern-iphone|21600
 ```
 
 脚本只查询一次当前 IPv4，然后按目标列表依次 SSH 上报。全部目标成功时状态为成功；部分失败时保留每个目标的成功/失败明细并发出失败通知，但不会回滚已成功的 PO0。
@@ -1019,25 +1021,33 @@ profile 目录：
 ### 7.1 主菜单
 
 ```text
-基础操作
+部署与概览
   1) 安装 / 初始化 nftables
-  2) 手动刷新中转机 IP 缓存
+  2) 刷新 PO0 公网 IP
   3) 查看概览与规则列表
 
-规则管理
-  4) 新增转发规则
-  5) 编辑转发规则
-  6) 调整规则顺序
-  7) 启用 / 停用规则
-  8) 删除转发规则
-  9) 导入规则 / 接管现有 nft 规则
+转发规则
+  4) 新增规则
+  5) 编辑规则
+  6) 调整顺序
+  7) 启用 / 停用
+  8) 删除规则
+  9) 导入 / 接管现有规则
  10) 导出规则
 
+来源、客户端与资源
+ 11) 源 IP 白名单
+ 12) 客户端部署命令
+ 13) 内网资源更新任务
+
 系统维护
- 11) 修改中转机参数
- 12) 管理源 IP 白名单
- 13) 诊断 / 自检
- 14) 可选开启 BBR + fq
+ 14) 中转机参数
+ 15) 诊断 / 自检
+ 16) 查看脚本版本
+ 17) 可选开启 BBR + fq
+
+退出
+  0) 退出
 ```
 
 ### 7.2 非交互入口
@@ -1045,10 +1055,10 @@ profile 目录：
 ```bash
 bash nftables-relay-manager.sh --render > /tmp/po0-relay.conf
 bash nftables-relay-manager.sh --refresh-ddns
-bash nftables-relay-manager.sh --ddns-report-check home.example.com TOKEN
-bash nftables-relay-manager.sh --ssh-ip-report iphone 1.2.3.4 TOKEN egern 3600
-bash nftables-relay-manager.sh --client-ip-report self-report 1.2.3.4 TOKEN lan-worker 3600
-bash nftables-relay-manager.sh --webauth-report webauth 1.2.3.4 user@example.com 2026-06-16T12:00:00Z TOKEN
+bash nftables-relay-manager.sh --ddns-report-check <ddns-source-key> TOKEN
+bash nftables-relay-manager.sh --ssh-ip-report <device-id> 1.2.3.4 TOKEN <identity> 21600
+bash nftables-relay-manager.sh --client-ip-report <device-id> 1.2.3.4 TOKEN <identity> 21600
+bash nftables-relay-manager.sh --webauth-report <auth-source> 1.2.3.4 <identity> 2026-06-16T12:00:00Z TOKEN
 bash nftables-relay-manager.sh --resource-task-create all
 bash nftables-relay-manager.sh --install-resource-task-cron all daily
 bash nftables-relay-manager.sh --resource-task-ping TOKEN

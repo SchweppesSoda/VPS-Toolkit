@@ -28,10 +28,11 @@ https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nft
 - `PO0_USER`：默认 `root`。
 - `PO0_PASSWORD` 或 `PO0_PRIVATE_KEY`：二选一，推荐专用受限私钥。
 - `PO0_SCRIPT`：默认 `/root/nftables-relay-manager.sh`。
-- `SSH_REPORT_SOURCE`：来源 ID，例如 `iphone`、`ipad-cellular`。
+- `SSH_REPORT_SOURCE`：来源组 ID(source-id)，例如 `<device-id>`。
 - `SSH_REPORT_TOKEN`：PO0 端生成的 SSH report token。
 - `REPORT_IDENTITY`：默认 `egern`。
-- `TTL_SECONDS`：默认 `3600`。
+- `TTL_SECONDS`：默认 `21600` 秒（6 小时）。
+- `AUTO_REPORT_INTERVAL_SECONDS`：实际 SSH 自动上报周期，默认 `3600` 秒，可设置 `600` 到 `86400` 秒。
 - `IP_CHECK_URL` / `IP_CHECK_URLS`：公网 IPv4 查询接口；默认从 IP9 和国内接口轮询。
 - `POLICY`：默认 `DIRECT`，用于尽量获取当前真实出口 IP。
 - `DEVICE_ID_SETUP`：只在手动运行 `保存本机设备 ID` 时读取，用于把本机设备 ID 写入 `ctx.storage`。定时/网络上报不会直接使用这个同步 env。
@@ -42,9 +43,9 @@ Egern 配置会通过 iCloud 同步，模块环境变量不适合直接写每台
 
 推荐设置方式不依赖浏览器 HTTP，也不需要 MITM：
 
-1. 在模块环境变量 `DEVICE_ID_SETUP` 填入这台设备的 ID，例如 `iphone15pm`。
+1. 在模块环境变量 `DEVICE_ID_SETUP` 填入这台设备的 ID，例如 `<device-id>`。
 2. 在 Egern 里手动运行 `保存本机设备 ID`。
-3. 打开 `PO0 SSH 上报状态`，确认显示 `设备: iphone15pm`。
+3. 打开 `PO0 SSH 上报状态`，确认显示 `设备: <device-id>`。
 4. 可选：保存后把 `DEVICE_ID_SETUP` 清空，避免以后误操作。已经写入的本机 `ctx.storage` 不受影响。
 
 设备 ID 只能包含英文、数字、`.`、`_`、`-`。写错时重新填写 `DEVICE_ID_SETUP` 并再次运行 `保存本机设备 ID` 即可覆盖。清除本机 ID 可手动运行 `清除本机设备 ID`。
@@ -52,7 +53,7 @@ Egern 配置会通过 iCloud 同步，模块环境变量不适合直接写每台
 模块也保留了 HTTP request 设置入口，但 iOS/Safari 可能把手输的 HTTP 自动升级成 HTTPS，因此只作为可选兼容方式：
 
 ```text
-http://po0-egern.local/set-device?id=iphone15pm
+http://po0-egern.local/set-device?id=<device-id>
 http://po0-egern.local/device
 http://po0-egern.local/clear-device
 ```
@@ -70,30 +71,30 @@ source_id|host|port|user|script|token|identity|ttl
 示例：
 
 ```text
-{device}-sg|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|{device}-egern|3600
-{device}-us|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|{device}-egern|3600
+{device}-sg|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|{device}-egern|21600
+{device}-us|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|{device}-egern|21600
 ```
 
 如果 Egern 输入框会把换行折叠成空格，建议直接用逗号：
 
 ```text
-{device}-sg|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|{device}-egern|3600,{device}-us|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|{device}-egern|3600
+{device}-sg|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|{device}-egern|21600,{device}-us|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|{device}-egern|21600
 ```
 
-如果当前设备 ID 是 `iphone15pm`，上面的配置会上报为 `iphone15pm-sg`、`iphone15pm-us`。未设置设备 ID 时，`{device}` 会回退为 `egern`。
+如果当前设备 ID 是 `<device-id>`，上面的配置会上报为 `<device-id>-sg`、`<device-id>-us`。未设置设备 ID 时，`{device}` 会回退为 `egern`。
 
 填写 `SSH_REPORT_TARGETS` 后，单目标字段 `PO0_HOST`、`SSH_REPORT_SOURCE`、`SSH_REPORT_TOKEN` 可以留空。多个 PO0 建议共用同一把 Egern 专用上报私钥，并在 PO0 端安装 scope=`egern` 的受限 key。
 
 ## 执行与提示
 
-- `schedule`：默认每 10 分钟自动上报一次。
+- `schedule`：每 10 分钟轻量检查一次；实际 SSH 自动上报周期由 `AUTO_REPORT_INTERVAL_SECONDS` 控制，默认 `3600` 秒。
 - `network`：网络变化时触发一次。
 - `generic`：在 Egern 手动执行 `PO0 SSH IP Report Now`。
 - `保存本机设备 ID`：把 `DEVICE_ID_SETUP` 写入本机 `ctx.storage`，不做 SSH 上报。
 - `清除本机设备 ID`：清除本机 `ctx.storage` 里的设备 ID。
 - `PO0 SSH 上报状态` / `widget`：显示本机设备 ID、公网 IP、IP 归属地、运营商、每个 PO0 target 的成功/失败、时间、TTL 和错误原因。
 
-自动触发会先探测当前出口 IPv4。如果 IP 和上次成功记录一致、PO0 target 配置未变化，并且距离上次成功还小于自动续期窗口，脚本会跳过 SSH 上报。自动续期窗口按当前最短 TTL 动态计算：`min(最短 TTL 的 2/3, 最短 TTL - 10 分钟)`，下限 60 秒。IP 变化、target 配置变化（含 TTL、脚本路径、用户、token 指纹等）、续期窗口到达、手动执行和 Widget 刷新都会继续执行 SSH 上报。
+自动触发会先探测当前出口 IPv4。如果 IP 和上次成功记录一致、PO0 target 配置未变化，并且距离上次成功还小于 `AUTO_REPORT_INTERVAL_SECONDS`，脚本会跳过 SSH 上报。该周期默认 `3600` 秒，可设置 `600` 到 `86400` 秒；模块定时任务每 10 分钟唤醒检查一次，所以实际执行精度以 10 分钟为粒度。IP 变化、target 配置变化（含 TTL、脚本路径、用户、token 指纹等）、自动周期到达、手动执行和 Widget 刷新都会继续执行 SSH 上报。
 
 手动执行成功/失败都会尽量通知；自动成功默认不通知，失败默认通知。手动执行和 Status 脚本开启 debug，SSH stderr 会写入 Egern 脚本日志；长错误会分段通知，避免只显示半截 `PO0 restricted report key denied`。
 

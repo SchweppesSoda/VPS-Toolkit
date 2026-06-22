@@ -2,9 +2,12 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-nftables-relay-manager"
-SCRIPT_VERSION="2026.06.21+build.6"
-SCRIPT_RELEASE_DATE="2026-06-21"
+SCRIPT_VERSION="2026.06.22+build.1"
+SCRIPT_RELEASE_DATE="2026-06-22"
 # CHANGELOG_BEGIN
+# - WebAuth 放行 TTL 默认从 3600 秒调整为 21600 秒（6 小时），部署命令同步输出 21600。
+# - Egern / ssh-report 放行 TTL 默认从 3600 秒调整为 21600 秒（6 小时），部署命令同步输出 21600。
+# - Self-report / client-ip 放行 TTL 默认从 3600 秒调整为 21600 秒（6 小时）。
 # - 新增从 LAN Worker HTTP 更新 PO0 manager：校验 resource token HMAC、sha256、脚本语法后原子替换主控脚本。
 # - 脚本 --version 输出改为参考 LAN Worker 的版本面板，并单独显示 build 构建标识。
 # - 修复当前 SSH 临时放行同一 /32 再次加入时只命中过期旧记录、不刷新过期时间的问题。
@@ -2686,8 +2689,8 @@ remove_ddns_report_stats() {
 }
 
 normalize_client_ttl_seconds() {
-    local ttl="${1:-3600}"
-    [[ "${ttl}" =~ ^[0-9]+$ ]] || ttl="3600"
+    local ttl="${1:-21600}"
+    [[ "${ttl}" =~ ^[0-9]+$ ]] || ttl="21600"
     (( ttl >= 60 )) || ttl=60
     (( ttl <= 604800 )) || ttl=604800
     printf '%s\n' "${ttl}"
@@ -2703,7 +2706,7 @@ normalize_report_expires_at() {
     if [[ "${value}" =~ ^[0-9]+$ ]]; then
         date -u -d "@${value}" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null && return 0
     fi
-    utc_after_seconds_iso 3600
+    utc_after_seconds_iso 21600
 }
 
 report_client_ip_source() {
@@ -2711,7 +2714,7 @@ report_client_ip_source() {
     local ip="$2"
     local token="$3"
     local identity="${4:-}"
-    local ttl="${5:-3600}"
+    local ttl="${5:-21600}"
     local expires_at note cidr
     source_id="$(sanitize_allowlist_source_text "${source_id}")"
     identity="$(sanitize_allowlist_source_text "${identity}")"
@@ -2749,7 +2752,7 @@ report_ssh_ip_source() {
     local ip="$2"
     local token="$3"
     local identity="${4:-}"
-    local ttl="${5:-3600}"
+    local ttl="${5:-21600}"
     local expires_at note cidr
     source_id="$(sanitize_allowlist_source_text "${source_id}")"
     identity="$(sanitize_allowlist_source_text "${identity}")"
@@ -9143,7 +9146,7 @@ do_report_client_ip_source() {
     local ip="${2:-}"
     local token="${3:-}"
     local identity="${4:-}"
-    local ttl="${5:-3600}"
+    local ttl="${5:-21600}"
     [[ -n "${source_id}" && -n "${ip}" ]] || {
         err "用法：--client-ip-report <source-id> <ipv4> <token> [identity] [ttl]"
     }
@@ -9179,7 +9182,7 @@ do_report_ssh_ip_source() {
     local ip="${2:-}"
     local token="${3:-}"
     local identity="${4:-}"
-    local ttl="${5:-3600}"
+    local ttl="${5:-21600}"
     [[ -n "${source_id}" && -n "${ip}" ]] || {
         err "用法：--ssh-ip-report <source-id> <ipv4> <token> [identity] [ttl]"
         return 1
@@ -9258,7 +9261,7 @@ do_show_client_ip_report_token() {
     printf 'Token      : %s\n' "${token}"
     echo ""
     echo "PO0 接收命令（SSH only；通常由 LAN Worker 自动执行）："
-    printf '  bash %s --client-ip-report self-report 1.2.3.4 %s lan-worker 3600\n' "$(basename "$0")" "${token}"
+    printf '  bash %s --client-ip-report self-report 1.2.3.4 %s lan-worker 21600\n' "$(basename "$0")" "${token}"
     echo ""
     echo "LAN Worker self-report server（推荐 HTTPS/Caddy；PO0 不开放 HTTP）："
     printf '  po0-lan-client --install-self-report-https --self-report-https-domain <SELF_REPORT_DOMAIN> --po0-host <PO0_HOST> --po0-script %s --self-report-source self-report --client-ip-token %s --self-report-secret <SELF_REPORT_SECRET>\n' \
@@ -9609,7 +9612,7 @@ do_show_ssh_report_token() {
     printf 'Token      : %s\n' "${token}"
     echo ""
     echo "PO0 SSH-only report command:"
-    printf '  bash %s --ssh-ip-report iphone 1.2.3.4 %s egern 3600\n' "$(basename "$0")" "${token}"
+    printf '  bash %s --ssh-ip-report iphone 1.2.3.4 %s egern 21600\n' "$(basename "$0")" "${token}"
     echo ""
     echo "Egern module:"
     printf '  Module URL: %s\n' "${EGERN_SSH_REPORT_MODULE_RAW_URL}"
@@ -9618,7 +9621,7 @@ do_show_ssh_report_token() {
     echo ""
     echo "Multiple PO0: import one Egern module and merge all target rows into SSH_REPORT_TARGETS."
     printf '  SSH_REPORT_TARGETS row: source_id|host|port|user|script|token|identity|ttl\n'
-    printf '    egern-po0|<PO0_HOST>|22|root|%s|%s|egern|3600\n' "${MANAGER_INSTALL_PATH}" "${token}"
+    printf '    egern-po0|<PO0_HOST>|22|root|%s|%s|egern|21600\n' "${MANAGER_INSTALL_PATH}" "${token}"
 }
 
 do_show_webauth_report_token() {
@@ -9631,7 +9634,7 @@ do_show_webauth_report_token() {
     echo ""
     echo "WebAuth 上报示例（由 LAN Worker 通过 SSH 调用）："
     printf '  bash %s --webauth-report cf-access 1.2.3.4 user@example.com %s %s\n' \
-        "$(basename "$0")" "$(utc_after_seconds_iso 3600)" "${token}"
+        "$(basename "$0")" "$(utc_after_seconds_iso 21600)" "${token}"
 }
 
 set_automation_mode() {
@@ -9896,7 +9899,7 @@ do_show_self_report_server_commands() {
         "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${DEPLOY_CLIENT_TOKEN}")"
     echo ""
     printf 'Self-report PO0 目标行: source|host|port|user|script|token|ttl|ssh_args\n'
-    printf '  self-report|<PO0_HOST>|22|root|%s|%s|3600|\n' "${MANAGER_INSTALL_PATH}" "${DEPLOY_CLIENT_TOKEN}"
+    printf '  self-report|<PO0_HOST>|22|root|%s|%s|21600|\n' "${MANAGER_INSTALL_PATH}" "${DEPLOY_CLIENT_TOKEN}"
     echo ""
     printf '合并多个目标行：\n'
     printf '  po0-lan-client --install-self-report-https --self-report-https-domain <SELF_REPORT_DOMAIN> --self-report-targets "<TARGET1;TARGET2>" --self-report-secret <SELF_REPORT_SECRET>\n'
@@ -9927,7 +9930,7 @@ do_show_webauth_worker_commands() {
         "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${DEPLOY_WEBAUTH_TOKEN}")"
     echo ""
     printf 'WebAuth PO0 目标行: source|host|port|user|script|token|ttl|ssh_args\n'
-    printf '  cf-access|<PO0_HOST>|22|root|%s|%s|3600|\n' "${MANAGER_INSTALL_PATH}" "${DEPLOY_WEBAUTH_TOKEN}"
+    printf '  cf-access|<PO0_HOST>|22|root|%s|%s|21600|\n' "${MANAGER_INSTALL_PATH}" "${DEPLOY_WEBAUTH_TOKEN}"
     echo ""
     printf '合并多个目标行：\n'
     printf '  po0-lan-client --webauth-server --webauth-targets "<TARGET1;TARGET2>" --listen 127.0.0.1:8787\n'
@@ -9944,7 +9947,7 @@ do_show_egern_deploy_commands() {
     printf 'PO0_SCRIPT        : %s\n' "${MANAGER_INSTALL_PATH}"
     echo ""
     printf 'SSH_REPORT_TARGETS row: source_id|host|port|user|script|token|identity|ttl\n'
-    printf '  egern-po0|<PO0_HOST>|22|root|%s|%s|egern|3600\n' "${MANAGER_INSTALL_PATH}" "${DEPLOY_SSH_TOKEN}"
+    printf '  egern-po0|<PO0_HOST>|22|root|%s|%s|egern|21600\n' "${MANAGER_INSTALL_PATH}" "${DEPLOY_SSH_TOKEN}"
 }
 
 do_show_restricted_report_key_commands() {

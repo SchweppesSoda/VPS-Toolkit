@@ -16,6 +16,7 @@
 - LAN Worker 的 DDNS resolver 上报计划和资源任务领取计划必须分开；资源任务只领取 PO0 已创建的 pending 任务，不复用 DDNS TTL / 上报频率作为资源轮询逻辑。
 - Egern 模块只做当前出口 IPv4 的 SSH report，不做 DDNS。
 - Self-report 客户端上报到 LAN Worker，再由 LAN Worker SSH 到 PO0。
+- PO0 动态来源中 `source-id` / `source-key` 是参与分组、续期、裁剪的稳定 key；`identity` 只做备注和审计。DDNS 只有 `source-key`，没有 `identity`。
 - PO0 manager 首次部署仍推荐本地 `scp` 上传；后续可由 PO0 通过 LAN Worker HTTP 更新镜像拉取固定 manager 脚本，必须校验 resource token HMAC 后才替换。
 - LAN Worker client 才使用 `po0-lan-client --upgrade-self`；LAN Worker 的 manager 更新镜像只服务固定脚本路径，不做任意 URL 代理。
 

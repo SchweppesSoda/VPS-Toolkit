@@ -624,7 +624,11 @@ remove_cron() {
         self_report_incomplete "缺少 crontab，未删除 cron。"
         return 1
     }
-    tmp="/tmp/po0-self-report-cron.$$"
+    if command -v mktemp >/dev/null 2>&1; then
+        tmp="$(mktemp "${TMPDIR:-/tmp}/po0-self-report-cron.XXXXXX")" || return 1
+    else
+        tmp="${TMPDIR:-/tmp}/po0-self-report-cron.$$"
+    fi
     crontab -l 2>/dev/null | write_cron_without_managed_block > "${tmp}" || true
     crontab "${tmp}" || {
         rm -f "${tmp}" 2>/dev/null || true
@@ -718,7 +722,7 @@ show_current_config() {
     print_panel_row "HTTP 上报" "$(if http_allowed; then printf '已显式允许'; else printf '默认拒绝'; fi)"
     print_panel_row "上报间隔" "$(cron_interval_label "${CRON_MINUTES}")（安装 cron 时使用）"
     print_panel_row "定时暂停" "$(schedule_paused && printf '已暂停' || printf '未暂停')"
-    print_panel_row "放行 TTL" "由 LAN Worker Self-report 目标控制，默认 3600 秒"
+    print_panel_row "放行 TTL" "由 LAN Worker Self-report 目标控制，默认 21600 秒"
     if [[ -n "${IP_CHECK_URLS}" ]]; then
         print_panel_row "IP 探测列表" "${IP_CHECK_URLS}"
     else

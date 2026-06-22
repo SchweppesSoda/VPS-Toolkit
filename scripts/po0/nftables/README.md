@@ -59,7 +59,7 @@ LAN Worker 命令在内网 Worker 机器上执行，不在 PO0 上执行。DDNS 
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash
 ```
 
-SSH 认证按向导选择：系统默认 SSH 配置/agent、已有私钥路径，或粘贴专用私钥。粘贴的私钥会保存到本机配置目录并设置 600 权限。`额外 SSH 参数` 是传给 `ssh` 的选项，例如 `-J jump-host` 或 `-o StrictHostKeyChecking=accept-new`，不是私钥短语；带短语的私钥需要 `ssh-agent`。菜单里的 `DDNS 解析上报 -> DDNS 目标 / 上报计划` 管理 DDNS 目标和本机上报间隔；`PO0 目标`、`SSH 私钥 / 参数`、`目标 Token`、`Self-report / WebAuth TTL` 分开管理目标、SSH、Token 和自上报/WebAuth TTL；`资源统计 / PO0 创建计划` 只读显示 PO0 端资源任务创建 cron，Worker 本机只安装轮询器领取 pending 任务。
+SSH 认证按向导选择：系统默认 SSH 配置/agent、已有私钥路径，或粘贴专用私钥。粘贴的私钥会保存到本机配置目录并设置 600 权限。`额外 SSH 参数` 是传给 `ssh` 的选项，例如 `-J jump-host` 或 `-o StrictHostKeyChecking=accept-new`，不是私钥短语；带短语的私钥需要 `ssh-agent`。菜单里的 `DDNS 解析上报 -> DDNS 目标 / 上报计划` 管理 DDNS 目标和本机上报间隔；`PO0 目标`、`SSH 私钥 / 参数`、`目标 Token`、`Self-report TTL / WebAuth TTL` 分开管理目标、SSH、Token 和自上报/WebAuth TTL；`资源统计 / PO0 创建计划` 只读显示 PO0 端资源任务创建 cron，Worker 本机只安装轮询器领取 pending 任务。
 
 初始化后常用本地命令：
 
@@ -168,9 +168,9 @@ https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nft
 
 主菜单按功能分组：
 
-- 基础操作：安装、手动刷新 PO0 公网 IP 缓存、查看 Dashboard。
-- 规则管理：新增、编辑、排序、启停、删除、导入、导出转发规则。
-- 访问来源 / 白名单 / 客户端：源 IP 白名单、LAN Worker/客户端/Egern 部署命令、内网资源更新任务。
+- 部署与概览：安装、刷新 PO0 公网 IP、查看 Dashboard。
+- 转发规则：新增、编辑、排序、启停、删除、导入、导出转发规则。
+- 来源、客户端与资源：源 IP 白名单、LAN Worker/客户端/Egern 部署命令、内网资源更新任务。
 - 系统维护：中转参数、自检、脚本版本、BBR、完整备份 / 导入恢复。
 
 `中转机参数` 里可以设置本机名称 / 导出前缀，例如 `PO0XX`、`PO0YY`。设置后，导出规则默认文件名会变成 `PO0XX-po0-relay-export-YYYYMMDD_HHMMSS.txt`；留空则继续使用旧的 `po0-relay-export-YYYYMMDD_HHMMSS.txt`。
@@ -321,7 +321,7 @@ office-sg|office.example.com|sg-po0.example.com|22|root|/root/nftables-relay-man
 po0-lan-client --run --ddns-targets 'home-sg|home.example.com|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|;home-us|home.example.com|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|'
 ```
 
-首次部署推荐运行 `po0-lan-client --wizard`。长期维护可进入 `po0-lan-client --menu`，在 `DDNS 解析上报 -> DDNS 目标 / 上报计划` 里查看或编辑 DDNS 目标、安装/更新 DDNS 本机上报计划，并查看 PO0 DDNS TTL 设置位置；也可以分别在 `PO0 目标`、`SSH 私钥 / 参数`、`目标 Token`、`Self-report / WebAuth TTL` 里查看、编辑、删除、启停 PO0 目标，并管理目标 SSH 私钥、SSH 参数、Token 和自上报/WebAuth TTL；底层仍保存到本机配置文件，旧配置继续兼容。
+首次部署推荐运行 `po0-lan-client --wizard`。长期维护可进入 `po0-lan-client --menu`，在 `DDNS 解析上报 -> DDNS 目标 / 上报计划` 里查看或编辑 DDNS 目标、安装/更新 DDNS 本机上报计划，并查看 PO0 DDNS TTL 设置位置；也可以分别在 `PO0 目标`、`SSH 私钥 / 参数`、`目标 Token`、`Self-report TTL / WebAuth TTL` 里查看、编辑、删除、启停 PO0 目标，并管理目标 SSH 私钥、SSH 参数、Token 和自上报/WebAuth TTL；底层仍保存到本机配置文件，旧配置继续兼容。
 
 PO0 不做本地 DDNS 解析。`--refresh-ddns` 只会把已经由 LAN Worker/路由器上报、且仍在 TTL 内的结果重建/应用；它不会延长原上报 TTL：
 
@@ -401,18 +401,18 @@ curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scri
 po0-lan-client --install-self-report-https --self-report-https-domain <SELF_REPORT_DOMAIN> --po0-host <PO0_HOST> --po0-script /root/nftables-relay-manager.sh --self-report-source self-report --client-ip-token <CLIENT_REPORT_TOKEN> --self-report-secret <SELF_REPORT_SECRET>
 ```
 
-Self-report 放行 TTL 默认 `3600` 秒，由 LAN Worker 上报 PO0 时传入；可以在启动接收端时加 `--self-report-ttl <秒数>`，也可以在 LAN Worker 菜单 `PO0 目标、SSH、Token 与 TTL -> Self-report / WebAuth TTL` 里修改目标覆盖值。访问设备客户端只决定“多久上报一次”，不决定 TTL。
+Self-report 和 WebAuth 放行 TTL 默认都是 `21600` 秒（6 小时），由 LAN Worker 上报 PO0 时传入；可以在启动接收端时加 `--self-report-ttl <秒数>` / `--webauth-ttl <秒数>`，也可以在 LAN Worker 菜单 `PO0 目标、SSH、Token 与 TTL -> Self-report TTL / WebAuth TTL` 里修改目标覆盖值。访问设备客户端只决定“多久上报一次”，不决定 TTL。
 
 多个 PO0 用“设备自上报目标”合并到同一个 LAN Worker：
 
 ```text
 source|host|port|user|script|token|ttl|ssh_args
-self-report|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|3600|
-self-report|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|3600|
+self-report|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|21600|
+self-report|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|21600|
 ```
 
 ```bash
-po0-lan-client --install-self-report-https --self-report-https-domain <SELF_REPORT_DOMAIN> --self-report-targets 'self-report|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|3600|;self-report|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|3600|' --self-report-secret <SELF_REPORT_SECRET>
+po0-lan-client --install-self-report-https --self-report-https-domain <SELF_REPORT_DOMAIN> --self-report-targets 'self-report|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|21600|;self-report|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|21600|' --self-report-secret <SELF_REPORT_SECRET>
 ```
 
 访问设备定时自上报；Linux/OpenWrt 交互式无参数运行默认进入菜单。菜单里的“配置并保存上报参数”只写本地配置文件，不安装 cron；“安装 / 更新定时上报”读取已保存配置并写入 cron；“暂停 / 恢复定时上报”只影响自动 cron，手动“立即上报一次”仍可用：
@@ -524,6 +524,8 @@ Egern 模块不是 DDNS 模块。它的逻辑是：
 bash /root/nftables-relay-manager.sh --ssh-ip-report <source-id> <ipv4> <token> <identity> <ttl>
 ```
 
+Egern 放行 TTL 默认 `21600` 秒（6 小时）。单 PO0 可在模块环境变量 `TTL_SECONDS` 覆盖；多个 PO0 可在 `SSH_REPORT_TARGETS` 每行最后一列分别覆盖。实际 SSH 自动上报周期由 `AUTO_REPORT_INTERVAL_SECONDS` 控制，默认 `3600` 秒，可设置 `600` 到 `86400` 秒；模块 schedule 每 10 分钟轻量检查一次。
+
 只读检查：
 
 ```bash
@@ -553,8 +555,8 @@ source|host|port|user|script|token|identity|ttl
 示例：
 
 ```text
-iphone-sg|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|egern-iphone|3600
-iphone-us|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|egern-iphone|3600
+iphone-sg|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|egern-iphone|21600
+iphone-us|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|egern-iphone|21600
 ```
 
 如果 Egern 输入框会把换行折叠成空格，建议直接用逗号连接多个目标。
@@ -588,7 +590,7 @@ po0-lan-client --webauth-server --listen 127.0.0.1:8787 --po0-host <PO0_HOST> --
 多个 PO0 同样使用“WebAuth 放行目标”：
 
 ```bash
-po0-lan-client --webauth-server --listen 127.0.0.1:8787 --webauth-targets 'cf-access|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|3600|;cf-access|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|3600|'
+po0-lan-client --webauth-server --listen 127.0.0.1:8787 --webauth-targets 'cf-access|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|21600|;cf-access|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|21600|'
 ```
 
 PO0 接收的仍是 SSH 命令：
@@ -652,7 +654,7 @@ bash /root/nftables-relay-manager.sh --automation-mode regular
 - 地区白名单 CIDR：来自 `metowolf/iplist` 的 `docs/cncity.md` 和 `data/cncity/*.txt`，用于 nftables 实际放行地区网段。
 - IPDB 归属查询：默认下载 `nmgliangwei/qqwry.ipdb`，用于学习记录、阻挡记录、Client IP/WebAuth/DDNS 记录的当时归属快照。
 
-iplist 离线包可在本地构建，再到 PO0 主控菜单 `系统维护 -> 管理源 IP 白名单 -> 导入 / 刷新 iplist 离线包` 导入。
+iplist 离线包可在本地构建，再到 PO0 主控菜单 `来源、客户端与资源 -> 源 IP 白名单 -> 导入 / 刷新 iplist 离线包` 导入。
 
 Bash 版：
 

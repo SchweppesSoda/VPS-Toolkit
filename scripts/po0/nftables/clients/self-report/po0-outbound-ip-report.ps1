@@ -611,7 +611,7 @@ function Show-ClientConfig {
     Write-PanelRow "上报间隔" ("每 {0} 分钟（安装计划任务时使用）" -f $script:Minutes)
     Write-PanelRow "定时暂停" $(if ($script:SchedulePaused) { "已暂停" } else { "未暂停" })
     Write-PanelRow "计划任务" (Get-ScheduledReporterSummary)
-    Write-PanelRow "放行 TTL" "由 LAN Worker Self-report 目标控制，默认 3600 秒"
+    Write-PanelRow "放行 TTL" "由 LAN Worker Self-report 目标控制，默认 21600 秒"
     if ($script:IpCheckUrls.Count -gt 0) {
         Write-PanelRow "IP 探测列表" ($script:IpCheckUrls -join ",")
     } else {
