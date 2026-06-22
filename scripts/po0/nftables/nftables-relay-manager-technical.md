@@ -1130,7 +1130,7 @@ scripts/nftables-relay-manager.sh       当前脚本快照
 --dry-run                只显示将恢复的路径和入口
 ```
 
-LAN Worker 完整备份包包含 `targets.tsv`、`settings.env`、stats/resource-stats/resource-events、配置目录 `ssh-key-*`、目标 SSH 参数引用的 `-i`/`IdentityFile` 私钥、managed cron block、`po0-lan-self-report.service`/`po0-lan-webauth.service` 快照、Self-report Caddy snippet、Caddyfile 快照和脚本快照。导入默认只恢复配置/状态/密钥；`--restore-cron`、`--restore-systemd`、`--restore-caddy` 或 `--restore-all` 才恢复运行入口。恢复 LAN Worker cron 时会优先从备份的 cron block 识别旧脚本路径，并把旧配置路径和旧脚本路径重写为当前 `CONFIG_FILE` 和当前持久脚本路径。`settings.env` 保存 `SELF_REPORT_SECRET`、Self-report/WebAuth 监听、HTTPS/Caddy 路径、Worker ID、资源任务超时和轮询间隔，脚本升级后会先加载该文件再让 CLI 参数覆盖；旧安装没有 `settings.env` 时，会从已安装的 Self-report/WebAuth systemd unit 回填 secret、监听地址、目标和 token，再写入新的 `settings.env`。
+LAN Worker 完整备份包包含 `targets.tsv`、`settings.env`、stats/resource-stats/resource-events、配置目录 `ssh-key-*`、目标 SSH 参数引用的 `-i`/`IdentityFile` 私钥、managed cron block、`po0-lan-self-report.service`/`po0-lan-webauth.service` 快照、Self-report Caddy snippet、Caddyfile 快照和脚本快照。导入默认只恢复配置/状态/密钥；`--restore-cron`、`--restore-systemd`、`--restore-caddy` 或 `--restore-all` 才恢复运行入口。恢复 LAN Worker cron 时会优先从备份的 cron block 识别旧脚本路径，并把旧配置路径和旧脚本路径重写为当前 `CONFIG_FILE` 和当前持久脚本路径。`settings.env` 保存 `SELF_REPORT_SECRET`、Self-report/WebAuth 监听、TTL、HTTPS/Caddy 路径、Worker ID、资源任务超时和轮询间隔，脚本升级后会先加载该文件再让 CLI 参数覆盖；旧安装没有 `settings.env` 时，会从已安装的 Self-report/WebAuth systemd unit 回填 secret、监听地址、TTL、目标和 token，再写入新的 `settings.env`。
 
 备份不会导出 Egern 设备私钥、Egern app 本地配置、Cloudflare Tunnel/Access 远端配置、云安全组/防火墙规则、Caddy ACME 证书数据库、系统包安装状态，或脚本没有托管的手工配置。Egern PO0 受限 SSH 上报公钥会通过 `system/report-keys.tsv` 记录，并在 `--restore-report-keys`/`--restore-all` 下恢复。
 
