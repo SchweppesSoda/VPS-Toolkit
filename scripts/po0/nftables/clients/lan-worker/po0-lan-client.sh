@@ -4,9 +4,10 @@ set -uo pipefail
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh"
 MANAGER_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/nftables-relay-manager.sh"
 SCRIPT_NAME="po0-lan-worker-client"
-SCRIPT_VERSION="2026.06.22+build.6"
+SCRIPT_VERSION="2026.06.22+build.7"
 SCRIPT_RELEASE_DATE="2026-06-22"
 # CHANGELOG_BEGIN
+# - Self-report 后台服务摘要会提示 systemd unit 中仍显式保留的 TTL 覆盖值，便于发现旧服务未刷新。
 # - 读取旧安装的本机 settings.env 时，把遗留默认 Self-report TTL 3600 迁移为 43200、WebAuth TTL 3600 迁移为 21600；目标行显式 TTL 不自动改写。
 # - Self-report 放行 TTL 默认改为 43200 秒（12 小时），WebAuth 默认继续保持 21600 秒（6 小时）。
 # - Self-report / WebAuth TTL 统一限制在 60-604800 秒，避免误配造成过短或超长放行。
@@ -5096,7 +5097,7 @@ manage_manager_update_http_interactive() {
 }
 
 self_report_service_summary() {
-    local name="po0-lan-self-report.service" active enabled
+    local name="po0-lan-self-report.service" unit="/etc/systemd/system/po0-lan-self-report.service" active enabled unit_ttl current_ttl
     have_cmd systemctl || {
         printf 'systemctl 不可用'
         return 0
@@ -5104,6 +5105,15 @@ self_report_service_summary() {
     active="$(systemctl is-active "${name}" 2>/dev/null || true)"
     enabled="$(systemctl is-enabled "${name}" 2>/dev/null || true)"
     printf 'active=%s enabled=%s' "${active:-unknown}" "${enabled:-unknown}"
+    unit_ttl="$(unit_exec_arg_value "${unit}" "--self-report-ttl" 2>/dev/null || true)"
+    current_ttl="$(normalize_report_ttl_seconds "${SELF_REPORT_TTL_SECONDS:-43200}" 43200)"
+    if [[ -n "${unit_ttl}" ]]; then
+        unit_ttl="$(normalize_report_ttl_seconds "${unit_ttl}" "${current_ttl}")"
+        if [[ "${unit_ttl}" != "${current_ttl}" ]]; then
+            printf ' unit-ttl=%s' "${unit_ttl}"
+            [[ "${unit_ttl}" == "3600" ]] && printf '（旧默认；安装/更新服务后刷新）'
+        fi
+    fi
 }
 
 show_self_report_service_status() {

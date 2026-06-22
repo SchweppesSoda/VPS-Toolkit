@@ -2,16 +2,18 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-nftables-relay-manager"
-SCRIPT_VERSION="2026.06.22+build.3"
+SCRIPT_VERSION="2026.06.22+build.4"
 SCRIPT_RELEASE_DATE="2026-06-22"
 # CHANGELOG_BEGIN
+# - 修复 --client-ip-report 缺少必填参数时只打印用法但继续执行的问题。
+# - Client IP / Self-report 直连上报默认 TTL 统一为 43200 秒（12 小时），Egern / ssh-report 仍默认 21600 秒（6 小时）。
 # - DDNS 来源新增/无效 TTL 默认改为 43200 秒（12 小时），保留 60-86400 秒输入范围。
 # - WebAuth 上报 expires-at 增加 7 天防御性上限，避免误配造成超长放行。
 # - Self-report 部署命令示例的目标行 TTL 改为 43200 秒（12 小时）。
 # - 从 LAN Worker HTTP 更新 manager 的交互输入增加端口提示：入口不是 80 时必须在 URL 中写明 :端口。
 # - WebAuth 放行 TTL 默认从 3600 秒调整为 21600 秒（6 小时），部署命令同步输出 21600。
 # - Egern / ssh-report 放行 TTL 默认从 3600 秒调整为 21600 秒（6 小时），部署命令同步输出 21600。
-# - Self-report / client-ip 放行 TTL 默认从 3600 秒调整为 21600 秒（6 小时）。
+# - Self-report / client-ip 放行 TTL 默认从 3600 秒调整为 43200 秒（12 小时）。
 # - 新增从 LAN Worker HTTP 更新 PO0 manager：校验 resource token HMAC、sha256、脚本语法后原子替换主控脚本。
 # - 脚本 --version 输出改为参考 LAN Worker 的版本面板，并单独显示 build 构建标识。
 # - 修复当前 SSH 临时放行同一 /32 再次加入时只命中过期旧记录、不刷新过期时间的问题。
@@ -2693,8 +2695,10 @@ remove_ddns_report_stats() {
 }
 
 normalize_client_ttl_seconds() {
-    local ttl="${1:-21600}"
-    [[ "${ttl}" =~ ^[0-9]+$ ]] || ttl="21600"
+    local ttl="${1:-}"
+    local fallback="${2:-21600}"
+    [[ "${fallback}" =~ ^[0-9]+$ ]] || fallback="21600"
+    [[ "${ttl}" =~ ^[0-9]+$ ]] || ttl="${fallback}"
     (( ttl >= 60 )) || ttl=60
     (( ttl <= 604800 )) || ttl=604800
     printf '%s\n' "${ttl}"
@@ -2723,7 +2727,7 @@ report_client_ip_source() {
     local ip="$2"
     local token="$3"
     local identity="${4:-}"
-    local ttl="${5:-21600}"
+    local ttl="${5:-43200}"
     local expires_at note cidr
     source_id="$(sanitize_allowlist_source_text "${source_id}")"
     identity="$(sanitize_allowlist_source_text "${identity}")"
@@ -2742,7 +2746,7 @@ report_client_ip_source() {
         err "客户端 IP 上报 token 无效。"
         return 1
     }
-    ttl="$(normalize_client_ttl_seconds "${ttl}")"
+    ttl="$(normalize_client_ttl_seconds "${ttl}" 43200)"
     expires_at="$(utc_after_seconds_iso "${ttl}")"
     cidr="${ip}/32"
     note="client_ip ${source_id}"
@@ -2780,7 +2784,7 @@ report_ssh_ip_source() {
         err "invalid ssh report token"
         return 1
     }
-    ttl="$(normalize_client_ttl_seconds "${ttl}")"
+    ttl="$(normalize_client_ttl_seconds "${ttl}" 21600)"
     expires_at="$(utc_after_seconds_iso "${ttl}")"
     cidr="${ip}/32"
     note="ssh_report ${source_id}"
@@ -9155,9 +9159,10 @@ do_report_client_ip_source() {
     local ip="${2:-}"
     local token="${3:-}"
     local identity="${4:-}"
-    local ttl="${5:-21600}"
+    local ttl="${5:-43200}"
     [[ -n "${source_id}" && -n "${ip}" ]] || {
         err "用法：--client-ip-report <source-id> <ipv4> <token> [identity] [ttl]"
+        return 1
     }
     ensure_layout || return 1
     load_settings 1
@@ -9270,7 +9275,7 @@ do_show_client_ip_report_token() {
     printf 'Token      : %s\n' "${token}"
     echo ""
     echo "PO0 接收命令（SSH only；通常由 LAN Worker 自动执行）："
-    printf '  bash %s --client-ip-report self-report 1.2.3.4 %s lan-worker 21600\n' "$(basename "$0")" "${token}"
+    printf '  bash %s --client-ip-report self-report 1.2.3.4 %s lan-worker 43200\n' "$(basename "$0")" "${token}"
     echo ""
     echo "LAN Worker self-report server（推荐 HTTPS/Caddy；PO0 不开放 HTTP）："
     printf '  po0-lan-client --install-self-report-https --self-report-https-domain <SELF_REPORT_DOMAIN> --po0-host <PO0_HOST> --po0-script %s --self-report-source self-report --client-ip-token %s --self-report-secret <SELF_REPORT_SECRET>\n' \

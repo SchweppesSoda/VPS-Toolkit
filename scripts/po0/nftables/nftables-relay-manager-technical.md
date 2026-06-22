@@ -1057,7 +1057,7 @@ bash nftables-relay-manager.sh --render > /tmp/po0-relay.conf
 bash nftables-relay-manager.sh --refresh-ddns
 bash nftables-relay-manager.sh --ddns-report-check <ddns-source-key> TOKEN
 bash nftables-relay-manager.sh --ssh-ip-report <device-id> 1.2.3.4 TOKEN <identity> 21600
-bash nftables-relay-manager.sh --client-ip-report <device-id> 1.2.3.4 TOKEN <identity> 21600
+bash nftables-relay-manager.sh --client-ip-report <device-id> 1.2.3.4 TOKEN <identity> 43200
 bash nftables-relay-manager.sh --webauth-report <auth-source> 1.2.3.4 <identity> 2026-06-16T12:00:00Z TOKEN
 bash nftables-relay-manager.sh --resource-task-create all
 bash nftables-relay-manager.sh --install-resource-task-cron all daily
