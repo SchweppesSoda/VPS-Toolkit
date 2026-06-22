@@ -95,6 +95,10 @@
 
 ## po0-self-report（Windows PowerShell）
 
+### 2026.06.22+build.4
+
+- Windows 计划任务改用隐藏 launcher 启动 PowerShell，并在自动上报成功或失败后弹出 Windows 通知。
+
 ### 2026.06.22+build.3
 
 - 当前版本更新内容只显示本次版本条目；完整版本历史迁移到 `scripts/po0/nftables/CHANGELOG.md`，避免脚本内 changelog 越积越长。

@@ -19,16 +19,17 @@
     [switch]$UpgradeSelf,
     [switch]$Version,
     [switch]$Changelog,
+    [switch]$Notify,
     [switch]$Help
 )
 
 $ErrorActionPreference = "Stop"
 $RawUrl = "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1"
 $ScriptName = "po0-self-report"
-$ScriptVersion = "2026.06.22+build.3"
+$ScriptVersion = "2026.06.22+build.4"
 $ScriptReleaseDate = "2026-06-22"
 # CHANGELOG_BEGIN
-# - 当前版本更新内容只显示本次版本条目；完整版本历史迁移到 scripts/po0/nftables/CHANGELOG.md，避免脚本内 changelog 越积越长。
+# - Windows 计划任务改用隐藏 launcher 启动 PowerShell，并在自动上报成功或失败后弹出 Windows 通知。
 # CHANGELOG_END
 $PanelValueColumn = 24
 $MenuRightColumn = 46
@@ -66,6 +67,10 @@ function Get-DefaultScriptPath {
     return (Join-Path (Get-DefaultDataDir) "po0-self-report.ps1")
 }
 
+function Get-DefaultTaskLauncherPath {
+    return (Join-Path (Get-DefaultDataDir) "po0-self-report-task.vbs")
+}
+
 $script:ConfigPath = $ConfigPath
 $script:ConfigPath = Get-DefaultConfigPath
 $script:WorkerUrl = $WorkerUrl
@@ -83,6 +88,7 @@ $script:Minutes = $Minutes
 $script:LogPath = $LogPath
 $script:AllowHttp = [bool]$AllowHttp
 $script:SchedulePaused = $false
+$script:Notify = [bool]$Notify
 
 function Write-SelfReportLogLine {
     param(
@@ -120,6 +126,43 @@ function Write-SelfReportIncomplete {
     param([string]$Message)
     [Console]::Error.WriteLine("Self-report 未完成：$Message")
     Write-SelfReportLogLine "ERROR" "Self-report 未完成：$Message"
+}
+
+function Show-WindowsSelfReportNotification {
+    param(
+        [string]$Title,
+        [string]$Message,
+        [ValidateSet("Info", "Error")]
+        [string]$Kind = "Info"
+    )
+    if (-not $script:Notify) { return }
+    try {
+        Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
+        Add-Type -AssemblyName System.Drawing -ErrorAction Stop
+        $notify = New-Object System.Windows.Forms.NotifyIcon
+        if ($Kind -eq "Error") {
+            $notify.Icon = [System.Drawing.SystemIcons]::Error
+            $notify.BalloonTipIcon = [System.Windows.Forms.ToolTipIcon]::Error
+        } else {
+            $notify.Icon = [System.Drawing.SystemIcons]::Information
+            $notify.BalloonTipIcon = [System.Windows.Forms.ToolTipIcon]::Info
+        }
+        if ($Message.Length -gt 240) {
+            $Message = $Message.Substring(0, 237) + "..."
+        }
+        $notify.Text = "PO0 Self-report"
+        $notify.BalloonTipTitle = $Title
+        $notify.BalloonTipText = $Message
+        $notify.Visible = $true
+        $notify.ShowBalloonTip(8000)
+        Start-Sleep -Seconds 6
+    } catch {
+        Write-SelfReportLogLine "WARN" "Windows 通知显示失败：$($_.Exception.Message)"
+    } finally {
+        if ($notify) {
+            $notify.Dispose()
+        }
+    }
 }
 
 function Set-OutputColumn {
@@ -291,6 +334,7 @@ self-report 接收服务。访问设备不直接连接 PO0。
   -ScheduleStatus     查看计划任务状态。
   -Minutes N          计划任务间隔分钟数，范围 1-$MaxMinutes。默认: 60。
   -LogPath PATH       计划任务运行日志路径；安装计划任务时默认写到 PO0 配置目录。
+  -Notify             上报完成或失败时显示 Windows 通知；安装计划任务时自动使用。
                       Self-report 放行 TTL 由 LAN Worker 接收端配置，不由客户端决定。
 
 默认公网 IPv4 探测顺序:
@@ -544,13 +588,21 @@ function Invoke-SelfReport {
         Write-Output $trimmedContent
         Write-SelfReportLogLine "RESPONSE" $trimmedContent
     }
-    Write-SelfReportCompleted "公网出口 IPv4 $ip 已被 LAN Worker 接收（HTTP $([int]$resp.StatusCode)）。"
+    $message = "公网出口 IPv4 $ip 已被 LAN Worker 接收（HTTP $([int]$resp.StatusCode)）。"
+    Write-SelfReportCompleted $message
+    Show-WindowsSelfReportNotification -Title "PO0 Self-report 已完成" -Message $message -Kind "Info"
 }
 
 function Quote-TaskArg {
     param([string]$Value)
     if ($null -eq $Value) { return '""' }
     return '"' + ($Value -replace '"', '\"') + '"'
+}
+
+function ConvertTo-VbsStringLiteral {
+    param([string]$Value)
+    if ($null -eq $Value) { $Value = "" }
+    return '"' + ($Value -replace '"', '""') + '"'
 }
 
 function Test-DownloadedScript {
@@ -629,14 +681,28 @@ function Install-ScheduledReporter {
     }
     $taskArgList = @(
         "-NoProfile",
+        "-Sta",
+        "-WindowStyle", "Hidden",
+        "-NonInteractive",
         "-ExecutionPolicy", "Bypass",
         "-File", (Quote-TaskArg $dest),
         "-ConfigPath", (Quote-TaskArg $script:ConfigPath),
         "-LogPath", (Quote-TaskArg $script:LogPath),
-        "-RunOnce"
+        "-RunOnce",
+        "-Notify"
     )
     $taskArgs = $taskArgList -join " "
-    $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $taskArgs
+    $launcher = Get-DefaultTaskLauncherPath
+    $command = "powershell.exe $taskArgs"
+    $launcherContent = @(
+        "Option Explicit",
+        "Dim shell, command",
+        "command = $(ConvertTo-VbsStringLiteral $command)",
+        "Set shell = CreateObject(""WScript.Shell"")",
+        "WScript.Quit shell.Run(command, 0, True)"
+    )
+    Set-Content -LiteralPath $launcher -Encoding Unicode -Value $launcherContent
+    $action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument ("//B //Nologo " + (Quote-TaskArg $launcher))
     $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes $script:Minutes) -RepetitionDuration (New-TimeSpan -Days 3650)
     $description = "探测当前 Windows 公网出口 IPv4，并上报到 LAN Worker。"
     Register-ScheduledTask -TaskName $script:TaskName -Action $action -Trigger $trigger -Description $description -Force | Out-Null
@@ -647,6 +713,7 @@ function Install-ScheduledReporter {
     }
     Write-Host "已安装计划任务：$script:TaskName，每 $script:Minutes 分钟执行一次。"
     Write-Host "脚本路径：$dest"
+    Write-Host "隐藏启动器：$launcher"
     Write-Host "配置文件：$script:ConfigPath"
     Write-Host "运行日志：$script:LogPath"
     if ($script:SchedulePaused) {
@@ -717,6 +784,17 @@ function Get-ScheduledReporterLogPath {
         $args = [string]$action.Arguments
         if ($args -match '(?i)-LogPath\s+"([^"]+)"') { return $matches[1] }
         if ($args -match '(?i)-LogPath\s+(\S+)') { return $matches[1].Trim('"') }
+        $launcher = ""
+        if ($args -match '(?i)"([^"]+\.vbs)"') {
+            $launcher = $matches[1]
+        } elseif ($args -match '(?i)(\S+\.vbs)') {
+            $launcher = $matches[1].Trim('"')
+        }
+        if ($launcher -and (Test-Path -LiteralPath $launcher)) {
+            $launcherRaw = Get-Content -LiteralPath $launcher -Raw
+            if ($launcherRaw -match '(?i)-LogPath\s+""([^""]+)""') { return $matches[1] }
+            if ($launcherRaw -match '(?i)-LogPath\s+(\S+)') { return $matches[1].Trim('"') }
+        }
     }
     return ""
 }
@@ -986,5 +1064,6 @@ try {
     }
 } catch {
     Write-SelfReportIncomplete $_.Exception.Message
+    Show-WindowsSelfReportNotification -Title "PO0 Self-report 未完成" -Message $_.Exception.Message -Kind "Error"
     exit 1
 }
