@@ -433,12 +433,15 @@ function widgetMetrics(ctx) {
   return {
     ...base,
     padding: 12,
-    widgetGap: 5,
+    widgetGap: 4,
     titleSize: 13,
-    sectionTitleSize: 11,
+    detailLabelSize: 11,
+    detailValueSize: 11,
+    sectionTitleSize: 12,
     columnGap: 5,
-    columnInnerGap: 4,
-    bottomGap: 2,
+    columnInnerGap: 3,
+    bottomGap: 0,
+    summaryItemGap: 3,
   };
 }
 
