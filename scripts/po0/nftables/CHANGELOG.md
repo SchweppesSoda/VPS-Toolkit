@@ -139,6 +139,10 @@
 
 ## po0-self-report（Windows PowerShell）
 
+### 2026.06.23+build.9
+
+- Windows 计划任务默认静默运行，只写日志；菜单和 `-Notify` 可显式启用自动上报完成/失败通知。
+
 ### 2026.06.23+build.8
 
 - 默认公网 IPv4 探测列表删除 12306 grip 接口，继续以 IP9 为首选并轮询其它国内接口和 `myip.ipip.net`。

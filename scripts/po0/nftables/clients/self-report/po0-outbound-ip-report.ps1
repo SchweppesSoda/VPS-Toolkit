@@ -27,10 +27,10 @@
 $ErrorActionPreference = "Stop"
 $RawUrl = "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1"
 $ScriptName = "po0-self-report"
-$ScriptVersion = "2026.06.23+build.8"
+$ScriptVersion = "2026.06.23+build.9"
 $ScriptReleaseDate = "2026-06-23"
 # CHANGELOG_BEGIN
-# - 默认公网 IPv4 探测列表删除 12306 grip 接口，继续以 IP9 为首选并轮询其它国内接口。
+# - Windows 计划任务默认静默运行，只写日志；菜单和 -Notify 可显式启用自动上报完成/失败通知。
 # CHANGELOG_END
 $PanelValueColumn = 24
 $MenuRightColumn = 46
@@ -91,6 +91,7 @@ $script:LogPath = $LogPath
 $script:AllowHttp = [bool]$AllowHttp
 $script:SchedulePaused = $false
 $script:Notify = [bool]$Notify
+$script:TaskNotify = [bool]$Notify
 
 function Write-SelfReportLogLine {
     param(
@@ -277,6 +278,9 @@ function Load-SavedConfig {
     if ($null -ne $cfg.SchedulePaused) {
         $script:SchedulePaused = [bool]$cfg.SchedulePaused
     }
+    if (-not $PSBoundParameters.ContainsKey("Notify") -and $null -ne $cfg.Notify) {
+        $script:TaskNotify = [bool]$cfg.Notify
+    }
 }
 
 function Save-ClientConfig {
@@ -297,6 +301,7 @@ function Save-ClientConfig {
         IpCheckUrls = @($script:IpCheckUrls)
         LogPath = $script:LogPath
         SchedulePaused = [bool]$script:SchedulePaused
+        Notify = [bool]$script:TaskNotify
     }
     $config | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $script:ConfigPath -Encoding UTF8
     Write-SelfReportCompleted "配置已保存：$script:ConfigPath"
@@ -340,7 +345,7 @@ self-report 接收服务。访问设备不直接连接 PO0。
   -IntervalSeconds N  计划任务间隔秒数，必须是 60 的倍数。默认: 3600。
   -Minutes N          兼容旧参数：计划任务间隔分钟数，范围 1-$MaxMinutes。默认: 60。
   -LogPath PATH       计划任务运行日志路径；安装计划任务时默认写到 PO0 配置目录。
-  -Notify             上报完成或失败时显示 Windows 通知；安装计划任务时自动使用。
+  -Notify             上报完成或失败时显示 Windows 通知；安装计划任务时显式启用。
                       Self-report 放行 TTL 由 LAN Worker 接收端配置，不由客户端决定。
 
 默认公网 IPv4 探测顺序:
@@ -717,9 +722,11 @@ function Install-ScheduledReporter {
         "-File", (Quote-TaskArg $dest),
         "-ConfigPath", (Quote-TaskArg $script:ConfigPath),
         "-LogPath", (Quote-TaskArg $script:LogPath),
-        "-RunOnce",
-        "-Notify"
+        "-RunOnce"
     )
+    if ($script:TaskNotify) {
+        $taskArgList += "-Notify"
+    }
     $taskArgs = $taskArgList -join " "
     $launcher = Get-DefaultTaskLauncherPath
     $command = "powershell.exe $taskArgs"
@@ -745,10 +752,11 @@ function Install-ScheduledReporter {
     Write-Host "隐藏启动器：$launcher"
     Write-Host "配置文件：$script:ConfigPath"
     Write-Host "运行日志：$script:LogPath"
+    Write-Host "Windows 通知：$(Format-NotifyStatus)"
     if ($script:SchedulePaused) {
         Write-SelfReportCompleted "计划任务已安装 / 更新，但当前保持暂停。"
     } else {
-        Write-SelfReportCompleted "计划任务已安装 / 更新：$script:TaskName；间隔：$(Get-IntervalSeconds) 秒；脚本路径：$dest；日志路径：$script:LogPath。"
+        Write-SelfReportCompleted "计划任务已安装 / 更新：$script:TaskName；间隔：$(Get-IntervalSeconds) 秒；通知：$(Format-NotifyStatus)；脚本路径：$dest；日志路径：$script:LogPath。"
     }
 }
 
@@ -757,6 +765,11 @@ function Get-MaskedSecret {
     if (-not $Value) { return "未设置" }
     if ($Value.Length -le 8) { return "***" }
     return ($Value.Substring(0, 3) + "***" + $Value.Substring($Value.Length - 3))
+}
+
+function Format-NotifyStatus {
+    if ($script:TaskNotify) { return "已启用" }
+    return "静默，仅写日志"
 }
 
 function Read-Default {
@@ -773,6 +786,23 @@ function Read-Default {
     $value = Read-Host "$Prompt"
     if ($null -eq $value) { return "" }
     return $value.Trim()
+}
+
+function Read-YesNoDefault {
+    param(
+        [string]$Prompt,
+        [bool]$DefaultValue
+    )
+    $suffix = $(if ($DefaultValue) { "[Y/n]" } else { "[y/N]" })
+    while ($true) {
+        $value = Read-Host "$Prompt $suffix"
+        if ($null -eq $value -or -not $value.Trim()) { return $DefaultValue }
+        switch -Regex ($value.Trim()) {
+            '^(y|yes)$' { return $true }
+            '^(n|no)$' { return $false }
+            default { Write-Host "请输入 y 或 n。" }
+        }
+    }
 }
 
 function Read-SecretSetting {
@@ -869,6 +899,7 @@ function Show-ClientConfig {
     Write-PanelRow "Secret" (Get-MaskedSecret $script:Secret)
     Write-PanelRow "HTTP 上报" $(if ($script:AllowHttp) { "已显式允许" } else { "默认拒绝" })
     Write-PanelRow "上报间隔" ("每 {0} 秒（安装定时上报时使用）" -f (Get-IntervalSeconds))
+    Write-PanelRow "Windows 通知" (Format-NotifyStatus)
     Write-PanelRow "定时暂停" $(if ($script:SchedulePaused) { "已暂停" } else { "未暂停" })
     Write-PanelRow "计划任务" (Get-ScheduledReporterSummary)
     Write-PanelRow "放行 TTL" "由 LAN Worker Self-report 目标控制，默认 43200 秒"
@@ -916,6 +947,7 @@ function Install-ScheduledReporterInteractive {
         $seconds = Read-Default "定时上报每几秒执行一次（60-$($script:MaxMinutes * 60)；必须是 60 的倍数）" ([string](Get-IntervalSeconds))
         $script:Minutes = Convert-IntervalSecondsToMinutes $seconds
     }
+    $script:TaskNotify = Read-YesNoDefault "自动上报完成/失败后弹出 Windows 通知" $false
     Install-ScheduledReporter
 }
 
@@ -1097,6 +1129,7 @@ try {
     } elseif ($Menu -or (-not $PSBoundParameters.ContainsKey("WorkerUrl") -and -not $InstallTask -and -not $RunOnce -and [Environment]::UserInteractive)) {
         Invoke-InteractiveMenu
     } elseif ($InstallTask) {
+        $script:TaskNotify = [bool]$Notify
         Install-ScheduledReporter
     } else {
         Invoke-SelfReport
