@@ -140,7 +140,7 @@ Linux/OpenWrt Self-report client（交互式无参数运行默认进入菜单；
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh | bash
 ```
 
-菜单里的 `8) 从 GitHub 更新脚本` 会更新本机 `po0-self-report` 命令并重新打开新版菜单。命令行也可直接更新、查看版本或查看当前更新内容：
+菜单里的 `8) 从 GitHub 更新脚本` 会更新本机 `po0-self-report` 命令并重新打开新版菜单；`9) 卸载本客户端` 会删除本脚本管理的 cron 和本机安装脚本，配置文件与日志默认保留，也可在确认后一起删除。命令行也可直接更新、查看版本或查看当前更新内容：
 
 ```bash
 po0-self-report --upgrade-self
@@ -166,7 +166,7 @@ Windows Self-report client（交互式无参数运行默认进入菜单；PowerS
 $script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script; powershell -ExecutionPolicy Bypass -File $script -Menu
 ```
 
-菜单里的 `8) 从 GitHub 更新脚本` 会更新本机 `po0-self-report.ps1` 并重新打开新版菜单。命令行也可直接更新、查看版本或查看当前更新内容；普通用户默认脚本路径在 `%LOCALAPPDATA%\PO0\po0-self-report.ps1`，管理员默认脚本路径在 `%ProgramData%\PO0\po0-self-report.ps1`：
+菜单里的 `8) 从 GitHub 更新脚本` 会更新本机 `po0-self-report.ps1` 并重新打开新版菜单；`9) 卸载本客户端` 会删除本脚本管理的计划任务、隐藏 launcher 和本机安装脚本，配置文件与日志默认保留，也可在确认后一起删除。命令行也可直接更新、查看版本或查看当前更新内容；普通用户默认脚本路径在 `%LOCALAPPDATA%\PO0\po0-self-report.ps1`，管理员默认脚本路径在 `%ProgramData%\PO0\po0-self-report.ps1`：
 
 ```powershell
 $script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script; powershell -ExecutionPolicy Bypass -File $script -UpgradeSelf
@@ -452,7 +452,7 @@ self-report|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR
 po0-lan-client --install-self-report-https --self-report-https-domain <SELF_REPORT_DOMAIN> --self-report-targets 'self-report|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|43200|;self-report|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|43200|' --self-report-secret <SELF_REPORT_SECRET>
 ```
 
-访问设备定时自上报；Linux/OpenWrt 交互式无参数运行默认进入菜单。菜单里的“配置并保存上报参数”只写本地配置文件，不安装 cron；“安装 / 更新定时上报”读取已保存配置并写入 cron；“暂停 / 恢复定时上报”只影响自动 cron，手动“立即上报一次”仍可用。Linux/OpenWrt 未传 `--source-id` / `--identity` 时，会用 hostname + machine-id/MAC 生成默认 Source ID，并用设备名作为 Identity；需要固定自定义 ID 时再显式添加 `--source-id <CLIENT_ID>`：
+访问设备定时自上报；Linux/OpenWrt 交互式无参数运行默认进入菜单。菜单里的“配置并保存上报参数”只写本地配置文件，不安装 cron；“安装 / 更新定时上报”读取已保存配置并写入 cron；“暂停 / 恢复定时上报”只影响自动 cron，手动“立即上报一次”仍可用；“卸载本客户端”会删除本脚本管理的 cron 和本机安装脚本，配置文件与 `/tmp/po0-self-report.log` 默认保留，可选择一起删除。Linux/OpenWrt 未传 `--source-id` / `--identity` 时，会用 hostname + machine-id/MAC 生成默认 Source ID，并用设备名作为 Identity；需要固定自定义 ID 时再显式添加 `--source-id <CLIENT_ID>`：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh | bash
@@ -498,7 +498,7 @@ Linux/OpenWrt 查看最近 self-report 日志：
 tail -n 40 /tmp/po0-self-report.log
 ```
 
-Windows PowerShell 交互式运行，默认进入菜单；推荐显式加 `-Menu`。菜单里的“配置并保存上报参数”只写本地配置文件，不安装计划任务；“安装 / 更新定时上报”会提示计划任务间隔，保存后写入计划任务；“暂停 / 恢复定时上报”只影响自动计划任务，手动“立即上报一次”仍可用：
+Windows PowerShell 交互式运行，默认进入菜单；推荐显式加 `-Menu`。菜单里的“配置并保存上报参数”只写本地配置文件，不安装计划任务；“安装 / 更新定时上报”会提示计划任务间隔，保存后写入计划任务；“暂停 / 恢复定时上报”只影响自动计划任务，手动“立即上报一次”仍可用；“卸载本客户端”会删除本脚本管理的计划任务、隐藏 launcher 和本机安装脚本，配置文件与日志默认保留，可选择一起删除：
 
 ```powershell
 $script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script; powershell -ExecutionPolicy Bypass -File $script -Menu

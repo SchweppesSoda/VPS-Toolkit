@@ -27,10 +27,10 @@
 $ErrorActionPreference = "Stop"
 $RawUrl = "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1"
 $ScriptName = "po0-self-report"
-$ScriptVersion = "2026.06.23+build.9"
+$ScriptVersion = "2026.06.23+build.10"
 $ScriptReleaseDate = "2026-06-23"
 # CHANGELOG_BEGIN
-# - Windows 计划任务默认静默运行，只写日志；菜单和 -Notify 可显式启用自动上报完成/失败通知。
+# - 菜单新增卸载本客户端，可删除计划任务、本机脚本和隐藏启动器，并可选删除配置与日志。
 # CHANGELOG_END
 $PanelValueColumn = 24
 $MenuRightColumn = 46
@@ -1021,6 +1021,55 @@ function Remove-ScheduledReporter {
     }
 }
 
+function Remove-SelfReportPathIfExists {
+    param(
+        [string]$Label,
+        [string]$Path
+    )
+    if (-not $Path) { return $true }
+    if (-not (Test-Path -LiteralPath $Path)) {
+        Write-Host "${Label}不存在：$Path"
+        return $true
+    }
+    try {
+        Remove-Item -LiteralPath $Path -Force -ErrorAction Stop
+        Write-Host "已删除${Label}：$Path"
+        return $true
+    } catch {
+        Write-Host "删除${Label}失败：$Path；$($_.Exception.Message)" -ForegroundColor Red
+        return $false
+    }
+}
+
+function Uninstall-SelfReportClient {
+    param([switch]$RemoveData)
+
+    $scriptPath = Get-DefaultScriptPath
+    $launcherPath = Get-DefaultTaskLauncherPath
+    $logPath = Get-DefaultLogPath
+    $ok = $true
+
+    Write-Host "卸载会删除本脚本管理的计划任务、隐藏启动器和本机安装脚本。"
+    Write-Host "本机脚本：$scriptPath"
+    Write-Host "隐藏启动器：$launcherPath"
+    Remove-ScheduledReporter
+    if (-not (Remove-SelfReportPathIfExists -Label "隐藏启动器" -Path $launcherPath)) { $ok = $false }
+    if (-not (Remove-SelfReportPathIfExists -Label "本机脚本" -Path $scriptPath)) { $ok = $false }
+
+    if ($RemoveData) {
+        if (-not (Remove-SelfReportPathIfExists -Label "配置文件" -Path $script:ConfigPath)) { $ok = $false }
+        if (-not (Remove-SelfReportPathIfExists -Label "日志文件" -Path $logPath)) { $ok = $false }
+    } else {
+        Write-Host "已保留配置文件：$script:ConfigPath"
+        Write-Host "已保留日志文件：$logPath"
+    }
+
+    if (-not $ok) {
+        throw "卸载已执行，但有项目删除失败。"
+    }
+    Write-SelfReportCompleted "卸载已完成。"
+}
+
 function Pause-Menu {
     Read-Host "按回车返回菜单" | Out-Null
 }
@@ -1036,11 +1085,11 @@ function Invoke-InteractiveMenu {
         Write-MenuSection "查看"
         Write-MenuItem "7" "显示当前配置"
         Write-MenuSection "维护"
-        Write-MenuItem "8" "从 GitHub 更新脚本"
+        Write-MenuPair "8" "从 GitHub 更新脚本" "9" "卸载本客户端"
         Write-MenuSection "退出"
         Write-MenuItem "0" "退出"
         Write-MenuDivider
-        $rawChoice = Read-Host "请选择操作 [0-8]"
+        $rawChoice = Read-Host "请选择操作 [0-9]"
         if ($null -eq $rawChoice) { return }
         $choice = $rawChoice.Trim()
         try {
@@ -1069,6 +1118,19 @@ function Invoke-InteractiveMenu {
                 }
                 "7" { Show-ClientConfig; Pause-Menu }
                 "8" { Upgrade-SelfFromRaw -ReopenMenu }
+                "9" {
+                    $uninstalled = $false
+                    Write-Host "卸载会删除计划任务、隐藏启动器和本机安装脚本；配置与日志默认保留。"
+                    if (Read-YesNoDefault "确认卸载 self-report 客户端" $false) {
+                        $removeData = Read-YesNoDefault "是否同时删除配置文件和日志" $false
+                        Uninstall-SelfReportClient -RemoveData:$removeData
+                        $uninstalled = $true
+                    } else {
+                        Write-Host "已取消。"
+                    }
+                    Pause-Menu
+                    if ($uninstalled) { return }
+                }
                 "0" { return }
                 "" {}
                 default { Write-Host "无效选择。"; Pause-Menu }

@@ -104,6 +104,10 @@
 
 ## po0-self-report（Linux/OpenWrt）
 
+### 2026.06.23+build.10
+
+- 菜单新增“卸载本客户端”，可删除本脚本管理的 cron 和本机安装脚本，并可选删除配置与日志。
+
 ### 2026.06.23+build.9
 
 - 默认公网 IPv4 探测列表删除 12306 grip 接口，继续以 IP9 为首选并轮询其它国内接口和 `myip.ipip.net`。
@@ -138,6 +142,10 @@
 - 新增 `--version` 和 `--changelog` 只读入口。
 
 ## po0-self-report（Windows PowerShell）
+
+### 2026.06.23+build.10
+
+- 菜单新增“卸载本客户端”，可删除本脚本管理的计划任务、本机脚本和隐藏 launcher，并可选删除配置与日志。
 
 ### 2026.06.23+build.9
 
