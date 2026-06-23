@@ -95,7 +95,7 @@ source_id|host|port|user|script|token|identity|ttl
 - `generic`：在 Egern 手动执行 `PO0 SSH IP Report Now`。
 - `保存本机设备 ID`：把 `DEVICE_ID_SETUP` 写入本机 `ctx.storage`，不做 SSH 上报。
 - `清除本机设备 ID`：清除本机 `ctx.storage` 里的设备 ID。
-- `PO0 SSH 上报状态` / `widget`：显示本机设备 ID、公网 IP、上报 CIDR、IP 归属地、运营商、每个 PO0 target 的成功/失败、时间、TTL 和错误原因。归属地 / 运营商优先使用本次 IP 查询接口返回的数据，拿不到时才额外查询。
+- `PO0 SSH 上报状态` / `widget`：显示本机设备 ID、公网 IP、上报 CIDR、IP 归属地、运营商、自动上报周期、每个 PO0 target 的成功/失败、时间、TTL 和错误原因。归属地 / 运营商优先使用本次 IP 查询接口返回的数据，拿不到时才额外查询。
 
 自动触发会先探测当前出口 IPv4，并按网络类型计算上报 CIDR：蜂窝默认 `/24`，Wi-Fi/未知固定 `/32`。如果本次上报 CIDR 和上次成功记录一致、PO0 target 配置未变化，并且距离上次成功还小于 `AUTO_REPORT_INTERVAL_SECONDS`，脚本会跳过 SSH 上报；因此只有蜂窝 `/24` 会出现“IP 变了但同一 CIDR，所以跳过 SSH”。该周期默认 `3600` 秒，可设置 `600` 到 `86400` 秒；模块定时任务每 10 分钟唤醒检查一次，所以实际执行精度以 10 分钟为粒度。建议 `TTL_SECONDS` 至少大于自动上报周期；如果 TTL 小于自动上报周期，脚本会提前续期，尽量避免白名单过期空窗。跨 `/24`、Wi-Fi/未知网络 IP 变化、target 配置变化（含 TTL、CIDR 前缀、脚本路径、用户、token 指纹等）、自动周期到达、手动执行和 Widget 刷新都会继续执行 SSH 上报。
 
