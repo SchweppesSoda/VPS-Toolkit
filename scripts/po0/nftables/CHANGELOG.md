@@ -6,6 +6,10 @@
 
 ## po0-nftables-relay-manager
 
+### 2026.06.23+build.2
+
+- 从菜单使用 LAN Worker HTTP 更新 PO0 manager 成功后，按回车会重新打开新版菜单；命令行直接执行 `--upgrade-manager-from-lan` 仍保持更新后退出。
+
 ### 2026.06.23+build.1
 
 - 动态来源 allowlist、DDNS/self-report/WebAuth/Egern/SSH report 统计和 DDNS 来源状态的读改写增加本地 `flock` 锁，降低并发上报时 TSV 状态互相覆盖的风险。

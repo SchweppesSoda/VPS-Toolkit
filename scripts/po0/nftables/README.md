@@ -102,7 +102,7 @@ PO0 上拉取更新：
 bash /root/nftables-relay-manager.sh --upgrade-manager-from-lan http://<LAN_WORKER_IP>:2333/po0-manager-update/nftables-relay-manager.sh
 ```
 
-也可以在 PO0 主菜单进入 `脚本版本 / 更新 -> 从 LAN Worker HTTP 更新 manager`，第一次输入 URL 后会保存到 PO0 设置文件；如果入口不是 HTTP 默认 80 端口，必须在 URL 中写明 `:PORT`，例如 `:2333`。更新时 PO0 会读取本机 resource token，向 LAN Worker 发送随机 nonce 和 `token_id`，下载后校验 HMAC、SHA-256、size、脚本标识、changelog 和 `bash -n`；通过后备份旧脚本并原子替换。更新成功后会询问是否刷新受限 SSH wrapper，不会自动应用 nftables，也不会自动运行诊断。
+也可以在 PO0 主菜单进入 `脚本版本 / 更新 -> 从 LAN Worker HTTP 更新 manager`，第一次输入 URL 后会保存到 PO0 设置文件；如果入口不是 HTTP 默认 80 端口，必须在 URL 中写明 `:PORT`，例如 `:2333`。更新时 PO0 会读取本机 resource token，向 LAN Worker 发送随机 nonce 和 `token_id`，下载后校验 HMAC、SHA-256、size、脚本标识、changelog 和 `bash -n`；通过后备份旧脚本并原子替换。更新成功后会询问是否刷新受限 SSH wrapper；从菜单更新时，停留显示结果后按回车会重新打开新版菜单。命令行直接执行 `--upgrade-manager-from-lan` 仍会更新后退出，方便继续串行执行其它命令。更新不会自动应用 nftables，也不会自动运行诊断。
 
 也可以显式进入向导：
 

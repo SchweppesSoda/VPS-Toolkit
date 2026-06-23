@@ -2,11 +2,10 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-nftables-relay-manager"
-SCRIPT_VERSION="2026.06.23+build.1"
+SCRIPT_VERSION="2026.06.23+build.2"
 SCRIPT_RELEASE_DATE="2026-06-23"
 # CHANGELOG_BEGIN
-# - 动态来源 allowlist / 上报统计读改写增加本地锁，避免并发 DDNS、Self-report、WebAuth、Egern/SSH report 丢状态。
-# - 受限 SSH wrapper 修复资源任务失败原因包含空格时的参数拆分；Self-report 示例命令改为秒级 canonical 参数。
+# - 从菜单使用 LAN Worker HTTP 更新 PO0 manager 成功后，按回车会重新打开新版菜单；命令行直接升级仍更新后退出。
 # CHANGELOG_END
 CONF_DIR="${PO0_CONF_DIR:-/etc/nftables.d}"
 MAIN_CONF="/etc/nftables.conf"
@@ -12048,7 +12047,7 @@ do_show_version_panel() {
 }
 
 do_upgrade_manager_from_lan_interactive() {
-    local prompt_label url
+    local reopen_mode="${1:-}" prompt_label url
     prompt_label="LAN Worker manager 更新 HTTP URL（非 80 端口请加 :端口）"
     load_settings 1
     if [[ -n "${MANAGER_UPDATE_URL}" ]]; then
@@ -12060,7 +12059,14 @@ do_upgrade_manager_from_lan_interactive() {
     url="$(normalize_manager_update_url "${url}")" || return 1
     MANAGER_UPDATE_URL="${url}"
     save_settings || return 1
-    do_upgrade_manager_from_lan "${url}"
+    do_upgrade_manager_from_lan "${url}" || return 1
+    if [[ "${reopen_mode}" == "--reopen-menu" ]]; then
+        read_prompt "更新完成。按回车打开新版菜单..." >/dev/null || true
+        printf '正在重新打开新版菜单：%s\n' "${MANAGER_INSTALL_PATH}"
+        exec "${BASH:-bash}" "${MANAGER_INSTALL_PATH}"
+        printf '重新打开新版脚本失败，请手动执行：bash %s\n' "${MANAGER_INSTALL_PATH}" >&2
+        return 1
+    fi
 }
 
 do_manage_version_update() {
@@ -12074,7 +12080,7 @@ do_manage_version_update() {
         print_menu_footer
         read_menu_choice_or_return choice "请选择操作 [0-2]: " || return 0
         case "${choice}" in
-            1) do_upgrade_manager_from_lan_interactive; pause_before_return ;;
+            1) do_upgrade_manager_from_lan_interactive --reopen-menu || pause_before_return ;;
             2) do_show_changelog; pause_before_return ;;
             0) return 0 ;;
             "") ;;

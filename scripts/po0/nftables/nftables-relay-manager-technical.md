@@ -892,7 +892,7 @@ HMAC 消息格式固定为：
 nonce|sha256|size|version
 ```
 
-PO0 的 `--upgrade-manager-from-lan [URL]` 只接受 HTTP URL；入口不是 HTTP 默认 80 端口时，URL 必须显式包含 `:PORT`。下载后会校验 nonce、HMAC、sha256、size、`SCRIPT_NAME`、`SCRIPT_VERSION`、`CHANGELOG_BEGIN/END` 和 `bash -n`，然后备份当前 `${MANAGER_INSTALL_PATH}`，以临时文件 + `chmod 0755` + `mv` 原子替换。更新成功后只显示版本变化和 changelog，并询问是否用更新后的脚本执行 `--refresh-report-key-wrapper`；不会自动应用 nftables，也不会自动跑诊断。
+PO0 的 `--upgrade-manager-from-lan [URL]` 只接受 HTTP URL；入口不是 HTTP 默认 80 端口时，URL 必须显式包含 `:PORT`。下载后会校验 nonce、HMAC、sha256、size、`SCRIPT_NAME`、`SCRIPT_VERSION`、`CHANGELOG_BEGIN/END` 和 `bash -n`，然后备份当前 `${MANAGER_INSTALL_PATH}`，以临时文件 + `chmod 0755` + `mv` 原子替换。更新成功后会显示版本变化和 changelog，并询问是否用更新后的脚本执行 `--refresh-report-key-wrapper`；从交互菜单进入时，结果停留后按回车会 `exec bash "${MANAGER_INSTALL_PATH}"` 重新打开新版菜单。命令行直接执行 `--upgrade-manager-from-lan` 仍只更新后退出，便于串行运行 `--version`、`--changelog` 或其它维护命令。更新不会自动应用 nftables，也不会自动跑诊断。
 
 ### 5.6.2 Egern SSH report 上报
 
