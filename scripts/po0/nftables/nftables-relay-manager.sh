@@ -2,10 +2,11 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-nftables-relay-manager"
-SCRIPT_VERSION="2026.06.22+build.7"
-SCRIPT_RELEASE_DATE="2026-06-22"
+SCRIPT_VERSION="2026.06.23+build.1"
+SCRIPT_RELEASE_DATE="2026-06-23"
 # CHANGELOG_BEGIN
-# - 移除 ssh_report 同源宽网段替换策略，/24 和 /32 统一按每 source-id 12 条 CIDR 上限裁剪。
+# - 动态来源 allowlist / 上报统计读改写增加本地锁，避免并发 DDNS、Self-report、WebAuth、Egern/SSH report 丢状态。
+# - 受限 SSH wrapper 修复资源任务失败原因包含空格时的参数拆分；Self-report 示例命令改为秒级 canonical 参数。
 # CHANGELOG_END
 CONF_DIR="${PO0_CONF_DIR:-/etc/nftables.d}"
 MAIN_CONF="/etc/nftables.conf"
@@ -36,6 +37,7 @@ RESOURCE_TASKS_FILE="${CONF_DIR}/po0-relay-resource-tasks.tsv"
 RESOURCE_TASK_TOKEN_FILE="${CONF_DIR}/po0-relay-resource-task.token"
 RESOURCE_INBOX_DIR="${CONF_DIR}/po0-relay-resource-inbox"
 RESOURCE_TASK_LOCK_FILE="${CONF_DIR}/po0-relay-resource-tasks.lock"
+DYNAMIC_STATE_LOCK_FILE="${CONF_DIR}/po0-relay-dynamic-state.lock"
 RESOURCE_TASK_HISTORY_LIMIT=500
 DYNAMIC_ALLOWLIST_MAX_PER_SOURCE="${PO0_DYNAMIC_ALLOWLIST_MAX_PER_SOURCE:-12}"
 SSH_REPORT_ALLOWLIST_MAX_PER_SOURCE="${PO0_SSH_REPORT_ALLOWLIST_MAX_PER_SOURCE:-12}"
@@ -251,6 +253,42 @@ make_temp_dir() {
     tmp="$(mktemp -d "${parent}/${prefix}.XXXXXX")" || return 1
     TEMP_DIRS+=("${tmp}")
     TEMP_DIR_RESULT="${tmp}"
+}
+
+dynamic_state_lock() {
+    [[ "${DYNAMIC_STATE_LOCK_HELD:-0}" == "1" ]] && return 0
+    mkdir -p "${CONF_DIR}" || return 1
+    exec 8>"${DYNAMIC_STATE_LOCK_FILE}" || return 1
+    if command -v flock >/dev/null 2>&1; then
+        flock -w 15 8 || {
+            err "动态来源状态文件正忙，请稍后重试。"
+            exec 8>&- 2>/dev/null || true
+            return 1
+        }
+    fi
+    DYNAMIC_STATE_LOCK_HELD=1
+}
+
+dynamic_state_unlock() {
+    [[ "${DYNAMIC_STATE_LOCK_HELD:-0}" == "1" ]] || return 0
+    if command -v flock >/dev/null 2>&1; then
+        flock -u 8 2>/dev/null || true
+    fi
+    exec 8>&- 2>/dev/null || true
+    DYNAMIC_STATE_LOCK_HELD=0
+}
+
+with_dynamic_state_lock() {
+    local rc
+    if [[ "${DYNAMIC_STATE_LOCK_HELD:-0}" == "1" ]]; then
+        "$@"
+        return $?
+    fi
+    dynamic_state_lock || return 1
+    "$@"
+    rc=$?
+    dynamic_state_unlock
+    return "${rc}"
 }
 
 print_divider() {
@@ -2119,7 +2157,7 @@ reported_ddns_ipv4_records() {
     print_ipv4_csv_lines "${csv}"
 }
 
-replace_allowlist_entries_for_source_with_expiry() {
+replace_allowlist_entries_for_source_with_expiry_unlocked() {
     local set_id="$1"
     local source_type="$2"
     local source_value="$3"
@@ -2232,6 +2270,10 @@ replace_allowlist_entries_for_source_with_expiry() {
     DYNAMIC_REPORT_PENDING_COUNT="${skipped}"
 }
 
+replace_allowlist_entries_for_source_with_expiry() {
+    with_dynamic_state_lock replace_allowlist_entries_for_source_with_expiry_unlocked "$@"
+}
+
 replace_allowlist_entries_for_source() {
     local set_id="$1"
     local source_type="$2"
@@ -2241,7 +2283,7 @@ replace_allowlist_entries_for_source() {
     replace_allowlist_entries_for_source_with_expiry "${set_id}" "${source_type}" "${source_value}" "${note}" "" "$@"
 }
 
-cleanup_dynamic_allowlist_entries() {
+cleanup_dynamic_allowlist_entries_unlocked() {
     local line tmp dynamic_tmp sorted_tmp created key record count max_keep source_type
     local removed_expired=0 trimmed=0 kept_dynamic=0 kept_static=0
     declare -A group_counts=()
@@ -2291,6 +2333,10 @@ cleanup_dynamic_allowlist_entries() {
         "${kept_dynamic}" "${kept_static}" "${removed_expired}" "${trimmed}" "$(dynamic_allowlist_limits_label)"
 }
 
+cleanup_dynamic_allowlist_entries() {
+    with_dynamic_state_lock cleanup_dynamic_allowlist_entries_unlocked "$@"
+}
+
 do_cleanup_dynamic_allowlist() {
     ensure_layout || return 1
     load_settings 1
@@ -2302,7 +2348,7 @@ do_cleanup_dynamic_allowlist() {
     fi
 }
 
-remove_allowlist_entries_for_source() {
+remove_allowlist_entries_for_source_unlocked() {
     local set_id="$1"
     local source_type="$2"
     local source_value="$3"
@@ -2327,6 +2373,10 @@ remove_allowlist_entries_for_source() {
         fi
     done < "${ALLOWLIST_ENTRIES_FILE}"
     mv -f "${tmp}" "${ALLOWLIST_ENTRIES_FILE}"
+}
+
+remove_allowlist_entries_for_source() {
+    with_dynamic_state_lock remove_allowlist_entries_for_source_unlocked "$@"
 }
 
 sync_ddns_entries_removed() {
@@ -2454,7 +2504,7 @@ ensure_generic_report_stats_file() {
     fi
 }
 
-update_generic_report_stats() {
+update_generic_report_stats_unlocked() {
     local path="$1"
     local key="$2"
     local status="$3"
@@ -2508,6 +2558,10 @@ update_generic_report_stats() {
     mv -f "${tmp}" "${path}"
 }
 
+update_generic_report_stats() {
+    with_dynamic_state_lock update_generic_report_stats_unlocked "$@"
+}
+
 load_generic_report_stats() {
     local path="$1"
     local key="$2"
@@ -2545,7 +2599,7 @@ ensure_ddns_report_stats_file() {
     fi
 }
 
-update_ddns_report_stats() {
+update_ddns_report_stats_unlocked() {
     local key="$1"
     local status="$2"
     local ips="${3:-}"
@@ -2596,6 +2650,10 @@ update_ddns_report_stats() {
             "${key}" "${accepted}" "${rejected}" "${status}" "${now}" "${ips}" "${error}" >> "${tmp}"
     fi
     mv -f "${tmp}" "${DDNS_REPORT_STATS_FILE}"
+}
+
+update_ddns_report_stats() {
+    with_dynamic_state_lock update_ddns_report_stats_unlocked "$@"
 }
 
 load_ddns_report_stats() {
@@ -2654,7 +2712,7 @@ print_ddns_report_stats_line() {
     fi
 }
 
-remove_ddns_report_stats() {
+remove_ddns_report_stats_unlocked() {
     local key="$1"
     local line stat_key tmp
     key="$(sanitize_allowlist_source_text "${key}")"
@@ -2672,6 +2730,10 @@ remove_ddns_report_stats() {
         printf '%s\n' "${line}" >> "${tmp}"
     done < "${DDNS_REPORT_STATS_FILE}"
     mv -f "${tmp}" "${DDNS_REPORT_STATS_FILE}"
+}
+
+remove_ddns_report_stats() {
+    with_dynamic_state_lock remove_ddns_report_stats_unlocked "$@"
 }
 
 normalize_client_ttl_seconds() {
@@ -2726,7 +2788,7 @@ normalize_report_expires_at() {
     fi
 }
 
-report_client_ip_source() {
+report_client_ip_source_unlocked() {
     local source_id="$1"
     local ip="$2"
     local token="$3"
@@ -2764,7 +2826,11 @@ report_client_ip_source() {
     CLIENT_IP_REPORT_TTL="${ttl}"
 }
 
-report_ssh_ip_source() {
+report_client_ip_source() {
+    with_dynamic_state_lock report_client_ip_source_unlocked "$@"
+}
+
+report_ssh_ip_source_unlocked() {
     local source_id="$1"
     local ip="$2"
     local token="$3"
@@ -2816,7 +2882,11 @@ report_ssh_ip_source() {
     SSH_REPORT_TTL="${ttl}"
 }
 
-report_webauth_source() {
+report_ssh_ip_source() {
+    with_dynamic_state_lock report_ssh_ip_source_unlocked "$@"
+}
+
+report_webauth_source_unlocked() {
     local source_id="$1"
     local ip="$2"
     local identity="$3"
@@ -2855,7 +2925,11 @@ report_webauth_source() {
     WEBAUTH_REPORT_EXPIRES_AT="${expires_at}"
 }
 
-report_ddns_allowlist_source() {
+report_webauth_source() {
+    with_dynamic_state_lock report_webauth_source_unlocked "$@"
+}
+
+report_ddns_allowlist_source_unlocked() {
     local key="$1"
     local raw_ips="$2"
     local token="${3:-}"
@@ -2941,7 +3015,11 @@ report_ddns_allowlist_source() {
     update_ddns_report_stats "${DDNS_REPORT_DOMAIN:-${key}}" "accepted" "${csv}" "无" || true
 }
 
-refresh_ddns_allowlist_sources() {
+report_ddns_allowlist_source() {
+    with_dynamic_state_lock report_ddns_allowlist_source_unlocked "$@"
+}
+
+refresh_ddns_allowlist_sources_unlocked() {
     local line tmp result ips_csv cidr note expires_at reported=0 failed=0 disabled=0
     local -a ips=()
     local -a cidrs=()
@@ -3007,6 +3085,10 @@ refresh_ddns_allowlist_sources() {
     DDNS_REFRESHED_COUNT="${reported}"
     DDNS_FAILED_COUNT="${failed}"
     DDNS_DISABLED_COUNT="${disabled}"
+}
+
+refresh_ddns_allowlist_sources() {
+    with_dynamic_state_lock refresh_ddns_allowlist_sources_unlocked "$@"
 }
 
 src_allowlist_mode_to_label() {
@@ -9330,11 +9412,11 @@ do_show_client_ip_report_token() {
         "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${token}")"
     echo ""
     echo "Linux / OpenWrt 自上报 client（访问设备 -> LAN Worker）："
-    printf '  curl -fsSL %s | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --install-cron 60\n' \
+    printf '  curl -fsSL %s | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --interval-seconds 3600 --install-cron\n' \
         "${OUTBOUND_IP_REPORTER_RAW_URL}"
     echo ""
     echo "Windows PowerShell 自上报 client（访问设备 -> LAN Worker）："
-    printf "  \$script=\"\$env:TEMP\\po0-outbound-ip-report.ps1\"; irm -UseBasicParsing '%s' -OutFile \$script; powershell -ExecutionPolicy Bypass -File \$script -WorkerUrl 'https://<SELF_REPORT_DOMAIN>/report' -SourceId '<CLIENT_ID>' -Secret '<SELF_REPORT_SECRET>' -InstallTask -Minutes 60\n" \
+    printf "  \$script=\"\$env:TEMP\\po0-outbound-ip-report.ps1\"; irm -UseBasicParsing '%s' -OutFile \$script -TimeoutSec 120; powershell -ExecutionPolicy Bypass -File \$script -WorkerUrl 'https://<SELF_REPORT_DOMAIN>/report' -SourceId '<CLIENT_ID>' -Secret '<SELF_REPORT_SECRET>' -InstallTask -IntervalSeconds 3600\n" \
         "${OUTBOUND_IP_REPORTER_PS_RAW_URL}"
 }
 
@@ -9465,6 +9547,17 @@ allow_action() {
     esac
 }
 
+normalize_resource_task_fail_args() {
+    [[ "${action}" == "--resource-task-fail" ]] || return 0
+    [[ "${#args[@]}" -gt 4 ]] || return 0
+    local token reason
+    local -a reason_parts=()
+    token="${args[$((${#args[@]} - 1))]}"
+    reason_parts=("${args[@]:2:$((${#args[@]} - 3))}")
+    reason="${reason_parts[*]}"
+    args=("${args[0]}" "${args[1]}" "${reason}" "${token}")
+}
+
 [[ -n "${orig}" ]] || deny "empty command"
 clean="${orig//\'/}"
 clean="${clean//\"/}"
@@ -9480,6 +9573,7 @@ else
     deny "unexpected command"
 fi
 allow_action "${action}" || deny "action ${action} not allowed for scope ${scope}"
+normalize_resource_task_fail_args
 case "${action}" in
     --ssh-ip-report)
         [[ "${#args[@]}" -ge 3 ]] || deny "${action} needs source ip token"
@@ -9980,11 +10074,11 @@ do_show_self_report_client_commands() {
     echo "在访问设备上执行；检测设备当前出口 IPv4 后上报 LAN Worker，不直连 PO0。"
     echo ""
     echo "Linux / OpenWrt:"
-    printf '  curl -fsSL %s | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --install-cron 60\n' \
+    printf '  curl -fsSL %s | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --interval-seconds 3600 --install-cron\n' \
         "${OUTBOUND_IP_REPORTER_RAW_URL}"
     echo ""
     echo "Windows PowerShell:"
-    printf "  \$script=\"\$env:TEMP\\po0-outbound-ip-report.ps1\"; irm -UseBasicParsing '%s' -OutFile \$script; powershell -ExecutionPolicy Bypass -File \$script -WorkerUrl 'https://<SELF_REPORT_DOMAIN>/report' -SourceId '<CLIENT_ID>' -Secret '<SELF_REPORT_SECRET>' -InstallTask -Minutes 60\n" \
+    printf "  \$script=\"\$env:TEMP\\po0-outbound-ip-report.ps1\"; irm -UseBasicParsing '%s' -OutFile \$script -TimeoutSec 120; powershell -ExecutionPolicy Bypass -File \$script -WorkerUrl 'https://<SELF_REPORT_DOMAIN>/report' -SourceId '<CLIENT_ID>' -Secret '<SELF_REPORT_SECRET>' -InstallTask -IntervalSeconds 3600\n" \
         "${OUTBOUND_IP_REPORTER_PS_RAW_URL}"
 }
 

@@ -27,10 +27,10 @@
 $ErrorActionPreference = "Stop"
 $RawUrl = "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1"
 $ScriptName = "po0-self-report"
-$ScriptVersion = "2026.06.23+build.10"
+$ScriptVersion = "2026.06.23+build.11"
 $ScriptReleaseDate = "2026-06-23"
 # CHANGELOG_BEGIN
-# - 菜单新增卸载本客户端，可删除计划任务、本机脚本和隐藏启动器，并可选删除配置与日志。
+# - raw 脚本下载增加 TimeoutSec，避免安装或自更新时长期挂起。
 # CHANGELOG_END
 $PanelValueColumn = 24
 $MenuRightColumn = 46
@@ -315,7 +315,7 @@ PO0 自上报客户端（Windows PowerShell）
 self-report 接收服务。访问设备不直接连接 PO0。
 
 用法:
-  `$script="`$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing '$RawUrl' -OutFile `$script; powershell -ExecutionPolicy Bypass -File `$script
+  `$script="`$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing '$RawUrl' -OutFile `$script -TimeoutSec 120; powershell -ExecutionPolicy Bypass -File `$script
   .\po0-outbound-ip-report.ps1 -Menu
   .\po0-outbound-ip-report.ps1 -Version
   .\po0-outbound-ip-report.ps1 -UpgradeSelf
@@ -661,7 +661,7 @@ function Upgrade-SelfFromRaw {
     }
     $tmp = Join-Path $dir (".po0-self-report.{0}.tmp" -f $PID)
     try {
-        Invoke-WebRequest -UseBasicParsing -Uri $RawUrl -OutFile $tmp
+        Invoke-WebRequest -UseBasicParsing -Uri $RawUrl -OutFile $tmp -TimeoutSec 120
         Test-DownloadedScript -Path $tmp
         $newVersion = Get-ScriptFileVersion -Path $tmp
         $newChangelog = Get-ScriptFileChangelog -Path $tmp
@@ -711,7 +711,7 @@ function Install-ScheduledReporter {
             Copy-Item -LiteralPath $PSCommandPath -Destination $dest -Force
         }
     } else {
-        Invoke-WebRequest -UseBasicParsing -Uri $RawUrl -OutFile $dest
+        Invoke-WebRequest -UseBasicParsing -Uri $RawUrl -OutFile $dest -TimeoutSec 120
     }
     $taskArgList = @(
         "-NoProfile",

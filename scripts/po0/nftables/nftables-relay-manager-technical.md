@@ -191,8 +191,11 @@ table ip po0_relay_mangle
 /etc/nftables.d/po0-relay-allowlist-sets.tsv         白名单 set 定义
 /etc/nftables.d/po0-relay-allowlist-entries.tsv      标准化来源条目
 /etc/nftables.d/po0-relay-allowlist-sources.tsv      DDNS 等动态来源定义
+/etc/nftables.d/po0-relay-dynamic-state.lock         动态来源 allowlist / 上报统计本地锁
 /etc/nftables.d/po0-relay-allowlist-profiles/        白名单配置档案
 ```
+
+动态来源的本地读改写使用 `flock`（系统提供时）串行化，覆盖 DDNS report/refresh、Self-report、WebAuth 和 Egern/SSH report 对 allowlist entries、DDNS sources 和 report stats 的更新。锁只包本地 TSV 读改写和临时文件原子替换，不包 SSH、HTTP 下载、交互输入或 nftables 应用。
 
 ### 2.3 学习、日志与辅助数据
 
@@ -206,6 +209,7 @@ table ip po0_relay_mangle
 /etc/nftables.d/qqwry.ipdb                           可选 IPDB 数据库
 /etc/nftables.d/po0-relay-resource-tasks.tsv         内网资源更新任务和结果
 /etc/nftables.d/po0-relay-resource-task.token        资源任务专用 Token
+/etc/nftables.d/po0-relay-resource-tasks.lock        资源任务队列本地锁
 /etc/nftables.d/po0-relay-resource-inbox/            资源回传临时收件目录
 /etc/nftables.d/po0-ipdb-venv/                       可选 IPDB Python venv
 /usr/local/sbin/nftables-relay-learn                 学习服务 runner
@@ -624,7 +628,7 @@ scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh
 scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1
 ```
 
-`po0-lan-client.sh` 适合 Linux/macOS/OpenWrt 内网机器。它可以同时做 DDNS resolver 上报和资源任务轮询领取，也可以只做资源任务 Worker。DDNS resolver 上报周期和资源任务领取周期不是一回事：DDNS 间隔按 PO0 端 DDNS 来源 TTL 设置；资源任务创建周期只在 PO0 端设置，LAN Worker 本机 cron 只负责定期检查并领取 PO0 已创建的 pending 任务。同一个 managed cron block 里最多写两条计划，分别调用 `--run-ddns` 和 `--run-resource`。推荐先用交互向导；向导会通过 `ssh -o BatchMode=yes` 检查到 PO0 的密钥 SSH，密钥 SSH 可用时自动读取所需 token，写入本机目标配置，安装本机 `po0-lan-client` 命令，并按选择安装 Worker 轮询器 / systemd 服务。首次向导里的 PO0 SSH 地址一次只填一个；多个 PO0 目标后续用菜单添加：
+`po0-lan-client.sh` 按 Debian/Linux VPS 维护，不按 OpenWrt/BusyBox 约束设计。它可以同时做 DDNS resolver 上报和资源任务轮询领取，也可以只做资源任务 Worker。DDNS resolver 上报周期和资源任务领取周期不是一回事：DDNS 间隔按 PO0 端 DDNS 来源 TTL 设置；资源任务创建周期只在 PO0 端设置，LAN Worker 本机 cron 只负责定期检查并领取 PO0 已创建的 pending 任务。同一个 managed cron block 里最多写两条计划，分别调用 `--run-ddns` 和 `--run-resource`。推荐先用交互向导；向导会通过 `ssh -o BatchMode=yes` 检查到 PO0 的密钥 SSH，密钥 SSH 可用时自动读取所需 token，写入本机目标配置，安装本机 `po0-lan-client` 命令，并按选择安装 Worker 轮询器 / systemd 服务。首次向导里的 PO0 SSH 地址一次只填一个；多个 PO0 目标后续用菜单添加：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash
@@ -650,13 +654,15 @@ chmod 755 /usr/local/sbin/po0-lan-client
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script /root/nftables-relay-manager.sh --source-key home --ddns-domain home.example.com --token <DDNS_TOKEN> --resource-token <RESOURCE_TOKEN> --ddns-interval-seconds 3600 --install-cron
 ```
 
-Self-report client 适合运行在访问设备上：它检测自身当前出口公网 IPv4，并通过 `https://<SELF_REPORT_DOMAIN>/report` 上报给 LAN Worker self-report server；LAN Worker 的 Caddy HTTPS 入口反代到本机后端，再通过 SSH 调 PO0。客户端菜单里的“配置并保存上报参数”会持久写入本地配置文件；“安装 / 更新定时上报”只读取已保存配置并创建 cron / Windows 计划任务；“暂停 / 恢复定时上报”只影响自动任务，不影响手动立即上报。Linux/OpenWrt 客户端未传 `--source-id` / `--identity` 时，会用 hostname + machine-id/MAC 生成默认 Source ID，并用设备名作为 Identity；显式参数、环境变量和已保存配置优先：
+Self-report client 适合运行在访问设备上：它检测自身当前出口公网 IPv4，并通过 `https://<SELF_REPORT_DOMAIN>/report` 上报给 LAN Worker self-report server；LAN Worker 的 Caddy HTTPS 入口反代到本机后端，再通过 SSH 调 PO0。两个客户端的菜单都按 `[0-9]` 管理：`1) 配置并保存上报参数` 只持久写入本地配置文件，不安装定时任务；`2) 立即上报一次` 读取参数或已保存配置；`3) 安装 / 更新定时上报` 读取已保存配置并创建 cron / Windows 计划任务；`4) 暂停 / 恢复定时上报` 只影响自动任务，不影响手动立即上报；`8) 从 GitHub 更新脚本` 会更新本机脚本并重新打开新版菜单；`9) 卸载本客户端` 会删除本脚本管理的定时任务和本机安装脚本，配置与日志默认保留，可在确认后一起删除。
+
+Linux/OpenWrt 客户端未传 `--source-id` / `--identity` 时，会用 hostname + machine-id/MAC 生成默认 Source ID，并用设备名作为 Identity；显式参数、环境变量和已保存配置优先。首次进入菜单：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh | bash
 ```
 
-Linux/OpenWrt 非交互保存配置，不安装 cron：
+Linux/OpenWrt 非交互保存配置，不安装 cron，也不保证安装 `po0-self-report` 命令：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --secret <SELF_REPORT_SECRET> --save-config
@@ -668,16 +674,36 @@ Linux/OpenWrt 非交互立即上报一次；不传 `--worker-url` 等参数时�
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --secret <SELF_REPORT_SECRET>
 ```
 
-Linux/OpenWrt 非交互安装 cron 时，默认和示例推荐每 `3600` 秒上报一次；`--interval-seconds N` 必须是 60 的倍数，旧 `--install-cron N` 兼容分钟参数仍可用。安装时会保存配置；cron 后续只引用配置文件，不再把 token 展开写入 cron 命令行：
+Linux/OpenWrt 非交互安装 cron 时，默认和示例推荐每 `3600` 秒上报一次；`--interval-seconds N` 必须是 60 的倍数，旧 `--install-cron N` 兼容分钟参数仍可用。安装时会保存配置并安装本机 `po0-self-report` 命令；cron 后续只引用配置文件，不再把 token 展开写入 cron 命令行：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --secret <SELF_REPORT_SECRET> --interval-seconds 3600 --install-cron
+```
+
+保存配置后，如果本机已经通过菜单更新或安装 cron 落盘了 `po0-self-report` 命令，可直接复用已保存配置：
+
+```bash
+po0-self-report --menu
+```
+
+```bash
+po0-self-report
+```
+
+```bash
+po0-self-report --install-cron
 ```
 
 Linux/OpenWrt 查看本脚本管理的 cron 计划：
 
 ```bash
 crontab -l | sed -n '/# PO0_SELF_REPORT_BEGIN/,/# PO0_SELF_REPORT_END/p'
+```
+
+Linux/OpenWrt 查看脚本内置定时状态：
+
+```bash
+po0-self-report --schedule-status
 ```
 
 Linux/OpenWrt 暂停 / 恢复本脚本管理的定时上报：
@@ -693,50 +719,87 @@ Linux/OpenWrt 查看最近 self-report 日志：
 tail -n 40 /tmp/po0-self-report.log
 ```
 
-Windows PowerShell 版本交互式运行，默认进入菜单；推荐显式加 `-Menu`：
+Windows PowerShell 默认按普通用户安装和运行，路径在 `%LOCALAPPDATA%\PO0`；只有用管理员 PowerShell 安装时才会改用 `%ProgramData%\PO0`，日常不要混用两个权限环境。交互式运行默认进入菜单，推荐显式加 `-Menu`：
 
 ```powershell
-$script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script; powershell -ExecutionPolicy Bypass -File $script -Menu
+$script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script -TimeoutSec 120; powershell -ExecutionPolicy Bypass -File $script -Menu
 ```
 
-Windows PowerShell 非交互保存配置，不安装计划任务；`-SourceId` 和 `-Identity` 推荐填设备名，避免多台设备都混到同一来源：
+Windows PowerShell 非交互保存配置，不安装计划任务，也不保证安装固定路径脚本；`-SourceId` 和 `-Identity` 推荐填设备名，避免多台设备都混到同一来源：
 
 ```powershell
-$script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script; powershell -ExecutionPolicy Bypass -File $script -WorkerUrl "https://<SELF_REPORT_DOMAIN>/report" -SourceId $env:COMPUTERNAME -Identity $env:COMPUTERNAME -Secret "<SELF_REPORT_SECRET>" -SaveConfig
+$script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script -TimeoutSec 120; powershell -ExecutionPolicy Bypass -File $script -WorkerUrl "https://<SELF_REPORT_DOMAIN>/report" -SourceId $env:COMPUTERNAME -Identity $env:COMPUTERNAME -Secret "<SELF_REPORT_SECRET>" -SaveConfig
 ```
 
-Windows PowerShell 非交互立即上报一次；不传 `-WorkerUrl` 等参数时会读取已保存配置：
+Windows PowerShell 非交互立即上报一次；不传 `-WorkerUrl` 等参数时会读取已保存配置。显式 `-RunOnce` 可避免交互环境下误进菜单：
 
 ```powershell
-$script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script; powershell -ExecutionPolicy Bypass -File $script -WorkerUrl "https://<SELF_REPORT_DOMAIN>/report" -SourceId $env:COMPUTERNAME -Identity $env:COMPUTERNAME -Secret "<SELF_REPORT_SECRET>"
+$script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script -TimeoutSec 120; powershell -ExecutionPolicy Bypass -File $script -WorkerUrl "https://<SELF_REPORT_DOMAIN>/report" -SourceId $env:COMPUTERNAME -Identity $env:COMPUTERNAME -Secret "<SELF_REPORT_SECRET>" -RunOnce
 ```
 
-Windows PowerShell 非交互安装 / 更新计划任务，默认每 `3600` 秒上报一次。安装 / 更新计划任务时建议从 `$env:TEMP` 下载脚本再运行，让脚本覆盖安装到 `%LOCALAPPDATA%\PO0\po0-self-report.ps1` 或 `%ProgramData%\PO0\po0-self-report.ps1`。安装时会保存配置；计划任务后续只引用配置文件，不再把 token 展开写入计划任务参数：
+Windows PowerShell 非交互安装 / 更新计划任务，默认每 `3600` 秒上报一次。安装 / 更新计划任务时建议从 `$env:TEMP` 下载脚本再运行，让脚本覆盖安装到普通用户默认路径 `%LOCALAPPDATA%\PO0\po0-self-report.ps1`。管理员安装时才会使用 `%ProgramData%\PO0\po0-self-report.ps1`。安装时会保存配置；计划任务后续只引用配置文件，不再把 token 展开写入计划任务参数：
 
 ```powershell
-$script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script; powershell -ExecutionPolicy Bypass -File $script -WorkerUrl "https://<SELF_REPORT_DOMAIN>/report" -SourceId $env:COMPUTERNAME -Identity $env:COMPUTERNAME -Secret "<SELF_REPORT_SECRET>" -InstallTask -IntervalSeconds 3600
+$script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1' -OutFile $script -TimeoutSec 120; powershell -ExecutionPolicy Bypass -File $script -WorkerUrl "https://<SELF_REPORT_DOMAIN>/report" -SourceId $env:COMPUTERNAME -Identity $env:COMPUTERNAME -Secret "<SELF_REPORT_SECRET>" -InstallTask -IntervalSeconds 3600
 ```
 
 `<SELF_REPORT_SECRET>` 只替换为 secret 本身，不要带 `secret:` 或中文冒号前缀。
 
+保存配置后，如果本机已经通过菜单更新或安装计划任务落盘了脚本，普通用户从固定路径再次运行：
+
+```powershell
+$client=Join-Path $env:LOCALAPPDATA 'PO0\po0-self-report.ps1'; powershell -ExecutionPolicy Bypass -File $client -Menu
+```
+
+```powershell
+$client=Join-Path $env:LOCALAPPDATA 'PO0\po0-self-report.ps1'; powershell -ExecutionPolicy Bypass -File $client -RunOnce
+```
+
+```powershell
+$client=Join-Path $env:LOCALAPPDATA 'PO0\po0-self-report.ps1'; powershell -ExecutionPolicy Bypass -File $client -InstallTask -IntervalSeconds 3600
+```
+
+管理员安装时才把 `$env:LOCALAPPDATA` 改为 `$env:ProgramData`。
+
 Windows PowerShell 查看计划任务状态和最近日志：
+
+```powershell
+$client=Join-Path $env:LOCALAPPDATA 'PO0\po0-self-report.ps1'; powershell -ExecutionPolicy Bypass -File $client -ScheduleStatus
+```
 
 ```powershell
 Get-ScheduledTaskInfo -TaskName "PO0 Self Report to LAN Worker"
 ```
 
-Windows PowerShell 暂停 / 恢复本脚本管理的定时上报。管理员安装时脚本默认在 `%ProgramData%\PO0\po0-self-report.ps1`，普通用户安装时默认在 `%LOCALAPPDATA%\PO0\po0-self-report.ps1`：
+Windows PowerShell 暂停 / 恢复本脚本管理的定时上报：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-self-report.ps1" -PauseSchedule
-powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-self-report.ps1" -ResumeSchedule
+$client=Join-Path $env:LOCALAPPDATA 'PO0\po0-self-report.ps1'; powershell -ExecutionPolicy Bypass -File $client -PauseSchedule
+```
+
+```powershell
+$client=Join-Path $env:LOCALAPPDATA 'PO0\po0-self-report.ps1'; powershell -ExecutionPolicy Bypass -File $client -ResumeSchedule
 ```
 
 ```powershell
 $log="$env:LOCALAPPDATA\PO0\po0-self-report.log"; if (-not (Test-Path -LiteralPath $log)) { $log="$env:ProgramData\PO0\po0-self-report.log" }; Get-Content -Tail 40 -LiteralPath $log
 ```
 
-PowerShell 客户端交互式无参数运行默认进入菜单，也支持显式 `-Menu`。两个访问设备客户端都会把裸域名自动规范化为 HTTPS `/report`，并默认拒绝 `http://`；仅本地调试或临时旧环境才显式使用 `--allow-http` / `-AllowHttp`。Linux/OpenWrt 默认配置文件 root 为 `/etc/po0-self-report/settings.env`，普通用户为 `~/.config/po0-self-report/settings.env`；Windows 默认配置文件管理员为 `%ProgramData%\PO0\self-report.json`，普通用户为 `%LOCALAPPDATA%\PO0\self-report.json`。配置文件会明文保存 self-report secret，请只放在可信设备上。
+Windows PowerShell 更新、查看版本或查看当前更新内容：
+
+```powershell
+$client=Join-Path $env:LOCALAPPDATA 'PO0\po0-self-report.ps1'; powershell -ExecutionPolicy Bypass -File $client -UpgradeSelf
+```
+
+```powershell
+$client=Join-Path $env:LOCALAPPDATA 'PO0\po0-self-report.ps1'; powershell -ExecutionPolicy Bypass -File $client -Version
+```
+
+```powershell
+$client=Join-Path $env:LOCALAPPDATA 'PO0\po0-self-report.ps1'; powershell -ExecutionPolicy Bypass -File $client -Changelog
+```
+
+两个访问设备客户端都会把裸域名自动规范化为 HTTPS `/report`，并默认拒绝 `http://`；仅本地调试或临时旧环境才显式使用 `--allow-http` / `-AllowHttp`。Linux/OpenWrt 默认配置文件 root 为 `/etc/po0-self-report/settings.env`，普通用户为 `~/.config/po0-self-report/settings.env`；Windows 默认配置文件普通用户为 `%LOCALAPPDATA%\PO0\self-report.json`，管理员为 `%ProgramData%\PO0\self-report.json`。配置文件会明文保存 self-report secret，请只放在可信设备上。
 
 访问设备客户端的用户可见结果行统一为 `Self-report 已完成：...` 或 `Self-report 未完成：...`。一次性上报只有在本机探测到公网 IPv4、LAN Worker HTTP 返回 2xx，且 LAN Worker 已成功代报 PO0 后才打印完成；否则保留底层错误并返回非零状态。Linux/OpenWrt cron 的每次运行输出重定向到 `/tmp/po0-self-report.log`，其中也包含同样的结果行。Windows 计划任务不会依赖一闪而过的控制台窗口；`-InstallTask` 会把 `-LogPath` 写入任务参数，管理员安装默认日志为 `%ProgramData%\PO0\po0-self-report.log`，普通用户安装默认日志为 `%LOCALAPPDATA%\PO0\po0-self-report.log`，每次运行会记录开始、LAN Worker 返回体和完成/未完成结果；菜单“查看定时上报状态”会展示 `Get-ScheduledTaskInfo` 的上次结果和日志 tail。
 
@@ -784,7 +847,7 @@ bash nftables-relay-manager.sh --resource-task-fail TASK_ID WORKER_ID REASON TOK
 bash nftables-relay-manager.sh --resource-task-ping TOKEN
 ```
 
-`--resource-task-create` 和 `--install-resource-task-cron` 是 PO0 管理员入口，只创建等待领取的固定任务，不主动连接内网机器。`--resource-task-cron-status` 是只读状态接口，供 Worker 菜单显示 PO0 端创建计划。`--resource-task-ping/claim/upload/complete/fail` 主要供 Worker 调用。`--resource-task-ping` 只读检查 token；任务领取、上传和状态修改使用 `flock`（系统提供时）串行化；上传路径由 PO0 生成，客户端不能指定生产文件路径。资源任务使用独立 Token，不复用 DDNS 上报 Token。使用 PO0 专用受限 SSH 上报 key 时，`scope=worker` 允许 `--resource-task-ping/claim/upload/complete/fail` 和只读 `--resource-task-cron-status`，但不允许 `--resource-task-create` 或安装 PO0 端定时任务；旧 wrapper 需要用新版脚本重新安装/刷新。资源产物通过受限 manager 命令的 stdin 上传，不依赖 SCP。
+`--resource-task-create` 和 `--install-resource-task-cron` 是 PO0 管理员入口，只创建等待领取的固定任务，不主动连接内网机器。`--resource-task-cron-status` 是只读状态接口，供 Worker 菜单显示 PO0 端创建计划。`--resource-task-ping/claim/upload/complete/fail` 主要供 Worker 调用。`--resource-task-ping` 只读检查 token；任务领取、上传和状态修改使用 `flock`（系统提供时）串行化；上传路径由 PO0 生成，客户端不能指定生产文件路径。资源任务使用独立 Token，不复用 DDNS 上报 Token。使用 PO0 专用受限 SSH 上报 key 时，`scope=worker` 允许 `--resource-task-ping/claim/upload/complete/fail` 和只读 `--resource-task-cron-status`，但不允许 `--resource-task-create` 或安装 PO0 端定时任务；旧 wrapper 需要用新版脚本重新安装/刷新。wrapper 仍只做受控 action 白名单和简单参数校验；`--resource-task-fail` 会把 task/worker 与最后一个 token 之间的字段合并为 reason，以兼容包含空格的失败原因，不恢复通用 `SSH_ORIGINAL_COMMAND` shell parser。资源产物通过受限 manager 命令的 stdin 上传，不依赖 SCP。
 
 LAN Worker 本机保留两类资源任务记录：`resource-stats.tsv` 是每个 PO0 endpoint 的聚合统计，`resource-events.tsv` 是逐次查询/执行事件日志。菜单 `资源统计` 会同时展示汇总和最近事件；路径可用 `PO0_LAN_RESOURCE_STATS` / `PO0_LAN_RESOURCE_EVENTS` 覆盖。菜单 `清理资源统计` 支持清空事件日志、清空全部资源统计，或按最近 N 条裁剪事件日志；资源轮询结束后也会自动裁剪事件日志，默认保留最近 `500` 条，可用 `PO0_RESOURCE_EVENTS_KEEP` 调整。
 
@@ -1130,7 +1193,7 @@ scripts/nftables-relay-manager.sh       当前脚本快照
 --dry-run                只显示将恢复的路径和入口
 ```
 
-LAN Worker 完整备份包包含 `targets.tsv`、`settings.env`、stats/resource-stats/resource-events、配置目录 `ssh-key-*`、目标 SSH 参数引用的 `-i`/`IdentityFile` 私钥、managed cron block、`po0-lan-self-report.service`/`po0-lan-webauth.service` 快照、Self-report Caddy snippet、Caddyfile 快照和脚本快照。导入默认只恢复配置/状态/密钥；`--restore-cron`、`--restore-systemd`、`--restore-caddy` 或 `--restore-all` 才恢复运行入口。恢复 LAN Worker cron 时会优先从备份的 cron block 识别旧脚本路径，并把旧配置路径和旧脚本路径重写为当前 `CONFIG_FILE` 和当前持久脚本路径。`settings.env` 保存 `SELF_REPORT_SECRET`、Self-report/WebAuth 监听、TTL、HTTPS/Caddy 路径、Worker ID、资源任务超时和轮询间隔，脚本升级后会先加载该文件再让 CLI 参数覆盖；旧安装没有 `settings.env` 时，会从已安装的 Self-report/WebAuth systemd unit 回填 secret、监听地址、TTL、目标和 token，再写入新的 `settings.env`。
+LAN Worker 完整备份包包含 `targets.tsv`、`settings.env`、stats/resource-stats/resource-events、配置目录 `ssh-key-*`、目标 SSH 参数引用的 `-i`/`IdentityFile` 私钥、managed cron block、`po0-lan-self-report.service`/`po0-lan-webauth.service` 快照、Self-report Caddy snippet、Caddyfile 快照和脚本快照。导入默认只恢复配置/状态/密钥；`--restore-cron`、`--restore-systemd`、`--restore-caddy` 或 `--restore-all` 才恢复运行入口。恢复 LAN Worker cron 时会优先从备份的 cron block 识别旧脚本路径，并把旧配置路径和旧脚本路径重写为当前 `CONFIG_FILE` 和当前持久脚本路径。`settings.env` 保存 `SELF_REPORT_SECRET`、Self-report/WebAuth 监听、TTL、HTTPS/Caddy 路径、Worker ID、资源任务超时和轮询间隔，脚本升级后会先加载该文件再让 CLI 参数覆盖；旧安装没有 `settings.env` 时，会从已安装的 Self-report/WebAuth systemd unit 回填 secret、监听地址、TTL、目标和 token，再写入新的 `settings.env`。LAN Worker 对 `targets.tsv`、`settings.env`、DDNS stats、resource stats/events 的写入使用配置目录级 `.po0-lan-client.lock`；该锁文件是运行时互斥文件，不进入 backup staging，也不会从备份恢复。
 
 备份不会导出 Egern 设备私钥、Egern app 本地配置、Cloudflare Tunnel/Access 远端配置、云安全组/防火墙规则、Caddy ACME 证书数据库、系统包安装状态，或脚本没有托管的手工配置。Egern PO0 受限 SSH 上报公钥会通过 `system/report-keys.tsv` 记录，并在 `--restore-report-keys`/`--restore-all` 下恢复。
 

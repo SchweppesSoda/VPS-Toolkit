@@ -6,6 +6,12 @@
 
 ## po0-nftables-relay-manager
 
+### 2026.06.23+build.1
+
+- 动态来源 allowlist、DDNS/self-report/WebAuth/Egern/SSH report 统计和 DDNS 来源状态的读改写增加本地 `flock` 锁，降低并发上报时 TSV 状态互相覆盖的风险。
+- 受限 SSH wrapper 只针对 `--resource-task-fail` 修复失败原因包含空格时的参数拆分；非法 action 仍按原白名单拒绝。
+- Self-report PowerShell raw 下载示例增加 `-TimeoutSec 120`，Linux/Windows 示例继续展示秒级 canonical 间隔参数。
+
 ### 2026.06.22+build.7
 
 - 移除 `ssh_report` 同源宽网段替换策略；`/24` 和 `/32` 现在统一作为 CIDR 条目保留，按 TTL 和每 `source_type + source-id` `12` 条上限裁剪。
@@ -38,7 +44,7 @@
 - 修复完整备份导出指定相对路径时可能写入临时目录并随清理丢失的问题；恢复 cron 时优先从备份的 cron block 识别旧脚本路径。
 - 新增 PO0 全功能备份 / 导入恢复：默认导出 token、状态、资源任务、iplist/ipdb、resource inbox、wrapper、受限 `authorized_keys` 信息和脚本快照；导入默认只恢复配置/状态文件。
 - PO0 导入新增显式恢复 flag：cron、systemd/nftables、`/etc/nftables.conf`、sysctl、受限 `authorized_keys` 需明确确认或使用 `--restore-all`。
-- Self-report client 部署示例改为每 60 分钟上报一次，匹配客户端新的默认间隔和更长间隔支持。
+- Self-report client 部署示例曾调整为更长的默认上报间隔，匹配客户端的长间隔支持。
 - Self-report 部署示例改为 HTTPS 域名/Caddy 模式，访问设备默认上报到 `https://<SELF_REPORT_DOMAIN>/report`。
 - Self-report HTTP 直连示例下沉为兼容模式，不再作为默认推荐路径。
 - 重排源 IP 白名单菜单：动态来源缓存维护、来源 IP 学习与候选提升、被阻挡访问日志拆成独立子菜单，减少主菜单裸露维护动作。
@@ -50,6 +56,12 @@
 - 状态面板和资源任务创建计划摘要增加彩色状态提示。
 
 ## po0-lan-worker-client
+
+### 2026.06.23+build.1
+
+- `targets.tsv`、`settings.env`、DDNS stats、resource stats/events 的本地写入增加配置目录级 `.po0-lan-client.lock`，避免菜单保存、cron 运行和资源轮询并发覆盖本机状态。
+- 默认 PO0 manager SSH 调用改为走 timeout helper，新增 `PO0_REMOTE_MANAGER_TIMEOUT_SECONDS`，默认 `30` 秒；资源上传/导入仍使用各自的长超时变量。
+- 自安装和 `--upgrade-self` 的 raw 下载增加连接/总时长 timeout；备份仍只 staging 明确文件和 `ssh-key-*`，不会包含锁文件。
 
 ### 2026.06.22+build.11
 
@@ -104,6 +116,11 @@
 
 ## po0-self-report（Linux/OpenWrt）
 
+### 2026.06.23+build.11
+
+- 上报 LAN Worker 的 `curl` 增加 `--connect-timeout 10 --max-time 30`，raw 下载增加 `--connect-timeout 15 --max-time 120`。
+- 公网 IPv4 探测的 `wget` fallback 和 raw 下载 fallback 增加 `-T` 超时，兼容 BusyBox/OpenWrt。
+
 ### 2026.06.23+build.10
 
 - 菜单新增“卸载本客户端”，可删除本脚本管理的 cron 和本机安装脚本，并可选删除配置与日志。
@@ -142,6 +159,10 @@
 - 新增 `--version` 和 `--changelog` 只读入口。
 
 ## po0-self-report（Windows PowerShell）
+
+### 2026.06.23+build.11
+
+- raw 脚本下载增加 `-TimeoutSec 120`，避免安装或自更新时长期挂起；上报请求继续使用已有 `-TimeoutSec 30`。
 
 ### 2026.06.23+build.10
 

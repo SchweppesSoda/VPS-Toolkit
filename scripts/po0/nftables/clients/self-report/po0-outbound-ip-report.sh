@@ -3,10 +3,10 @@ set -uo pipefail
 
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh"
 SCRIPT_NAME="po0-self-report"
-SCRIPT_VERSION="2026.06.23+build.10"
+SCRIPT_VERSION="2026.06.23+build.11"
 SCRIPT_RELEASE_DATE="2026-06-23"
 # CHANGELOG_BEGIN
-# - 菜单新增卸载本客户端，可删除定时上报和本机安装脚本，并可选删除配置与日志。
+# - 上报 LAN Worker 的 curl 增加连接和总时长 timeout，raw 下载与 wget fallback 也补充超时。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24
@@ -667,7 +667,7 @@ fetch_url_no_proxy() {
     fi
     if command -v wget >/dev/null 2>&1; then
         env -u http_proxy -u https_proxy -u all_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY \
-            wget -qO- "${url}"
+            wget -q -T 20 -O- "${url}"
         return $?
     fi
     echo "缺少 curl 或 wget，无法探测公网出口 IPv4。" >&2
@@ -757,9 +757,9 @@ install_self() {
             cp "${source}" "${dest}" || return 1
         fi
     elif command -v curl >/dev/null 2>&1; then
-        curl -fsSL "${RAW_URL}" -o "${dest}" || return 1
+        curl -fsSL --connect-timeout 15 --max-time 120 "${RAW_URL}" -o "${dest}" || return 1
     elif command -v wget >/dev/null 2>&1; then
-        wget -qO "${dest}" "${RAW_URL}" || return 1
+        wget -q -T 120 -O "${dest}" "${RAW_URL}" || return 1
     else
         echo "缺少 curl/wget，无法把管道运行的脚本落盘。" >&2
         return 1
@@ -779,12 +779,12 @@ upgrade_self_from_raw() {
         tmp="${dest}.tmp.$$"
     fi
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL "${RAW_URL}" -o "${tmp}" || {
+        curl -fsSL --connect-timeout 15 --max-time 120 "${RAW_URL}" -o "${tmp}" || {
             rm -f "${tmp}" 2>/dev/null || true
             return 1
         }
     elif command -v wget >/dev/null 2>&1; then
-        wget -qO "${tmp}" "${RAW_URL}" || {
+        wget -q -T 120 -O "${tmp}" "${RAW_URL}" || {
             rm -f "${tmp}" 2>/dev/null || true
             return 1
         }
@@ -1058,7 +1058,7 @@ report_once() {
     }
     [[ -n "${SECRET}" ]] && secret_header=(-H "X-PO0-Token: ${SECRET}")
     echo "上报当前公网出口 IPv4 ${ip} 到 LAN Worker：${WORKER_URL}"
-    if response="$(curl -fsS --get "${secret_header[@]}" \
+    if response="$(curl -fsS --get --connect-timeout 10 --max-time 30 "${secret_header[@]}" \
         --data-urlencode "source=${SOURCE_ID}" \
         --data-urlencode "ip=${ip}" \
         --data-urlencode "identity=${IDENTITY}" \

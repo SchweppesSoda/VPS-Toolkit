@@ -4,11 +4,11 @@ set -uo pipefail
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh"
 MANAGER_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/nftables-relay-manager.sh"
 SCRIPT_NAME="po0-lan-worker-client"
-SCRIPT_VERSION="2026.06.22+build.11"
-SCRIPT_RELEASE_DATE="2026-06-22"
+SCRIPT_VERSION="2026.06.23+build.1"
+SCRIPT_RELEASE_DATE="2026-06-23"
 # CHANGELOG_BEGIN
-# - DDNS resolver 默认上报间隔改为 3600 秒，并新增 --ddns-interval-seconds / PO0_DDNS_INTERVAL_SECONDS。
-# - WebAuth 默认 TTL 调整为 43200 秒，和 Self-report 默认 TTL 保持一致。
+# - targets/settings/stats/resource 状态写入增加配置目录级锁，避免菜单保存和轮询并发覆盖本机状态。
+# - 默认 PO0 manager 远程调用增加总超时；自安装/自更新 raw 下载补充下载超时。
 # CHANGELOG_END
 DEFAULT_PO0_SCRIPT="/root/nftables-relay-manager.sh"
 PO0_HOST="${PO0_HOST:-}"
@@ -37,6 +37,7 @@ RESOURCE_UPLOAD_TIMEOUT_SECONDS="${PO0_RESOURCE_UPLOAD_TIMEOUT_SECONDS:-900}"
 RESOURCE_COMPLETE_TIMEOUT_SECONDS="${PO0_RESOURCE_COMPLETE_TIMEOUT_SECONDS:-600}"
 RESOURCE_CONTROL_TIMEOUT_SECONDS="${PO0_RESOURCE_CONTROL_TIMEOUT_SECONDS:-30}"
 RESOURCE_EVENTS_KEEP="${PO0_RESOURCE_EVENTS_KEEP:-500}"
+REMOTE_MANAGER_TIMEOUT_SECONDS="${PO0_REMOTE_MANAGER_TIMEOUT_SECONDS:-30}"
 REMOTE_STATUS_TIMEOUT_SECONDS="${PO0_REMOTE_STATUS_TIMEOUT_SECONDS:-8}"
 SSH_CONNECT_TIMEOUT_SECONDS="${PO0_SSH_CONNECT_TIMEOUT_SECONDS:-15}"
 WORKER_ID="${PO0_WORKER_ID:-$(hostname 2>/dev/null || printf 'po0-worker')}"
@@ -272,6 +273,7 @@ usage() {
         "  PO0_RESOURCE_TASK_MAX_PER_RUN=N 每轮最多处理资源任务数，默认 10；0 表示不设上限。" \
         "  PO0_RESOURCE_UPLOAD_TIMEOUT_SECONDS=N 上传资源产物到 PO0 的超时秒数，默认 900；0 表示不设超时。" \
         "  PO0_RESOURCE_COMPLETE_TIMEOUT_SECONDS=N PO0 校验/导入资源产物的超时秒数，默认 600。" \
+        "  PO0_REMOTE_MANAGER_TIMEOUT_SECONDS=N 默认 PO0 manager SSH 调用总超时秒数，默认 30；0 表示不设超时。" \
         "  --source-key KEY     PO0 端来源 key/名称；脚本不会解析这个值。" \
         "  --ddns-domain DOMAIN LAN Worker 要解析的 DDNS 域名；结果通过 SSH 上报 PO0。" \
         "  --install-self-report-https --self-report-https-domain DOMAIN  配置 Self-report HTTPS/Caddy，后端监听 127.0.0.1:8788。" \
@@ -370,6 +372,48 @@ refresh_resource_events_file() {
     fi
 }
 
+lan_state_lock_file() {
+    printf '%s/.po0-lan-client.lock\n' "$(path_dirname "${CONFIG_FILE}")"
+}
+
+lan_state_lock() {
+    local lock_file
+    [[ "${LAN_STATE_LOCK_HELD:-0}" == "1" ]] && return 0
+    lock_file="$(lan_state_lock_file)"
+    mkdir -p "$(path_dirname "${lock_file}")" || return 1
+    exec 8>"${lock_file}" || return 1
+    if command -v flock >/dev/null 2>&1; then
+        flock -w 15 8 || {
+            printf 'LAN Worker 配置状态文件正忙，请稍后重试。\n' >&2
+            exec 8>&- 2>/dev/null || true
+            return 1
+        }
+    fi
+    LAN_STATE_LOCK_HELD=1
+}
+
+lan_state_unlock() {
+    [[ "${LAN_STATE_LOCK_HELD:-0}" == "1" ]] || return 0
+    if command -v flock >/dev/null 2>&1; then
+        flock -u 8 2>/dev/null || true
+    fi
+    exec 8>&- 2>/dev/null || true
+    LAN_STATE_LOCK_HELD=0
+}
+
+with_lan_state_lock() {
+    local rc
+    if [[ "${LAN_STATE_LOCK_HELD:-0}" == "1" ]]; then
+        "$@"
+        return $?
+    fi
+    lan_state_lock || return 1
+    "$@"
+    rc=$?
+    lan_state_unlock
+    return "${rc}"
+}
+
 prime_config_paths_from_args() {
     local arg next
     while [[ $# -gt 0 ]]; do
@@ -406,7 +450,7 @@ write_env_assignment() {
     printf '%s=%s\n' "${name}" "$(sh_quote "${value}")"
 }
 
-save_local_settings() {
+save_local_settings_unlocked() {
     local dir tmp old_umask
     refresh_settings_file
     dir="$(path_dirname "${SETTINGS_FILE}")"
@@ -429,6 +473,7 @@ save_local_settings() {
         write_env_assignment "RESOURCE_COMPLETE_TIMEOUT_SECONDS" "${RESOURCE_COMPLETE_TIMEOUT_SECONDS}"
         write_env_assignment "RESOURCE_CONTROL_TIMEOUT_SECONDS" "${RESOURCE_CONTROL_TIMEOUT_SECONDS}"
         write_env_assignment "RESOURCE_EVENTS_KEEP" "${RESOURCE_EVENTS_KEEP}"
+        write_env_assignment "REMOTE_MANAGER_TIMEOUT_SECONDS" "${REMOTE_MANAGER_TIMEOUT_SECONDS}"
         write_env_assignment "REMOTE_STATUS_TIMEOUT_SECONDS" "${REMOTE_STATUS_TIMEOUT_SECONDS}"
         write_env_assignment "SSH_CONNECT_TIMEOUT_SECONDS" "${SSH_CONNECT_TIMEOUT_SECONDS}"
         write_env_assignment "DDNS_CRON_MINUTES" "${DDNS_CRON_MINUTES}"
@@ -462,6 +507,10 @@ save_local_settings() {
     umask "${old_umask}"
     replace_file_from_tmp "${tmp}" "${SETTINGS_FILE}" || return 1
     chmod 600 "${SETTINGS_FILE}" 2>/dev/null || true
+}
+
+save_local_settings() {
+    with_lan_state_lock save_local_settings_unlocked "$@"
 }
 
 load_local_settings() {
@@ -1587,7 +1636,7 @@ target_id_is_current() {
     return 1
 }
 
-prune_stats_to_current_targets() {
+prune_stats_to_current_targets_unlocked() {
     local line id rest tmp
     ensure_config_file || return 1
     ensure_stats_file || return 1
@@ -1603,8 +1652,12 @@ prune_stats_to_current_targets() {
     replace_file_from_tmp "${tmp}" "${STATS_FILE}"
 }
 
+prune_stats_to_current_targets() {
+    with_lan_state_lock prune_stats_to_current_targets_unlocked "$@"
+}
+
 clear_stats_interactive() {
-    local answer
+    local answer tmp
     ensure_stats_file || return 1
     if ! answer="$(read_prompt "确认清空本机上报统计 [y/N]: ")"; then
         printf '\n输入结束，取消清空。\n'
@@ -1613,9 +1666,11 @@ clear_stats_interactive() {
     answer="$(trim "${answer}")"
     case "${answer,,}" in
         y|yes)
+            tmp="${STATS_FILE}.tmp.$$"
             {
                 printf '# target_id|success_count|fail_count|last_status|last_at|last_ip_csv|last_error\n'
-            } > "${STATS_FILE}" || return 1
+            } > "${tmp}" || return 1
+            replace_file_from_tmp "${tmp}" "${STATS_FILE}" || return 1
             chmod 600 "${STATS_FILE}" 2>/dev/null || true
             printf '已清空本机上报统计。\n'
             ;;
@@ -1625,7 +1680,7 @@ clear_stats_interactive() {
     esac
 }
 
-append_target() {
+append_target_unlocked() {
     local enabled="$1"
     local label="$2"
     local domain="$3"
@@ -1768,7 +1823,11 @@ upsert_target() {
     replace_config_from_tmp "${tmp}"
 }
 
-replace_file_from_tmp() {
+append_target() {
+    with_lan_state_lock append_target_unlocked "$@"
+}
+
+replace_file_from_tmp_unlocked() {
     local tmp="$1"
     local target="$2"
     local line
@@ -1781,6 +1840,10 @@ replace_file_from_tmp() {
         printf '%s\n' "${line}" >> "${target}"
     done < "${tmp}"
     rm -f "${tmp}" 2>/dev/null || true
+}
+
+replace_file_from_tmp() {
+    with_lan_state_lock replace_file_from_tmp_unlocked "$@"
 }
 
 replace_config_from_tmp() {
@@ -2033,7 +2096,7 @@ print_dashboard() {
     print_panel_action "WebAuth" "Cloudflare Access/Tunnel -> LAN Worker -> SSH -> PO0"
 }
 
-update_target_stats() {
+update_target_stats_unlocked() {
     local target_id="$1"
     local status="$2"
     local ip_csv="$3"
@@ -2081,6 +2144,10 @@ update_target_stats() {
     replace_file_from_tmp "${tmp}" "${STATS_FILE}"
 }
 
+update_target_stats() {
+    with_lan_state_lock update_target_stats_unlocked "$@"
+}
+
 add_target_interactive() {
     local label domain report_key po0_host po0_port po0_user po0_script token ssh_extra_args resource_token report_mode ddns_resolve_domain
     ensure_config_file || return 1
@@ -2121,7 +2188,7 @@ add_target_interactive() {
     printf '已添加：%s -> %s\n' "${domain:-资源-only}" "${po0_host}"
 }
 
-rewrite_targets_by_index() {
+rewrite_targets_by_index_unlocked() {
     local selected="$1"
     local mode="$2"
     local line idx=0 tmp
@@ -2145,6 +2212,10 @@ rewrite_targets_by_index() {
         printf '%s\n' "${line}" >> "${tmp}"
     done < "${CONFIG_FILE}"
     replace_config_from_tmp "${tmp}"
+}
+
+rewrite_targets_by_index() {
+    with_lan_state_lock rewrite_targets_by_index_unlocked "$@"
 }
 
 SELECTED_TARGET_INDEX=""
@@ -2185,7 +2256,7 @@ toggle_target_interactive() {
 }
 
 edit_target_interactive() {
-    local selected line idx=0 tmp
+    local selected line idx=0 tmp local_status
     local enabled label domain report_key po0_host po0_port po0_user po0_script token ssh_extra_args resource_token report_mode ddns_resolve_domain
     local client_ip_token client_ip_source client_ip_ttl webauth_token webauth_source webauth_ttl report_ssh_extra_args
     select_target_index || return 1
@@ -2251,6 +2322,7 @@ edit_target_interactive() {
     ssh_extra_args="$(ssh_extra_without_private_key_text "${ssh_extra_args}")"
     report_ssh_extra_args="$(ssh_extra_without_private_key_text "${report_ssh_extra_args}")"
 
+    lan_state_lock || return 1
     tmp="${CONFIG_FILE}.tmp.$$"
     idx=0
     while IFS= read -r line || [[ -n "${line}" ]]; do
@@ -2273,11 +2345,14 @@ edit_target_interactive() {
         printf '%s\n' "${line}" >> "${tmp}"
     done < "${CONFIG_FILE}"
     replace_config_from_tmp "${tmp}"
+    local_status=$?
+    lan_state_unlock
+    [[ "${local_status}" == "0" ]] || return "${local_status}"
     prune_stats_to_current_targets || true
     printf '已更新目标 %s。\n' "${selected}"
 }
 
-update_target_ssh_args_by_index() {
+update_target_ssh_args_by_index_unlocked() {
     local selected="$1"
     local new_extra="$2"
     local old_extra="$3"
@@ -2303,6 +2378,10 @@ update_target_ssh_args_by_index() {
             "${TARGET_ENABLED}" "${TARGET_LABEL}" "${TARGET_DOMAIN}" "${TARGET_REPORT_KEY}" "${TARGET_PO0_HOST}" "${TARGET_PO0_PORT}" "${TARGET_PO0_USER}" "${TARGET_PO0_SCRIPT}" "${TARGET_TOKEN}" "${TARGET_SSH_EXTRA_ARGS}" "${TARGET_RESOURCE_TOKEN}" "${TARGET_REPORT_MODE}" "${TARGET_DDNS_RESOLVE_DOMAIN}" "${TARGET_CLIENT_IP_TOKEN}" "${TARGET_CLIENT_IP_SOURCE}" "${TARGET_CLIENT_IP_TTL}" "${TARGET_WEBAUTH_TOKEN}" "${TARGET_WEBAUTH_SOURCE}" "${TARGET_WEBAUTH_TTL}" "${TARGET_REPORT_SSH_EXTRA_ARGS}" >> "${tmp}"
     done < "${CONFIG_FILE}"
     replace_config_from_tmp "${tmp}"
+}
+
+update_target_ssh_args_by_index() {
+    with_lan_state_lock update_target_ssh_args_by_index_unlocked "$@"
 }
 
 manage_target_ssh_interactive() {
@@ -2379,7 +2458,7 @@ manage_target_ssh_interactive() {
     printf '已更新目标 %s 的 SSH 连接配置。\n' "${selected}"
 }
 
-update_target_tokens_by_index() {
+update_target_tokens_by_index_unlocked() {
     local selected="$1"
     local ddns_token="$2"
     local resource_token="$3"
@@ -2404,6 +2483,10 @@ update_target_tokens_by_index() {
             "${TARGET_ENABLED}" "${TARGET_LABEL}" "${TARGET_DOMAIN}" "${TARGET_REPORT_KEY}" "${TARGET_PO0_HOST}" "${TARGET_PO0_PORT}" "${TARGET_PO0_USER}" "${TARGET_PO0_SCRIPT}" "${TARGET_TOKEN}" "${TARGET_SSH_EXTRA_ARGS}" "${TARGET_RESOURCE_TOKEN}" "${TARGET_REPORT_MODE}" "${TARGET_DDNS_RESOLVE_DOMAIN}" "${TARGET_CLIENT_IP_TOKEN}" "${TARGET_CLIENT_IP_SOURCE}" "${TARGET_CLIENT_IP_TTL}" "${TARGET_WEBAUTH_TOKEN}" "${TARGET_WEBAUTH_SOURCE}" "${TARGET_WEBAUTH_TTL}" "${TARGET_REPORT_SSH_EXTRA_ARGS}" >> "${tmp}"
     done < "${CONFIG_FILE}"
     replace_config_from_tmp "${tmp}"
+}
+
+update_target_tokens_by_index() {
+    with_lan_state_lock update_target_tokens_by_index_unlocked "$@"
 }
 
 manage_target_tokens_interactive() {
@@ -2435,7 +2518,7 @@ manage_target_tokens_interactive() {
     printf '已更新目标 %s 的 Token。\n' "${selected}"
 }
 
-update_target_report_ttl_by_index() {
+update_target_report_ttl_by_index_unlocked() {
     local selected="$1"
     local client_ip_source="$2"
     local client_ip_ttl="$3"
@@ -2462,7 +2545,11 @@ update_target_report_ttl_by_index() {
     replace_config_from_tmp "${tmp}"
 }
 
-update_target_self_report_ttl_by_index() {
+update_target_report_ttl_by_index() {
+    with_lan_state_lock update_target_report_ttl_by_index_unlocked "$@"
+}
+
+update_target_self_report_ttl_by_index_unlocked() {
     local selected="$1"
     local client_ip_source="$2"
     local client_ip_ttl="$3"
@@ -2483,6 +2570,10 @@ update_target_self_report_ttl_by_index() {
             "${TARGET_ENABLED}" "${TARGET_LABEL}" "${TARGET_DOMAIN}" "${TARGET_REPORT_KEY}" "${TARGET_PO0_HOST}" "${TARGET_PO0_PORT}" "${TARGET_PO0_USER}" "${TARGET_PO0_SCRIPT}" "${TARGET_TOKEN}" "${TARGET_SSH_EXTRA_ARGS}" "${TARGET_RESOURCE_TOKEN}" "${TARGET_REPORT_MODE}" "${TARGET_DDNS_RESOLVE_DOMAIN}" "${TARGET_CLIENT_IP_TOKEN}" "${TARGET_CLIENT_IP_SOURCE}" "${TARGET_CLIENT_IP_TTL}" "${TARGET_WEBAUTH_TOKEN}" "${TARGET_WEBAUTH_SOURCE}" "${TARGET_WEBAUTH_TTL}" "${TARGET_REPORT_SSH_EXTRA_ARGS}" >> "${tmp}"
     done < "${CONFIG_FILE}"
     replace_config_from_tmp "${tmp}"
+}
+
+update_target_self_report_ttl_by_index() {
+    with_lan_state_lock update_target_self_report_ttl_by_index_unlocked "$@"
 }
 
 manage_target_self_report_ttl_interactive() {
@@ -2633,17 +2724,7 @@ remote_manager_call() {
     local script="$4"
     local extra="$5"
     shift 5
-    local remote_cmd arg
-    local -a ssh_args=(-n -p "${port:-22}")
-    [[ -n "${user}" ]] || user="root"
-    [[ -n "${script}" ]] || script="${DEFAULT_PO0_SCRIPT}"
-    sanitize_ssh_extra_args "${extra}" "PO0 manager ${user}@${host}:${port:-22}"
-    ssh_args+=("${SSH_EXTRA_ARGV[@]}")
-    remote_cmd="bash $(sh_quote "${script}")"
-    for arg in "$@"; do
-        remote_cmd+=" $(sh_quote "${arg}")"
-    done
-    ssh "${ssh_args[@]}" "${user}@${host}" "${remote_cmd}"
+    remote_manager_call_timeout "$(timeout_seconds "${REMOTE_MANAGER_TIMEOUT_SECONDS}" 30)" "${host}" "${port}" "${user}" "${script}" "${extra}" "$@"
 }
 
 remote_manager_call_timeout() {
@@ -3059,7 +3140,7 @@ short_text() {
     fi
 }
 
-append_resource_event() {
+append_resource_event_unlocked() {
     local at="$1" endpoint_id="$2" task_id="$3" task_type="$4" status="$5" message="$6"
     ensure_resource_events_file || return 1
     printf '%s|%s|%s|%s|%s|%s\n' \
@@ -3071,7 +3152,11 @@ append_resource_event() {
         "$(sanitize_field "${message}")" >> "${RESOURCE_EVENTS_FILE}"
 }
 
-update_resource_stats() {
+append_resource_event() {
+    with_lan_state_lock append_resource_event_unlocked "$@"
+}
+
+update_resource_stats_unlocked() {
     local endpoint_id="$1" task_id="$2" task_type="$3" status="$4" message="$5"
     local tmp line id success fail last_task last_type last_status last_at last_message found=0 now
     ensure_resource_stats_file || return 1
@@ -3111,6 +3196,10 @@ update_resource_stats() {
     fi
     replace_file_from_tmp "${tmp}" "${RESOURCE_STATS_FILE}" || return 1
     append_resource_event "${now}" "${endpoint_id}" "${task_id:-无}" "${task_type:-无}" "${status}" "${message}" || true
+}
+
+update_resource_stats() {
+    with_lan_state_lock update_resource_stats_unlocked "$@"
 }
 
 list_resource_stats() {
@@ -3174,7 +3263,7 @@ resource_events_keep_count() {
     printf '%s\n' "${keep}"
 }
 
-prune_resource_events() {
+prune_resource_events_unlocked() {
     local keep="${1:-${RESOURCE_EVENTS_KEEP}}" line total start i tmp
     local -a events=()
     keep="$(resource_events_keep_count "${keep}")"
@@ -3195,8 +3284,12 @@ prune_resource_events() {
     replace_file_from_tmp "${tmp}" "${RESOURCE_EVENTS_FILE}"
 }
 
+prune_resource_events() {
+    with_lan_state_lock prune_resource_events_unlocked "$@"
+}
+
 clear_resource_stats_interactive() {
-    local choice keep
+    local choice keep tmp_stats tmp_events
     ensure_resource_stats_file || return 1
     ensure_resource_events_file || return 1
     print_panel_section "清理资源任务统计"
@@ -3215,7 +3308,9 @@ clear_resource_stats_interactive() {
     case "${choice}" in
         1)
             if prompt_yes_no "确认清空资源事件日志" "n"; then
-                printf '# at|endpoint_id|task_id|task_type|status|message\n' > "${RESOURCE_EVENTS_FILE}" || return 1
+                tmp_events="${RESOURCE_EVENTS_FILE}.tmp.$$"
+                printf '# at|endpoint_id|task_id|task_type|status|message\n' > "${tmp_events}" || return 1
+                replace_file_from_tmp "${tmp_events}" "${RESOURCE_EVENTS_FILE}" || return 1
                 chmod 600 "${RESOURCE_EVENTS_FILE}" 2>/dev/null || true
                 printf '已清空资源事件日志。\n'
             else
@@ -3224,8 +3319,20 @@ clear_resource_stats_interactive() {
             ;;
         2)
             if prompt_yes_no "确认清空资源聚合统计和事件日志" "n"; then
-                printf '# endpoint_id|success_count|fail_count|last_task|last_type|last_status|last_at|last_message\n' > "${RESOURCE_STATS_FILE}" || return 1
-                printf '# at|endpoint_id|task_id|task_type|status|message\n' > "${RESOURCE_EVENTS_FILE}" || return 1
+                tmp_stats="${RESOURCE_STATS_FILE}.tmp.$$"
+                tmp_events="${RESOURCE_EVENTS_FILE}.tmp.$$"
+                printf '# endpoint_id|success_count|fail_count|last_task|last_type|last_status|last_at|last_message\n' > "${tmp_stats}" || return 1
+                printf '# at|endpoint_id|task_id|task_type|status|message\n' > "${tmp_events}" || return 1
+                lan_state_lock || return 1
+                replace_file_from_tmp "${tmp_stats}" "${RESOURCE_STATS_FILE}" || {
+                    lan_state_unlock
+                    return 1
+                }
+                replace_file_from_tmp "${tmp_events}" "${RESOURCE_EVENTS_FILE}" || {
+                    lan_state_unlock
+                    return 1
+                }
+                lan_state_unlock
                 chmod 600 "${RESOURCE_STATS_FILE}" "${RESOURCE_EVENTS_FILE}" 2>/dev/null || true
                 printf '已清空资源聚合统计和事件日志。\n'
             else
@@ -5359,9 +5466,9 @@ install_self() {
             cp "${src}" "${dest}" || return 1
         fi
     elif have_cmd curl; then
-        curl -fsSL "${RAW_URL}" -o "${dest}" || return 1
+        curl -fsSL --connect-timeout 15 --max-time 180 "${RAW_URL}" -o "${dest}" || return 1
     elif have_cmd wget; then
-        wget -qO "${dest}" "${RAW_URL}" || return 1
+        wget -q --timeout=180 -O "${dest}" "${RAW_URL}" || return 1
     else
         printf '无法落盘：当前脚本不可复制，且系统缺少 curl/wget。\n' >&2
         return 1
@@ -5379,12 +5486,12 @@ upgrade_self_from_raw() {
     mkdir -p "${dir}" || return 1
     tmp="${dest}.tmp.$$"
     if have_cmd curl; then
-        curl -fsSL "${RAW_URL}" -o "${tmp}" || {
+        curl -fsSL --connect-timeout 15 --max-time 180 "${RAW_URL}" -o "${tmp}" || {
             rm -f -- "${tmp}" 2>/dev/null || true
             return 1
         }
     elif have_cmd wget; then
-        wget -qO "${tmp}" "${RAW_URL}" || {
+        wget -q --timeout=180 -O "${tmp}" "${RAW_URL}" || {
             rm -f -- "${tmp}" 2>/dev/null || true
             return 1
         }
@@ -6137,11 +6244,16 @@ lan_backup_import() {
         return 1
     }
     local_status=0
-    restore_file_from_stage "${work}/files/config/targets.tsv" "${CONFIG_FILE}" 600 || local_status=1
-    restore_file_from_stage "${work}/files/config/settings.env" "${SETTINGS_FILE}" 600 || local_status=1
-    restore_file_from_stage "${work}/files/state/stats.tsv" "${STATS_FILE}" 600 || local_status=1
-    restore_file_from_stage "${work}/files/state/resource-stats.tsv" "${RESOURCE_STATS_FILE}" 600 || local_status=1
-    restore_file_from_stage "${work}/files/state/resource-events.tsv" "${RESOURCE_EVENTS_FILE}" 600 || local_status=1
+    if lan_state_lock; then
+        restore_file_from_stage "${work}/files/config/targets.tsv" "${CONFIG_FILE}" 600 || local_status=1
+        restore_file_from_stage "${work}/files/config/settings.env" "${SETTINGS_FILE}" 600 || local_status=1
+        restore_file_from_stage "${work}/files/state/stats.tsv" "${STATS_FILE}" 600 || local_status=1
+        restore_file_from_stage "${work}/files/state/resource-stats.tsv" "${RESOURCE_STATS_FILE}" 600 || local_status=1
+        restore_file_from_stage "${work}/files/state/resource-events.tsv" "${RESOURCE_EVENTS_FILE}" 600 || local_status=1
+        lan_state_unlock
+    else
+        local_status=1
+    fi
     restore_config_ssh_keys_from_stage "${work}" || local_status=1
     restore_identity_files_from_stage "${work}" || local_status=1
     if [[ "${local_status}" == "0" && "${RESTORE_DRY_RUN}" != "1" ]]; then
