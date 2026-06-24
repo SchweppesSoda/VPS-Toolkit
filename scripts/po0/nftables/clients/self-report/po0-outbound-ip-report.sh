@@ -4,11 +4,11 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_SELF_REPORT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report.sh}"
 SCRIPT_NAME="po0-self-report"
-SCRIPT_VERSION="2026.06.25+build.3"
+SCRIPT_VERSION="2026.06.25+build.4"
 SCRIPT_RELEASE_DATE="2026-06-25"
 # CHANGELOG_BEGIN
-# - 修复 macOS 默认 Bash 3.2 不支持 Bash 4 小写替换语法导致菜单和配置提示报错的问题，并避免依赖外部 tr。
-# - 补齐菜单首页标题 helper，避免打开 Linux/macOS self-report 菜单时报 print_title 缺失。
+# - Source ID 和上报 identity 会规范成 PO0 restricted wrapper 可安全解析的无空格 token，修复 macOS 主机名含空格导致 LAN Worker 返回 502。
+# - 失败时保留 LAN Worker 返回正文，方便看到 PO0 wrapper 的具体拒绝原因。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24
@@ -501,6 +501,16 @@ sanitize_device_id_part() {
     printf '%s\n' "${out}"
 }
 
+normalize_report_token() {
+    local value="$1" fallback="${2:-self-report}" normalized
+    normalized="$(sanitize_device_id_part "${value}" 2>/dev/null || true)"
+    if [[ -n "${normalized}" ]]; then
+        printf '%s\n' "${normalized}"
+    else
+        printf '%s\n' "${fallback}"
+    fi
+}
+
 default_device_hostname() {
     local value
     value="$(hostname 2>/dev/null || true)"
@@ -583,6 +593,7 @@ apply_device_defaults() {
                 ;;
         esac
     fi
+    SOURCE_ID="$(normalize_report_token "${SOURCE_ID}" "$(default_source_id)")"
 }
 
 save_config_file() {
@@ -1302,7 +1313,7 @@ toggle_schedule_interactive() {
 }
 
 report_once() {
-    local ip response curl_rc secret_header=()
+    local ip response curl_rc secret_header=() report_source report_identity curl_args=() http_code
     validate_worker_url || { self_report_incomplete "LAN Worker URL 未通过检查。"; return 1; }
     command -v curl >/dev/null 2>&1 || {
         echo "缺少 curl，无法上报到 LAN Worker。" >&2
@@ -1315,18 +1326,31 @@ report_once() {
         return 1
     }
     [[ -n "${SECRET}" ]] && secret_header=(-H "X-PO0-Token: ${SECRET}")
+    report_source="$(normalize_report_token "${SOURCE_ID}" "$(default_source_id)")"
+    report_identity="$(normalize_report_token "${IDENTITY}" "${report_source}")"
     echo "上报当前公网出口 IPv4 ${ip} 到 LAN Worker：${WORKER_URL}"
-    if response="$(curl -fsS --get --connect-timeout 10 --max-time 30 "${secret_header[@]}" \
-        --data-urlencode "source=${SOURCE_ID}" \
-        --data-urlencode "ip=${ip}" \
-        --data-urlencode "identity=${IDENTITY}" \
-        "${WORKER_URL}")"; then
+    curl_args=(-sS --get --connect-timeout 10 --max-time 30)
+    curl_args+=("${secret_header[@]}")
+    curl_args+=(--data-urlencode "source=${report_source}")
+    curl_args+=(--data-urlencode "ip=${ip}")
+    curl_args+=(--data-urlencode "identity=${report_identity}")
+    curl_args+=(-w $'\n%{http_code}')
+    curl_args+=("${WORKER_URL}")
+    if ! response="$(curl "${curl_args[@]}")"; then
+        curl_rc=$?
+        [[ -n "${response}" ]] && printf '%s\n' "${response}" >&2
+        self_report_incomplete "LAN Worker 未确认本次上报（curl exit ${curl_rc}）。"
+        return "${curl_rc}"
+    fi
+    http_code="${response##*$'\n'}"
+    response="${response%$'\n'*}"
+    if [[ "${http_code}" == 2* ]]; then
         [[ -n "${response}" ]] && printf '%s\n' "${response}"
         self_report_completed "公网出口 IPv4 ${ip} 已被 LAN Worker 接收。"
     else
-        curl_rc=$?
-        self_report_incomplete "LAN Worker 未确认本次上报（curl exit ${curl_rc}）。"
-        return "${curl_rc}"
+        [[ -n "${response}" ]] && printf '%s\n' "${response}" >&2
+        self_report_incomplete "LAN Worker 未确认本次上报（HTTP ${http_code}）。"
+        return 1
     fi
 }
 

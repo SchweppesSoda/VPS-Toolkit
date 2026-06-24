@@ -436,7 +436,7 @@ probe_self_report_target() {
         line="$(trim "${line}")"
         [[ -n "${line}" && ! "${line}" == \#* ]] || continue
         IFS='|' read -r source host port user script token ttl extra <<< "${line}"
-        source="$(sanitize_field "${source:-${SELF_REPORT_SOURCE}}")"
+        source="$(normalize_report_token_shell "${source:-${SELF_REPORT_SOURCE}}" "self-report")"
         host="$(sanitize_field "${host}")"
         port="$(sanitize_field "${port:-22}")"
         user="$(sanitize_field "${user:-root}")"

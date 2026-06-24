@@ -104,6 +104,23 @@ def normalized_ttl(value, fallback=43200):
         ttl = fallback
     return min(max(60, ttl), 604800)
 
+def safe_report_token(value, fallback="self-report"):
+    raw = (value or "").strip().lower()
+    out = []
+    last_dash = False
+    for ch in raw:
+        if ord(ch) < 128 and (ch.isalnum() or ch in "._-"):
+            out.append(ch)
+            last_dash = False
+        else:
+            if not last_dash:
+                out.append("-")
+                last_dash = True
+    safe = "".join(out).strip("-")
+    if not safe:
+        safe = fallback
+    return safe[:48].rstrip("-") or fallback
+
 def warn_ignored_extra(context, reason):
     print(f"[WARN] {context}: ignored SSH extra arg ({reason}).", file=sys.stderr)
 
@@ -262,7 +279,8 @@ if not TARGETS:
     raise SystemExit('missing PO0_SELF_REPORT_TARGETS')
 
 def report_target(target, ip, identity, source_override):
-    source = source_override or target['source']
+    source = safe_report_token(source_override or target['source'], "self-report")
+    identity = safe_report_token(identity or "self-report", source)
     ttl = str(normalized_ttl(target.get('ttl'), 43200))
     remote = " ".join([
         "bash",
@@ -284,7 +302,7 @@ def report_all(ip, identity, source_override):
     failed = []
     for target in TARGETS:
         result = report_target(target, ip, identity, source_override)
-        label = f"{source_override or target['source']}@{target['host']}"
+        label = f"{safe_report_token(source_override or target['source'], 'self-report')}@{target['host']}"
         if result.returncode == 0:
             ok.append(label)
         else:

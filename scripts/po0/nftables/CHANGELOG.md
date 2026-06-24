@@ -70,6 +70,11 @@
 
 ## po0-lan-worker-client
 
+### 2026.06.25+build.2
+
+- Self-report server 和目标权限检查在转发到 PO0 前会规范 source / identity，避免 macOS 主机名含空格被 PO0 restricted wrapper 拆坏。
+- Self-report 502 返回正文继续保留 PO0 目标的具体失败原因，便于客户端排错。
+
 ### 2026.06.25+build.1
 
 - 跟随 PO0 2026-06-25 发布刷新 LAN Worker 版本，避免 latest 更新后仍显示旧脚本版本。
@@ -138,6 +143,11 @@
 - 状态页 / Widget 优先复用 IP9、163、126、myip.ipip 等 IP 查询接口返回的归属地 / 运营商信息，拿不到时才额外查询。
 
 ## po0-self-report（Linux/OpenWrt）
+
+### 2026.06.25+build.4
+
+- Source ID 和上报 identity 会规范成 PO0 restricted wrapper 可安全解析的无空格 token，修复 macOS 主机名含空格导致 LAN Worker 返回 502。
+- 失败时保留 LAN Worker 返回正文，方便看到 PO0 wrapper 的具体拒绝原因。
 
 ### 2026.06.25+build.3
 
