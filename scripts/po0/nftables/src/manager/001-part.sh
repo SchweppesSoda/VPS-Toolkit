@@ -2,11 +2,10 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-nftables-relay-manager"
-SCRIPT_VERSION="2026.06.24+build.1"
-SCRIPT_RELEASE_DATE="2026-06-24"
+SCRIPT_VERSION="2026.06.25+build.1"
+SCRIPT_RELEASE_DATE="2026-06-25"
 # CHANGELOG_BEGIN
-# - PO0 可部署脚本默认下载源迁到 GitHub Release asset，并保留环境变量覆盖入口。
-# - LAN Worker、Self-report 部署命令改用 Release 下载地址；Egern 模块 raw 地址暂作为兼容白名单保留。
+# - 主菜单顶部新增脚本版本、构建标识、当前脚本、安装路径、下载 URL 和关键配置路径信息。
 # CHANGELOG_END
 CONF_DIR="${PO0_CONF_DIR:-/etc/nftables.d}"
 MAIN_CONF="/etc/nftables.conf"

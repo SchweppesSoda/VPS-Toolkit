@@ -4,11 +4,12 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_SELF_REPORT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report.sh}"
 SCRIPT_NAME="po0-self-report"
-SCRIPT_VERSION="2026.06.24+build.1"
-SCRIPT_RELEASE_DATE="2026-06-24"
+SCRIPT_VERSION="2026.06.25+build.1"
+SCRIPT_RELEASE_DATE="2026-06-25"
 # CHANGELOG_BEGIN
-# - 默认安装和自更新下载源迁到 GitHub Release asset。
-# - 新增 PO0_SELF_REPORT_DOWNLOAD_URL 覆盖入口，便于测试和回滚。
+# - 菜单首页改为精简状态面板，避免不能清屏时反复堆叠完整配置块。
+# - 版本和菜单显示执行来源、build、配置文件、下载 URL、安装路径和定时上报短状态。
+# - 定时上报摘要改为解析实际 crontab 托管块；暂停 / 恢复失败时会尝试回滚配置暂停标记。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24
@@ -252,20 +253,74 @@ script_file_changelog() {
     [[ "${found}" == "1" ]]
 }
 
+current_script_source_file() {
+    local source="${BASH_SOURCE[0]:-}" dir base abs_dir
+    case "${source}" in
+        ""|"-"|"/dev/stdin"|/dev/fd/*|/proc/self/fd/*) return 1 ;;
+    esac
+    [[ -f "${source}" ]] || return 1
+    if command -v readlink >/dev/null 2>&1; then
+        readlink -f "${source}" 2>/dev/null && return 0
+    fi
+    if command -v realpath >/dev/null 2>&1; then
+        realpath "${source}" 2>/dev/null && return 0
+    fi
+    case "${source}" in
+        /*) printf '%s\n' "${source}" ;;
+        *)
+            dir="${source%/*}"
+            base="${source##*/}"
+            [[ "${dir}" == "${source}" ]] && dir="."
+            if abs_dir="$(cd -P -- "${dir}" 2>/dev/null && pwd -P)"; then
+                printf '%s/%s\n' "${abs_dir}" "${base}"
+            else
+                printf '%s\n' "${source}"
+            fi
+            ;;
+    esac
+}
+
+current_script_path() {
+    local source="${BASH_SOURCE[0]:-}" path
+    if path="$(current_script_source_file)"; then
+        printf '%s\n' "${path}"
+        return 0
+    fi
+    case "${source}" in
+        ""|"-"|"bash"|"main"|"/dev/stdin"|/dev/fd/*|/proc/self/fd/*)
+            printf '标准输入（bash -s / curl | bash，未落盘）\n'
+            ;;
+        *)
+            printf '未知（%s 不可读）\n' "${source}"
+            ;;
+    esac
+}
+
+script_build_label() {
+    if [[ "${SCRIPT_VERSION}" == *"+"* ]]; then
+        printf '%s\n' "${SCRIPT_VERSION#*+}"
+    else
+        printf '未标识\n'
+    fi
+}
+
 show_version() {
     printf '%s\n' \
         "脚本名称：${SCRIPT_NAME}" \
         "版本：${SCRIPT_VERSION}" \
+        "构建标识：$(script_build_label)" \
         "发布日期：${SCRIPT_RELEASE_DATE}" \
-        "当前脚本：${BASH_SOURCE[0]}" \
+        "执行来源：$(current_script_path)" \
         "默认安装路径：$(default_install_path)" \
+        "配置文件：${CONFIG_FILE}" \
+        "定时上报：$(cron_status_summary)" \
         "下载 URL：${DOWNLOAD_URL}"
 }
 
 show_changelog() {
-    local changelog
-    changelog="$(script_file_changelog "${BASH_SOURCE[0]}")"
-    if [[ -n "${changelog}" ]]; then
+    local changelog script_file=""
+    script_file="$(current_script_source_file || true)"
+    if [[ -n "${script_file}" ]] && changelog="$(script_file_changelog "${script_file}")"; then
         printf '%s\n' "${changelog}"
     else
         printf '当前脚本未提供更新内容。\n'
@@ -633,6 +688,12 @@ cron_interval_label() {
     fi
 }
 
+cron_interval_label_from_minutes() {
+    local minutes="$1"
+    [[ "${minutes}" =~ ^[0-9]+$ && "${minutes}" -ge 1 ]] || return 1
+    cron_interval_label "$((10#${minutes}))"
+}
+
 is_public_ipv4() {
     local ip="$1" o1 o2 o3 o4
     [[ "${ip}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || return 1
@@ -901,6 +962,7 @@ install_cron() {
         crontab -l 2>/dev/null | write_cron_without_managed_block
         cron_begin_marker
         printf '# paused=%s\n' "$(schedule_paused && printf '1' || printf '0')"
+        printf '# interval_minutes=%s\n' "${CRON_MINUTES}"
         echo "${job}"
         cron_end_marker
     } > "${tmp}" || { self_report_incomplete "写入临时 cron 配置失败。"; return 1; }
@@ -1003,14 +1065,42 @@ uninstall_self_report_interactive() {
     self_report_completed "卸载已完成。"
 }
 
-show_cron_status() {
-    local line in_block=0 found=0
-    print_panel_section "Self-report 定时上报"
-    print_panel_row "配置文件" "${CONFIG_FILE}"
-    print_panel_row "保存状态" "$([[ -f "${CONFIG_FILE}" ]] && printf '已保存' || printf '未保存')"
-    print_panel_row "暂停状态" "$(schedule_paused && printf '已暂停（手动立即上报仍可用）' || printf '未暂停')"
+cron_job_has_schedule() {
+    local line="$1" minute hour day month weekday rest
+    read -r minute hour day month weekday rest <<< "${line}"
+    [[ -n "${minute:-}" && -n "${hour:-}" && -n "${day:-}" && -n "${month:-}" && -n "${weekday:-}" ]]
+}
+
+cron_job_interval_label() {
+    local line="$1" minute hour day month weekday rest
+    read -r minute hour day month weekday rest <<< "${line}"
+    if [[ "${line}" =~ now[[:space:]]*/[[:space:]]*60[[:space:]]*\\%[[:space:]]*([0-9]+) ]]; then
+        cron_interval_label_from_minutes "${BASH_REMATCH[1]}"
+        return $?
+    fi
+    if [[ "${line}" =~ now[[:space:]]*/[[:space:]]*3600[[:space:]]*\\%[[:space:]]*([0-9]+) ]]; then
+        cron_interval_label_from_minutes "$((10#${BASH_REMATCH[1]} * 60))"
+        return $?
+    fi
+    if [[ "${minute:-}" =~ ^\*/([0-9]+)$ && "${hour:-}" == "*" ]]; then
+        cron_interval_label_from_minutes "${BASH_REMATCH[1]}"
+    elif [[ "${minute:-}" == "0" && "${hour:-}" == "*" && "${day:-}" == "*" && "${month:-}" == "*" && "${weekday:-}" == "*" ]]; then
+        cron_interval_label_from_minutes 60
+    elif [[ "${minute:-}" == "0" && "${hour:-}" =~ ^\*/([0-9]+)$ && "${day:-}" == "*" && "${month:-}" == "*" && "${weekday:-}" == "*" ]]; then
+        cron_interval_label_from_minutes "$((10#${BASH_REMATCH[1]} * 60))"
+    elif [[ "${minute:-}" == "0" && "${hour:-}" == "0" && "${day:-}" == "*" && "${month:-}" == "*" && "${weekday:-}" == "*" ]]; then
+        cron_interval_label_from_minutes 1440
+    else
+        return 1
+    fi
+}
+
+read_cron_status_snapshot() {
+    local line in_block=0 found=0 active_job="" paused_job="" metadata_interval="" job=""
+    local state interval="" config_paused consistency="ok"
+    config_paused="$(schedule_paused && printf '1' || printf '0')"
     if ! command -v crontab >/dev/null 2>&1; then
-        print_panel_row "cron" "当前系统没有 crontab 命令"
+        printf 'unavailable||%s||ok\n' "${config_paused}"
         return 0
     fi
     while IFS= read -r line || [[ -n "${line}" ]]; do
@@ -1018,22 +1108,129 @@ show_cron_status() {
             "# PO0_SELF_REPORT_BEGIN"*) in_block=1; found=1; continue ;;
             "# PO0_SELF_REPORT_END"*) in_block=0; continue ;;
         esac
-        [[ "${in_block}" == "1" ]] && print_panel_row "当前计划" "${line}"
+        [[ "${in_block}" == "1" ]] || continue
+        case "${line}" in
+            "# interval_minutes="*)
+                metadata_interval="${line#"# interval_minutes="}"
+                ;;
+            "# paused="*|"")
+                ;;
+            \#*)
+                job="${line#\#}"
+                job="${job# }"
+                if cron_job_has_schedule "${job}"; then
+                    paused_job="${job}"
+                fi
+                ;;
+            *)
+                if cron_job_has_schedule "${line}"; then
+                    active_job="${line}"
+                fi
+                ;;
+        esac
     done < <(crontab -l 2>/dev/null || true)
-    [[ "${found}" == "1" ]] || print_panel_row "当前计划" "未安装本脚本管理的 self-report cron"
+
+    if [[ "${found}" != "1" ]]; then
+        printf 'uninstalled||%s||ok\n' "${config_paused}"
+        return 0
+    fi
+    if [[ -n "${active_job}" ]]; then
+        state="running"
+        job="${active_job}"
+    elif [[ -n "${paused_job}" ]]; then
+        state="paused"
+        job="${paused_job}"
+    else
+        printf 'invalid||%s||ok\n' "${config_paused}"
+        return 0
+    fi
+
+    if ! interval="$(cron_interval_label_from_minutes "${metadata_interval}" 2>/dev/null)"; then
+        interval="$(cron_job_interval_label "${job}" 2>/dev/null || true)"
+    fi
+    if [[ "${state}" == "running" && "${config_paused}" == "1" ]]; then
+        consistency="drift"
+    elif [[ "${state}" == "paused" && "${config_paused}" != "1" ]]; then
+        consistency="drift"
+    fi
+    printf '%s|%s|%s|%s|%s\n' "${state}" "${interval}" "${config_paused}" "${job}" "${consistency}"
+}
+
+cron_state_label() {
+    case "$1" in
+        running) printf '运行中' ;;
+        paused) printf '已暂停' ;;
+        uninstalled) printf '未安装' ;;
+        unavailable) printf '不可用（缺少 crontab）' ;;
+        invalid) printf '异常：cron block 无任务' ;;
+        *) printf '未知' ;;
+    esac
+}
+
+cron_status_summary() {
+    local state interval config_paused job consistency summary
+    IFS='|' read -r state interval config_paused job consistency < <(read_cron_status_snapshot)
+    case "${state}" in
+        running|paused)
+            summary="$(cron_state_label "${state}")"
+            [[ -n "${interval}" ]] && summary="${summary}，${interval}"
+            [[ "${consistency}" == "drift" ]] && summary="${summary}（与配置暂停标记不一致）"
+            printf '%s' "${summary}"
+            ;;
+        *)
+            cron_state_label "${state}"
+            ;;
+    esac
+}
+
+show_cron_status() {
+    local state interval config_paused job consistency
+    IFS='|' read -r state interval config_paused job consistency < <(read_cron_status_snapshot)
+    print_panel_section "Self-report 定时上报"
+    print_panel_row "配置文件" "${CONFIG_FILE}"
+    print_panel_row "保存状态" "$([[ -f "${CONFIG_FILE}" ]] && printf '已保存' || printf '未保存')"
+    print_panel_row "配置暂停标记" "$(schedule_paused && printf '已暂停（手动立即上报仍可用）' || printf '未暂停')"
+    print_panel_row "实际状态" "$(cron_state_label "${state}")"
+    if [[ -n "${interval}" ]]; then
+        print_panel_row "计划间隔" "${interval}"
+    elif [[ "${state}" == "running" || "${state}" == "paused" ]]; then
+        print_panel_row "计划间隔" "已安装，未识别间隔"
+    fi
+    if [[ "${consistency}" == "drift" ]]; then
+        print_panel_row "一致性" "不一致，执行安装 / 更新定时上报可刷新"
+    elif [[ "${state}" == "running" || "${state}" == "paused" ]]; then
+        print_panel_row "一致性" "一致"
+    fi
+    [[ -n "${job}" ]] && print_panel_row "当前命令" "${job}"
 }
 
 set_schedule_paused() {
-    local value="$1"
+    local value="$1" had_cron=0 previous_paused="${SCHEDULE_PAUSED}"
+    if command -v crontab >/dev/null 2>&1 && cron_managed_block_exists; then
+        had_cron=1
+    fi
     SCHEDULE_PAUSED="${value}"
     save_config_file || return 1
-    if command -v crontab >/dev/null 2>&1 && cron_managed_block_exists; then
-        install_cron || return 1
+    if [[ "${had_cron}" == "1" ]]; then
+        if ! install_cron; then
+            SCHEDULE_PAUSED="${previous_paused}"
+            save_config_file >/dev/null 2>&1 || true
+            self_report_incomplete "定时上报暂停状态未同步，已尝试恢复配置标记。"
+            return 1
+        fi
     fi
     if schedule_paused; then
-        self_report_completed "定时上报已暂停；手动立即上报仍可用。"
+        if [[ "${had_cron}" == "1" ]]; then
+            self_report_completed "定时上报已暂停；手动立即上报仍可用。"
+        else
+            self_report_completed "已记录暂停标记；当前未安装定时上报，安装后会按此状态写入。"
+        fi
     else
-        self_report_completed "定时上报已恢复。"
+        if [[ "${had_cron}" == "1" ]]; then
+            self_report_completed "定时上报已恢复。"
+        else
+            self_report_completed "已记录恢复标记；当前未安装定时上报，安装后会按此状态写入。"
+        fi
     fi
 }
 
@@ -1091,6 +1288,27 @@ show_current_config() {
     else
         print_panel_row "首选 IP 探测" "${IP_CHECK_URL}"
     fi
+}
+
+show_menu_dashboard() {
+    print_title "PO0 Self-report Client"
+    print_panel_section "脚本信息"
+    print_panel_row "脚本名称" "${SCRIPT_NAME}"
+    print_panel_row "版本" "${SCRIPT_VERSION}"
+    print_panel_row "构建标识" "$(script_build_label)"
+    print_panel_row "发布日期" "${SCRIPT_RELEASE_DATE}"
+    print_panel_row "执行来源" "$(current_script_path)"
+    print_panel_row "默认安装路径" "$(default_install_path)"
+    print_panel_row "下载 URL" "${DOWNLOAD_URL}"
+
+    print_panel_section "当前状态"
+    print_panel_row "配置文件" "${CONFIG_FILE}"
+    print_panel_row "保存状态" "$([[ -f "${CONFIG_FILE}" ]] && printf '已保存' || printf '未保存')"
+    print_panel_row "LAN Worker URL" "${WORKER_URL:-未设置}"
+    print_panel_row "Source ID" "${SOURCE_ID:-未设置}"
+    print_panel_row "Identity" "${IDENTITY:-未设置}"
+    print_panel_row "定时上报" "$(cron_status_summary)"
+    print_panel_row "上报间隔" "$(cron_minutes_to_seconds "${CRON_MINUTES}") 秒（安装定时上报时使用）"
 }
 
 configure_interactive() {
@@ -1156,7 +1374,7 @@ menu_loop() {
     local choice rc
     while true; do
         menu_clear_screen
-        show_current_config
+        show_menu_dashboard
         print_menu_section "手动上报"
         print_menu_pair 1 "配置并保存上报参数" 2 "立即上报一次"
         print_menu_section "定时上报"

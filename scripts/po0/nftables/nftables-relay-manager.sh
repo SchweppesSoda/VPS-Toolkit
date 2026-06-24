@@ -2,11 +2,10 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-nftables-relay-manager"
-SCRIPT_VERSION="2026.06.24+build.1"
-SCRIPT_RELEASE_DATE="2026-06-24"
+SCRIPT_VERSION="2026.06.25+build.1"
+SCRIPT_RELEASE_DATE="2026-06-25"
 # CHANGELOG_BEGIN
-# - PO0 可部署脚本默认下载源迁到 GitHub Release asset，并保留环境变量覆盖入口。
-# - LAN Worker、Self-report 部署命令改用 Release 下载地址；Egern 模块 raw 地址暂作为兼容白名单保留。
+# - 主菜单顶部新增脚本版本、构建标识、当前脚本、安装路径、下载 URL 和关键配置路径信息。
 # CHANGELOG_END
 CONF_DIR="${PO0_CONF_DIR:-/etc/nftables.d}"
 MAIN_CONF="/etc/nftables.conf"
@@ -12665,11 +12664,28 @@ print_cli_usage() {
         "不带命令运行时进入交互菜单。"
 }
 
+print_script_info_panel() {
+    local script_path
+    script_path="$(current_script_path 2>/dev/null || true)"
+    print_panel_section "脚本信息"
+    print_panel_row "脚本名称" "${SCRIPT_NAME}"
+    print_panel_row "版本" "${SCRIPT_VERSION}"
+    print_panel_row "构建标识" "$(script_build_label)"
+    print_panel_row "发布日期" "${SCRIPT_RELEASE_DATE}"
+    print_panel_row "当前脚本" "${script_path:-unknown}"
+    print_panel_row "安装路径" "${MANAGER_INSTALL_PATH}"
+    print_panel_row "下载 URL" "${MANAGER_DOWNLOAD_URL}"
+    print_panel_row "配置目录" "${CONF_DIR}"
+    print_panel_row "设置文件" "${SETTINGS_FILE}"
+    print_panel_row "规则文件" "${RULES_FILE}"
+}
+
 main_menu() {
     local choice
     while true; do
         menu_clear_screen
         print_title "nftables relay manager"
+        print_script_info_panel
         print_status_panel
         print_runtime_rule_hint
         print_recommended_operations

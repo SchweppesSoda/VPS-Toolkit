@@ -1,8 +1,25 @@
+print_script_info_panel() {
+    local script_path
+    script_path="$(current_script_path 2>/dev/null || true)"
+    print_panel_section "脚本信息"
+    print_panel_row "脚本名称" "${SCRIPT_NAME}"
+    print_panel_row "版本" "${SCRIPT_VERSION}"
+    print_panel_row "构建标识" "$(script_build_label)"
+    print_panel_row "发布日期" "${SCRIPT_RELEASE_DATE}"
+    print_panel_row "当前脚本" "${script_path:-unknown}"
+    print_panel_row "安装路径" "${MANAGER_INSTALL_PATH}"
+    print_panel_row "下载 URL" "${MANAGER_DOWNLOAD_URL}"
+    print_panel_row "配置目录" "${CONF_DIR}"
+    print_panel_row "设置文件" "${SETTINGS_FILE}"
+    print_panel_row "规则文件" "${RULES_FILE}"
+}
+
 main_menu() {
     local choice
     while true; do
         menu_clear_screen
         print_title "nftables relay manager"
+        print_script_info_panel
         print_status_panel
         print_runtime_rule_hint
         print_recommended_operations

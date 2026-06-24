@@ -28,11 +28,11 @@ $ErrorActionPreference = "Stop"
 $ReleaseDownloadBaseUrl = $(if ($env:PO0_RELEASE_DOWNLOAD_BASE_URL) { $env:PO0_RELEASE_DOWNLOAD_BASE_URL } else { "https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download" })
 $DownloadUrl = $(if ($env:PO0_SELF_REPORT_PS_DOWNLOAD_URL) { $env:PO0_SELF_REPORT_PS_DOWNLOAD_URL } else { "$ReleaseDownloadBaseUrl/po0-outbound-ip-report.ps1" })
 $ScriptName = "po0-self-report"
-$ScriptVersion = "2026.06.24+build.1"
-$ScriptReleaseDate = "2026-06-24"
+$ScriptVersion = "2026.06.25+build.1"
+$ScriptReleaseDate = "2026-06-25"
 # CHANGELOG_BEGIN
-# - 默认安装和自更新下载源迁到 GitHub Release asset。
-# - 新增 PO0_SELF_REPORT_PS_DOWNLOAD_URL 覆盖入口，便于测试和回滚。
+# - 菜单首页改为精简状态面板，补充脚本版本、路径、配置文件、日志路径、通知和计划任务状态。
+# - 版本输出补充 build、配置文件、日志路径和计划任务状态。
 # CHANGELOG_END
 $PanelValueColumn = 24
 $MenuRightColumn = 46
@@ -185,6 +185,14 @@ function Set-OutputColumn {
     } catch {
         Write-Host "    " -NoNewline
     }
+}
+
+function Write-Title {
+    param([string]$Title)
+    Write-Host ""
+    Write-Host "========================"
+    Write-Host $Title
+    Write-Host "========================"
 }
 
 function Write-MenuDivider {
@@ -393,13 +401,24 @@ function Get-ScriptFileChangelog {
     return $result.ToArray()
 }
 
+function Get-ScriptBuildLabel {
+    if ($ScriptVersion -like "*+*") {
+        return ($ScriptVersion -split "\+", 2)[1]
+    }
+    return "未标识"
+}
+
 function Show-ScriptVersion {
     $current = $(if ($PSCommandPath) { $PSCommandPath } else { "未知" })
     Write-Host "脚本名称：$ScriptName"
     Write-Host "版本：$ScriptVersion"
+    Write-Host "构建标识：$(Get-ScriptBuildLabel)"
     Write-Host "发布日期：$ScriptReleaseDate"
     Write-Host "当前脚本：$current"
     Write-Host "默认安装路径：$(Get-DefaultScriptPath)"
+    Write-Host "配置文件：$script:ConfigPath"
+    Write-Host "运行日志：$(Get-DefaultLogPath)"
+    Write-Host "计划任务：$(Get-ScheduledReporterSummary)"
     Write-Host "下载 URL：$DownloadUrl"
 }
 
@@ -912,6 +931,29 @@ function Show-ClientConfig {
     }
 }
 
+function Show-ClientDashboard {
+    Write-Title "PO0 Self-report Client"
+    Write-PanelSection "脚本信息"
+    Write-PanelRow "脚本名称" $ScriptName
+    Write-PanelRow "版本" $ScriptVersion
+    Write-PanelRow "构建标识" (Get-ScriptBuildLabel)
+    Write-PanelRow "发布日期" $ScriptReleaseDate
+    Write-PanelRow "当前脚本" $(if ($PSCommandPath) { $PSCommandPath } else { "未知" })
+    Write-PanelRow "默认安装路径" (Get-DefaultScriptPath)
+    Write-PanelRow "下载 URL" $DownloadUrl
+
+    Write-PanelSection "当前状态"
+    Write-PanelRow "配置文件" $script:ConfigPath
+    Write-PanelRow "保存状态" $(if (Test-Path -LiteralPath $script:ConfigPath) { "已保存" } else { "未保存" })
+    Write-PanelRow "LAN Worker URL" $(if ($script:WorkerUrl) { $script:WorkerUrl } else { "未设置" })
+    Write-PanelRow "Source ID" $script:SourceId
+    Write-PanelRow "Identity" $script:Identity
+    Write-PanelRow "运行日志" (Get-DefaultLogPath)
+    Write-PanelRow "Windows 通知" (Format-NotifyStatus)
+    Write-PanelRow "计划任务" (Get-ScheduledReporterSummary)
+    Write-PanelRow "上报间隔" ("每 {0} 秒（安装计划任务时使用）" -f (Get-IntervalSeconds))
+}
+
 function Set-ClientConfigInteractive {
     $script:WorkerUrl = Read-Default "LAN Worker self-report HTTPS 接收地址（域名或 https://域名/report）" $(if ($script:WorkerUrl) { $script:WorkerUrl } else { "https://report.example.com/report" })
     $script:WorkerUrl = Normalize-WorkerUrl $script:WorkerUrl
@@ -1078,7 +1120,7 @@ function Pause-Menu {
 
 function Invoke-InteractiveMenu {
     while ($true) {
-        Show-ClientConfig
+        Show-ClientDashboard
         Write-MenuSection "手动上报"
         Write-MenuPair "1" "配置并保存上报参数" "2" "立即上报一次"
         Write-MenuSection "定时上报"
