@@ -4,12 +4,11 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_SELF_REPORT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report.sh}"
 SCRIPT_NAME="po0-self-report"
-SCRIPT_VERSION="2026.06.25+build.1"
+SCRIPT_VERSION="2026.06.25+build.3"
 SCRIPT_RELEASE_DATE="2026-06-25"
 # CHANGELOG_BEGIN
-# - 菜单首页改为精简状态面板，避免不能清屏时反复堆叠完整配置块。
-# - 版本和菜单显示执行来源、build、配置文件、下载 URL、安装路径和定时上报短状态。
-# - 定时上报摘要改为解析实际 crontab 托管块；暂停 / 恢复失败时会尝试回滚配置暂停标记。
+# - 修复 macOS 默认 Bash 3.2 不支持 Bash 4 小写替换语法导致菜单和配置提示报错的问题，并避免依赖外部 tr。
+# - 补齐菜单首页标题 helper，避免打开 Linux/macOS self-report 菜单时报 print_title 缺失。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24
@@ -133,6 +132,13 @@ print_menu_divider() {
 }
 
 print_menu_footer() {
+    print_menu_divider
+}
+
+print_title() {
+    printf '\n'
+    print_menu_divider
+    printf '%b%s%b\n' "${C_BOLD}${C_CYAN}" "$1" "${C_RESET}"
     print_menu_divider
 }
 
@@ -356,11 +362,59 @@ prompt_default() {
     printf '%s\n' "${value}"
 }
 
+to_lower() {
+    local value="$1" out="" ch i
+    for ((i = 0; i < ${#value}; i++)); do
+        ch="${value:i:1}"
+        case "${ch}" in
+            A) out="${out}a" ;;
+            B) out="${out}b" ;;
+            C) out="${out}c" ;;
+            D) out="${out}d" ;;
+            E) out="${out}e" ;;
+            F) out="${out}f" ;;
+            G) out="${out}g" ;;
+            H) out="${out}h" ;;
+            I) out="${out}i" ;;
+            J) out="${out}j" ;;
+            K) out="${out}k" ;;
+            L) out="${out}l" ;;
+            M) out="${out}m" ;;
+            N) out="${out}n" ;;
+            O) out="${out}o" ;;
+            P) out="${out}p" ;;
+            Q) out="${out}q" ;;
+            R) out="${out}r" ;;
+            S) out="${out}s" ;;
+            T) out="${out}t" ;;
+            U) out="${out}u" ;;
+            V) out="${out}v" ;;
+            W) out="${out}w" ;;
+            X) out="${out}x" ;;
+            Y) out="${out}y" ;;
+            Z) out="${out}z" ;;
+            *) out="${out}${ch}" ;;
+        esac
+    done
+    printf '%s\n' "${out}"
+}
+
+digits_only() {
+    local value="$1" out="" ch i
+    for ((i = 0; i < ${#value}; i++)); do
+        ch="${value:i:1}"
+        case "${ch}" in
+            [0-9]) out="${out}${ch}" ;;
+        esac
+    done
+    printf '%s\n' "${out}"
+}
+
 prompt_yes_no() {
     local prompt="$1"
     local default="${2:-n}"
     local suffix value
-    case "${default,,}" in
+    case "$(to_lower "${default}")" in
         y|yes|1|true) suffix="Y/n"; default="y" ;;
         *) suffix="y/N"; default="n" ;;
     esac
@@ -368,7 +422,7 @@ prompt_yes_no() {
         value="$(read_prompt "${prompt} [${suffix}]: ")" || return 1
         value="$(trim "${value}")"
         [[ -n "${value}" ]] || value="${default}"
-        case "${value,,}" in
+        case "$(to_lower "${value}")" in
             y|yes) return 0 ;;
             n|no) return 1 ;;
             *) printf '请输入 y 或 n。\n' >&2 ;;
@@ -427,7 +481,7 @@ apply_env_overrides() {
 sanitize_device_id_part() {
     local value="$1" out="" ch i
     value="$(trim "${value}")"
-    value="${value,,}"
+    value="$(to_lower "${value}")"
     for ((i = 0; i < ${#value}; i++)); do
         ch="${value:i:1}"
         case "${ch}" in
@@ -451,7 +505,7 @@ default_device_hostname() {
     local value
     value="$(hostname 2>/dev/null || true)"
     value="$(trim "${value}")"
-    case "${value,,}" in
+    case "$(to_lower "${value}")" in
         ""|"(none)"|"localhost"|"localhost.localdomain")
             value=""
             ;;
@@ -471,7 +525,7 @@ default_machine_id_part() {
         IFS= read -r value < "${path}" || value=""
         value="$(trim "${value}")"
         value="${value//-/}"
-        value="${value,,}"
+        value="$(to_lower "${value}")"
         [[ "${value}" =~ ^[0-9a-f]+$ ]] || continue
         if [[ ${#value} -ge 8 ]]; then
             printf '%s\n' "${value:0:16}"
@@ -491,7 +545,7 @@ default_mac_id_part() {
         IFS= read -r value < "${path}" || value=""
         value="$(trim "${value}")"
         value="${value//:/}"
-        value="${value,,}"
+        value="$(to_lower "${value}")"
         [[ ${#value} -eq 12 ]] || continue
         [[ "${value}" =~ ^[0-9a-f]+$ ]] || continue
         [[ "${value}" =~ ^0+$ ]] && continue
@@ -582,14 +636,14 @@ normalize_worker_url() {
 }
 
 http_allowed() {
-    case "${ALLOW_HTTP,,}" in
+    case "$(to_lower "${ALLOW_HTTP}")" in
         1|true|yes|y) return 0 ;;
         *) return 1 ;;
     esac
 }
 
 schedule_paused() {
-    case "${SCHEDULE_PAUSED,,}" in
+    case "$(to_lower "${SCHEDULE_PAUSED}")" in
         1|true|yes|y) return 0 ;;
         *) return 1 ;;
     esac
@@ -751,7 +805,12 @@ read_ip_check_index() {
     local count="$1" state raw
     [[ "${count}" =~ ^[0-9]+$ && "${count}" -gt 0 ]] || { printf '0\n'; return 0; }
     state="$(ip_check_state_file)"
-    raw="$(cat "${state}" 2>/dev/null | tr -cd '0-9' || true)"
+    if [[ -r "${state}" ]]; then
+        IFS= read -r raw < "${state}" || raw=""
+        raw="$(digits_only "${raw}")"
+    else
+        raw=""
+    fi
     [[ -n "${raw}" ]] || raw="0"
     printf '%s\n' "$((raw % count))"
 }

@@ -139,6 +139,11 @@
 
 ## po0-self-report（Linux/OpenWrt）
 
+### 2026.06.25+build.3
+
+- 修复 macOS 默认 Bash 3.2 不支持 Bash 4 小写替换语法导致菜单和配置提示报错的问题，并避免依赖外部 `tr`。
+- 补齐菜单首页标题 helper，避免打开 Linux/macOS self-report 菜单时报 `print_title` 缺失。
+
 ### 2026.06.25+build.1
 
 - 菜单首页改为精简状态面板，避免不能清屏时反复堆叠完整配置块。
