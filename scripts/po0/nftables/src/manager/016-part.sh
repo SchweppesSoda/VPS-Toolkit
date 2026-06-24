@@ -147,6 +147,10 @@ do_show_client_ip_report_token() {
     printf '  curl -fsSL %s | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --interval-seconds 3600 --install-cron\n' \
         "${OUTBOUND_IP_REPORTER_DOWNLOAD_URL}"
     echo ""
+    echo "macOS 自上报 client（访问设备 -> LAN Worker）："
+    printf '  curl -fsSL %s | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --interval-seconds 3600 --install-launchd\n' \
+        "${OUTBOUND_IP_REPORTER_MACOS_DOWNLOAD_URL}"
+    echo ""
     echo "Windows PowerShell 自上报 client（访问设备 -> LAN Worker）："
     printf "  \$script=\"\$env:TEMP\\po0-outbound-ip-report.ps1\"; irm -UseBasicParsing '%s' -OutFile \$script -TimeoutSec 120; powershell -ExecutionPolicy Bypass -File \$script -WorkerUrl 'https://<SELF_REPORT_DOMAIN>/report' -SourceId '<CLIENT_ID>' -Secret '<SELF_REPORT_SECRET>' -InstallTask -IntervalSeconds 3600\n" \
         "${OUTBOUND_IP_REPORTER_PS_DOWNLOAD_URL}"

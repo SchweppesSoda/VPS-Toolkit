@@ -6,6 +6,11 @@
 
 ## po0-nftables-relay-manager
 
+### 2026.06.25+build.2
+
+- Self-report 客户端部署命令补充 macOS 专用脚本下载入口。
+- 脚本信息区补充 macOS Self-report 下载 URL。
+
 ### 2026.06.25+build.1
 
 - 主菜单顶部新增脚本版本、构建标识、当前脚本、安装路径、下载 URL 和关键配置路径信息，便于确认当前运行版本。
@@ -144,6 +149,11 @@
 
 ## po0-self-report（Linux/OpenWrt）
 
+### 2026.06.25+build.6
+
+- Linux/OpenWrt 客户端恢复为 cron-only，不再包含 macOS 专用定时逻辑。
+- 保留 `--save-config --menu` 组合，首次配置可保存后直接进入菜单确认；macOS 改用专用脚本。
+
 ### 2026.06.25+build.5
 
 - 支持 `--save-config --menu` 组合，首次配置可保存后直接进入菜单确认。
@@ -211,6 +221,14 @@
 - 修复 Self-report 客户端配置面板和菜单列对齐。
 - 新增从 GitHub 更新脚本入口，并在更新后显示版本变化和更新内容。
 - 新增 `--version` 和 `--changelog` 只读入口。
+
+## po0-self-report（macOS）
+
+### 2026.06.25+build.1
+
+- 新增 macOS 专用 Self-report Bash 客户端，Release asset 为 `po0-outbound-ip-report-macos.sh`。
+- 定时上报使用用户级 launchd LaunchAgent；自更新默认继续拉取 macOS 专用 asset。
+- 支持 `--save-config --menu` 首次保存默认配置后打开菜单，并提供 `--install-launchd` 别名。
 
 ## po0-self-report（Windows PowerShell）
 

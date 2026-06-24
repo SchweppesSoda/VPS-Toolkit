@@ -130,9 +130,9 @@ LAN Worker / 外部脚本已经通过 --ddns-report 上报
 
 ## 0.3 发布与构建边界
 
-PO0 nftables 四个可执行脚本的正式发布渠道是 GitHub Release asset。`main` 分支下旧 raw 路径只作为 legacy compatibility 入口，必须保持完整可运行，不能替换成短 stub；它的用途是让旧部署迁移到 release-aware 版本。Egern YAML/JS、外部 ipdb/iplist 数据源和未纳入本阶段的通用 VPS 工具 raw URL 是白名单。
+PO0 nftables 五个可执行脚本的正式发布渠道是 GitHub Release asset。`main` 分支下旧 raw 路径只作为 legacy compatibility 入口，必须保持完整可运行，不能替换成短 stub；它的用途是让旧部署迁移到 release-aware 版本。Egern YAML/JS、外部 ipdb/iplist 数据源和未纳入本阶段的通用 VPS 工具 raw URL 是白名单。
 
-`tools/po0/build-po0-assets.ps1` 按 `tools/po0/manifests/*.txt` 拼接 manager / LAN Worker release staging 单文件，并复制 self-report Bash/PowerShell 脚本。构建必须显式控制编码和 LF：Bash/manifest/checksum 使用 UTF-8 no BOM，含中文的 Windows PowerShell `.ps1` 使用 UTF-8 BOM，避免 Windows PowerShell 5 按系统代码页解析失败。Release tag `po0-vYYYY.MM.DD.N` 上传四个脚本和 `checksums.txt`。Release workflow 先创建 draft，上传完整 asset set，下载回校验 checksum 后再 publish/latest；已存在 draft 可补齐缺失 asset，但已发布 release 只校验不修改，缺失或 checksum 不一致都必须打新 tag。
+`tools/po0/build-po0-assets.ps1` 按 `tools/po0/manifests/*.txt` 拼接 manager / LAN Worker release staging 单文件，并复制 self-report Bash/macOS Bash/PowerShell 脚本。构建必须显式控制编码和 LF：Bash/manifest/checksum 使用 UTF-8 no BOM，含中文的 Windows PowerShell `.ps1` 使用 UTF-8 BOM，避免 Windows PowerShell 5 按系统代码页解析失败。Release tag `po0-vYYYY.MM.DD.N` 上传五个脚本和 `checksums.txt`。Release workflow 先创建 draft，上传完整 asset set，下载回校验 checksum 后再 publish/latest；已存在 draft 可补齐缺失 asset，但已发布 release 只校验不修改，缺失或 checksum 不一致都必须打新 tag。
 ## 1. 定位与边界
 
 `nftables-relay-manager.sh` 是面向 PO0 或其它专用中转机场景的交互式 Bash 管理脚本。它集中管理：
@@ -630,6 +630,7 @@ key|accepted_count|rejected_count|last_status|last_at|last_ips|last_error
 ```text
 scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh
 scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh
+scripts/po0/nftables/clients/self-report/po0-outbound-ip-report-macos.sh
 scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1
 ```
 
@@ -659,12 +660,18 @@ chmod 755 /usr/local/sbin/po0-lan-client
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script /root/nftables-relay-manager.sh --source-key home --ddns-domain home.example.com --token <DDNS_TOKEN> --resource-token <RESOURCE_TOKEN> --ddns-interval-seconds 3600 --install-cron
 ```
 
-Self-report client 适合运行在访问设备上：它检测自身当前出口公网 IPv4，并通过 `https://<SELF_REPORT_DOMAIN>/report` 上报给 LAN Worker self-report server；LAN Worker 的 Caddy HTTPS 入口反代到本机后端，再通过 SSH 调 PO0。两个客户端的菜单都按 `[0-9]` 管理：`1) 配置并保存上报参数` 只持久写入本地配置文件，不安装定时任务；`2) 立即上报一次` 读取参数或已保存配置；`3) 安装 / 更新定时上报` 读取已保存配置并创建 cron / Windows 计划任务；`4) 暂停 / 恢复定时上报` 只影响自动任务，不影响手动立即上报；`8) 从 GitHub 更新脚本` 会更新本机脚本并重新打开新版菜单；`9) 卸载本客户端` 会删除本脚本管理的定时任务和本机安装脚本，配置与日志默认保留，可在确认后一起删除。
+Self-report client 适合运行在访问设备上：它检测自身当前出口公网 IPv4，并通过 `https://<SELF_REPORT_DOMAIN>/report` 上报给 LAN Worker self-report server；LAN Worker 的 Caddy HTTPS 入口反代到本机后端，再通过 SSH 调 PO0。Linux/OpenWrt、macOS 和 Windows 客户端的菜单都按 `[0-9]` 管理：`1) 配置并保存上报参数` 只持久写入本地配置文件，不安装定时任务；`2) 立即上报一次` 读取参数或已保存配置；`3) 安装 / 更新定时上报` 读取已保存配置并创建 cron / launchd / Windows 计划任务；`4) 暂停 / 恢复定时上报` 只影响自动任务，不影响手动立即上报；`8) 从 GitHub 更新脚本` 会更新本机脚本并重新打开新版菜单；`9) 卸载本客户端` 会删除本脚本管理的定时任务和本机安装脚本，配置与日志默认保留，可在确认后一起删除。
 
 Linux/OpenWrt 客户端未传 `--source-id` / `--identity` 时，会用 hostname + machine-id/MAC 生成默认 Source ID，并用设备名作为 Identity；显式参数、环境变量和已保存配置优先。首次进入菜单：
 
 ```bash
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.sh | bash
+```
+
+Linux/OpenWrt 首次保存默认配置并打开菜单：
+
+```bash
+curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.sh | bash -s -- --save-config --menu
 ```
 
 Linux/OpenWrt 非交互保存配置，不安装 cron，也不保证安装 `po0-self-report` 命令：
@@ -716,6 +723,18 @@ Linux/OpenWrt 暂停 / 恢复本脚本管理的定时上报：
 ```bash
 po0-self-report --pause-schedule
 po0-self-report --resume-schedule
+```
+
+macOS 客户端使用专用 Release asset 和用户级 launchd LaunchAgent。首次保存默认配置并打开菜单：
+
+```bash
+curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report-macos.sh | bash -s -- --save-config --menu
+```
+
+macOS 非交互安装 / 更新 launchd 定时上报：
+
+```bash
+curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report-macos.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --secret <SELF_REPORT_SECRET> --interval-seconds 3600 --install-launchd
 ```
 
 Linux/OpenWrt 查看最近 self-report 日志：

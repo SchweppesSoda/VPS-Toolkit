@@ -48,6 +48,7 @@ jobs:
             "nftables-relay-manager.sh"
             "po0-lan-client.sh"
             "po0-outbound-ip-report.sh"
+            "po0-outbound-ip-report-macos.sh"
             "po0-outbound-ip-report.ps1"
           )
           required_assets=(

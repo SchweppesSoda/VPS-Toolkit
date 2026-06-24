@@ -2,13 +2,13 @@
 set -uo pipefail
 
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
-DOWNLOAD_URL="${PO0_SELF_REPORT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report.sh}"
-SCRIPT_NAME="po0-self-report"
-SCRIPT_VERSION="2026.06.25+build.6"
+DOWNLOAD_URL="${PO0_SELF_REPORT_MACOS_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report-macos.sh}"
+SCRIPT_NAME="po0-self-report-macos"
+SCRIPT_VERSION="2026.06.25+build.1"
 SCRIPT_RELEASE_DATE="2026-06-25"
 # CHANGELOG_BEGIN
-# - 支持 --save-config --menu 组合，首次配置可保存后直接进入菜单确认。
-# - Linux/OpenWrt 客户端恢复为 cron-only；macOS 定时上报改由专用脚本维护。
+# - 新增 macOS 专用 Self-report 客户端，保留 Linux/OpenWrt 客户端为 cron-only。
+# - 定时上报使用用户级 launchd LaunchAgent；支持 --save-config --menu 首次保存后打开菜单。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24
@@ -759,6 +759,16 @@ cron_interval_label_from_minutes() {
     cron_interval_label "$((10#${minutes}))"
 }
 
+interval_seconds_label() {
+    local seconds="$1"
+    [[ "${seconds}" =~ ^[0-9]+$ && "${seconds}" -ge 1 ]] || return 1
+    if (( 10#${seconds} % 60 == 0 )); then
+        cron_interval_label_from_minutes "$((10#${seconds} / 60))"
+    else
+        printf '每 %s 秒' "$((10#${seconds}))"
+    fi
+}
+
 is_public_ipv4() {
     local ip="$1" o1 o2 o3 o4
     [[ "${ip}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || return 1
@@ -926,9 +936,9 @@ upgrade_self_from_download() {
         printf '无法更新：系统缺少 curl/wget。\n' >&2
         return 1
     fi
-    if ! grep -q 'po0-outbound-ip-report.sh' "${tmp}" || ! grep -q 'PO0 自上报客户端（Linux/OpenWrt）' "${tmp}"; then
+    if ! grep -q 'po0-outbound-ip-report-macos.sh' "${tmp}" || ! grep -q 'PO0 自上报客户端（macOS）' "${tmp}"; then
         rm -f "${tmp}" 2>/dev/null || true
-        printf '更新文件校验失败：下载到的脚本不是 Self-report Linux/OpenWrt 客户端。\n' >&2
+        printf '更新文件校验失败：下载到的脚本不是 Self-report macOS 客户端。\n' >&2
         return 1
     fi
     if ! bash -n "${tmp}"; then
@@ -986,7 +996,147 @@ write_cron_without_managed_block() {
 }
 
 cron_managed_block_exists() {
+    command -v crontab >/dev/null 2>&1 || return 1
     crontab -l 2>/dev/null | grep -q '^# PO0_SELF_REPORT_BEGIN'
+}
+
+is_macos() {
+    [[ "$(uname -s 2>/dev/null || printf '')" == "Darwin" ]]
+}
+
+launchd_label() {
+    printf '%s\n' "fr.schweppes.po0-self-report"
+}
+
+launchd_supported() {
+    is_macos || return 1
+    command -v launchctl >/dev/null 2>&1 || return 1
+    if [[ "${EUID:-$(id -u 2>/dev/null || printf 1)}" -eq 0 ]]; then
+        return 0
+    fi
+    [[ -n "${HOME:-}" ]]
+}
+
+launchd_plist_path() {
+    local label
+    label="$(launchd_label)"
+    if [[ "${EUID:-$(id -u 2>/dev/null || printf 1)}" -eq 0 ]]; then
+        printf '/Library/LaunchDaemons/%s.plist\n' "${label}"
+    else
+        printf '%s/Library/LaunchAgents/%s.plist\n' "${HOME}" "${label}"
+    fi
+}
+
+launchd_domain() {
+    if [[ "${EUID:-$(id -u 2>/dev/null || printf 1)}" -eq 0 ]]; then
+        printf 'system\n'
+    else
+        printf 'gui/%s\n' "$(id -u)"
+    fi
+}
+
+xml_escape() {
+    local value="$1"
+    value="${value//&/&amp;}"
+    value="${value//</&lt;}"
+    value="${value//>/&gt;}"
+    value="${value//\"/&quot;}"
+    printf '%s' "${value}"
+}
+
+write_launchd_plist() {
+    local plist="$1" script="$2" interval_seconds="$3" log_path disabled
+    log_path="$(self_report_log_path)"
+    if schedule_paused; then
+        disabled="true"
+    else
+        disabled="false"
+    fi
+    cat > "${plist}" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>$(xml_escape "$(launchd_label)")</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>$(xml_escape "${script}")</string>
+        <string>--config</string>
+        <string>$(xml_escape "${CONFIG_FILE}")</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>${interval_seconds}</integer>
+    <key>Disabled</key>
+    <${disabled}/>
+    <key>StandardOutPath</key>
+    <string>$(xml_escape "${log_path}")</string>
+    <key>StandardErrorPath</key>
+    <string>$(xml_escape "${log_path}")</string>
+</dict>
+</plist>
+EOF
+}
+
+launchd_unload() {
+    local plist="$1" domain
+    domain="$(launchd_domain)"
+    launchctl bootout "${domain}" "${plist}" >/dev/null 2>&1 || launchctl unload "${plist}" >/dev/null 2>&1 || true
+}
+
+launchd_load() {
+    local plist="$1" domain label
+    domain="$(launchd_domain)"
+    label="$(launchd_label)"
+    launchctl bootstrap "${domain}" "${plist}" >/dev/null 2>&1 || launchctl load "${plist}" >/dev/null 2>&1 || return 1
+    launchctl enable "${domain}/${label}" >/dev/null 2>&1 || true
+}
+
+launchd_interval_seconds_from_plist() {
+    local plist="$1"
+    awk '/<key>StartInterval<\/key>/{getline; gsub(/.*<integer>|<\/integer>.*/, ""); print; exit}' "${plist}" 2>/dev/null
+}
+
+launchd_disabled_from_plist() {
+    local plist="$1" disabled
+    disabled="$(awk '/<key>Disabled<\/key>/{getline; if ($0 ~ /<true\/>/) print "1"; else print "0"; exit}' "${plist}" 2>/dev/null)"
+    printf '%s\n' "${disabled:-0}"
+}
+
+read_launchd_status_snapshot() {
+    local plist interval_seconds interval="" config_paused disabled state consistency="ok"
+    launchd_supported || return 1
+    plist="$(launchd_plist_path)"
+    config_paused="$(schedule_paused && printf '1' || printf '0')"
+    [[ -f "${plist}" ]] || {
+        printf 'uninstalled||%s||ok\n' "${config_paused}"
+        return 0
+    }
+    interval_seconds="$(launchd_interval_seconds_from_plist "${plist}")"
+    interval="$(interval_seconds_label "${interval_seconds}" 2>/dev/null || true)"
+    disabled="$(launchd_disabled_from_plist "${plist}")"
+    if [[ "${disabled}" == "1" || "${config_paused}" == "1" ]]; then
+        state="paused"
+    else
+        state="running"
+    fi
+    if [[ "${state}" == "running" && "${config_paused}" == "1" ]]; then
+        consistency="drift"
+    elif [[ "${state}" == "paused" && "${config_paused}" != "1" && "${disabled}" == "1" ]]; then
+        consistency="drift"
+    fi
+    printf '%s|%s|%s|launchd: %s|%s\n' "${state}" "${interval}" "${config_paused}" "${plist}" "${consistency}"
+}
+
+schedule_backend() {
+    if launchd_supported; then
+        printf 'launchd\n'
+    elif command -v crontab >/dev/null 2>&1; then
+        printf 'cron\n'
+    else
+        printf 'none\n'
+    fi
 }
 
 build_cron_job() {
@@ -1011,7 +1161,48 @@ build_cron_job() {
     fi
 }
 
-install_cron() {
+install_launchd() {
+    local script plist dir interval_seconds
+    validate_cron_minutes || { self_report_incomplete "上报间隔配置无效，未安装 launchd 计划。"; return 1; }
+    validate_worker_url || { self_report_incomplete "LAN Worker URL 未通过检查，未安装 launchd 计划。"; return 1; }
+    save_config_file || { self_report_incomplete "配置保存失败，未安装 launchd 计划。"; return 1; }
+    launchd_supported || {
+        echo "当前系统不支持 launchd 安装。" >&2
+        self_report_incomplete "缺少 crontab，且当前环境不是可用的 macOS launchd。"
+        return 1
+    }
+    script="$(install_self)" || { self_report_incomplete "脚本落盘失败，未安装 launchd 计划。"; return 1; }
+    plist="$(launchd_plist_path)"
+    dir="$(path_dirname "${plist}")"
+    mkdir -p "${dir}" || { self_report_incomplete "LaunchAgent 目录创建失败：${dir}"; return 1; }
+    interval_seconds="$(cron_minutes_to_seconds "${CRON_MINUTES}")"
+    write_launchd_plist "${plist}" "${script}" "${interval_seconds}" || {
+        self_report_incomplete "LaunchAgent 写入失败：${plist}"
+        return 1
+    }
+    chmod 644 "${plist}" 2>/dev/null || true
+    if [[ "${EUID:-$(id -u 2>/dev/null || printf 1)}" -eq 0 ]]; then
+        chown root:wheel "${plist}" 2>/dev/null || true
+    fi
+    launchd_unload "${plist}"
+    if ! schedule_paused; then
+        launchd_load "${plist}" || {
+            self_report_incomplete "launchd 加载失败，已写入 plist：${plist}"
+            return 1
+        }
+    fi
+    echo "已安装 self-report launchd 计划：每 ${interval_seconds} 秒上报一次。"
+    echo "LaunchAgent：${plist}"
+    echo "脚本路径：${script}"
+    echo "配置文件：${CONFIG_FILE}"
+    if schedule_paused; then
+        self_report_completed "定时上报已安装 / 更新，但当前保持暂停。"
+    else
+        self_report_completed "定时上报已安装 / 更新，每 ${interval_seconds} 秒执行一次。"
+    fi
+}
+
+install_cron_backend() {
     local script job tmp run_cmd
     validate_cron_minutes || { self_report_incomplete "上报间隔配置无效，未安装 cron。"; return 1; }
     validate_worker_url || { self_report_incomplete "LAN Worker URL 未通过检查，未安装 cron。"; return 1; }
@@ -1052,7 +1243,35 @@ install_cron() {
     fi
 }
 
-remove_cron() {
+install_cron() {
+    case "$(schedule_backend)" in
+        cron) install_cron_backend ;;
+        launchd) install_launchd ;;
+        *)
+            echo "未找到 crontab 命令。" >&2
+            self_report_incomplete "缺少 crontab，且当前环境不是可用的 macOS launchd。"
+            return 1
+            ;;
+    esac
+}
+
+remove_launchd() {
+    local plist
+    launchd_supported || return 1
+    plist="$(launchd_plist_path)"
+    if [[ -f "${plist}" ]]; then
+        launchd_unload "${plist}"
+        rm -f "${plist}" || {
+            self_report_incomplete "删除 launchd plist 失败：${plist}"
+            return 1
+        }
+        echo "已删除本脚本管理的 self-report launchd 计划：${plist}"
+    else
+        echo "未发现本脚本管理的 self-report launchd 计划。"
+    fi
+}
+
+remove_cron_backend() {
     local tmp
     command -v crontab >/dev/null 2>&1 || {
         echo "未找到 crontab 命令。" >&2
@@ -1072,6 +1291,25 @@ remove_cron() {
     }
     rm -f "${tmp}" 2>/dev/null || true
     echo "已删除本脚本管理的 self-report cron。"
+}
+
+remove_cron() {
+    local did=0 errors=0
+    if command -v crontab >/dev/null 2>&1; then
+        remove_cron_backend || errors=1
+        did=1
+    fi
+    if launchd_supported && [[ -f "$(launchd_plist_path)" ]]; then
+        remove_launchd || errors=1
+        did=1
+    fi
+    if [[ "${did}" != "1" ]]; then
+        echo "未发现可删除的 self-report 定时上报。"
+    fi
+    if [[ "${errors}" == "1" ]]; then
+        self_report_incomplete "定时上报删除未完全成功。"
+        return 1
+    fi
     self_report_completed "已删除本脚本管理的定时上报。"
 }
 
@@ -1096,10 +1334,10 @@ remove_file_if_exists() {
 }
 
 remove_cron_for_uninstall() {
-    if command -v crontab >/dev/null 2>&1; then
+    if command -v crontab >/dev/null 2>&1 || launchd_supported; then
         remove_cron
     else
-        echo "未找到 crontab 命令，跳过定时上报删除。"
+        echo "未找到 crontab 命令，且当前环境不能使用 macOS launchd，跳过定时上报删除。"
     fi
 }
 
@@ -1170,6 +1408,10 @@ read_cron_status_snapshot() {
     local state interval="" config_paused consistency="ok"
     config_paused="$(schedule_paused && printf '1' || printf '0')"
     if ! command -v crontab >/dev/null 2>&1; then
+        if launchd_supported; then
+            read_launchd_status_snapshot
+            return 0
+        fi
         printf 'unavailable||%s||ok\n' "${config_paused}"
         return 0
     fi
@@ -1201,6 +1443,10 @@ read_cron_status_snapshot() {
     done < <(crontab -l 2>/dev/null || true)
 
     if [[ "${found}" != "1" ]]; then
+        if launchd_supported && [[ -f "$(launchd_plist_path)" ]]; then
+            read_launchd_status_snapshot
+            return 0
+        fi
         printf 'uninstalled||%s||ok\n' "${config_paused}"
         return 0
     fi
@@ -1231,7 +1477,7 @@ cron_state_label() {
         running) printf '运行中' ;;
         paused) printf '已暂停' ;;
         uninstalled) printf '未安装' ;;
-        unavailable) printf '不可用（缺少 crontab）' ;;
+        unavailable) printf '不可用（缺少 crontab，且当前环境不能使用 macOS launchd）' ;;
         invalid) printf '异常：cron block 无任务' ;;
         *) printf '未知' ;;
     esac
@@ -1275,13 +1521,15 @@ show_cron_status() {
 }
 
 set_schedule_paused() {
-    local value="$1" had_cron=0 previous_paused="${SCHEDULE_PAUSED}"
-    if command -v crontab >/dev/null 2>&1 && cron_managed_block_exists; then
-        had_cron=1
+    local value="$1" had_schedule=0 previous_paused="${SCHEDULE_PAUSED}"
+    if cron_managed_block_exists; then
+        had_schedule=1
+    elif launchd_supported && [[ -f "$(launchd_plist_path)" ]]; then
+        had_schedule=1
     fi
     SCHEDULE_PAUSED="${value}"
     save_config_file || return 1
-    if [[ "${had_cron}" == "1" ]]; then
+    if [[ "${had_schedule}" == "1" ]]; then
         if ! install_cron; then
             SCHEDULE_PAUSED="${previous_paused}"
             save_config_file >/dev/null 2>&1 || true
@@ -1290,13 +1538,13 @@ set_schedule_paused() {
         fi
     fi
     if schedule_paused; then
-        if [[ "${had_cron}" == "1" ]]; then
+        if [[ "${had_schedule}" == "1" ]]; then
             self_report_completed "定时上报已暂停；手动立即上报仍可用。"
         else
             self_report_completed "已记录暂停标记；当前未安装定时上报，安装后会按此状态写入。"
         fi
     else
-        if [[ "${had_cron}" == "1" ]]; then
+        if [[ "${had_schedule}" == "1" ]]; then
             self_report_completed "定时上报已恢复。"
         else
             self_report_completed "已记录恢复标记；当前未安装定时上报，安装后会按此状态写入。"
@@ -1505,7 +1753,7 @@ menu_loop() {
 
 usage() {
     printf '%s\n' \
-        "PO0 自上报客户端（Linux/OpenWrt）" \
+        "PO0 自上报客户端（macOS）" \
         "" \
         "本脚本探测当前设备的公网出口 IPv4，并上报到 LAN Worker 的 self-report" \
         "接收服务。访问设备不直接连接 PO0。Self-report 放行 TTL 由 LAN Worker" \
@@ -1513,12 +1761,12 @@ usage() {
         "" \
         "用法:" \
         "  curl -fsSL ${DOWNLOAD_URL} | bash" \
-        "  bash po0-outbound-ip-report.sh --menu" \
-        "  bash po0-outbound-ip-report.sh --version" \
-        "  bash po0-outbound-ip-report.sh --upgrade-self" \
+        "  bash po0-outbound-ip-report-macos.sh --menu" \
+        "  bash po0-outbound-ip-report-macos.sh --version" \
+        "  bash po0-outbound-ip-report-macos.sh --upgrade-self" \
         "  curl -fsSL ${DOWNLOAD_URL} | bash -s -- --save-config --menu" \
-        "  bash po0-outbound-ip-report.sh --worker-url https://report.example.com/report --secret SECRET --save-config" \
-        "  curl -fsSL ${DOWNLOAD_URL} | bash -s -- --worker-url https://report.example.com/report --secret SECRET --interval-seconds 3600 --install-cron" \
+        "  bash po0-outbound-ip-report-macos.sh --worker-url https://report.example.com/report --secret SECRET --save-config" \
+        "  curl -fsSL ${DOWNLOAD_URL} | bash -s -- --worker-url https://report.example.com/report --secret SECRET --interval-seconds 3600 --install-launchd" \
         "" \
         "参数:" \
         "  --menu                打开交互菜单。" \
@@ -1526,7 +1774,7 @@ usage() {
         "  --changelog           显示当前版本更新内容。" \
         "  --upgrade-self        从 GitHub Release 下载并更新本机脚本；菜单内更新会自动重开新版菜单。" \
         "  --config PATH         self-report 本地配置文件；默认 root 用 /etc/po0-self-report/settings.env，普通用户用 ~/.config/po0-self-report/settings.env。" \
-        "  --save-config         保存当前参数到本地配置文件，不安装 cron；可与 --menu 组合为首次保存后打开菜单。" \
+        "  --save-config         保存当前参数到本地配置文件；可与 --menu 组合为首次保存后打开菜单。" \
         "  --worker-url URL      LAN Worker self-report HTTPS 接收地址，例如 https://report.example.com/report；裸域名会自动补全。" \
         "  --allow-http          允许 http:// 上报；仅用于本地调试或临时旧环境。" \
         "  --source-id ID        写入 PO0 client_ip 记录的来源 ID；默认由 hostname + machine-id/MAC 生成: ${SOURCE_ID}" \
@@ -1534,12 +1782,13 @@ usage() {
         "  --secret SECRET       可选的 LAN Worker self-report 共享密钥。" \
         "  --ip-check-url URL    第一个公网 IPv4 探测地址。默认: ${IP_CHECK_URL}" \
         "  --ip-check-urls CSV   覆盖完整探测地址列表，多个 URL 用逗号分隔。" \
-        "  --install-cron [N]    安装 / 更新 cron；N 为兼容分钟参数，不带 N 时默认 3600 秒。" \
+        "  --install-launchd [N] 安装 / 更新 macOS launchd 定时上报；不带 N 时默认 3600 秒。" \
+        "  --install-cron [N]    兼容旧参数，等同 --install-launchd；N 为兼容分钟参数。" \
         "  --pause-schedule      暂停本脚本管理的定时上报；手动立即上报仍可用。" \
         "  --resume-schedule     恢复本脚本管理的定时上报。" \
         "  --schedule-status     查看本脚本管理的定时上报状态。" \
-        "  --interval-seconds N  设置 cron 上报间隔秒数，必须是 60 的倍数，默认 3600。" \
-        "  --minutes N           兼容旧参数：设置 cron 上报间隔分钟数，范围 1-${MAX_CRON_MINUTES}。" \
+        "  --interval-seconds N  设置 launchd 上报间隔秒数，必须是 60 的倍数，默认 3600。" \
+        "  --minutes N           兼容旧参数：设置定时上报间隔分钟数，范围 1-${MAX_CRON_MINUTES}。" \
         "" \
         "默认公网 IPv4 探测顺序:" \
         "  https://ip9.com.cn/get" \
@@ -1626,7 +1875,7 @@ parse_args() {
                 INTERVAL_SECONDS="${2:-}"
                 shift 2
                 ;;
-            --install-cron)
+            --install-cron|--install-launchd)
                 INSTALL_CRON="1"
                 if [[ "${2:-}" =~ ^[0-9]+$ ]]; then
                     CRON_MINUTES="${2:-}"

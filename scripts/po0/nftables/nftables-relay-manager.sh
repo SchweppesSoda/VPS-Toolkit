@@ -2,10 +2,11 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-nftables-relay-manager"
-SCRIPT_VERSION="2026.06.25+build.1"
+SCRIPT_VERSION="2026.06.25+build.2"
 SCRIPT_RELEASE_DATE="2026-06-25"
 # CHANGELOG_BEGIN
-# - 主菜单顶部新增脚本版本、构建标识、当前脚本、安装路径、下载 URL 和关键配置路径信息。
+# - Self-report 客户端部署命令补充 macOS 专用脚本下载入口。
+# - 脚本信息区补充 macOS Self-report 下载 URL。
 # CHANGELOG_END
 CONF_DIR="${PO0_CONF_DIR:-/etc/nftables.d}"
 MAIN_CONF="/etc/nftables.conf"
@@ -74,6 +75,7 @@ PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.c
 MANAGER_DOWNLOAD_URL="${PO0_MANAGER_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/nftables-relay-manager.sh}"
 LAN_WORKER_DOWNLOAD_URL="${PO0_LAN_CLIENT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-lan-client.sh}"
 OUTBOUND_IP_REPORTER_DOWNLOAD_URL="${PO0_SELF_REPORT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report.sh}"
+OUTBOUND_IP_REPORTER_MACOS_DOWNLOAD_URL="${PO0_SELF_REPORT_MACOS_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report-macos.sh}"
 OUTBOUND_IP_REPORTER_PS_DOWNLOAD_URL="${PO0_SELF_REPORT_PS_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report.ps1}"
 EGERN_SSH_REPORT_MODULE_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/PO0-SSH-IP-Report.yaml"
 REPORT_KEY_WRAPPER_PATH="${CONF_DIR}/po0-report-key-wrapper"
@@ -9416,6 +9418,10 @@ do_show_client_ip_report_token() {
     printf '  curl -fsSL %s | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --interval-seconds 3600 --install-cron\n' \
         "${OUTBOUND_IP_REPORTER_DOWNLOAD_URL}"
     echo ""
+    echo "macOS 自上报 client（访问设备 -> LAN Worker）："
+    printf '  curl -fsSL %s | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --interval-seconds 3600 --install-launchd\n' \
+        "${OUTBOUND_IP_REPORTER_MACOS_DOWNLOAD_URL}"
+    echo ""
     echo "Windows PowerShell 自上报 client（访问设备 -> LAN Worker）："
     printf "  \$script=\"\$env:TEMP\\po0-outbound-ip-report.ps1\"; irm -UseBasicParsing '%s' -OutFile \$script -TimeoutSec 120; powershell -ExecutionPolicy Bypass -File \$script -WorkerUrl 'https://<SELF_REPORT_DOMAIN>/report' -SourceId '<CLIENT_ID>' -Secret '<SELF_REPORT_SECRET>' -InstallTask -IntervalSeconds 3600\n" \
         "${OUTBOUND_IP_REPORTER_PS_DOWNLOAD_URL}"
@@ -9955,7 +9961,8 @@ do_show_client_deploy_index() {
     print_panel_section "路径"
     print_panel_row "PO0 主控路径" "${MANAGER_INSTALL_PATH}"
     print_panel_row "LAN Worker 下载" "${LAN_WORKER_DOWNLOAD_URL}"
-    print_panel_row "自上报 Client 下载" "${OUTBOUND_IP_REPORTER_DOWNLOAD_URL}"
+    print_panel_row "自上报 Linux/OpenWrt" "${OUTBOUND_IP_REPORTER_DOWNLOAD_URL}"
+    print_panel_row "自上报 macOS" "${OUTBOUND_IP_REPORTER_MACOS_DOWNLOAD_URL}"
     print_panel_section "交互菜单"
     print_panel_row "1" "显示简短索引"
     print_panel_row "2" "PO0 主控脚本上传命令"
@@ -10077,6 +10084,10 @@ do_show_self_report_client_commands() {
     echo "Linux / OpenWrt:"
     printf '  curl -fsSL %s | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --interval-seconds 3600 --install-cron\n' \
         "${OUTBOUND_IP_REPORTER_DOWNLOAD_URL}"
+    echo ""
+    echo "macOS:"
+    printf '  curl -fsSL %s | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --interval-seconds 3600 --install-launchd\n' \
+        "${OUTBOUND_IP_REPORTER_MACOS_DOWNLOAD_URL}"
     echo ""
     echo "Windows PowerShell:"
     printf "  \$script=\"\$env:TEMP\\po0-outbound-ip-report.ps1\"; irm -UseBasicParsing '%s' -OutFile \$script -TimeoutSec 120; powershell -ExecutionPolicy Bypass -File \$script -WorkerUrl 'https://<SELF_REPORT_DOMAIN>/report' -SourceId '<CLIENT_ID>' -Secret '<SELF_REPORT_SECRET>' -InstallTask -IntervalSeconds 3600\n" \

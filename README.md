@@ -124,7 +124,7 @@ ssh root@<PO0_HOST> 'chmod +x /root/po0-debian-reinstall.sh && bash /root/po0-de
 
 ## 发布渠道
 
-PO0 nftables 的四个可执行脚本通过 GitHub Release assets 发布：`nftables-relay-manager.sh`、`po0-lan-client.sh`、`po0-outbound-ip-report.sh`、`po0-outbound-ip-report.ps1`。旧 `raw.githubusercontent.com` 路径只作为 legacy compatibility 入口，供旧部署脚本迁移到 release-aware 版本；Egern 模块、外部 ipdb/iplist 数据源和暂未迁移的通用 VPS 工具仍按各自文档保留 raw URL。
+PO0 nftables 的五个可执行脚本通过 GitHub Release assets 发布：`nftables-relay-manager.sh`、`po0-lan-client.sh`、`po0-outbound-ip-report.sh`、`po0-outbound-ip-report-macos.sh`、`po0-outbound-ip-report.ps1`。旧 `raw.githubusercontent.com` 路径只作为 legacy compatibility 入口，供旧部署脚本迁移到 release-aware 版本；Egern 模块、外部 ipdb/iplist 数据源和暂未迁移的通用 VPS 工具仍按各自文档保留 raw URL。
 
 ## 公开网站
 

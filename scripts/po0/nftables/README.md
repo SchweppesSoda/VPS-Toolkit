@@ -32,11 +32,12 @@
 
 ## 发布渠道
 
-PO0 nftables 四个可执行脚本的新安装和自更新默认使用 GitHub Release asset：
+PO0 nftables 五个可执行脚本的新安装和自更新默认使用 GitHub Release asset：
 
 - `https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/nftables-relay-manager.sh`
 - `https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-lan-client.sh`
 - `https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.sh`
+- `https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report-macos.sh`
 - `https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.ps1`
 
 旧 `raw.githubusercontent.com` 路径只作为 legacy compatibility 入口，保留完整 release-aware 脚本，供旧部署的 `--upgrade-self` 或 LAN Worker manager 更新镜像平滑迁移。Phase 1 白名单包括 Egern YAML/JS、外部 ipdb/iplist 数据源和未纳入本阶段的通用 VPS 工具 raw URL。
@@ -149,27 +150,27 @@ curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download
 
 兼容旧用法时，`--install-cron N` 会把 DDNS 和资源任务两个计划都设为 `N` 分钟；不带 `N` 时，LAN Worker 默认 DDNS 每 `3600` 秒上报、资源任务每 `1440` 分钟检查一次。推荐用 `--ddns-interval-seconds 3600` 显式设置 DDNS 上报间隔，资源任务领取计划仍按分钟设置。
 
-Linux / OpenWrt / macOS Self-report client：
+Linux / OpenWrt Self-report client：
 
-首次交互式运行默认进入菜单。菜单里的 `1) 配置并保存上报参数` 只写本地配置文件，不安装定时任务，也不保证安装 `po0-self-report` 命令；`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本并写入计划任务，Linux/OpenWrt 使用 cron，macOS 缺少 `crontab` 时自动使用用户级 launchd LaunchAgent；`8) 从 GitHub 更新脚本` 会更新本机 `po0-self-report` 命令并重新打开新版菜单；`9) 卸载本客户端` 会删除本脚本管理的定时任务和本机安装脚本，配置文件与日志默认保留，也可在确认后一起删除。
+首次交互式运行默认进入菜单。菜单里的 `1) 配置并保存上报参数` 只写本地配置文件，不安装 cron，也不保证安装 `po0-self-report` 命令；`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本并写入 cron；`8) 从 GitHub 更新脚本` 会更新本机 `po0-self-report` 命令并重新打开新版菜单；`9) 卸载本客户端` 会删除本脚本管理的 cron 和本机安装脚本，配置文件与日志默认保留，也可在确认后一起删除。
 
 ```bash
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.sh | bash
 ```
 
-首次直接保存配置并打开菜单，适合复制后把域名和 secret 换掉再运行。未传 `--source-id` / `--identity` 时，客户端会用 hostname + machine-id/MAC 生成默认 Source ID，并用设备名作为 Identity：
+首次保存默认配置并打开菜单，不需要先在命令行写域名和 secret；进菜单后用 `1) 配置并保存上报参数` 填写或修改：
 
 ```bash
-curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --secret <SELF_REPORT_SECRET> --save-config --menu
+curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.sh | bash -s -- --save-config --menu
 ```
 
-非交互保存配置，不安装定时任务：
+非交互保存配置，不安装 cron；未传 `--source-id` / `--identity` 时，客户端会用 hostname + machine-id/MAC 生成默认 Source ID，并用设备名作为 Identity：
 
 ```bash
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --secret <SELF_REPORT_SECRET> --save-config
 ```
 
-保存配置后，如果本机已经通过菜单更新或安装定时任务落盘了 `po0-self-report` 命令，可以直接复用已保存配置：
+保存配置后，如果本机已经通过菜单更新或安装 cron 落盘了 `po0-self-report` 命令，可以直接复用已保存配置：
 
 ```bash
 po0-self-report --menu
@@ -183,10 +184,22 @@ po0-self-report
 po0-self-report --install-cron
 ```
 
-安装 / 更新定时上报，默认每 `3600` 秒上报一次；安装时会同步保存配置，之后计划任务只引用配置文件，不把 token 展开写入命令行。Linux/OpenWrt 使用 cron；macOS 如果没有 `crontab`，脚本会自动写入 `~/Library/LaunchAgents/fr.schweppes.po0-self-report.plist` 并用 launchd 加载：
+安装 / 更新 cron，默认每 `3600` 秒上报一次；安装时会同步保存配置，之后 cron 只引用配置文件，不把 token 展开写入 cron 命令行：
 
 ```bash
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --secret <SELF_REPORT_SECRET> --interval-seconds 3600 --install-cron
+```
+
+macOS Self-report client 使用专用脚本和 launchd，不复用 Linux/OpenWrt cron 脚本。首次保存默认配置并打开菜单：
+
+```bash
+curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report-macos.sh | bash -s -- --save-config --menu
+```
+
+macOS 非交互安装 / 更新 launchd 定时上报：
+
+```bash
+curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report-macos.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --secret <SELF_REPORT_SECRET> --interval-seconds 3600 --install-launchd
 ```
 
 命令行也可直接更新、查看版本或查看当前更新内容：
@@ -535,9 +548,9 @@ self-report|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR
 po0-lan-client --install-self-report-https --self-report-https-domain <SELF_REPORT_DOMAIN> --self-report-targets 'self-report|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|43200|;self-report|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|43200|' --self-report-secret <SELF_REPORT_SECRET>
 ```
 
-### Linux / OpenWrt / macOS Self-report client
+### Linux / OpenWrt Self-report client
 
-访问设备定时自上报。交互式无参数运行默认进入菜单；菜单里的 `1) 配置并保存上报参数` 只写本地配置文件，不安装定时任务，也不保证安装 `po0-self-report` 命令；`2) 立即上报一次` 会读取参数或已保存配置；`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本并写入计划任务，Linux/OpenWrt 使用 cron，macOS 缺少 `crontab` 时自动使用用户级 launchd LaunchAgent；`4) 暂停 / 恢复定时上报` 只影响自动计划任务，手动立即上报仍可用；`8) 从 GitHub 更新脚本` 会更新本机 `po0-self-report` 命令并重新打开新版菜单；`9) 卸载本客户端` 会删除本脚本管理的定时任务和本机安装脚本，配置文件与 `/tmp/po0-self-report.log` 默认保留，可选择一起删除。
+访问设备定时自上报。交互式无参数运行默认进入菜单；菜单里的 `1) 配置并保存上报参数` 只写本地配置文件，不安装 cron，也不保证安装 `po0-self-report` 命令；`2) 立即上报一次` 会读取参数或已保存配置；`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本并写入 cron；`4) 暂停 / 恢复定时上报` 只影响自动 cron，手动立即上报仍可用；`8) 从 GitHub 更新脚本` 会更新本机 `po0-self-report` 命令并重新打开新版菜单；`9) 卸载本客户端` 会删除本脚本管理的 cron 和本机安装脚本，配置文件与 `/tmp/po0-self-report.log` 默认保留，可选择一起删除。
 
 首次进入菜单：
 
@@ -545,13 +558,13 @@ po0-lan-client --install-self-report-https --self-report-https-domain <SELF_REPO
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.sh | bash
 ```
 
-首次直接保存配置并打开菜单，适合复制后把域名和 secret 换掉再运行。未传 `--source-id` / `--identity` 时，客户端会用 hostname + machine-id/MAC 生成默认 Source ID，并用设备名作为 Identity；需要固定自定义 ID 时再显式添加 `--source-id <CLIENT_ID>`：
+首次保存默认配置并打开菜单，不需要先在命令行写域名和 secret；进菜单后用 `1) 配置并保存上报参数` 填写或修改。未传 `--source-id` / `--identity` 时，客户端会用 hostname + machine-id/MAC 生成默认 Source ID，并用设备名作为 Identity；需要固定自定义 ID 时再显式添加 `--source-id <CLIENT_ID>`：
 
 ```bash
-curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --secret <SELF_REPORT_SECRET> --save-config --menu
+curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.sh | bash -s -- --save-config --menu
 ```
 
-非交互保存配置，不安装定时任务：
+非交互保存配置，不安装 cron：
 
 ```bash
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --secret <SELF_REPORT_SECRET> --save-config
@@ -563,13 +576,13 @@ curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --secret <SELF_REPORT_SECRET>
 ```
 
-非交互安装 / 更新定时上报，默认和示例推荐每 `3600` 秒上报一次；`--interval-seconds N` 是 canonical 参数，旧 `--install-cron N` 的分钟写法仍兼容。安装时会保存配置并安装本机 `po0-self-report` 命令；计划任务后续只引用配置文件，不再把 token 展开写入命令行。Linux/OpenWrt 使用 cron；macOS 如果没有 `crontab`，脚本会自动写入 `~/Library/LaunchAgents/fr.schweppes.po0-self-report.plist` 并用 launchd 加载：
+非交互安装 / 更新 cron，默认和示例推荐每 `3600` 秒上报一次；`--interval-seconds N` 是 canonical 参数，旧 `--install-cron N` 的分钟写法仍兼容。安装时会保存配置并安装本机 `po0-self-report` 命令；cron 后续只引用配置文件，不再把 token 展开写入 cron 命令行：
 
 ```bash
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --secret <SELF_REPORT_SECRET> --interval-seconds 3600 --install-cron
 ```
 
-保存配置后，如果本机已经通过菜单更新或安装定时任务落盘了 `po0-self-report` 命令，可直接复用已保存配置：
+保存配置后，如果本机已经通过菜单更新或安装 cron 落盘了 `po0-self-report` 命令，可直接复用已保存配置：
 
 ```bash
 po0-self-report --menu
@@ -583,7 +596,7 @@ po0-self-report
 po0-self-report --install-cron
 ```
 
-查看本脚本管理的 cron 计划；macOS 使用 launchd 时改看后面的脚本状态入口或 `launchctl print gui/$(id -u)/fr.schweppes.po0-self-report`：
+查看本脚本管理的 cron 计划：
 
 ```bash
 crontab -l | sed -n '/# PO0_SELF_REPORT_BEGIN/,/# PO0_SELF_REPORT_END/p'
@@ -595,7 +608,7 @@ crontab -l | sed -n '/# PO0_SELF_REPORT_BEGIN/,/# PO0_SELF_REPORT_END/p'
 po0-self-report --schedule-status
 ```
 
-暂停或恢复本脚本管理的定时上报；暂停只影响自动计划任务，不影响手动立即上报：
+暂停或恢复本脚本管理的定时上报；暂停只影响自动 cron，不影响手动立即上报：
 
 ```bash
 po0-self-report --pause-schedule
@@ -609,6 +622,62 @@ po0-self-report --resume-schedule
 
 ```bash
 tail -n 40 /tmp/po0-self-report.log
+```
+
+更新、查看版本或查看当前更新内容：
+
+```bash
+po0-self-report --upgrade-self
+```
+
+```bash
+po0-self-report --version
+```
+
+```bash
+po0-self-report --changelog
+```
+
+### macOS Self-report client
+
+macOS 使用专用 Bash 脚本和用户级 launchd LaunchAgent，不复用 Linux/OpenWrt cron 脚本。菜单编号和 Linux/OpenWrt 客户端一致；`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本，并写入 `~/Library/LaunchAgents/fr.schweppes.po0-self-report.plist`。
+
+首次保存默认配置并打开菜单：
+
+```bash
+curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report-macos.sh | bash -s -- --save-config --menu
+```
+
+非交互保存配置：
+
+```bash
+curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report-macos.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --secret <SELF_REPORT_SECRET> --save-config
+```
+
+非交互安装 / 更新 launchd 定时上报：
+
+```bash
+curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report-macos.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --secret <SELF_REPORT_SECRET> --interval-seconds 3600 --install-launchd
+```
+
+安装后复用本机命令：
+
+```bash
+po0-self-report --menu
+```
+
+```bash
+po0-self-report --install-launchd
+```
+
+```bash
+po0-self-report --schedule-status
+```
+
+查看 launchd 状态：
+
+```bash
+launchctl print gui/$(id -u)/fr.schweppes.po0-self-report
 ```
 
 更新、查看版本或查看当前更新内容：

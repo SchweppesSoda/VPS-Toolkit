@@ -144,6 +144,10 @@ Copy-Asset `
     -OutputPath (Join-Path $OutputDir "po0-outbound-ip-report.sh")
 
 Copy-Asset `
+    -Source "scripts/po0/nftables/clients/self-report/po0-outbound-ip-report-macos.sh" `
+    -OutputPath (Join-Path $OutputDir "po0-outbound-ip-report-macos.sh")
+
+Copy-Asset `
     -Source "scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1" `
     -OutputPath (Join-Path $OutputDir "po0-outbound-ip-report.ps1")
 

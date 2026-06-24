@@ -39,7 +39,8 @@ do_show_client_deploy_index() {
     print_panel_section "路径"
     print_panel_row "PO0 主控路径" "${MANAGER_INSTALL_PATH}"
     print_panel_row "LAN Worker 下载" "${LAN_WORKER_DOWNLOAD_URL}"
-    print_panel_row "自上报 Client 下载" "${OUTBOUND_IP_REPORTER_DOWNLOAD_URL}"
+    print_panel_row "自上报 Linux/OpenWrt" "${OUTBOUND_IP_REPORTER_DOWNLOAD_URL}"
+    print_panel_row "自上报 macOS" "${OUTBOUND_IP_REPORTER_MACOS_DOWNLOAD_URL}"
     print_panel_section "交互菜单"
     print_panel_row "1" "显示简短索引"
     print_panel_row "2" "PO0 主控脚本上传命令"
@@ -161,6 +162,10 @@ do_show_self_report_client_commands() {
     echo "Linux / OpenWrt:"
     printf '  curl -fsSL %s | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --interval-seconds 3600 --install-cron\n' \
         "${OUTBOUND_IP_REPORTER_DOWNLOAD_URL}"
+    echo ""
+    echo "macOS:"
+    printf '  curl -fsSL %s | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --interval-seconds 3600 --install-launchd\n' \
+        "${OUTBOUND_IP_REPORTER_MACOS_DOWNLOAD_URL}"
     echo ""
     echo "Windows PowerShell:"
     printf "  \$script=\"\$env:TEMP\\po0-outbound-ip-report.ps1\"; irm -UseBasicParsing '%s' -OutFile \$script -TimeoutSec 120; powershell -ExecutionPolicy Bypass -File \$script -WorkerUrl 'https://<SELF_REPORT_DOMAIN>/report' -SourceId '<CLIENT_ID>' -Secret '<SELF_REPORT_SECRET>' -InstallTask -IntervalSeconds 3600\n" \

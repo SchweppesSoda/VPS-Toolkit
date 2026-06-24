@@ -200,6 +200,7 @@ function Test-PowerShellSyntax {
 Invoke-BashSyntax "nftables-relay-manager.sh"
 Invoke-BashSyntax "po0-lan-client.sh"
 Invoke-BashSyntax "po0-outbound-ip-report.sh"
+Invoke-BashSyntax "po0-outbound-ip-report-macos.sh"
 Test-PowerShellSyntax "po0-outbound-ip-report.ps1"
 
 Invoke-BashChecked "nftables-relay-manager.sh" @("--version")
@@ -207,6 +208,8 @@ Invoke-BashChecked "nftables-relay-manager.sh" @("--changelog")
 Invoke-BashChecked "po0-lan-client.sh" @("--version")
 Invoke-BashChecked "po0-outbound-ip-report.sh" @("--version")
 Invoke-BashChecked "po0-outbound-ip-report.sh" @("--changelog")
+Invoke-BashChecked "po0-outbound-ip-report-macos.sh" @("--version")
+Invoke-BashChecked "po0-outbound-ip-report-macos.sh" @("--changelog")
 
 Invoke-Checked "po0-outbound-ip-report.ps1" @("-Version")
 Invoke-Checked "po0-outbound-ip-report.ps1" @("-Changelog")

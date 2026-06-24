@@ -23,12 +23,12 @@
 
 ## 发布与构建
 
-- PO0 nftables 四个可执行脚本的正式下载源是 GitHub Release asset：`nftables-relay-manager.sh`、`po0-lan-client.sh`、`po0-outbound-ip-report.sh`、`po0-outbound-ip-report.ps1`。
+- PO0 nftables 五个可执行脚本的正式下载源是 GitHub Release asset：`nftables-relay-manager.sh`、`po0-lan-client.sh`、`po0-outbound-ip-report.sh`、`po0-outbound-ip-report-macos.sh`、`po0-outbound-ip-report.ps1`。
 - `po0-vYYYY.MM.DD.N` tag 触发 PO0 Release；任何会成为 GitHub latest 的正式 release 必须包含完整 PO0 asset 集合和 `checksums.txt`。非 PO0 发布只能用 draft / prerelease，不能抢占 latest。
 - Release workflow 只由 `po0-vYYYY.MM.DD.N` tag 触发，失败后用 GitHub Actions rerun，不保留 `workflow_dispatch` 发布入口。
-- Release 必须按 draft 原子发布：不存在 release 时先创建 draft，上传四个脚本和 `checksums.txt`，下载回校验通过后再 publish/latest；已存在 draft 只允许补齐缺失 asset，已有 asset checksum 不一致必须失败；已发布 release 只允许校验，缺 asset 或 checksum 不一致都必须失败并打新 tag，不能修改 live/latest release。
+- Release 必须按 draft 原子发布：不存在 release 时先创建 draft，上传五个脚本和 `checksums.txt`，下载回校验通过后再 publish/latest；已存在 draft 只允许补齐缺失 asset，已有 asset checksum 不一致必须失败；已发布 release 只允许校验，缺 asset 或 checksum 不一致都必须失败并打新 tag，不能修改 live/latest release。
 - 旧 `raw.githubusercontent.com/.../scripts/po0/nftables/...` 路径只作为 legacy compatibility 入口。旧路径保留完整 release-aware 脚本，避免旧 `--upgrade-self` 或 LAN Worker manager mirror 断链；不要把旧路径改成短 stub。
-- Egern YAML/JS、外部 ipdb/iplist 数据源和未纳入本阶段的通用 VPS 脚本 raw URL 是白名单；PO0 四个可执行脚本的新安装、自更新和 manager mirror 上游应使用 Release asset。
+- Egern YAML/JS、外部 ipdb/iplist 数据源和未纳入本阶段的通用 VPS 脚本 raw URL 是白名单；PO0 五个可执行脚本的新安装、自更新和 manager mirror 上游应使用 Release asset。
 - 模块化后优先修改 `scripts/po0/nftables/src/manager/`、`scripts/po0/nftables/src/lan-worker/` 和对应 manifest；不要手改由构建器生成的 Release staging 单文件。`tools/po0/check-po0-assets.ps1` 必须确认 manifest 覆盖完整，且生成的 manager / LAN Worker asset 与 legacy raw bridge 字节级一致。
 - `tools/po0/build-po0-assets.ps1` 的输出目录只能位于仓库内 `.tmp/po0-*`，因为构建前会递归清空输出目录。
 - 构建器必须显式控制编码和 LF：Bash/manifest/checksum 使用 UTF-8 no BOM；含中文的 Windows PowerShell `.ps1` 使用 UTF-8 BOM，避免 Windows PowerShell 5 按系统代码页解析失败。

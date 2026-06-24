@@ -2,10 +2,11 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-nftables-relay-manager"
-SCRIPT_VERSION="2026.06.25+build.1"
+SCRIPT_VERSION="2026.06.25+build.2"
 SCRIPT_RELEASE_DATE="2026-06-25"
 # CHANGELOG_BEGIN
-# - 主菜单顶部新增脚本版本、构建标识、当前脚本、安装路径、下载 URL 和关键配置路径信息。
+# - Self-report 客户端部署命令补充 macOS 专用脚本下载入口。
+# - 脚本信息区补充 macOS Self-report 下载 URL。
 # CHANGELOG_END
 CONF_DIR="${PO0_CONF_DIR:-/etc/nftables.d}"
 MAIN_CONF="/etc/nftables.conf"
@@ -74,6 +75,7 @@ PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.c
 MANAGER_DOWNLOAD_URL="${PO0_MANAGER_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/nftables-relay-manager.sh}"
 LAN_WORKER_DOWNLOAD_URL="${PO0_LAN_CLIENT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-lan-client.sh}"
 OUTBOUND_IP_REPORTER_DOWNLOAD_URL="${PO0_SELF_REPORT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report.sh}"
+OUTBOUND_IP_REPORTER_MACOS_DOWNLOAD_URL="${PO0_SELF_REPORT_MACOS_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report-macos.sh}"
 OUTBOUND_IP_REPORTER_PS_DOWNLOAD_URL="${PO0_SELF_REPORT_PS_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report.ps1}"
 EGERN_SSH_REPORT_MODULE_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/PO0-SSH-IP-Report.yaml"
 REPORT_KEY_WRAPPER_PATH="${CONF_DIR}/po0-report-key-wrapper"

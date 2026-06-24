@@ -124,7 +124,7 @@ ssh root@<PO0_HOST> 'chmod +x /root/po0-debian-reinstall.sh && bash /root/po0-de
 
 ## Release Channels
 
-The four executable PO0 nftables scripts are published as GitHub Release assets: `nftables-relay-manager.sh`, `po0-lan-client.sh`, `po0-outbound-ip-report.sh`, and `po0-outbound-ip-report.ps1`. Old `raw.githubusercontent.com` paths are legacy compatibility entry points for already-deployed scripts to migrate to release-aware versions. Egern files, external ipdb/iplist sources, and general VPS tools that are not part of this phase may still keep their documented raw URLs.
+The five executable PO0 nftables scripts are published as GitHub Release assets: `nftables-relay-manager.sh`, `po0-lan-client.sh`, `po0-outbound-ip-report.sh`, `po0-outbound-ip-report-macos.sh`, and `po0-outbound-ip-report.ps1`. Old `raw.githubusercontent.com` paths are legacy compatibility entry points for already-deployed scripts to migrate to release-aware versions. Egern files, external ipdb/iplist sources, and general VPS tools that are not part of this phase may still keep their documented raw URLs.
 
 ## Public Website
 
