@@ -144,6 +144,11 @@
 
 ## po0-self-report（Linux/OpenWrt）
 
+### 2026.06.25+build.5
+
+- 支持 `--save-config --menu` 组合，首次配置可保存后直接进入菜单确认。
+- macOS 缺少 `crontab` 时，安装 / 暂停 / 删除定时上报会自动使用用户级 launchd LaunchAgent。
+
 ### 2026.06.25+build.4
 
 - Source ID 和上报 identity 会规范成 PO0 restricted wrapper 可安全解析的无空格 token，修复 macOS 主机名含空格导致 LAN Worker 返回 502。
