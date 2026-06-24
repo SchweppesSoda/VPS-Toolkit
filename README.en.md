@@ -2,7 +2,7 @@
 
 [简体中文](./README.md) | English
 
-Source repository for VPS maintenance scripts, PO0 relay tooling, and static browser tools. Operational scripts live under `scripts/`; public browser-tool source lives under `web/` and is published from a separate Pages repository.
+Source repository for VPS maintenance scripts and PO0 relay tooling. Operational scripts live under `scripts/`; static browser tools moved to [`SchweppesSoda/vps-toolkit-web`](https://github.com/SchweppesSoda/vps-toolkit-web) and are published by that repository's GitHub Pages site.
 
 ## Which Doc To Read
 
@@ -15,7 +15,7 @@ For running or maintaining existing behavior, start from README files. Do not st
 | Reinstall PO0 Debian | [`scripts/po0/reinstall/README.md`](./scripts/po0/reinstall/README.md) | Destructive disk reinstall; no raw online execution command is documented. |
 | Deploy the PO0 proxy-service sidecar | [`scripts/po0/proxy-services/README.md`](./scripts/po0/proxy-services/README.md) | argosbx/Xray sidecar, VLESS RAW ENC, and Shadowsocks 2022. |
 | Use general VPS tools | See the “Runbooks” index below | SSH hardening, Fail2ban, 3x-ui export, ForwardX, and REALITY finder each live in their own directory. |
-| Use browser tools | See “Public Website” below | The page itself is the user entry point; browser-tool technical docs are for UI maintenance only. |
+| Use browser tools | See “Public Website” below | The page itself is the user entry point; browser-tool source and technical docs are maintained in `vps-toolkit-web`. |
 | Continue maintenance with Codex / agents | [`AGENTS.md`](./AGENTS.md) | Maintenance rules, document ownership, validation checklist, and historical pitfalls. |
 
 ## Document Index
@@ -50,8 +50,8 @@ For running or maintaining existing behavior, start from README files. Do not st
 | [`scripts/po0/nftables/nftables-relay-manager-technical.md`](./scripts/po0/nftables/nftables-relay-manager-technical.md) | nftables manager internals, protocol, wrapper, and state model. |
 | [`scripts/po0/proxy-services/vless-raw-enc-argosbx-enhancer-design.md`](./scripts/po0/proxy-services/vless-raw-enc-argosbx-enhancer-design.md) | PO0 proxy-service enhancer design. |
 | [`scripts/vps/ssh-key-only/setup-ssh-key-only-full-technical.md`](./scripts/vps/ssh-key-only/setup-ssh-key-only-full-technical.md) | SSH hardening script technical design. |
-| [`web/vps-toolkit/tools/proxy-node-manager/proxy_node_manager_technical.md`](./web/vps-toolkit/tools/proxy-node-manager/proxy_node_manager_technical.md) | Proxy Node Manager layout, interaction, and validation notes. |
-| [`web/vps-toolkit/tools/argosbx-argo-batch/argosbx_argo_batch_technical.md`](./web/vps-toolkit/tools/argosbx-argo-batch/argosbx_argo_batch_technical.md) | Argosbx Argo Batch layout, interaction, and validation notes. |
+| [`vps-toolkit-web/docs/proxy-node-manager/proxy_node_manager_technical.md`](https://github.com/SchweppesSoda/vps-toolkit-web/blob/main/docs/proxy-node-manager/proxy_node_manager_technical.md) | Proxy Node Manager layout, interaction, and validation notes. |
+| [`vps-toolkit-web/docs/argosbx-argo-batch/argosbx_argo_batch_technical.md`](https://github.com/SchweppesSoda/vps-toolkit-web/blob/main/docs/argosbx-argo-batch/argosbx_argo_batch_technical.md) | Argosbx Argo Batch layout, interaction, and validation notes. |
 
 ### Maintenance Rules
 
@@ -78,7 +78,7 @@ ssh root@<PO0_HOST> 'chmod +x /root/nftables-relay-manager.sh && bash /root/nfta
 Run the wizard on the LAN Worker host:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash
+curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-lan-client.sh | bash
 ```
 
 Then use:
@@ -119,18 +119,22 @@ ssh root@<PO0_HOST> 'chmod +x /root/po0-debian-reinstall.sh && bash /root/po0-de
 
 - `scripts/po0/`: PO0 or relay-host reinstall, nftables relay, allowlists, resource jobs, and proxy-service enhancement.
 - `scripts/vps/`: general VPS tools; each tool directory owns its README.
-- `web/`: static browser-tool source. The public site is published from a separate Pages repository, not this repository root.
+- `tools/`: offline build and check tooling; PO0 Release assets are built by `tools/po0/` from modular source under `scripts/po0/nftables/src/`.
+- Web tools: source and GitHub Pages deployment moved to [`SchweppesSoda/vps-toolkit-web`](https://github.com/SchweppesSoda/vps-toolkit-web).
+
+## Release Channels
+
+The four executable PO0 nftables scripts are published as GitHub Release assets: `nftables-relay-manager.sh`, `po0-lan-client.sh`, `po0-outbound-ip-report.sh`, and `po0-outbound-ip-report.ps1`. Old `raw.githubusercontent.com` paths are legacy compatibility entry points for already-deployed scripts to migrate to release-aware versions. Egern files, external ipdb/iplist sources, and general VPS tools that are not part of this phase may still keep their documented raw URLs.
 
 ## Public Website
 
-The public site is served from `SchweppesSoda/SchweppesSoda.github.io`:
+The public browser tools are published by [`SchweppesSoda/vps-toolkit-web`](https://github.com/SchweppesSoda/vps-toolkit-web) through GitHub Pages:
 
-- `https://schweppessoda.github.io/`
-- `https://schweppessoda.github.io/vps-toolkit/`
-- `https://schweppessoda.github.io/vps-toolkit/tools/proxy-node-manager/proxy_node_manager.html`
-- `https://schweppessoda.github.io/vps-toolkit/tools/argosbx-argo-batch/argosbx_argo_batch.html`
+- `https://schweppessoda.github.io/vps-toolkit-web/`
+- `https://schweppessoda.github.io/vps-toolkit-web/tools/proxy-node-manager/proxy_node_manager.html`
+- `https://schweppessoda.github.io/vps-toolkit-web/tools/argosbx-argo-batch/argosbx_argo_batch.html`
 
-GitHub Actions syncs the root project index and `web/vps-toolkit/` to the Pages repository when `web/**` changes on `main`. The source repository must store the private deploy key as `PAGES_DEPLOY_KEY`; the target Pages repository must add the matching public key as a write-enabled deploy key.
+The legacy `https://schweppessoda.github.io/vps-toolkit/` path and old tool deep links are static redirects maintained in the `SchweppesSoda.github.io` root Pages repository. This repository no longer syncs web content and no longer needs `PAGES_DEPLOY_KEY`.
 
 Do not enable GitHub Pages from this repository root. That would publish scripts and documentation as static files.
 

@@ -25,12 +25,14 @@
 )
 
 $ErrorActionPreference = "Stop"
-$RawUrl = "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1"
+$ReleaseDownloadBaseUrl = $(if ($env:PO0_RELEASE_DOWNLOAD_BASE_URL) { $env:PO0_RELEASE_DOWNLOAD_BASE_URL } else { "https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download" })
+$DownloadUrl = $(if ($env:PO0_SELF_REPORT_PS_DOWNLOAD_URL) { $env:PO0_SELF_REPORT_PS_DOWNLOAD_URL } else { "$ReleaseDownloadBaseUrl/po0-outbound-ip-report.ps1" })
 $ScriptName = "po0-self-report"
-$ScriptVersion = "2026.06.23+build.11"
-$ScriptReleaseDate = "2026-06-23"
+$ScriptVersion = "2026.06.24+build.1"
+$ScriptReleaseDate = "2026-06-24"
 # CHANGELOG_BEGIN
-# - raw 脚本下载增加 TimeoutSec，避免安装或自更新时长期挂起。
+# - 默认安装和自更新下载源迁到 GitHub Release asset。
+# - 新增 PO0_SELF_REPORT_PS_DOWNLOAD_URL 覆盖入口，便于测试和回滚。
 # CHANGELOG_END
 $PanelValueColumn = 24
 $MenuRightColumn = 46
@@ -315,7 +317,7 @@ PO0 自上报客户端（Windows PowerShell）
 self-report 接收服务。访问设备不直接连接 PO0。
 
 用法:
-  `$script="`$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing '$RawUrl' -OutFile `$script -TimeoutSec 120; powershell -ExecutionPolicy Bypass -File `$script
+  `$script="`$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing '$DownloadUrl' -OutFile `$script -TimeoutSec 120; powershell -ExecutionPolicy Bypass -File `$script
   .\po0-outbound-ip-report.ps1 -Menu
   .\po0-outbound-ip-report.ps1 -Version
   .\po0-outbound-ip-report.ps1 -UpgradeSelf
@@ -327,7 +329,7 @@ self-report 接收服务。访问设备不直接连接 PO0。
   -Menu               打开交互菜单。
   -Version            显示脚本版本、发布日期、当前路径和默认安装路径。
   -Changelog          显示当前版本更新内容。
-  -UpgradeSelf        从 GitHub raw 下载并更新本机脚本；菜单内更新会自动重开新版菜单。
+  -UpgradeSelf        从 GitHub Release 下载并更新本机脚本；菜单内更新会自动重开新版菜单。
   -ConfigPath PATH    self-report 本地配置文件；默认管理员用 ProgramData，普通用户用 LocalAppData。
   -SaveConfig         保存当前参数到本地配置文件，不安装计划任务。
   -RunOnce            从参数或已保存配置立即上报一次，不进入交互菜单。
@@ -398,7 +400,7 @@ function Show-ScriptVersion {
     Write-Host "发布日期：$ScriptReleaseDate"
     Write-Host "当前脚本：$current"
     Write-Host "默认安装路径：$(Get-DefaultScriptPath)"
-    Write-Host "raw URL：$RawUrl"
+    Write-Host "下载 URL：$DownloadUrl"
 }
 
 function Show-ScriptChangelog {
@@ -652,7 +654,7 @@ function Test-DownloadedScript {
     }
 }
 
-function Upgrade-SelfFromRaw {
+function Upgrade-SelfFromDownload {
     param([switch]$ReopenMenu)
     $dest = Get-DefaultScriptPath
     $dir = Split-Path -Parent $dest
@@ -661,13 +663,13 @@ function Upgrade-SelfFromRaw {
     }
     $tmp = Join-Path $dir (".po0-self-report.{0}.tmp" -f $PID)
     try {
-        Invoke-WebRequest -UseBasicParsing -Uri $RawUrl -OutFile $tmp -TimeoutSec 120
+        Invoke-WebRequest -UseBasicParsing -Uri $DownloadUrl -OutFile $tmp -TimeoutSec 120
         Test-DownloadedScript -Path $tmp
         $newVersion = Get-ScriptFileVersion -Path $tmp
         $newChangelog = Get-ScriptFileChangelog -Path $tmp
         Move-Item -LiteralPath $tmp -Destination $dest -Force
         Write-Host "已更新 Self-report 客户端脚本：$dest"
-        Write-Host "raw URL：$RawUrl"
+        Write-Host "下载 URL：$DownloadUrl"
         if ($newVersion) {
             if ($newVersion -eq $ScriptVersion) {
                 Write-Host "版本：$newVersion（与当前执行脚本相同）"
@@ -711,7 +713,7 @@ function Install-ScheduledReporter {
             Copy-Item -LiteralPath $PSCommandPath -Destination $dest -Force
         }
     } else {
-        Invoke-WebRequest -UseBasicParsing -Uri $RawUrl -OutFile $dest -TimeoutSec 120
+        Invoke-WebRequest -UseBasicParsing -Uri $DownloadUrl -OutFile $dest -TimeoutSec 120
     }
     $taskArgList = @(
         "-NoProfile",
@@ -1117,7 +1119,7 @@ function Invoke-InteractiveMenu {
                     Pause-Menu
                 }
                 "7" { Show-ClientConfig; Pause-Menu }
-                "8" { Upgrade-SelfFromRaw -ReopenMenu }
+                "8" { Upgrade-SelfFromDownload -ReopenMenu }
                 "9" {
                     $uninstalled = $false
                     Write-Host "卸载会删除计划任务、隐藏启动器和本机安装脚本；配置与日志默认保留。"
@@ -1170,7 +1172,7 @@ if ($Help) {
 }
 
 if ($UpgradeSelf) {
-    Upgrade-SelfFromRaw
+    Upgrade-SelfFromDownload
     exit 0
 }
 

@@ -1,5 +1,14 @@
 # Keep shell scripts runnable on Linux after Windows checkouts.
+* text=auto
+.gitattributes text eol=lf
 *.sh text eol=lf
 *.bash text eol=lf
 *.zsh text eol=lf
 *.ksh text eol=lf
+# Windows PowerShell 5 needs a UTF-8 BOM for non-ASCII .ps1 files; keep LF.
+*.ps1 text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+checksums.txt text eol=lf

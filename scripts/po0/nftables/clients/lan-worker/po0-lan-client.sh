@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh"
-MANAGER_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/nftables-relay-manager.sh"
+PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
+DOWNLOAD_URL="${PO0_LAN_CLIENT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-lan-client.sh}"
+MANAGER_DOWNLOAD_URL="${PO0_MANAGER_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/nftables-relay-manager.sh}"
 SCRIPT_NAME="po0-lan-worker-client"
-SCRIPT_VERSION="2026.06.23+build.1"
-SCRIPT_RELEASE_DATE="2026-06-23"
+SCRIPT_VERSION="2026.06.24+build.1"
+SCRIPT_RELEASE_DATE="2026-06-24"
 # CHANGELOG_BEGIN
-# - targets/settings/stats/resource 状态写入增加配置目录级锁，避免菜单保存和轮询并发覆盖本机状态。
-# - 默认 PO0 manager 远程调用增加总超时；自安装/自更新 raw 下载补充下载超时。
+# - 默认自安装、自更新和 PO0 manager 更新镜像上游迁到 GitHub Release asset。
+# - 新增 PO0_LAN_CLIENT_DOWNLOAD_URL / PO0_MANAGER_DOWNLOAD_URL 覆盖入口，便于测试和回滚。
 # CHANGELOG_END
 DEFAULT_PO0_SCRIPT="/root/nftables-relay-manager.sh"
 PO0_HOST="${PO0_HOST:-}"
@@ -255,7 +256,7 @@ usage() {
         "  bash po0-lan-client.sh --probe --po0-host HOST --source-key home --ddns-domain home.example.com --token TOKEN --resource-token TOKEN" \
         "  bash po0-lan-client.sh --bootstrap --po0-host HOST --source-key home --ddns-domain home.example.com --token TOKEN --resource-token TOKEN --ddns-interval-seconds 3600 --install-cron" \
         "  bash po0-lan-client.sh --bootstrap --po0-host HOST --resource-token TOKEN --install-cron 1440" \
-        "  curl -fsSL ${RAW_URL} | bash -s -- --bootstrap --po0-host HOST --source-key home --ddns-domain home.example.com --token TOKEN --resource-token TOKEN --ddns-interval-seconds 3600 --install-cron" \
+        "  curl -fsSL ${DOWNLOAD_URL} | bash -s -- --bootstrap --po0-host HOST --source-key home --ddns-domain home.example.com --token TOKEN --resource-token TOKEN --ddns-interval-seconds 3600 --install-cron" \
         "  po0-lan-client --webauth-server --listen 127.0.0.1:8787 --po0-host HOST --webauth-token TOKEN" \
         "  po0-lan-client --install-self-report-https --self-report-https-domain report.example.com --po0-host HOST --client-ip-token TOKEN --self-report-secret SECRET" \
         "  po0-lan-client --install-manager-update-http --manager-update-domain 172.81.111.68" \
@@ -295,7 +296,7 @@ usage() {
         "  --self-report-targets STR 设备自上报目标；格式 source|host|port|user|script|token|ttl|ssh_args，多目标用分号或换行分隔。" \
         "  --self-report-probe  检查自上报接收端依赖和 PO0 client-ip token。" \
         "  --version            显示当前脚本名称、版本、发布日期、路径和本机状态。" \
-        "  --upgrade-self       从 ${RAW_URL} 覆盖更新本机 po0-lan-client 命令，设置权限，并输出版本变化和更新内容。" \
+        "  --upgrade-self       从 ${DOWNLOAD_URL} 覆盖更新本机 po0-lan-client 命令，设置权限，并输出版本变化和更新内容。" \
         "  --backup-export [PATH] 导出 LAN Worker 完整备份；默认包含 Token、SSH 私钥和 SELF_REPORT_SECRET，备份包 chmod 600。" \
         "  --backup-import PATH  导入备份；默认只恢复配置、状态和密钥。" \
         "  --restore-cron       导入时恢复本机 managed cron block。" \
@@ -3552,7 +3553,7 @@ run_manager_update_mirror_server() {
     [[ -n "${listen_host}" && "${listen_host}" != "${MANAGER_UPDATE_LISTEN}" ]] || listen_host="127.0.0.1"
     [[ "${listen_port}" =~ ^[0-9]+$ ]] || listen_port="8789"
     export PO0_MANAGER_UPDATE_TOKENS="${tokens}"
-    export PO0_MANAGER_RAW_URL="${MANAGER_RAW_URL}"
+    export PO0_MANAGER_DOWNLOAD_URL="${MANAGER_DOWNLOAD_URL}"
     printf 'Manager update mirror listening on %s:%s; PO0 pulls over HTTP, mirror pulls GitHub over HTTPS.\n' "${listen_host}" "${listen_port}"
     "${py}" - "${listen_host}" "${listen_port}" <<'PY'
 import hashlib
@@ -3567,14 +3568,14 @@ import urllib.request
 import os
 
 listen_host, listen_port = sys.argv[1], int(sys.argv[2])
-raw_url = os.environ.get("PO0_MANAGER_RAW_URL", "")
+raw_url = os.environ.get("PO0_MANAGER_DOWNLOAD_URL", "")
 tokens = [t.strip() for t in os.environ.get("PO0_MANAGER_UPDATE_TOKENS", "").splitlines() if t.strip()]
 token_by_id = {hashlib.sha256(t.encode("utf-8")).hexdigest(): t for t in tokens}
 PATH = "/po0-manager-update/nftables-relay-manager.sh"
 HEALTH = "/po0-manager-update/health"
 
 if not raw_url.startswith("https://"):
-    raise SystemExit("manager raw URL must use HTTPS")
+    raise SystemExit("manager download URL must use HTTPS")
 if not token_by_id:
     raise SystemExit("missing manager update tokens")
 
@@ -5466,9 +5467,9 @@ install_self() {
             cp "${src}" "${dest}" || return 1
         fi
     elif have_cmd curl; then
-        curl -fsSL --connect-timeout 15 --max-time 180 "${RAW_URL}" -o "${dest}" || return 1
+        curl -fsSL --connect-timeout 15 --max-time 180 "${DOWNLOAD_URL}" -o "${dest}" || return 1
     elif have_cmd wget; then
-        wget -q --timeout=180 -O "${dest}" "${RAW_URL}" || return 1
+        wget -q --timeout=180 -O "${dest}" "${DOWNLOAD_URL}" || return 1
     else
         printf '无法落盘：当前脚本不可复制，且系统缺少 curl/wget。\n' >&2
         return 1
@@ -5477,7 +5478,7 @@ install_self() {
     printf '%s\n' "${dest}"
 }
 
-upgrade_self_from_raw() {
+upgrade_self_from_download() {
     local reopen_mode="${1:-}"
     local dest dir tmp legacy_scp_cmd legacy_scp_var old_version new_version changelog chmod_message
     old_version="${SCRIPT_VERSION}"
@@ -5486,12 +5487,12 @@ upgrade_self_from_raw() {
     mkdir -p "${dir}" || return 1
     tmp="${dest}.tmp.$$"
     if have_cmd curl; then
-        curl -fsSL --connect-timeout 15 --max-time 180 "${RAW_URL}" -o "${tmp}" || {
+        curl -fsSL --connect-timeout 15 --max-time 180 "${DOWNLOAD_URL}" -o "${tmp}" || {
             rm -f -- "${tmp}" 2>/dev/null || true
             return 1
         }
     elif have_cmd wget; then
-        wget -q --timeout=180 -O "${tmp}" "${RAW_URL}" || {
+        wget -q --timeout=180 -O "${tmp}" "${DOWNLOAD_URL}" || {
             rm -f -- "${tmp}" 2>/dev/null || true
             return 1
         }
@@ -5563,7 +5564,7 @@ show_local_script_status() {
     print_panel_row "发布日期" "${SCRIPT_RELEASE_DATE}"
     print_panel_row "当前脚本" "${current}"
     print_panel_row "默认安装路径" "${install_path}"
-    print_panel_row "raw URL" "${RAW_URL}"
+    print_panel_row "下载 URL" "${DOWNLOAD_URL}"
     cron_summary="$(cron_status_summary)"
     print_panel_row "本机轮询器" "${cron_summary}"
 }
@@ -6578,7 +6579,7 @@ menu_loop() {
             23) remove_cron_interactive; pause_before_return ;;
             24) show_cron_status; pause_before_return ;;
             25) show_local_script_status; pause_before_return ;;
-            26) upgrade_self_from_raw --reopen-menu || pause_before_return ;;
+            26) upgrade_self_from_download --reopen-menu || pause_before_return ;;
             27) backup_restore_interactive; pause_before_return ;;
             28) manage_manager_update_http_interactive ;;
             0) return 0 ;;
@@ -7053,7 +7054,7 @@ case "${ACTION}" in
         exit $?
         ;;
     upgrade-self)
-        upgrade_self_from_raw
+        upgrade_self_from_download
         exit $?
         ;;
     backup-export)

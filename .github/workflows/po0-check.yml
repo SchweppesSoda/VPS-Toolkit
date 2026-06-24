@@ -1,0 +1,55 @@
+name: Check PO0 script assets
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - scripts/po0/nftables/**
+      - scripts/po0/README.md
+      - tools/po0/**
+      - .github/workflows/po0-check.yml
+      - .github/workflows/po0-release.yml
+      - .gitattributes
+      - AGENTS.md
+      - README.md
+      - README.en.md
+  pull_request:
+    paths:
+      - scripts/po0/nftables/**
+      - scripts/po0/README.md
+      - tools/po0/**
+      - .github/workflows/po0-check.yml
+      - .github/workflows/po0-release.yml
+      - .gitattributes
+      - AGENTS.md
+      - README.md
+      - README.en.md
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Build and check PO0 assets
+        shell: pwsh
+        run: ./tools/po0/check-po0-assets.ps1
+
+      - name: Check for GitHub raw drift
+        shell: bash
+        run: |
+          set -euo pipefail
+          rg -n "raw\.githubusercontent\.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables|RAW_URL|GitHub raw|raw URL" \
+            scripts/po0/nftables scripts/po0/README.md README.md README.en.md AGENTS.md \
+            | tee /tmp/po0-raw-scan.txt || true
+          if grep -Ev 'clients[\\/]egern|EGERN_SSH_REPORT_MODULE_RAW_URL|iplist|ipdb|legacy|compat|兼容|白名单|Phase 1' /tmp/po0-raw-scan.txt; then
+            echo "::error::Unexpected PO0 raw URL reference found. Keep only Egern, ipdb/iplist, or explicit legacy compatibility references."
+            exit 1
+          fi

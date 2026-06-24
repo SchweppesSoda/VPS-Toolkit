@@ -2,7 +2,7 @@
 
 简体中文 | [English](./README.en.md)
 
-这是 VPS 维护脚本、PO0 中转工具和静态网页工具的源码仓库。运维脚本放在 `scripts/`，公开网页工具源码放在 `web/`，并由单独的 Pages 仓库发布。
+这是 VPS 维护脚本和 PO0 中转工具的源码仓库。运维脚本放在 `scripts/`；静态网页工具已迁出到 [`SchweppesSoda/vps-toolkit-web`](https://github.com/SchweppesSoda/vps-toolkit-web) 并由该仓库的 GitHub Pages 发布。
 
 ## 先看哪份文档
 
@@ -15,7 +15,7 @@
 | 重装 PO0 Debian | [`scripts/po0/reinstall/README.md`](./scripts/po0/reinstall/README.md) | 会重装系统盘；不提供 raw 在线执行命令。 |
 | 部署 PO0 代理服务增强 sidecar | [`scripts/po0/proxy-services/README.md`](./scripts/po0/proxy-services/README.md) | argosbx/Xray sidecar、VLESS RAW ENC、Shadowsocks 2022。 |
 | 管理普通 VPS 工具 | 下面“运行入口”索引 | SSH 加固、Fail2ban、3x-ui 导出、ForwardX、REALITY 查找分别维护在自己的目录。 |
-| 使用网页工具 | 本文的“公开网站” | 页面本身就是用户入口；网页工具技术文档只给维护 UI 时看。 |
+| 使用网页工具 | 本文的“公开网站” | 页面本身就是用户入口；网页工具源码和技术文档在 `vps-toolkit-web` 仓库维护。 |
 | 让 Codex / agent 继续维护仓库 | [`AGENTS.md`](./AGENTS.md) | 维护规则、文档归属、验证清单和历史踩坑。 |
 
 ## 文档索引
@@ -50,8 +50,8 @@
 | [`scripts/po0/nftables/nftables-relay-manager-technical.md`](./scripts/po0/nftables/nftables-relay-manager-technical.md) | nftables manager 内部实现、协议、wrapper 和状态模型。 |
 | [`scripts/po0/proxy-services/vless-raw-enc-argosbx-enhancer-design.md`](./scripts/po0/proxy-services/vless-raw-enc-argosbx-enhancer-design.md) | PO0 代理服务增强脚本设计。 |
 | [`scripts/vps/ssh-key-only/setup-ssh-key-only-full-technical.md`](./scripts/vps/ssh-key-only/setup-ssh-key-only-full-technical.md) | SSH 加固脚本技术设计。 |
-| [`web/vps-toolkit/tools/proxy-node-manager/proxy_node_manager_technical.md`](./web/vps-toolkit/tools/proxy-node-manager/proxy_node_manager_technical.md) | Proxy Node Manager 页面结构、交互和验证说明。 |
-| [`web/vps-toolkit/tools/argosbx-argo-batch/argosbx_argo_batch_technical.md`](./web/vps-toolkit/tools/argosbx-argo-batch/argosbx_argo_batch_technical.md) | Argosbx Argo Batch 页面结构、交互和验证说明。 |
+| [`vps-toolkit-web/docs/proxy-node-manager/proxy_node_manager_technical.md`](https://github.com/SchweppesSoda/vps-toolkit-web/blob/main/docs/proxy-node-manager/proxy_node_manager_technical.md) | Proxy Node Manager 页面结构、交互和验证说明。 |
+| [`vps-toolkit-web/docs/argosbx-argo-batch/argosbx_argo_batch_technical.md`](https://github.com/SchweppesSoda/vps-toolkit-web/blob/main/docs/argosbx-argo-batch/argosbx_argo_batch_technical.md) | Argosbx Argo Batch 页面结构、交互和验证说明。 |
 
 ### 维护规则
 
@@ -78,7 +78,7 @@ ssh root@<PO0_HOST> 'chmod +x /root/nftables-relay-manager.sh && bash /root/nfta
 在内网 Worker 机器上进入向导：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash
+curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-lan-client.sh | bash
 ```
 
 之后常用：
@@ -119,18 +119,22 @@ ssh root@<PO0_HOST> 'chmod +x /root/po0-debian-reinstall.sh && bash /root/po0-de
 
 - `scripts/po0/`：PO0 或类似中转机的重装、中转、防火墙、资源任务和代理服务增强。
 - `scripts/vps/`：通用 VPS 工具，每个工具目录维护自己的 README。
-- `web/`：静态网页工具源码。公开站点由独立 Pages 仓库发布，不从本仓库根目录启用 GitHub Pages。
+- `tools/`：离线构建和检查工具；PO0 Release asset 由 `tools/po0/` 按 `scripts/po0/nftables/src/` 模块化源码生成。
+- Web 工具：源码和 GitHub Pages 发布已迁出到 [`SchweppesSoda/vps-toolkit-web`](https://github.com/SchweppesSoda/vps-toolkit-web)。
+
+## 发布渠道
+
+PO0 nftables 的四个可执行脚本通过 GitHub Release assets 发布：`nftables-relay-manager.sh`、`po0-lan-client.sh`、`po0-outbound-ip-report.sh`、`po0-outbound-ip-report.ps1`。旧 `raw.githubusercontent.com` 路径只作为 legacy compatibility 入口，供旧部署脚本迁移到 release-aware 版本；Egern 模块、外部 ipdb/iplist 数据源和暂未迁移的通用 VPS 工具仍按各自文档保留 raw URL。
 
 ## 公开网站
 
-公开站点由 `SchweppesSoda/SchweppesSoda.github.io` 仓库发布：
+公开网页工具由 [`SchweppesSoda/vps-toolkit-web`](https://github.com/SchweppesSoda/vps-toolkit-web) 仓库的 GitHub Pages 发布：
 
-- `https://schweppessoda.github.io/`
-- `https://schweppessoda.github.io/vps-toolkit/`
-- `https://schweppessoda.github.io/vps-toolkit/tools/proxy-node-manager/proxy_node_manager.html`
-- `https://schweppessoda.github.io/vps-toolkit/tools/argosbx-argo-batch/argosbx_argo_batch.html`
+- `https://schweppessoda.github.io/vps-toolkit-web/`
+- `https://schweppessoda.github.io/vps-toolkit-web/tools/proxy-node-manager/proxy_node_manager.html`
+- `https://schweppessoda.github.io/vps-toolkit-web/tools/argosbx-argo-batch/argosbx_argo_batch.html`
 
-GitHub Actions 会在 `main` 分支的 `web/**` 变化后，把根主页索引和 `web/vps-toolkit/` 同步到 Pages 仓库。源仓库需要把 deploy key 私钥保存为 `PAGES_DEPLOY_KEY`；目标 Pages 仓库需要添加对应公钥，并开启写权限。
+旧 `https://schweppessoda.github.io/vps-toolkit/` 和旧工具深链接由 `SchweppesSoda.github.io` 根 Pages 仓库保留静态跳转。本仓不再同步网页内容，也不再需要 `PAGES_DEPLOY_KEY`。
 
 不要从本仓库根目录启用 GitHub Pages，否则脚本和文档也会作为静态文件发布。
 

@@ -2,10 +2,11 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-nftables-relay-manager"
-SCRIPT_VERSION="2026.06.23+build.2"
-SCRIPT_RELEASE_DATE="2026-06-23"
+SCRIPT_VERSION="2026.06.24+build.1"
+SCRIPT_RELEASE_DATE="2026-06-24"
 # CHANGELOG_BEGIN
-# - 从菜单使用 LAN Worker HTTP 更新 PO0 manager 成功后，按回车会重新打开新版菜单；命令行直接升级仍更新后退出。
+# - PO0 可部署脚本默认下载源迁到 GitHub Release asset，并保留环境变量覆盖入口。
+# - LAN Worker、Self-report 部署命令改用 Release 下载地址；Egern 模块 raw 地址暂作为兼容白名单保留。
 # CHANGELOG_END
 CONF_DIR="${PO0_CONF_DIR:-/etc/nftables.d}"
 MAIN_CONF="/etc/nftables.conf"
@@ -70,9 +71,11 @@ IPDB_DEFAULT_PIP_INDEX_URL="https://mirrors.cloud.tencent.com/pypi/simple"
 IPDB_PIP_INDEX_URL=""
 IPDB_DOWNLOAD_URL="https://raw.githubusercontent.com/nmgliangwei/qqwry.ipdb/main/qqwry.ipdb"
 MANAGER_INSTALL_PATH="${PO0_MANAGER_INSTALL_PATH:-/root/nftables-relay-manager.sh}"
-LAN_WORKER_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh"
-OUTBOUND_IP_REPORTER_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh"
-OUTBOUND_IP_REPORTER_PS_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1"
+PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
+MANAGER_DOWNLOAD_URL="${PO0_MANAGER_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/nftables-relay-manager.sh}"
+LAN_WORKER_DOWNLOAD_URL="${PO0_LAN_CLIENT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-lan-client.sh}"
+OUTBOUND_IP_REPORTER_DOWNLOAD_URL="${PO0_SELF_REPORT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report.sh}"
+OUTBOUND_IP_REPORTER_PS_DOWNLOAD_URL="${PO0_SELF_REPORT_PS_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report.ps1}"
 EGERN_SSH_REPORT_MODULE_RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/PO0-SSH-IP-Report.yaml"
 REPORT_KEY_WRAPPER_PATH="${CONF_DIR}/po0-report-key-wrapper"
 REPORT_KEY_DENY_LOG="${CONF_DIR}/po0-report-key-denied.log"
@@ -9412,11 +9415,11 @@ do_show_client_ip_report_token() {
     echo ""
     echo "Linux / OpenWrt 自上报 client（访问设备 -> LAN Worker）："
     printf '  curl -fsSL %s | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --interval-seconds 3600 --install-cron\n' \
-        "${OUTBOUND_IP_REPORTER_RAW_URL}"
+        "${OUTBOUND_IP_REPORTER_DOWNLOAD_URL}"
     echo ""
     echo "Windows PowerShell 自上报 client（访问设备 -> LAN Worker）："
     printf "  \$script=\"\$env:TEMP\\po0-outbound-ip-report.ps1\"; irm -UseBasicParsing '%s' -OutFile \$script -TimeoutSec 120; powershell -ExecutionPolicy Bypass -File \$script -WorkerUrl 'https://<SELF_REPORT_DOMAIN>/report' -SourceId '<CLIENT_ID>' -Secret '<SELF_REPORT_SECRET>' -InstallTask -IntervalSeconds 3600\n" \
-        "${OUTBOUND_IP_REPORTER_PS_RAW_URL}"
+        "${OUTBOUND_IP_REPORTER_PS_DOWNLOAD_URL}"
 }
 
 normalize_report_key_scope() {
@@ -9916,7 +9919,7 @@ print_lan_worker_ddns_bootstrap_example() {
     local ddns_token="${1:-<SOURCE_TOKEN>}"
     local install_cmd
     printf -v install_cmd 'curl -fsSL %s | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script %s --source-key <DDNS_SOURCE_KEY> --ddns-domain <DDNS_DOMAIN> --token %s --ddns-interval-seconds 3600 --install-cron' \
-        "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "${ddns_token}"
+        "${LAN_WORKER_DOWNLOAD_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "${ddns_token}"
     print_panel_section "LAN Worker DDNS 部署"
     print_panel_row "说明" "--ddns-interval-seconds 3600 设置 DDNS 默认 3600 秒上报；--install-cron 安装本机计划任务"
     print_panel_row "安装命令" "${install_cmd}"
@@ -9926,9 +9929,9 @@ print_lan_worker_resource_bootstrap_example() {
     local resource_token="${1:-<RESOURCE_TOKEN>}"
     local install_cmd probe_cmd
     printf -v install_cmd 'curl -fsSL %s | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script %s --resource-token %s --install-cron 1440' \
-        "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "${resource_token}"
+        "${LAN_WORKER_DOWNLOAD_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "${resource_token}"
     printf -v probe_cmd 'curl -fsSL %s | bash -s -- --probe --po0-host <PO0_HOST> --po0-script %s --resource-token %s' \
-        "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "${resource_token}"
+        "${LAN_WORKER_DOWNLOAD_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "${resource_token}"
     print_panel_section "LAN Worker 资源任务部署"
     print_panel_row "说明" "资源创建周期在 PO0 端设置；--install-cron 1440 只安装 Worker 本机轮询器"
     print_panel_row "安装命令" "${install_cmd}"
@@ -9952,8 +9955,8 @@ do_show_client_deploy_index() {
     print_title "LAN Worker / 客户端 / Egern 分场景部署"
     print_panel_section "路径"
     print_panel_row "PO0 主控路径" "${MANAGER_INSTALL_PATH}"
-    print_panel_row "LAN Worker RAW" "${LAN_WORKER_RAW_URL}"
-    print_panel_row "自上报 Client RAW" "${OUTBOUND_IP_REPORTER_RAW_URL}"
+    print_panel_row "LAN Worker 下载" "${LAN_WORKER_DOWNLOAD_URL}"
+    print_panel_row "自上报 Client 下载" "${OUTBOUND_IP_REPORTER_DOWNLOAD_URL}"
     print_panel_section "交互菜单"
     print_panel_row "1" "显示简短索引"
     print_panel_row "2" "PO0 主控脚本上传命令"
@@ -10015,9 +10018,9 @@ do_show_lan_resource_worker_commands() {
     deploy_token_values
     deploy_ensure_resource_token
     printf -v install_cmd 'curl -fsSL %s | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script %s --resource-token %s --install-cron 1440' \
-        "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${DEPLOY_RESOURCE_TOKEN}")"
+        "${LAN_WORKER_DOWNLOAD_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${DEPLOY_RESOURCE_TOKEN}")"
     printf -v probe_cmd 'curl -fsSL %s | bash -s -- --probe --po0-host <PO0_HOST> --po0-script %s --resource-token %s' \
-        "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${DEPLOY_RESOURCE_TOKEN}")"
+        "${LAN_WORKER_DOWNLOAD_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${DEPLOY_RESOURCE_TOKEN}")"
     print_title "LAN Worker 资源任务 Worker"
     print_panel_section "职责"
     print_panel_row "执行位置" "LAN Worker 机器"
@@ -10040,7 +10043,7 @@ do_show_lan_ddns_worker_commands() {
     echo "--ddns-interval-seconds 3600 设置 DDNS 默认 3600 秒上报；--install-cron 安装本机计划任务，资源任务领取周期保持 LAN Worker 默认值。"
     echo ""
     printf '  curl -fsSL %s | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script %s --source-key <DDNS_SOURCE_KEY> --ddns-domain <DDNS_DOMAIN> --token %s --ddns-interval-seconds 3600 --install-cron\n' \
-        "${LAN_WORKER_RAW_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${DEPLOY_DDNS_TOKEN}")"
+        "${LAN_WORKER_DOWNLOAD_URL}" "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${DEPLOY_DDNS_TOKEN}")"
     echo ""
     printf 'DDNS 目标行: source_key|ddns_domain|host|port|user|script|token|ssh_args\n'
     printf '  <DDNS_SOURCE_KEY>|<DDNS_DOMAIN>|<PO0_HOST>|22|root|%s|%s|\n' "${MANAGER_INSTALL_PATH}" "${DEPLOY_DDNS_TOKEN}"
@@ -10055,7 +10058,7 @@ do_show_self_report_server_commands() {
     print_title "LAN Worker self-report server"
     echo "推荐 HTTPS/Caddy 只在 LAN Worker 暴露 80/443；访问设备先报 LAN Worker，再由 LAN Worker 通过 SSH 上报 PO0。"
     echo ""
-    printf '  curl -fsSL %s | bash -s -- --install-self\n' "${LAN_WORKER_RAW_URL}"
+    printf '  curl -fsSL %s | bash -s -- --install-self\n' "${LAN_WORKER_DOWNLOAD_URL}"
     printf '  po0-lan-client --install-self-report-https --self-report-https-domain <SELF_REPORT_DOMAIN> --po0-host <PO0_HOST> --po0-script %s --self-report-source self-report --client-ip-token %s --self-report-secret <SELF_REPORT_SECRET>\n' \
         "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${DEPLOY_CLIENT_TOKEN}")"
     echo ""
@@ -10074,11 +10077,11 @@ do_show_self_report_client_commands() {
     echo ""
     echo "Linux / OpenWrt:"
     printf '  curl -fsSL %s | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --source-id <CLIENT_ID> --secret <SELF_REPORT_SECRET> --interval-seconds 3600 --install-cron\n' \
-        "${OUTBOUND_IP_REPORTER_RAW_URL}"
+        "${OUTBOUND_IP_REPORTER_DOWNLOAD_URL}"
     echo ""
     echo "Windows PowerShell:"
     printf "  \$script=\"\$env:TEMP\\po0-outbound-ip-report.ps1\"; irm -UseBasicParsing '%s' -OutFile \$script -TimeoutSec 120; powershell -ExecutionPolicy Bypass -File \$script -WorkerUrl 'https://<SELF_REPORT_DOMAIN>/report' -SourceId '<CLIENT_ID>' -Secret '<SELF_REPORT_SECRET>' -InstallTask -IntervalSeconds 3600\n" \
-        "${OUTBOUND_IP_REPORTER_PS_RAW_URL}"
+        "${OUTBOUND_IP_REPORTER_PS_DOWNLOAD_URL}"
 }
 
 do_show_webauth_worker_commands() {
@@ -10087,7 +10090,7 @@ do_show_webauth_worker_commands() {
     print_title "LAN Worker WebAuth worker"
     echo "PO0 不开放 HTTP；建议在 LAN Worker 监听前面接 Cloudflare Access/Tunnel。"
     echo ""
-    printf '  curl -fsSL %s | bash -s -- --install-self\n' "${LAN_WORKER_RAW_URL}"
+    printf '  curl -fsSL %s | bash -s -- --install-self\n' "${LAN_WORKER_DOWNLOAD_URL}"
     printf '  po0-lan-client --webauth-server --listen 127.0.0.1:8787 --po0-host <PO0_HOST> --po0-script %s --webauth-source cf-access --webauth-token %s\n' \
         "$(shell_quote "${MANAGER_INSTALL_PATH}")" "$(shell_quote "${DEPLOY_WEBAUTH_TOKEN}")"
     echo ""
@@ -12005,6 +12008,7 @@ do_show_version() {
     print_panel_row "发布日期" "${SCRIPT_RELEASE_DATE}"
     print_panel_row "当前脚本" "${script_path:-unknown}"
     print_panel_row "默认安装路径" "${MANAGER_INSTALL_PATH}"
+    print_panel_row "下载 URL" "${MANAGER_DOWNLOAD_URL}"
 }
 
 do_show_changelog() {
@@ -12035,6 +12039,7 @@ do_show_version_panel() {
     print_panel_row "构建标识" "$(script_build_label)"
     print_panel_row "发布日期" "${SCRIPT_RELEASE_DATE}"
     print_panel_row "安装路径" "${MANAGER_INSTALL_PATH}"
+    print_panel_row "下载 URL" "${MANAGER_DOWNLOAD_URL}"
     print_panel_section "当前版本更新内容"
     changes="$(current_script_changelog 2>/dev/null || true)"
     if [[ -n "${changes}" ]]; then

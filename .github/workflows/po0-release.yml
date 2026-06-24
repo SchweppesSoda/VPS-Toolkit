@@ -1,0 +1,171 @@
+name: Release PO0 script assets
+
+on:
+  push:
+    tags:
+      - "po0-v[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9].[0-9]*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: po0-release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Build and check PO0 assets
+        shell: pwsh
+        run: ./tools/po0/check-po0-assets.ps1
+
+      - name: Publish complete asset set
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${GITHUB_REF_NAME}"
+          if [[ ! "${tag}" =~ ^po0-v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+$ ]]; then
+            echo "::error::PO0 releases must use tag format po0-vYYYY.MM.DD.N"
+            exit 1
+          fi
+
+          git fetch --tags --force
+          git rev-parse -q --verify "refs/tags/${tag}" >/dev/null || {
+            echo "::error::Tag does not exist: ${tag}"
+            exit 1
+          }
+
+          asset_dir=".tmp/po0-check-assets"
+          script_assets=(
+            "nftables-relay-manager.sh"
+            "po0-lan-client.sh"
+            "po0-outbound-ip-report.sh"
+            "po0-outbound-ip-report.ps1"
+          )
+          required_assets=(
+            "${script_assets[@]}"
+            "checksums.txt"
+          )
+
+          for asset in "${required_assets[@]}"; do
+            test -s "${asset_dir}/${asset}" || {
+              echo "::error::Missing asset: ${asset}"
+              exit 1
+            }
+          done
+
+          declare -A expected_hash
+          while read -r hash name; do
+            [[ -n "${hash:-}" && -n "${name:-}" ]] || continue
+            expected_hash["${name}"]="${hash}"
+          done < "${asset_dir}/checksums.txt"
+          expected_hash["checksums.txt"]="$(sha256sum "${asset_dir}/checksums.txt" | awk '{print $1}')"
+
+          for asset in "${required_assets[@]}"; do
+            if [[ -z "${expected_hash[$asset]:-}" ]]; then
+              echo "::error::checksums.txt does not contain expected hash for ${asset}"
+              exit 1
+            fi
+          done
+
+          release_json="$(gh release view "${tag}" --json isDraft,assets 2>/dev/null || true)"
+          release_created=false
+          if [[ -z "${release_json}" ]]; then
+            gh release create "${tag}" \
+              --draft \
+              --latest=false \
+              --verify-tag \
+              --title "${tag}" \
+              --notes "PO0 nftables script assets. Stable VPS-Toolkit releases must include this complete PO0 asset set."
+            release_created=true
+            release_json="$(gh release view "${tag}" --json isDraft,assets)"
+          fi
+
+          is_draft="$(printf '%s' "${release_json}" | jq -r '.isDraft')"
+          if [[ "${is_draft}" != "true" && "${is_draft}" != "false" ]]; then
+            echo "::error::Unable to determine release draft state for ${tag}"
+            exit 1
+          fi
+
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "${tmp}"' EXIT
+
+          asset_exists() {
+            local asset="$1"
+            gh release view "${tag}" --json assets --jq ".assets[] | select(.name == \"${asset}\") | .name" | grep -Fxq "${asset}"
+          }
+
+          verify_asset_checksum() {
+            local asset="$1" actual expected
+            rm -rf "${tmp:?}/"*
+            gh release download "${tag}" --pattern "${asset}" --dir "${tmp}"
+            if [[ ! -s "${tmp}/${asset}" ]]; then
+              echo "::error::Release asset download failed or is empty: ${asset}"
+              exit 1
+            fi
+            actual="$(sha256sum "${tmp}/${asset}" | awk '{print $1}')"
+            expected="${expected_hash[$asset]}"
+            if [[ "${actual}" != "${expected}" ]]; then
+              echo "::error::Release asset checksum differs: ${asset}. Do not overwrite; create a new tag."
+              exit 1
+            fi
+            echo "Asset checksum matches: ${asset}"
+          }
+
+          verify_no_unexpected_assets() {
+            local remote_asset expected found
+            while IFS= read -r remote_asset; do
+              [[ -n "${remote_asset}" ]] || continue
+              found=false
+              for expected in "${required_assets[@]}"; do
+                if [[ "${remote_asset}" == "${expected}" ]]; then
+                  found=true
+                  break
+                fi
+              done
+              if [[ "${found}" != "true" ]]; then
+                echo "::error::Unexpected release asset found: ${remote_asset}"
+                exit 1
+              fi
+            done < <(gh release view "${tag}" --json assets --jq '.assets[].name')
+          }
+
+          verify_no_unexpected_assets
+
+          for asset in "${required_assets[@]}"; do
+            if asset_exists "${asset}"; then
+              verify_asset_checksum "${asset}"
+              continue
+            fi
+            if [[ "${is_draft}" == "true" ]]; then
+              gh release upload "${tag}" "${asset_dir}/${asset}"
+              verify_asset_checksum "${asset}"
+              continue
+            fi
+            echo "::error::Published release is missing asset: ${asset}. Do not mutate a live release; create a new tag."
+            exit 1
+          done
+
+          verify_no_unexpected_assets
+
+          if [[ "${is_draft}" == "true" ]]; then
+            for asset in "${required_assets[@]}"; do
+              verify_asset_checksum "${asset}"
+            done
+            gh release edit "${tag}" --draft=false --latest
+            if [[ "${release_created}" == "true" ]]; then
+              echo "Published complete PO0 release: ${tag}"
+            else
+              echo "Completed and published existing draft PO0 release: ${tag}"
+            fi
+          else
+            echo "Published PO0 release already matches generated assets: ${tag}"
+          fi

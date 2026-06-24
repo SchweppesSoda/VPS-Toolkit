@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh"
+PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
+DOWNLOAD_URL="${PO0_SELF_REPORT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report.sh}"
 SCRIPT_NAME="po0-self-report"
-SCRIPT_VERSION="2026.06.23+build.11"
-SCRIPT_RELEASE_DATE="2026-06-23"
+SCRIPT_VERSION="2026.06.24+build.1"
+SCRIPT_RELEASE_DATE="2026-06-24"
 # CHANGELOG_BEGIN
-# - 上报 LAN Worker 的 curl 增加连接和总时长 timeout，raw 下载与 wget fallback 也补充超时。
+# - 默认安装和自更新下载源迁到 GitHub Release asset。
+# - 新增 PO0_SELF_REPORT_DOWNLOAD_URL 覆盖入口，便于测试和回滚。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24
@@ -257,7 +259,7 @@ show_version() {
         "发布日期：${SCRIPT_RELEASE_DATE}" \
         "当前脚本：${BASH_SOURCE[0]}" \
         "默认安装路径：$(default_install_path)" \
-        "raw URL：${RAW_URL}"
+        "下载 URL：${DOWNLOAD_URL}"
 }
 
 show_changelog() {
@@ -757,9 +759,9 @@ install_self() {
             cp "${source}" "${dest}" || return 1
         fi
     elif command -v curl >/dev/null 2>&1; then
-        curl -fsSL --connect-timeout 15 --max-time 120 "${RAW_URL}" -o "${dest}" || return 1
+        curl -fsSL --connect-timeout 15 --max-time 120 "${DOWNLOAD_URL}" -o "${dest}" || return 1
     elif command -v wget >/dev/null 2>&1; then
-        wget -q -T 120 -O "${dest}" "${RAW_URL}" || return 1
+        wget -q -T 120 -O "${dest}" "${DOWNLOAD_URL}" || return 1
     else
         echo "缺少 curl/wget，无法把管道运行的脚本落盘。" >&2
         return 1
@@ -768,7 +770,7 @@ install_self() {
     printf '%s\n' "${dest}"
 }
 
-upgrade_self_from_raw() {
+upgrade_self_from_download() {
     local reopen_mode="${1:-}" dest dir tmp new_version changelog chmod_message
     dest="$(default_install_path)"
     dir="$(dirname "${dest}")"
@@ -779,12 +781,12 @@ upgrade_self_from_raw() {
         tmp="${dest}.tmp.$$"
     fi
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL --connect-timeout 15 --max-time 120 "${RAW_URL}" -o "${tmp}" || {
+        curl -fsSL --connect-timeout 15 --max-time 120 "${DOWNLOAD_URL}" -o "${tmp}" || {
             rm -f "${tmp}" 2>/dev/null || true
             return 1
         }
     elif command -v wget >/dev/null 2>&1; then
-        wget -q -T 120 -O "${tmp}" "${RAW_URL}" || {
+        wget -q -T 120 -O "${tmp}" "${DOWNLOAD_URL}" || {
             rm -f "${tmp}" 2>/dev/null || true
             return 1
         }
@@ -815,7 +817,7 @@ upgrade_self_from_raw() {
         chmod_message="警告：已更新，但自动设置执行权限失败；请手动执行 chmod 755 ${dest}"
     fi
     printf '已更新 Self-report 客户端脚本：%s\n' "${dest}"
-    printf 'raw URL：%s\n' "${RAW_URL}"
+    printf '下载 URL：%s\n' "${DOWNLOAD_URL}"
     printf '%s\n' "${chmod_message}"
     if [[ -n "${new_version}" ]]; then
         if [[ "${new_version}" == "${SCRIPT_VERSION}" ]]; then
@@ -1184,7 +1186,7 @@ menu_loop() {
                 pause_before_return
                 ;;
             7) show_current_config; pause_before_return ;;
-            8) upgrade_self_from_raw --reopen-menu || pause_before_return ;;
+            8) upgrade_self_from_download --reopen-menu || pause_before_return ;;
             9)
                 uninstall_self_report_interactive
                 rc=$?
@@ -1207,18 +1209,18 @@ usage() {
         "接收端配置，不由客户端决定。" \
         "" \
         "用法:" \
-        "  curl -fsSL ${RAW_URL} | bash" \
+        "  curl -fsSL ${DOWNLOAD_URL} | bash" \
         "  bash po0-outbound-ip-report.sh --menu" \
         "  bash po0-outbound-ip-report.sh --version" \
         "  bash po0-outbound-ip-report.sh --upgrade-self" \
         "  bash po0-outbound-ip-report.sh --worker-url https://report.example.com/report --secret SECRET --save-config" \
-        "  curl -fsSL ${RAW_URL} | bash -s -- --worker-url https://report.example.com/report --secret SECRET --interval-seconds 3600 --install-cron" \
+        "  curl -fsSL ${DOWNLOAD_URL} | bash -s -- --worker-url https://report.example.com/report --secret SECRET --interval-seconds 3600 --install-cron" \
         "" \
         "参数:" \
         "  --menu                打开交互菜单。" \
         "  --version             显示脚本版本、发布日期、当前路径和默认安装路径。" \
         "  --changelog           显示当前版本更新内容。" \
-        "  --upgrade-self        从 GitHub raw 下载并更新本机脚本；菜单内更新会自动重开新版菜单。" \
+        "  --upgrade-self        从 GitHub Release 下载并更新本机脚本；菜单内更新会自动重开新版菜单。" \
         "  --config PATH         self-report 本地配置文件；默认 root 用 /etc/po0-self-report/settings.env，普通用户用 ~/.config/po0-self-report/settings.env。" \
         "  --save-config         保存当前参数到本地配置文件，不安装 cron。" \
         "  --worker-url URL      LAN Worker self-report HTTPS 接收地址，例如 https://report.example.com/report；裸域名会自动补全。" \
@@ -1376,7 +1378,7 @@ if [[ "${SHOW_VERSION}" == "1" ]]; then
 elif [[ "${SHOW_CHANGELOG}" == "1" ]]; then
     show_changelog
 elif [[ "${UPGRADE_SELF}" == "1" ]]; then
-    upgrade_self_from_raw
+    upgrade_self_from_download
 elif [[ "${SAVE_CONFIG}" == "1" ]]; then
     save_config_file
 elif [[ "${PAUSE_SCHEDULE}" == "1" ]]; then

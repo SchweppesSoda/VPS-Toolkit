@@ -6,6 +6,11 @@
 
 ## po0-nftables-relay-manager
 
+### 2026.06.24+build.1
+
+- PO0 可部署脚本默认下载源迁到 GitHub Release asset，并保留环境变量覆盖入口。
+- LAN Worker、Self-report 部署命令改用 Release 下载地址；Egern 模块 raw 地址暂作为兼容白名单保留。
+
 ### 2026.06.23+build.2
 
 - 从菜单使用 LAN Worker HTTP 更新 PO0 manager 成功后，按回车会重新打开新版菜单；命令行直接执行 `--upgrade-manager-from-lan` 仍保持更新后退出。
@@ -61,6 +66,11 @@
 
 ## po0-lan-worker-client
 
+### 2026.06.24+build.1
+
+- 默认自安装、自更新和 PO0 manager 更新镜像上游迁到 GitHub Release asset。
+- 新增 `PO0_LAN_CLIENT_DOWNLOAD_URL` / `PO0_MANAGER_DOWNLOAD_URL` 覆盖入口，便于测试和回滚。
+
 ### 2026.06.23+build.1
 
 - `targets.tsv`、`settings.env`、DDNS stats、resource stats/events 的本地写入增加配置目录级 `.po0-lan-client.lock`，避免菜单保存、cron 运行和资源轮询并发覆盖本机状态。
@@ -92,7 +102,7 @@
 - PO0 manager HTTP 更新镜像的 Caddy 入口统一改为端口级监听，同一端口同时支持域名和直接 IP 访问。
 - PO0 manager HTTP 更新镜像默认公网入口改为 2333，并支持直接使用 IP[:端口]；公网入口由 Caddy 监听端口级 HTTP 站点后反代到本机后端。
 - WebAuth 放行 TTL 默认从 3600 秒调整为 21600 秒（6 小时）。
-- 新增 PO0 manager HTTP 更新镜像：LAN Worker 通过 HTTPS 拉取 GitHub raw 脚本，并用 resource token 为 PO0 HTTP 拉取响应签名。
+- 新增 PO0 manager HTTP 更新镜像：LAN Worker 通过 HTTPS 拉取 GitHub 脚本，并用 resource token 为 PO0 HTTP 拉取响应签名。
 - 兼容旧安装：`settings.env` 不存在或字段为空时，从已安装的 Self-report/WebAuth systemd unit 回填 secret、监听地址、目标和 token，避免升级后导出空 secret。
 - 修复完整备份导出指定相对路径时可能写入临时目录并随清理丢失的问题；恢复 cron 时优先从备份的 cron block 识别旧脚本路径；Caddy import 跟随当前 snippet 目录且恢复权限改为 644。
 - 新增 LAN Worker 完整备份 / 导入恢复：默认导出 Token、SSH 私钥、`SELF_REPORT_SECRET` 和状态文件；导入默认只恢复配置/状态/密钥，cron、systemd、Caddy 需显式 flag 或 `--restore-all`。
@@ -119,6 +129,11 @@
 - 状态页 / Widget 优先复用 IP9、163、126、myip.ipip 等 IP 查询接口返回的归属地 / 运营商信息，拿不到时才额外查询。
 
 ## po0-self-report（Linux/OpenWrt）
+
+### 2026.06.24+build.1
+
+- 默认安装和自更新下载源迁到 GitHub Release asset。
+- 新增 `PO0_SELF_REPORT_DOWNLOAD_URL` 覆盖入口，便于测试和回滚。
 
 ### 2026.06.23+build.11
 
@@ -163,6 +178,11 @@
 - 新增 `--version` 和 `--changelog` 只读入口。
 
 ## po0-self-report（Windows PowerShell）
+
+### 2026.06.24+build.1
+
+- 默认安装和自更新下载源迁到 GitHub Release asset。
+- 新增 `PO0_SELF_REPORT_PS_DOWNLOAD_URL` 覆盖入口，便于测试和回滚。
 
 ### 2026.06.23+build.11
 

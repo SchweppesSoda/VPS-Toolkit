@@ -1,0 +1,13 @@
+scripts/po0/nftables/src/lan-worker/001-part.sh
+scripts/po0/nftables/src/lan-worker/002-part.sh
+scripts/po0/nftables/src/lan-worker/003-part.sh
+scripts/po0/nftables/src/lan-worker/004-part.sh
+scripts/po0/nftables/src/lan-worker/005-part.sh
+scripts/po0/nftables/src/lan-worker/006-part.sh
+scripts/po0/nftables/src/lan-worker/007-part.sh
+scripts/po0/nftables/src/lan-worker/008-part.sh
+scripts/po0/nftables/src/lan-worker/009-part.sh
+scripts/po0/nftables/src/lan-worker/010-part.sh
+scripts/po0/nftables/src/lan-worker/011-part.sh
+scripts/po0/nftables/src/lan-worker/012-part.sh
+scripts/po0/nftables/src/lan-worker/013-part.sh

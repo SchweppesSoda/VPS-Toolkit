@@ -36,7 +36,7 @@ ssh root@<PO0_HOST> 'bash /root/nftables-relay-manager.sh --changelog'
 LAN Worker 命令在内网 Worker 机器上执行，不在 PO0 上执行。首次部署推荐进入向导：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh | bash
+curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-lan-client.sh | bash
 ```
 
 向导会写入本机配置，并安装 `po0-lan-client` 命令。之后常用：
@@ -65,6 +65,10 @@ sudo install -m 0755 "$tmp" /usr/local/sbin/vless-raw-enc-argosbx-enhancer
 rm -f "$tmp"
 sudo /usr/local/sbin/vless-raw-enc-argosbx-enhancer
 ```
+
+## 发布渠道
+
+PO0 nftables 四个可执行脚本的新安装、自更新和 LAN Worker manager 更新镜像默认使用 GitHub Release asset。旧 raw 路径只保留为兼容入口，不作为新的正式发布渠道。Egern 模块、外部 ipdb/iplist 数据源和其它 PO0/VPS 工具若未纳入 Release，仍以各自 README 为准。
 
 ## 安全说明
 
