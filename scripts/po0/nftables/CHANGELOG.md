@@ -70,6 +70,11 @@
 
 ## po0-lan-worker-client
 
+### 2026.06.25+build.1
+
+- 跟随 PO0 2026-06-25 发布刷新 LAN Worker 版本，避免 latest 更新后仍显示旧脚本版本。
+- 自安装、自更新和 PO0 manager 更新镜像继续默认使用 GitHub Release asset。
+
 ### 2026.06.24+build.1
 
 - 默认自安装、自更新和 PO0 manager 更新镜像上游迁到 GitHub Release asset。

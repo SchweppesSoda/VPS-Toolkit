@@ -5,11 +5,11 @@ PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.c
 DOWNLOAD_URL="${PO0_LAN_CLIENT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-lan-client.sh}"
 MANAGER_DOWNLOAD_URL="${PO0_MANAGER_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/nftables-relay-manager.sh}"
 SCRIPT_NAME="po0-lan-worker-client"
-SCRIPT_VERSION="2026.06.24+build.1"
-SCRIPT_RELEASE_DATE="2026-06-24"
+SCRIPT_VERSION="2026.06.25+build.1"
+SCRIPT_RELEASE_DATE="2026-06-25"
 # CHANGELOG_BEGIN
-# - 默认自安装、自更新和 PO0 manager 更新镜像上游迁到 GitHub Release asset。
-# - 新增 PO0_LAN_CLIENT_DOWNLOAD_URL / PO0_MANAGER_DOWNLOAD_URL 覆盖入口，便于测试和回滚。
+# - 跟随 PO0 2026-06-25 发布刷新 LAN Worker 版本，避免 latest 更新后仍显示旧脚本版本。
+# - 自安装、自更新和 PO0 manager 更新镜像继续默认使用 GitHub Release asset。
 # CHANGELOG_END
 DEFAULT_PO0_SCRIPT="/root/nftables-relay-manager.sh"
 PO0_HOST="${PO0_HOST:-}"
