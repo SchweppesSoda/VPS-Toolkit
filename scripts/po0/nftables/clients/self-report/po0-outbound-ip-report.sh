@@ -1313,7 +1313,7 @@ toggle_schedule_interactive() {
 }
 
 report_once() {
-    local ip response curl_rc secret_header=() report_source report_identity curl_args=() http_code
+    local ip response curl_rc report_source report_identity curl_args=() http_code
     validate_worker_url || { self_report_incomplete "LAN Worker URL 未通过检查。"; return 1; }
     command -v curl >/dev/null 2>&1 || {
         echo "缺少 curl，无法上报到 LAN Worker。" >&2
@@ -1325,32 +1325,34 @@ report_once() {
         self_report_incomplete "未能探测到当前公网出口 IPv4。"
         return 1
     }
-    [[ -n "${SECRET}" ]] && secret_header=(-H "X-PO0-Token: ${SECRET}")
     report_source="$(normalize_report_token "${SOURCE_ID}" "$(default_source_id)")"
     report_identity="$(normalize_report_token "${IDENTITY}" "${report_source}")"
     echo "上报当前公网出口 IPv4 ${ip} 到 LAN Worker：${WORKER_URL}"
     curl_args=(-sS --get --connect-timeout 10 --max-time 30)
-    curl_args+=("${secret_header[@]}")
+    if [[ -n "${SECRET}" ]]; then
+        curl_args+=(-H "X-PO0-Token: ${SECRET}")
+    fi
     curl_args+=(--data-urlencode "source=${report_source}")
     curl_args+=(--data-urlencode "ip=${ip}")
     curl_args+=(--data-urlencode "identity=${report_identity}")
     curl_args+=(-w $'\n%{http_code}')
     curl_args+=("${WORKER_URL}")
-    if ! response="$(curl "${curl_args[@]}")"; then
+    if response="$(curl "${curl_args[@]}")"; then
+        http_code="${response##*$'\n'}"
+        response="${response%$'\n'*}"
+        if [[ "${http_code}" == 2* ]]; then
+            [[ -n "${response}" ]] && printf '%s\n' "${response}"
+            self_report_completed "公网出口 IPv4 ${ip} 已被 LAN Worker 接收。"
+        else
+            [[ -n "${response}" ]] && printf '%s\n' "${response}" >&2
+            self_report_incomplete "LAN Worker 未确认本次上报（HTTP ${http_code}）。"
+            return 1
+        fi
+    else
         curl_rc=$?
         [[ -n "${response}" ]] && printf '%s\n' "${response}" >&2
         self_report_incomplete "LAN Worker 未确认本次上报（curl exit ${curl_rc}）。"
         return "${curl_rc}"
-    fi
-    http_code="${response##*$'\n'}"
-    response="${response%$'\n'*}"
-    if [[ "${http_code}" == 2* ]]; then
-        [[ -n "${response}" ]] && printf '%s\n' "${response}"
-        self_report_completed "公网出口 IPv4 ${ip} 已被 LAN Worker 接收。"
-    else
-        [[ -n "${response}" ]] && printf '%s\n' "${response}" >&2
-        self_report_incomplete "LAN Worker 未确认本次上报（HTTP ${http_code}）。"
-        return 1
     fi
 }
 
