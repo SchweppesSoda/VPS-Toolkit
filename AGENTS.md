@@ -89,6 +89,8 @@
 
 ## 提交规则
 
+- 改代码前先确认当前分支与远程上游一致：执行 `git fetch --tags --prune` 后查看 `git status --short --branch` 或 `git rev-list --left-right --count HEAD...@{u}`；本地落后时先 `git pull --ff-only`，分叉时先停下来确认处理方式。
+- 提交前再次确认本地与远程上游的 ahead/behind 状态，避免基于过期代码提交；如远程已有新提交，优先 fast-forward 更新并重新验证本次改动。
 - 提交前检查 staged 范围，避免混入无关改动。
 - 如果工作区已有用户或其它线程留下的改动，不要回滚；只提交本次相关文件。
 - Push 前确认远端和分支，尤其是 `origin/main`。
