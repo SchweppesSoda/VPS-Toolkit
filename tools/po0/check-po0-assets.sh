@@ -67,7 +67,7 @@ check_manifest_coverage "self-report-linux" "tools/po0/manifests/self-report-lin
 check_manifest_coverage "self-report-macos" "tools/po0/manifests/self-report-macos.txt" "scripts/po0/relay/self-report/macos/src"
 check_manifest_coverage "self-report-windows" "tools/po0/manifests/self-report-windows.txt" "scripts/po0/relay/self-report/windows/src" "*.ps1"
 
-"${repo_root}/tools/po0/build-po0-assets.sh" "${asset_dir}"
+bash "${repo_root}/tools/po0/build-po0-assets.sh" "${asset_dir}"
 
 for asset in nftables-relay-manager.sh po0-lan-client.sh po0-outbound-ip-report.sh po0-outbound-ip-report-macos.sh; do
     printf 'Checking bash -n %s\n' "${asset}"

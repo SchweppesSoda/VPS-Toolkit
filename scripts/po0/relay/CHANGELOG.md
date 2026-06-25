@@ -6,6 +6,10 @@
 
 ## po0-nftables-relay-manager
 
+### 2026.06.25+build.10
+
+- Release 检查脚本改为显式用 `bash` 调用构建器，避免 GitHub runner 受文件 executable bit 影响。
+
 ### 2026.06.25+build.9
 
 - 源码迁入按职责拆分的 `scripts/po0/relay/manager/src/` 模块；部署示例改为 Release asset 下载，旧 manager raw path 停用。
@@ -82,6 +86,10 @@
 - 状态面板和资源任务创建计划摘要增加彩色状态提示。
 
 ## po0-lan-worker-client
+
+### 2026.06.25+build.10
+
+- Release 检查脚本改为显式用 `bash` 调用构建器，避免 GitHub runner 受文件 executable bit 影响。
 
 ### 2026.06.25+build.9
 
@@ -164,6 +172,10 @@
 - 状态页 / Widget 优先复用 IP9、163、126、myip.ipip 等 IP 查询接口返回的归属地 / 运营商信息，拿不到时才额外查询。
 
 ## po0-self-report（Linux/OpenWrt）
+
+### 2026.06.25+build.10
+
+- Release 检查脚本改为显式用 `bash` 调用构建器，避免 GitHub runner 受文件 executable bit 影响。
 
 ### 2026.06.25+build.9
 
@@ -252,6 +264,10 @@
 
 ## po0-self-report（macOS）
 
+### 2026.06.25+build.10
+
+- Release 检查脚本改为显式用 `bash` 调用构建器，避免 GitHub runner 受文件 executable bit 影响。
+
 ### 2026.06.25+build.9
 
 - 源码迁入 `scripts/po0/relay/self-report/macos/src/`；自更新继续默认使用 Release asset，旧 macOS self-report raw path 停用。
@@ -271,6 +287,10 @@
 - 支持 `--save-config --menu` 首次保存默认配置后打开菜单，并提供 `--install-launchd` 别名。
 
 ## po0-self-report（Windows PowerShell）
+
+### 2026.06.25+build.10
+
+- Release 检查脚本改为显式用 `bash` 调用构建器，避免 GitHub runner 受文件 executable bit 影响。
 
 ### 2026.06.25+build.9
 

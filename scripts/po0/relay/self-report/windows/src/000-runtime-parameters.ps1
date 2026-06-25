@@ -28,10 +28,10 @@ $ErrorActionPreference = "Stop"
 $ReleaseDownloadBaseUrl = $(if ($env:PO0_RELEASE_DOWNLOAD_BASE_URL) { $env:PO0_RELEASE_DOWNLOAD_BASE_URL } else { "https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download" })
 $DownloadUrl = $(if ($env:PO0_SELF_REPORT_PS_DOWNLOAD_URL) { $env:PO0_SELF_REPORT_PS_DOWNLOAD_URL } else { "$ReleaseDownloadBaseUrl/po0-outbound-ip-report.ps1" })
 $ScriptName = "po0-self-report"
-$ScriptVersion = "2026.06.25+build.9"
+$ScriptVersion = "2026.06.25+build.10"
 $ScriptReleaseDate = "2026-06-25"
 # CHANGELOG_BEGIN
-# - 自更新继续默认使用 Release asset；源码迁入 relay/self-report，旧 raw path 停用。
+# - Release 检查脚本改为显式用 bash 调用构建器，避免 GitHub runner 受文件 executable bit 影响。
 # CHANGELOG_END
 $PanelValueColumn = 24
 $MenuRightColumn = 46
