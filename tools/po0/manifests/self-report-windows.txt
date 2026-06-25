@@ -1,0 +1,13 @@
+scripts/po0/relay/self-report/windows/src/000-runtime-parameters.ps1
+scripts/po0/relay/self-report/windows/src/010-platform-paths-logging-notification.ps1
+scripts/po0/relay/self-report/windows/src/020-ui-rendering.ps1
+scripts/po0/relay/self-report/windows/src/030-config-usage-version.ps1
+scripts/po0/relay/self-report/windows/src/040-worker-url-interval-validation.ps1
+scripts/po0/relay/self-report/windows/src/050-outbound-ip-detection.ps1
+scripts/po0/relay/self-report/windows/src/060-report-submit.ps1
+scripts/po0/relay/self-report/windows/src/070-install-upgrade-task.ps1
+scripts/po0/relay/self-report/windows/src/080-menu-input-formatting.ps1
+scripts/po0/relay/self-report/windows/src/090-log-display.ps1
+scripts/po0/relay/self-report/windows/src/100-schedule-config-uninstall.ps1
+scripts/po0/relay/self-report/windows/src/110-menu-dispatch.ps1
+scripts/po0/relay/self-report/windows/src/990-cli-dispatch.ps1

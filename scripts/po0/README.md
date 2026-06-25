@@ -6,22 +6,23 @@
 
 | 目标 | 文档 | 说明 |
 | --- | --- | --- |
-| 管理 nftables 中转、源 IP 白名单、LAN Worker、Self-report、WebAuth、Egern、iplist/ipdb | [`nftables/README.md`](./nftables/README.md) | PO0 中转系统用户主文档。 |
-| 查看 PO0 nftables 子系统版本历史 | [`nftables/CHANGELOG.md`](./nftables/CHANGELOG.md) | 完整历史在仓库文档中维护；远端单脚本只显示当前版本更新内容。 |
+| 管理 nftables 中转、源 IP 白名单、LAN Worker、Self-report、WebAuth、Egern、iplist/ipdb | [`relay/README.md`](./relay/README.md) | PO0 中转系统用户主文档。 |
+| 查看 PO0 nftables 子系统版本历史 | [`relay/CHANGELOG.md`](./relay/CHANGELOG.md) | 完整历史在仓库文档中维护；远端单脚本只显示当前版本更新内容。 |
 | 重装 Debian | [`reinstall/README.md`](./reinstall/README.md) | 会重装系统盘，执行前必须单独确认。 |
 | 部署代理服务增强 sidecar | [`proxy-services/README.md`](./proxy-services/README.md) | argosbx/Xray sidecar、VLESS RAW ENC、Shadowsocks 2022。 |
 
-Egern 专属配置和 nftables 实现文档从 `nftables/README.md` 继续进入，避免 PO0 层入口重复展开细节。
+Egern 专属配置和 nftables 实现文档从 `relay/README.md` 继续进入，避免 PO0 层入口重复展开细节。
 
 ## 常用入口
 
 ### PO0 nftables 中转
 
-推荐从本地仓库上传主控脚本，再在 PO0 上运行：
+推荐从 GitHub Release asset 下载主控脚本，再在 PO0 上运行：
 
 ```bash
-scp scripts/po0/nftables/nftables-relay-manager.sh root@<PO0_HOST>:/root/nftables-relay-manager.sh
-ssh root@<PO0_HOST> 'chmod +x /root/nftables-relay-manager.sh && bash /root/nftables-relay-manager.sh'
+curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/nftables-relay-manager.sh -o /root/nftables-relay-manager.sh
+chmod +x /root/nftables-relay-manager.sh
+bash /root/nftables-relay-manager.sh
 ```
 
 检查已安装版本和当前更新内容：
@@ -68,7 +69,7 @@ sudo /usr/local/sbin/vless-raw-enc-argosbx-enhancer
 
 ## 发布渠道
 
-PO0 nftables 五个可执行脚本的新安装、自更新和 LAN Worker manager 更新镜像默认使用 GitHub Release asset。旧 raw 路径只保留为兼容入口，不作为新的正式发布渠道。Egern 模块、外部 ipdb/iplist 数据源和其它 PO0/VPS 工具若未纳入 Release，仍以各自 README 为准。
+PO0 nftables 五个可执行脚本的新安装、自更新和 LAN Worker manager 更新镜像默认使用 GitHub Release asset。旧 manager、LAN Worker 和 self-report raw URLs are disabled，不再作为兼容入口。Egern 模块、外部 ipdb/iplist 数据源和其它 PO0/VPS 工具若未纳入 Release，仍以各自 README 为准。
 
 ## 安全说明
 

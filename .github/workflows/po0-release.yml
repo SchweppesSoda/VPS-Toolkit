@@ -21,8 +21,8 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build and check PO0 assets
-        shell: pwsh
-        run: ./tools/po0/check-po0-assets.ps1
+        shell: bash
+        run: bash ./tools/po0/check-po0-assets.sh
 
       - name: Publish complete asset set
         env:

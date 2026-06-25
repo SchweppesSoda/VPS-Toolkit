@@ -10,7 +10,7 @@
 
 | 你的目标 | 先看 | 说明 |
 | --- | --- | --- |
-| 部署或维护 PO0 nftables 中转、源 IP 白名单、LAN Worker、Self-report、WebAuth、Egern、iplist/ipdb | [`scripts/po0/nftables/README.md`](./scripts/po0/nftables/README.md) | PO0 中转系统的用户主文档，菜单、Token、TTL、状态文件和定时任务以它为准。 |
+| 部署或维护 PO0 nftables 中转、源 IP 白名单、LAN Worker、Self-report、WebAuth、Egern、iplist/ipdb | [`scripts/po0/relay/README.md`](./scripts/po0/relay/README.md) | PO0 中转系统的用户主文档，菜单、Token、TTL、状态文件和定时任务以它为准。 |
 | 只想确认 PO0 子系统有哪些入口 | [`scripts/po0/README.md`](./scripts/po0/README.md) | PO0 层导航，不复制 nftables 细节。 |
 | 重装 PO0 Debian | [`scripts/po0/reinstall/README.md`](./scripts/po0/reinstall/README.md) | 会重装系统盘；不提供 raw 在线执行命令。 |
 | 部署 PO0 代理服务增强 sidecar | [`scripts/po0/proxy-services/README.md`](./scripts/po0/proxy-services/README.md) | argosbx/Xray sidecar、VLESS RAW ENC、Shadowsocks 2022。 |
@@ -25,7 +25,7 @@
 | 文档 | 用途 |
 | --- | --- |
 | [`scripts/po0/README.md`](./scripts/po0/README.md) | PO0 子系统入口。 |
-| [`scripts/po0/nftables/README.md`](./scripts/po0/nftables/README.md) | nftables 中转、LAN Worker、Self-report、WebAuth、Egern、资源任务和 IP 数据。 |
+| [`scripts/po0/relay/README.md`](./scripts/po0/relay/README.md) | nftables 中转、LAN Worker、Self-report、WebAuth、Egern、资源任务和 IP 数据。 |
 | [`scripts/po0/reinstall/README.md`](./scripts/po0/reinstall/README.md) | PO0 Debian 重装。 |
 | [`scripts/po0/proxy-services/README.md`](./scripts/po0/proxy-services/README.md) | PO0 代理服务增强 sidecar。 |
 | [`scripts/vps/ssh-key-only/README.md`](./scripts/vps/ssh-key-only/README.md) | SSH 仅公钥登录加固。 |
@@ -46,8 +46,8 @@
 
 | 文档 | 用途 |
 | --- | --- |
-| [`scripts/po0/nftables/CHANGELOG.md`](./scripts/po0/nftables/CHANGELOG.md) | PO0 nftables 子系统版本历史。 |
-| [`scripts/po0/nftables/nftables-relay-manager-technical.md`](./scripts/po0/nftables/nftables-relay-manager-technical.md) | nftables manager 内部实现、协议、wrapper 和状态模型。 |
+| [`scripts/po0/relay/CHANGELOG.md`](./scripts/po0/relay/CHANGELOG.md) | PO0 nftables 子系统版本历史。 |
+| [`scripts/po0/relay/po0-relay-technical.md`](./scripts/po0/relay/po0-relay-technical.md) | nftables manager 内部实现、协议、wrapper 和状态模型。 |
 | [`scripts/po0/proxy-services/vless-raw-enc-argosbx-enhancer-design.md`](./scripts/po0/proxy-services/vless-raw-enc-argosbx-enhancer-design.md) | PO0 代理服务增强脚本设计。 |
 | [`scripts/vps/ssh-key-only/setup-ssh-key-only-full-technical.md`](./scripts/vps/ssh-key-only/setup-ssh-key-only-full-technical.md) | SSH 加固脚本技术设计。 |
 | [`vps-toolkit-web/docs/proxy-node-manager/proxy_node_manager_technical.md`](https://github.com/SchweppesSoda/vps-toolkit-web/blob/main/docs/proxy-node-manager/proxy_node_manager_technical.md) | Proxy Node Manager 页面结构、交互和验证说明。 |
@@ -66,11 +66,12 @@
 
 ### PO0 nftables 中转
 
-推荐从本地仓库上传主控脚本，再在 PO0 上运行：
+推荐从 GitHub Release asset 下载主控脚本，再在 PO0 上运行：
 
 ```bash
-scp scripts/po0/nftables/nftables-relay-manager.sh root@<PO0_HOST>:/root/nftables-relay-manager.sh
-ssh root@<PO0_HOST> 'chmod +x /root/nftables-relay-manager.sh && bash /root/nftables-relay-manager.sh'
+curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/nftables-relay-manager.sh -o /root/nftables-relay-manager.sh
+chmod +x /root/nftables-relay-manager.sh
+bash /root/nftables-relay-manager.sh
 ```
 
 ### LAN Worker
@@ -119,12 +120,12 @@ ssh root@<PO0_HOST> 'chmod +x /root/po0-debian-reinstall.sh && bash /root/po0-de
 
 - `scripts/po0/`：PO0 或类似中转机的重装、中转、防火墙、资源任务和代理服务增强。
 - `scripts/vps/`：通用 VPS 工具，每个工具目录维护自己的 README。
-- `tools/`：离线构建和检查工具；PO0 Release asset 由 `tools/po0/` 按 `scripts/po0/nftables/src/` 模块化源码生成。
+- `tools/`：离线构建和检查工具；PO0 Release asset 由 `tools/po0/` 按 `scripts/po0/relay/manager/src/ and scripts/po0/relay/lan-worker/src/` 模块化源码生成。
 - Web 工具：源码和 GitHub Pages 发布已迁出到 [`SchweppesSoda/vps-toolkit-web`](https://github.com/SchweppesSoda/vps-toolkit-web)。
 
 ## 发布渠道
 
-PO0 nftables 的五个可执行脚本通过 GitHub Release assets 发布：`nftables-relay-manager.sh`、`po0-lan-client.sh`、`po0-outbound-ip-report.sh`、`po0-outbound-ip-report-macos.sh`、`po0-outbound-ip-report.ps1`。旧 `raw.githubusercontent.com` 路径只作为 legacy compatibility 入口，供旧部署脚本迁移到 release-aware 版本；Egern 模块、外部 ipdb/iplist 数据源和暂未迁移的通用 VPS 工具仍按各自文档保留 raw URL。
+PO0 nftables 的五个可执行脚本通过 GitHub Release assets 发布：`nftables-relay-manager.sh`、`po0-lan-client.sh`、`po0-outbound-ip-report.sh`、`po0-outbound-ip-report-macos.sh`、`po0-outbound-ip-report.ps1`。旧 manager、LAN Worker 和 self-report raw URLs are disabled，不再作为兼容入口；Egern 模块、外部 ipdb/iplist 数据源和暂未迁移的通用 VPS 工具仍按各自文档保留 raw URL。
 
 ## 公开网站
 

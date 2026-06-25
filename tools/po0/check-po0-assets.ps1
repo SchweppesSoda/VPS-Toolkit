@@ -41,7 +41,8 @@ function Test-ManifestCoverage {
     param(
         [string]$Name,
         [string]$ManifestPath,
-        [string]$SourceDir
+        [string]$SourceDir,
+        [string]$Filter = "*.sh"
     )
     Write-Host "Checking manifest coverage: $Name"
     if (-not (Test-Path -LiteralPath $SourceDir)) {
@@ -64,7 +65,7 @@ function Test-ManifestCoverage {
         }
     }
 
-    $sourceParts = Get-ChildItem -LiteralPath $SourceDir -Filter "*.sh" -File |
+    $sourceParts = Get-ChildItem -LiteralPath $SourceDir -Filter $Filter -File |
         ForEach-Object { ConvertTo-RepoRelativePath -Path $_.FullName } |
         Sort-Object
 
@@ -82,46 +83,33 @@ function Test-ManifestCoverage {
     }
 }
 
-function Test-AssetMatchesLegacyBridge {
-    param(
-        [string]$GeneratedFileName,
-        [string]$LegacyRelativePath
-    )
-    $generated = Join-Path $OutputDir $GeneratedFileName
-    $legacy = Join-Path $RepoRoot $LegacyRelativePath
-    if (-not (Test-Path -LiteralPath $generated)) {
-        throw "Generated asset not found: $generated"
-    }
-    if (-not (Test-Path -LiteralPath $legacy)) {
-        throw "Legacy raw bridge not found: $legacy"
-    }
-    $generatedHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $generated).Hash.ToLowerInvariant()
-    $legacyHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $legacy).Hash.ToLowerInvariant()
-    if ($generatedHash -ne $legacyHash) {
-        throw "Generated asset differs from legacy raw bridge: $GeneratedFileName -> $LegacyRelativePath"
-    }
-    Write-Host "Generated asset matches legacy raw bridge: $GeneratedFileName"
-}
-
 Test-ManifestCoverage `
     -Name "manager" `
     -ManifestPath (Join-Path $RepoRoot "tools/po0/manifests/manager.txt") `
-    -SourceDir (Join-Path $RepoRoot "scripts/po0/nftables/src/manager")
+    -SourceDir (Join-Path $RepoRoot "scripts/po0/relay/manager/src")
 
 Test-ManifestCoverage `
     -Name "lan-worker" `
     -ManifestPath (Join-Path $RepoRoot "tools/po0/manifests/lan-worker.txt") `
-    -SourceDir (Join-Path $RepoRoot "scripts/po0/nftables/src/lan-worker")
+    -SourceDir (Join-Path $RepoRoot "scripts/po0/relay/lan-worker/src")
+
+Test-ManifestCoverage `
+    -Name "self-report-linux" `
+    -ManifestPath (Join-Path $RepoRoot "tools/po0/manifests/self-report-linux.txt") `
+    -SourceDir (Join-Path $RepoRoot "scripts/po0/relay/self-report/linux/src")
+
+Test-ManifestCoverage `
+    -Name "self-report-macos" `
+    -ManifestPath (Join-Path $RepoRoot "tools/po0/manifests/self-report-macos.txt") `
+    -SourceDir (Join-Path $RepoRoot "scripts/po0/relay/self-report/macos/src")
+
+Test-ManifestCoverage `
+    -Name "self-report-windows" `
+    -ManifestPath (Join-Path $RepoRoot "tools/po0/manifests/self-report-windows.txt") `
+    -SourceDir (Join-Path $RepoRoot "scripts/po0/relay/self-report/windows/src") `
+    -Filter "*.ps1"
 
 & (Join-Path $PSScriptRoot "build-po0-assets.ps1") -OutputDir $OutputDir
-
-Test-AssetMatchesLegacyBridge `
-    -GeneratedFileName "nftables-relay-manager.sh" `
-    -LegacyRelativePath "scripts/po0/nftables/nftables-relay-manager.sh"
-
-Test-AssetMatchesLegacyBridge `
-    -GeneratedFileName "po0-lan-client.sh" `
-    -LegacyRelativePath "scripts/po0/nftables/clients/lan-worker/po0-lan-client.sh"
 
 function Get-BashCommand {
     $bash = Get-Command bash -ErrorAction SilentlyContinue
@@ -129,6 +117,17 @@ function Get-BashCommand {
     $gitBash = "C:\Program Files\Git\bin\bash.exe"
     if (Test-Path -LiteralPath $gitBash) { return $gitBash }
     return ""
+}
+
+function ConvertTo-BashPath {
+    param([string]$Path)
+    $full = [System.IO.Path]::GetFullPath($Path)
+    if ($full -match '^([A-Za-z]):\\(.*)$') {
+        $drive = $Matches[1].ToLowerInvariant()
+        $rest = $Matches[2].Replace('\', '/')
+        return "/${drive}/${rest}"
+    }
+    return $full.Replace('\', '/')
 }
 
 function Invoke-Checked {
@@ -162,8 +161,9 @@ function Invoke-BashChecked {
         return
     }
     $path = Join-Path $OutputDir $FileName
+    $bashPath = ConvertTo-BashPath -Path $path
     Write-Host "Checking bash $FileName $($Arguments -join ' ')"
-    & $bash $path @Arguments | Out-Host
+    & $bash $bashPath @Arguments | Out-Host
     if ($LASTEXITCODE -ne 0) {
         throw "Command failed: bash $FileName $($Arguments -join ' ')"
     }
@@ -177,8 +177,9 @@ function Invoke-BashSyntax {
         return
     }
     $path = Join-Path $OutputDir $FileName
+    $bashPath = ConvertTo-BashPath -Path $path
     Write-Host "Checking bash -n $FileName"
-    & $bash -n $path
+    & $bash -n $bashPath
     if ($LASTEXITCODE -ne 0) {
         throw "bash -n failed: $FileName"
     }

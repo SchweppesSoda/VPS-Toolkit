@@ -1,0 +1,16 @@
+scripts/po0/relay/self-report/linux/src/000-runtime-header.sh
+scripts/po0/relay/self-report/linux/src/010-core-string-path-config.sh
+scripts/po0/relay/self-report/linux/src/020-ui-rendering.sh
+scripts/po0/relay/self-report/linux/src/030-version-and-script-metadata.sh
+scripts/po0/relay/self-report/linux/src/040-prompt-and-input-helpers.sh
+scripts/po0/relay/self-report/linux/src/050-config-device-defaults.sh
+scripts/po0/relay/self-report/linux/src/060-worker-url-interval-state.sh
+scripts/po0/relay/self-report/linux/src/070-outbound-ip-detection.sh
+scripts/po0/relay/self-report/linux/src/080-install-and-upgrade.sh
+scripts/po0/relay/self-report/linux/src/090-cron-schedule-management.sh
+scripts/po0/relay/self-report/linux/src/100-self-report-log-display.sh
+scripts/po0/relay/self-report/linux/src/110-uninstall-actions.sh
+scripts/po0/relay/self-report/linux/src/120-schedule-status-control.sh
+scripts/po0/relay/self-report/linux/src/130-report-submit.sh
+scripts/po0/relay/self-report/linux/src/140-menu-actions.sh
+scripts/po0/relay/self-report/linux/src/990-cli-parse-dispatch.sh

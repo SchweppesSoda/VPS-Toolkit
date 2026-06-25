@@ -1,0 +1,88 @@
+print_divider() {
+    printf '%b%s%b\n' "${C_DIM}" "================================================================" "${C_RESET}"
+}
+
+print_title() {
+    echo ""
+    print_divider
+    printf '%b%s%b\n' "${C_BOLD}${C_CYAN}" "$1" "${C_RESET}"
+    print_divider
+}
+
+print_menu_divider() {
+    printf '%b%s%b\n' "${C_CYAN}" "------------------------" "${C_RESET}"
+}
+
+print_menu_footer() {
+    print_menu_divider
+}
+
+print_menu_section() {
+    print_menu_divider
+    printf '%b%s%b\n' "${C_BOLD}${C_CYAN}" "$1" "${C_RESET}"
+}
+
+print_menu_item() {
+    local number="$1"
+    local label="$2"
+    printf '  %b%2s%b) %s\n' "${C_CYAN}" "${number}" "${C_RESET}" "${label}"
+}
+
+print_menu_pair() {
+    local left_number="$1"
+    local left_label="$2"
+    local right_number="${3:-}"
+    local right_label="${4:-}"
+    local right_column=46
+    printf '  %b%2s%b) %s' "${C_CYAN}" "${left_number}" "${C_RESET}" "${left_label}"
+    if [[ -n "${right_number}" ]]; then
+        if [[ -t 1 ]]; then
+            printf '\033[%sG' "${right_column}"
+        else
+            printf '    '
+        fi
+        printf '%b%2s%b) %s' "${C_CYAN}" "${right_number}" "${C_RESET}" "${right_label}"
+    fi
+    printf '\n'
+}
+
+print_panel_divider() {
+    printf '%b%s%b\n' "${C_PANEL}" "------------------------" "${C_RESET}"
+}
+
+print_panel_section() {
+    print_panel_divider
+    printf '%b%s%b\n' "${C_BOLD}${C_PANEL}" "$1" "${C_RESET}"
+}
+
+print_panel_value_column() {
+    if [[ -t 1 ]]; then
+        printf '\033[24G'
+    else
+        printf '    '
+    fi
+}
+
+print_panel_row() {
+    local label="$1"
+    shift
+    printf '  %b%s%b' "${C_PANEL}" "${label}" "${C_RESET}"
+    print_panel_value_column
+    printf ': %s\n' "$*"
+}
+
+print_panel_note() {
+    printf '  '
+    print_panel_value_column
+    printf '  %s\n' "$*"
+}
+
+print_panel_action() {
+    print_panel_row "$@"
+}
+
+menu_clear_screen() {
+    [[ "${MENU_CLEAR:-1}" == "0" ]] && return 0
+    [[ -t 1 && -n "${TERM:-}" && "${TERM}" != "dumb" ]] || return 0
+    command -v clear >/dev/null 2>&1 && clear || printf '\033[H\033[2J'
+}

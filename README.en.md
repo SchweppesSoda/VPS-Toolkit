@@ -10,7 +10,7 @@ For running or maintaining existing behavior, start from README files. Do not st
 
 | Goal | Start here | Notes |
 | --- | --- | --- |
-| Deploy or maintain PO0 nftables relay, source-IP allowlists, LAN Worker, Self-report, WebAuth, Egern, or iplist/ipdb | [`scripts/po0/nftables/README.md`](./scripts/po0/nftables/README.md) | Main user guide for the PO0 relay system. Menus, tokens, TTLs, state files, and timers are documented there. |
+| Deploy or maintain PO0 nftables relay, source-IP allowlists, LAN Worker, Self-report, WebAuth, Egern, or iplist/ipdb | [`scripts/po0/relay/README.md`](./scripts/po0/relay/README.md) | Main user guide for the PO0 relay system. Menus, tokens, TTLs, state files, and timers are documented there. |
 | See the PO0 subsystem entry points | [`scripts/po0/README.md`](./scripts/po0/README.md) | PO0-level navigation without duplicating nftables details. |
 | Reinstall PO0 Debian | [`scripts/po0/reinstall/README.md`](./scripts/po0/reinstall/README.md) | Destructive disk reinstall; no raw online execution command is documented. |
 | Deploy the PO0 proxy-service sidecar | [`scripts/po0/proxy-services/README.md`](./scripts/po0/proxy-services/README.md) | argosbx/Xray sidecar, VLESS RAW ENC, and Shadowsocks 2022. |
@@ -25,7 +25,7 @@ For running or maintaining existing behavior, start from README files. Do not st
 | Doc | Purpose |
 | --- | --- |
 | [`scripts/po0/README.md`](./scripts/po0/README.md) | PO0 subsystem entry point. |
-| [`scripts/po0/nftables/README.md`](./scripts/po0/nftables/README.md) | nftables relay, LAN Worker, Self-report, WebAuth, Egern, resource tasks, and IP data. |
+| [`scripts/po0/relay/README.md`](./scripts/po0/relay/README.md) | nftables relay, LAN Worker, Self-report, WebAuth, Egern, resource tasks, and IP data. |
 | [`scripts/po0/reinstall/README.md`](./scripts/po0/reinstall/README.md) | PO0 Debian reinstall. |
 | [`scripts/po0/proxy-services/README.md`](./scripts/po0/proxy-services/README.md) | PO0 proxy-service sidecar. |
 | [`scripts/vps/ssh-key-only/README.md`](./scripts/vps/ssh-key-only/README.md) | SSH public-key-only hardening. |
@@ -46,8 +46,8 @@ For running or maintaining existing behavior, start from README files. Do not st
 
 | Doc | Purpose |
 | --- | --- |
-| [`scripts/po0/nftables/CHANGELOG.md`](./scripts/po0/nftables/CHANGELOG.md) | PO0 nftables subsystem version history. |
-| [`scripts/po0/nftables/nftables-relay-manager-technical.md`](./scripts/po0/nftables/nftables-relay-manager-technical.md) | nftables manager internals, protocol, wrapper, and state model. |
+| [`scripts/po0/relay/CHANGELOG.md`](./scripts/po0/relay/CHANGELOG.md) | PO0 nftables subsystem version history. |
+| [`scripts/po0/relay/po0-relay-technical.md`](./scripts/po0/relay/po0-relay-technical.md) | nftables manager internals, protocol, wrapper, and state model. |
 | [`scripts/po0/proxy-services/vless-raw-enc-argosbx-enhancer-design.md`](./scripts/po0/proxy-services/vless-raw-enc-argosbx-enhancer-design.md) | PO0 proxy-service enhancer design. |
 | [`scripts/vps/ssh-key-only/setup-ssh-key-only-full-technical.md`](./scripts/vps/ssh-key-only/setup-ssh-key-only-full-technical.md) | SSH hardening script technical design. |
 | [`vps-toolkit-web/docs/proxy-node-manager/proxy_node_manager_technical.md`](https://github.com/SchweppesSoda/vps-toolkit-web/blob/main/docs/proxy-node-manager/proxy_node_manager_technical.md) | Proxy Node Manager layout, interaction, and validation notes. |
@@ -66,11 +66,12 @@ Review scripts before running them. Root-level online examples that need root an
 
 ### PO0 nftables relay
 
-Recommended: upload the manager from this checkout, then run it on PO0.
+Recommended: download the manager from the GitHub Release asset, then run it on PO0.
 
 ```bash
-scp scripts/po0/nftables/nftables-relay-manager.sh root@<PO0_HOST>:/root/nftables-relay-manager.sh
-ssh root@<PO0_HOST> 'chmod +x /root/nftables-relay-manager.sh && bash /root/nftables-relay-manager.sh'
+curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/nftables-relay-manager.sh -o /root/nftables-relay-manager.sh
+chmod +x /root/nftables-relay-manager.sh
+bash /root/nftables-relay-manager.sh
 ```
 
 ### LAN Worker
@@ -119,12 +120,12 @@ ssh root@<PO0_HOST> 'chmod +x /root/po0-debian-reinstall.sh && bash /root/po0-de
 
 - `scripts/po0/`: PO0 or relay-host reinstall, nftables relay, allowlists, resource jobs, and proxy-service enhancement.
 - `scripts/vps/`: general VPS tools; each tool directory owns its README.
-- `tools/`: offline build and check tooling; PO0 Release assets are built by `tools/po0/` from modular source under `scripts/po0/nftables/src/`.
+- `tools/`: offline build and check tooling; PO0 Release assets are built by `tools/po0/` from modular source under `scripts/po0/relay/manager/src/ and scripts/po0/relay/lan-worker/src/`.
 - Web tools: source and GitHub Pages deployment moved to [`SchweppesSoda/vps-toolkit-web`](https://github.com/SchweppesSoda/vps-toolkit-web).
 
 ## Release Channels
 
-The five executable PO0 nftables scripts are published as GitHub Release assets: `nftables-relay-manager.sh`, `po0-lan-client.sh`, `po0-outbound-ip-report.sh`, `po0-outbound-ip-report-macos.sh`, and `po0-outbound-ip-report.ps1`. Old `raw.githubusercontent.com` paths are legacy compatibility entry points for already-deployed scripts to migrate to release-aware versions. Egern files, external ipdb/iplist sources, and general VPS tools that are not part of this phase may still keep their documented raw URLs.
+The five executable PO0 nftables scripts are published as GitHub Release assets: `nftables-relay-manager.sh`, `po0-lan-client.sh`, `po0-outbound-ip-report.sh`, `po0-outbound-ip-report-macos.sh`, and `po0-outbound-ip-report.ps1`. Old manager, LAN Worker, and self-report raw URLs are disabled and are no longer compatibility entry points. Egern files, external ipdb/iplist sources, and general VPS tools that are not part of this phase may still keep their documented raw URLs.
 
 ## Public Website
 

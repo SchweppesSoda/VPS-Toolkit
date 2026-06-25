@@ -77,7 +77,9 @@ function Get-ManifestEntries {
 function Join-Manifest {
     param(
         [string]$ManifestPath,
-        [string]$OutputPath
+        [string]$OutputPath,
+        [switch]$RequireShebang,
+        [switch]$Bom
     )
     $parts = New-Object System.Collections.Generic.List[string]
     $index = 0
@@ -94,23 +96,10 @@ function Join-Manifest {
         $index++
     }
     $combined = [string]::Join("`n`n", $parts)
-    if (-not $combined.StartsWith("#!")) {
+    if ($RequireShebang -and -not $combined.StartsWith("#!")) {
         throw "Built shell asset must start with a shebang: $OutputPath"
     }
-    Write-Utf8Lf -Path $OutputPath -Text $combined
-}
-
-function Copy-Asset {
-    param(
-        [string]$Source,
-        [string]$OutputPath
-    )
-    $sourcePath = Join-Path $RepoRoot $Source
-    if (-not (Test-Path -LiteralPath $sourcePath)) {
-        throw "Asset source not found: $Source"
-    }
-    $useBom = [System.IO.Path]::GetExtension($OutputPath).Equals(".ps1", [System.StringComparison]::OrdinalIgnoreCase)
-    Write-Utf8Lf -Path $OutputPath -Text (Read-Utf8Lf -Path $sourcePath) -Bom:$useBom
+    Write-Utf8Lf -Path $OutputPath -Text $combined -Bom:$Bom
 }
 
 function Write-Checksums {
@@ -133,23 +122,28 @@ New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
 
 Join-Manifest `
     -ManifestPath (Join-Path $RepoRoot "tools/po0/manifests/manager.txt") `
-    -OutputPath (Join-Path $OutputDir "nftables-relay-manager.sh")
+    -OutputPath (Join-Path $OutputDir "nftables-relay-manager.sh") `
+    -RequireShebang
 
 Join-Manifest `
     -ManifestPath (Join-Path $RepoRoot "tools/po0/manifests/lan-worker.txt") `
-    -OutputPath (Join-Path $OutputDir "po0-lan-client.sh")
+    -OutputPath (Join-Path $OutputDir "po0-lan-client.sh") `
+    -RequireShebang
 
-Copy-Asset `
-    -Source "scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.sh" `
-    -OutputPath (Join-Path $OutputDir "po0-outbound-ip-report.sh")
+Join-Manifest `
+    -ManifestPath (Join-Path $RepoRoot "tools/po0/manifests/self-report-linux.txt") `
+    -OutputPath (Join-Path $OutputDir "po0-outbound-ip-report.sh") `
+    -RequireShebang
 
-Copy-Asset `
-    -Source "scripts/po0/nftables/clients/self-report/po0-outbound-ip-report-macos.sh" `
-    -OutputPath (Join-Path $OutputDir "po0-outbound-ip-report-macos.sh")
+Join-Manifest `
+    -ManifestPath (Join-Path $RepoRoot "tools/po0/manifests/self-report-macos.txt") `
+    -OutputPath (Join-Path $OutputDir "po0-outbound-ip-report-macos.sh") `
+    -RequireShebang
 
-Copy-Asset `
-    -Source "scripts/po0/nftables/clients/self-report/po0-outbound-ip-report.ps1" `
-    -OutputPath (Join-Path $OutputDir "po0-outbound-ip-report.ps1")
+Join-Manifest `
+    -ManifestPath (Join-Path $RepoRoot "tools/po0/manifests/self-report-windows.txt") `
+    -OutputPath (Join-Path $OutputDir "po0-outbound-ip-report.ps1") `
+    -Bom
 
 if (-not $NoChecksum) {
     Write-Checksums -Dir $OutputDir
