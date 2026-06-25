@@ -4,10 +4,10 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_SELF_REPORT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report.sh}"
 SCRIPT_NAME="po0-self-report"
-SCRIPT_VERSION="2026.06.25+build.10"
+SCRIPT_VERSION="2026.06.25+build.11"
 SCRIPT_RELEASE_DATE="2026-06-25"
 # CHANGELOG_BEGIN
-# - Release 检查脚本改为显式用 bash 调用构建器，避免 GitHub runner 受文件 executable bit 影响。
+# - PO0 Bash 构建 / 检查工具在 git 中补齐 executable bit，Release workflow 仍保留显式 bash 调用。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24

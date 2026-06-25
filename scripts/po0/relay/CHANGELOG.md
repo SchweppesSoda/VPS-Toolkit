@@ -6,6 +6,10 @@
 
 ## po0-nftables-relay-manager
 
+### 2026.06.25+build.11
+
+- PO0 Bash 构建 / 检查工具在 git 中补齐 executable bit，Release workflow 仍保留显式 `bash` 调用。
+
 ### 2026.06.25+build.10
 
 - Release 检查脚本改为显式用 `bash` 调用构建器，避免 GitHub runner 受文件 executable bit 影响。
@@ -86,6 +90,10 @@
 - 状态面板和资源任务创建计划摘要增加彩色状态提示。
 
 ## po0-lan-worker-client
+
+### 2026.06.25+build.11
+
+- PO0 Bash 构建 / 检查工具在 git 中补齐 executable bit，Release workflow 仍保留显式 `bash` 调用。
 
 ### 2026.06.25+build.10
 
@@ -172,6 +180,10 @@
 - 状态页 / Widget 优先复用 IP9、163、126、myip.ipip 等 IP 查询接口返回的归属地 / 运营商信息，拿不到时才额外查询。
 
 ## po0-self-report（Linux/OpenWrt）
+
+### 2026.06.25+build.11
+
+- PO0 Bash 构建 / 检查工具在 git 中补齐 executable bit，Release workflow 仍保留显式 `bash` 调用。
 
 ### 2026.06.25+build.10
 
@@ -264,6 +276,10 @@
 
 ## po0-self-report（macOS）
 
+### 2026.06.25+build.11
+
+- PO0 Bash 构建 / 检查工具在 git 中补齐 executable bit，Release workflow 仍保留显式 `bash` 调用。
+
 ### 2026.06.25+build.10
 
 - Release 检查脚本改为显式用 `bash` 调用构建器，避免 GitHub runner 受文件 executable bit 影响。
@@ -287,6 +303,10 @@
 - 支持 `--save-config --menu` 首次保存默认配置后打开菜单，并提供 `--install-launchd` 别名。
 
 ## po0-self-report（Windows PowerShell）
+
+### 2026.06.25+build.11
+
+- PO0 Bash 构建 / 检查工具在 git 中补齐 executable bit，Release workflow 仍保留显式 `bash` 调用。
 
 ### 2026.06.25+build.10
 
