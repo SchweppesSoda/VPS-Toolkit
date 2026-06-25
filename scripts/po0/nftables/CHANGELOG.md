@@ -149,6 +149,10 @@
 
 ## po0-self-report（Linux/OpenWrt）
 
+### 2026.06.25+build.7
+
+- 定时上报状态页的最近结果改为短缩进摘要，避免日志续行被面板值列顶到过深位置；原始 cron 日志路径和 tail 命令继续保留。
+
 ### 2026.06.25+build.6
 
 - Linux/OpenWrt 客户端恢复为 cron-only，不再包含 macOS 专用定时逻辑。
@@ -224,6 +228,10 @@
 
 ## po0-self-report（macOS）
 
+### 2026.06.25+build.2
+
+- 定时上报状态页的最近结果改为短缩进摘要，避免日志续行被面板值列顶到过深位置；原始 launchd 日志路径和 tail 命令继续保留。
+
 ### 2026.06.25+build.1
 
 - 新增 macOS 专用 Self-report Bash 客户端，Release asset 为 `po0-outbound-ip-report-macos.sh`。
@@ -231,6 +239,10 @@
 - 支持 `--save-config --menu` 首次保存默认配置后打开菜单，并提供 `--install-launchd` 别名。
 
 ## po0-self-report（Windows PowerShell）
+
+### 2026.06.25+build.2
+
+- 定时上报状态页的最近结果改为短缩进摘要，避免日志续行被面板值列顶到过深位置；日志文件仍保留完整原始记录。
 
 ### 2026.06.25+build.1
 

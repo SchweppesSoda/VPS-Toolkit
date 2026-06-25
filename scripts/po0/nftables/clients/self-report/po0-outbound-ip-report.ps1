@@ -28,11 +28,10 @@ $ErrorActionPreference = "Stop"
 $ReleaseDownloadBaseUrl = $(if ($env:PO0_RELEASE_DOWNLOAD_BASE_URL) { $env:PO0_RELEASE_DOWNLOAD_BASE_URL } else { "https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download" })
 $DownloadUrl = $(if ($env:PO0_SELF_REPORT_PS_DOWNLOAD_URL) { $env:PO0_SELF_REPORT_PS_DOWNLOAD_URL } else { "$ReleaseDownloadBaseUrl/po0-outbound-ip-report.ps1" })
 $ScriptName = "po0-self-report"
-$ScriptVersion = "2026.06.25+build.1"
+$ScriptVersion = "2026.06.25+build.2"
 $ScriptReleaseDate = "2026-06-25"
 # CHANGELOG_BEGIN
-# - 菜单首页改为精简状态面板，补充脚本版本、路径、配置文件、日志路径、通知和计划任务状态。
-# - 版本输出补充 build、配置文件、日志路径和计划任务状态。
+# - 定时上报状态里的最近结果改为短缩进摘要，保留日志文件的完整原始记录。
 # CHANGELOG_END
 $PanelValueColumn = 24
 $MenuRightColumn = 46
@@ -246,8 +245,7 @@ function Write-PanelRow {
 
 function Write-PanelNote {
     param([string]$Value)
-    Set-OutputColumn $PanelValueColumn
-    Write-Host "  $Value"
+    Write-Host "    $Value"
 }
 
 function Load-SavedConfig {
@@ -879,6 +877,75 @@ function Get-ScheduledReporterLogPath {
     return ""
 }
 
+function Get-SelfReportLogDisplayKind {
+    param([string]$Level)
+    $normalized = ""
+    if ($Level) { $normalized = $Level.Trim().ToUpperInvariant() }
+    switch ($normalized) {
+        "OK" { return "完成" }
+        "ERROR" { return "失败" }
+        "WARN" { return "警告" }
+        "INFO" { return "信息" }
+        "RESPONSE" { return "返回" }
+        default {
+            if ($normalized) { return $normalized }
+            return "日志"
+        }
+    }
+}
+
+function Limit-SelfReportLogDisplayText {
+    param(
+        [string]$Text,
+        [int]$MaxLength = 160
+    )
+    $value = ""
+    if ($null -ne $Text) { $value = $Text.Trim() }
+    if ($value.Length -le $MaxLength) { return $value }
+    if ($MaxLength -le 3) { return $value.Substring(0, $MaxLength) }
+    return ($value.Substring(0, $MaxLength - 3) + "...")
+}
+
+function Convert-SelfReportLogLineForDisplay {
+    param([string]$Line)
+    if (-not $Line) { return $null }
+    $raw = $Line.Trim()
+    if (-not $raw) { return $null }
+
+    if ($raw -match '^\[(?<stamp>[^\]]+)\]\s+\[(?<level>[^\]]+)\]\s*(?<message>.*)$') {
+        $stamp = $matches["stamp"].Trim()
+        $level = $matches["level"].Trim()
+        $normalizedLevel = $level.ToUpperInvariant()
+        if ($normalizedLevel -notin @("OK", "ERROR", "WARN")) {
+            return $null
+        }
+        $message = $matches["message"].Trim()
+        $stampLabel = $stamp
+        if ($stamp -match '^\d{4}-(\d{2}-\d{2})\s+(\d{2}:\d{2})') {
+            $stampLabel = "$($matches[1]) $($matches[2])"
+        }
+        $kind = Get-SelfReportLogDisplayKind -Level $level
+        $message = $message -replace '^Self-report 已完成：', ''
+        $message = $message -replace '^Self-report 未完成：', ''
+        if ($message -match '^上报当前公网出口 IPv4\s+([0-9.]+)\s+到 LAN Worker：') {
+            $message = "上报公网出口 IPv4 $($matches[1]) 到 LAN Worker"
+        } elseif ($kind -eq "返回" -and $message -match '^OK\s+([0-9.]+);\s*targets=([0-9]+)') {
+            $message = "LAN Worker 返回 OK：$($matches[1])，targets=$($matches[2])"
+        }
+        return [pscustomobject]@{
+            Stamp = $stampLabel
+            Kind = $kind
+            Message = (Limit-SelfReportLogDisplayText -Text $message)
+        }
+    }
+
+    return [pscustomobject]@{
+        Stamp = ""
+        Kind = "日志"
+        Message = (Limit-SelfReportLogDisplayText -Text $raw)
+    }
+}
+
 function Show-SelfReportLogTail {
     param(
         [string]$Path,
@@ -893,9 +960,27 @@ function Show-SelfReportLogTail {
         Write-PanelRow "最近日志" "暂无；等待计划任务运行一次，或先手动立即上报一次"
         return
     }
-    Write-PanelRow "最近日志" ""
-    Get-Content -LiteralPath $Path -Tail $Lines -ErrorAction SilentlyContinue | ForEach-Object {
-        Write-PanelNote $_
+    Write-PanelRow "最近结果" "摘要；原始日志仍保留完整记录"
+    $entries = @(Get-Content -LiteralPath $Path -Tail $Lines -ErrorAction SilentlyContinue | ForEach-Object {
+        Convert-SelfReportLogLineForDisplay -Line $_
+    } | Where-Object { $_ })
+    if ($entries.Count -eq 0) {
+        Write-PanelNote "(日志文件为空)"
+        return
+    }
+    $previousStamp = ""
+    foreach ($entry in $entries) {
+        if ($entry.Stamp) {
+            $stamp = $entry.Stamp
+            if ($stamp -eq $previousStamp) {
+                $stamp = "           "
+            } else {
+                $previousStamp = $entry.Stamp
+            }
+            Write-PanelNote ("{0}  {1}  {2}" -f $stamp, $entry.Kind, $entry.Message)
+        } else {
+            Write-PanelNote ("{0}  {1}" -f $entry.Kind, $entry.Message)
+        }
     }
 }
 

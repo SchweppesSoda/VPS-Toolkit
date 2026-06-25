@@ -608,6 +608,8 @@ crontab -l | sed -n '/# PO0_SELF_REPORT_BEGIN/,/# PO0_SELF_REPORT_END/p'
 po0-self-report --schedule-status
 ```
 
+状态入口会显示本脚本管理的计划状态、原始日志路径和最近结果摘要；完整原始日志仍用下面的 `tail` 命令查看。
+
 暂停或恢复本脚本管理的定时上报；暂停只影响自动 cron，不影响手动立即上报：
 
 ```bash
@@ -673,6 +675,8 @@ po0-self-report --install-launchd
 ```bash
 po0-self-report --schedule-status
 ```
+
+状态入口会显示 launchd / cron 计划状态、原始日志路径和最近结果摘要；完整原始日志仍用 `tail -n 40 /tmp/po0-self-report.log` 查看。
 
 查看 launchd 状态：
 
@@ -808,9 +812,9 @@ powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-self-report.
 
 ### Self-report client 共同说明
 
-两个客户端默认拒绝 `http://`；只有本地调试或临时旧环境才显式使用 `--allow-http` / `-AllowHttp`。Linux/OpenWrt 默认配置文件 root 为 `/etc/po0-self-report/settings.env`，普通用户为 `~/.config/po0-self-report/settings.env`；Windows 默认配置文件普通用户为 `%LOCALAPPDATA%\PO0\self-report.json`，管理员为 `%ProgramData%\PO0\self-report.json`。配置文件会明文保存 self-report secret，请只放在可信设备上。
+三个客户端默认拒绝 `http://`；只有本地调试或临时旧环境才显式使用 `--allow-http` / `-AllowHttp`。Linux/OpenWrt 默认配置文件 root 为 `/etc/po0-self-report/settings.env`，普通用户为 `~/.config/po0-self-report/settings.env`；Windows 默认配置文件普通用户为 `%LOCALAPPDATA%\PO0\self-report.json`，管理员为 `%ProgramData%\PO0\self-report.json`。配置文件会明文保存 self-report secret，请只放在可信设备上。
 
-访问设备客户端的一次性上报会以明确状态行结束：成功时显示 `Self-report 已完成：...`，并保留 LAN Worker 返回的 `OK <ip>; targets=<N>`；URL 校验、公网 IPv4 探测、HTTP 请求或 LAN Worker -> PO0 上报链路失败时显示 `Self-report 未完成：...` 并以非零状态退出。Linux/OpenWrt cron 每次运行的完整输出写到 `/tmp/po0-self-report.log`。Windows 计划任务不会弹出可见 CMD/PowerShell 窗口；安装 / 更新计划任务时会生成隐藏 launcher，并把每次运行的开始、LAN Worker 返回和完成/未完成结果写到日志，管理员安装默认在 `%ProgramData%\PO0\po0-self-report.log`，普通用户安装默认在 `%LOCALAPPDATA%\PO0\po0-self-report.log`；自动上报默认不弹 Windows 通知，只写日志。显式启用通知时，自动上报完成或失败会弹 Windows 通知，通知不可用时仍以日志为准；菜单里的“查看定时上报状态”会显示上次运行结果和最近日志。
+访问设备客户端的一次性上报会以明确状态行结束：成功时显示 `Self-report 已完成：...`，并保留 LAN Worker 返回的 `OK <ip>; targets=<N>`；URL 校验、公网 IPv4 探测、HTTP 请求或 LAN Worker -> PO0 上报链路失败时显示 `Self-report 未完成：...` 并以非零状态退出。Linux/OpenWrt 和 macOS 定时任务每次运行的完整输出写到 `/tmp/po0-self-report.log`。Windows 计划任务不会弹出可见 CMD/PowerShell 窗口；安装 / 更新计划任务时会生成隐藏 launcher，并把每次运行的开始、LAN Worker 返回和完成/未完成结果写到日志，管理员安装默认在 `%ProgramData%\PO0\po0-self-report.log`，普通用户安装默认在 `%LOCALAPPDATA%\PO0\po0-self-report.log`；自动上报默认不弹 Windows 通知，只写日志。显式启用通知时，自动上报完成或失败会弹 Windows 通知，通知不可用时仍以日志为准；菜单里的“查看定时上报状态”只显示最近结果摘要，并给出原始日志路径 / tail 命令用于排查细节。
 
 self-report client 查询公网 IPv4 会按默认列表轮询：`https://ip9.com.cn/get`、163 邮箱、Bilibili、126、腾讯新闻、爱奇艺、央视、`https://myip.ipip.net/json`。脚本会记住上次使用位置，下次从下一个接口开始；默认不再使用 `ip-api`、`ipify`、`icanhazip`、`ifconfig.co`，也不再使用 12306 grip 接口。
 
