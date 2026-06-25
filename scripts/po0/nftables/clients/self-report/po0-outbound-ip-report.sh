@@ -4,10 +4,10 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_SELF_REPORT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report.sh}"
 SCRIPT_NAME="po0-self-report"
-SCRIPT_VERSION="2026.06.25+build.7"
+SCRIPT_VERSION="2026.06.25+build.8"
 SCRIPT_RELEASE_DATE="2026-06-25"
 # CHANGELOG_BEGIN
-# - 定时上报状态页的最近结果改为短缩进摘要，并保留原始日志路径。
+# - 版本号与 po0-v2026.06.25.8 对齐；定时上报状态页的最近结果保持短缩进摘要。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24

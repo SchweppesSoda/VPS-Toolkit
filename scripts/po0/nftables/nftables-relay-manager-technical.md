@@ -22,7 +22,7 @@
 bash nftables-relay-manager.sh
 ```
 
-脚本版本统一采用 `YYYY.MM.DD+build.N` 混合版本格式；同一天再次发布时递增 `build.N`，例如 `2026.06.18+build.2`。PO0 manager 的 `--version` 会像 LAN Worker 一样单独显示 build 构建标识。
+脚本版本统一采用 `YYYY.MM.DD+build.N` 混合版本格式；正式 PO0 Release asset 的五个脚本版本必须与 release tag 尾号一致，例如 `po0-v2026.06.25.8` 对应 `2026.06.25+build.8`。PO0 manager 的 `--version` 会像 LAN Worker 一样单独显示 build 构建标识。
 
 常见操作：
 

@@ -5,11 +5,10 @@ PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.c
 DOWNLOAD_URL="${PO0_LAN_CLIENT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-lan-client.sh}"
 MANAGER_DOWNLOAD_URL="${PO0_MANAGER_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/nftables-relay-manager.sh}"
 SCRIPT_NAME="po0-lan-worker-client"
-SCRIPT_VERSION="2026.06.25+build.2"
+SCRIPT_VERSION="2026.06.25+build.8"
 SCRIPT_RELEASE_DATE="2026-06-25"
 # CHANGELOG_BEGIN
-# - Self-report server 和目标权限检查在转发到 PO0 前会规范 source / identity，避免 macOS 主机名含空格被 PO0 restricted wrapper 拆坏。
-# - Self-report 502 返回正文继续保留 PO0 目标的具体失败原因，便于客户端排错。
+# - PO0 Release asset 脚本版本号与 po0-v2026.06.25.8 对齐，避免整包 tag 与脚本版本混淆。
 # CHANGELOG_END
 DEFAULT_PO0_SCRIPT="/root/nftables-relay-manager.sh"
 PO0_HOST="${PO0_HOST:-}"

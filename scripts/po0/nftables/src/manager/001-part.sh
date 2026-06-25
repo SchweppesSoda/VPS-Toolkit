@@ -2,11 +2,10 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-nftables-relay-manager"
-SCRIPT_VERSION="2026.06.25+build.2"
+SCRIPT_VERSION="2026.06.25+build.8"
 SCRIPT_RELEASE_DATE="2026-06-25"
 # CHANGELOG_BEGIN
-# - Self-report 客户端部署命令补充 macOS 专用脚本下载入口。
-# - 脚本信息区补充 macOS Self-report 下载 URL。
+# - PO0 Release asset 脚本版本号与 po0-v2026.06.25.8 对齐，避免整包 tag 与脚本版本混淆。
 # CHANGELOG_END
 CONF_DIR="${PO0_CONF_DIR:-/etc/nftables.d}"
 MAIN_CONF="/etc/nftables.conf"

@@ -28,10 +28,10 @@ $ErrorActionPreference = "Stop"
 $ReleaseDownloadBaseUrl = $(if ($env:PO0_RELEASE_DOWNLOAD_BASE_URL) { $env:PO0_RELEASE_DOWNLOAD_BASE_URL } else { "https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download" })
 $DownloadUrl = $(if ($env:PO0_SELF_REPORT_PS_DOWNLOAD_URL) { $env:PO0_SELF_REPORT_PS_DOWNLOAD_URL } else { "$ReleaseDownloadBaseUrl/po0-outbound-ip-report.ps1" })
 $ScriptName = "po0-self-report"
-$ScriptVersion = "2026.06.25+build.2"
+$ScriptVersion = "2026.06.25+build.8"
 $ScriptReleaseDate = "2026-06-25"
 # CHANGELOG_BEGIN
-# - 定时上报状态里的最近结果改为短缩进摘要，保留日志文件的完整原始记录。
+# - 版本号与 po0-v2026.06.25.8 对齐；定时上报状态里的最近结果保持短缩进摘要。
 # CHANGELOG_END
 $PanelValueColumn = 24
 $MenuRightColumn = 46
