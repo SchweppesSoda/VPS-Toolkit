@@ -24,6 +24,8 @@ usage() {
         "  --save-config         保存当前参数到本地配置文件；可与 --menu 组合为首次保存后打开菜单。" \
         "  --worker-url URL      LAN Worker self-report HTTPS 接收地址，例如 https://report.example.com/report；裸域名会自动补全。" \
         "  --allow-http          允许 http:// 上报；仅用于本地调试或临时旧环境。" \
+        "  --notify              启用 macOS 原生通知；保存配置或安装 launchd 时会持久化。" \
+        "  --no-notify           切换为静默模式；这是默认行为。" \
         "  --source-id ID        写入 PO0 client_ip 记录的来源 ID；默认由 hostname + machine-id/MAC 生成: ${SOURCE_ID}" \
         "  --identity ID         LAN Worker/PO0 日志里的设备或用户标签；默认使用设备名: ${IDENTITY}" \
         "  --secret SECRET       可选的 LAN Worker self-report 共享密钥。" \
@@ -85,6 +87,24 @@ parse_args() {
                 ;;
             --allow-http)
                 ALLOW_HTTP="1"
+                shift
+                ;;
+            --notify)
+                if [[ "${NOTIFY_ARG}" == "0" ]]; then
+                    echo "--notify 与 --no-notify 不能同时使用。" >&2
+                    exit 1
+                fi
+                NOTIFY_ARG="1"
+                NOTIFY="1"
+                shift
+                ;;
+            --no-notify)
+                if [[ "${NOTIFY_ARG}" == "1" ]]; then
+                    echo "--notify 与 --no-notify 不能同时使用。" >&2
+                    exit 1
+                fi
+                NOTIFY_ARG="0"
+                NOTIFY="0"
                 shift
                 ;;
             --source-id)

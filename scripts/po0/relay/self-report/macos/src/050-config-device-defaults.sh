@@ -44,6 +44,8 @@ apply_env_overrides() {
     [[ -n "${ENV_INTERVAL_SECONDS}" ]] && INTERVAL_SECONDS="${ENV_INTERVAL_SECONDS}"
     [[ -n "${PO0_SELF_REPORT_MAX_MINUTES+x}" ]] && MAX_CRON_MINUTES="${PO0_SELF_REPORT_MAX_MINUTES}"
     [[ -n "${PO0_SELF_REPORT_PAUSED+x}" ]] && SCHEDULE_PAUSED="${PO0_SELF_REPORT_PAUSED}"
+    [[ -n "${PO0_SELF_REPORT_NOTIFY+x}" ]] && NOTIFY="${PO0_SELF_REPORT_NOTIFY}"
+    [[ -n "${ENV_NOTIFY}" ]] && NOTIFY="${ENV_NOTIFY}"
 }
 
 sanitize_device_id_part() {
@@ -167,6 +169,11 @@ apply_device_defaults() {
 save_config_file() {
     local dir tmp old_umask
     validate_cron_minutes || return 1
+    if notify_enabled; then
+        NOTIFY="1"
+    else
+        NOTIFY="0"
+    fi
     dir="$(path_dirname "${CONFIG_FILE}")"
     mkdir -p "${dir}" || return 1
     tmp="${CONFIG_FILE}.tmp.$$"
@@ -186,6 +193,7 @@ save_config_file() {
         write_env_assignment "INTERVAL_SECONDS" "$((10#${CRON_MINUTES:-60} * 60))"
         write_env_assignment "MAX_CRON_MINUTES" "${MAX_CRON_MINUTES}"
         write_env_assignment "SCHEDULE_PAUSED" "${SCHEDULE_PAUSED}"
+        write_env_assignment "NOTIFY" "${NOTIFY}"
     } > "${tmp}" || {
         umask "${old_umask}"
         rm -f "${tmp}" 2>/dev/null || true

@@ -2,10 +2,10 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-nftables-relay-manager"
-SCRIPT_VERSION="2026.06.25+build.11"
+SCRIPT_VERSION="2026.06.25+build.12"
 SCRIPT_RELEASE_DATE="2026-06-25"
 # CHANGELOG_BEGIN
-# - PO0 Bash 构建 / 检查工具在 git 中补齐 executable bit，Release workflow 仍保留显式 bash 调用。
+# - 跟随 PO0 Release asset 批次对齐到 build.12；本脚本无行为变化。
 # CHANGELOG_END
 CONF_DIR="${PO0_CONF_DIR:-/etc/nftables.d}"
 MAIN_CONF="/etc/nftables.conf"

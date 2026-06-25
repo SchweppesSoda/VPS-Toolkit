@@ -203,6 +203,8 @@ macOS 非交互安装 / 更新 launchd 定时上报：
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report-macos.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --secret <SELF_REPORT_SECRET> --interval-seconds 3600 --install-launchd
 ```
 
+macOS 默认静默，只写 `/tmp/po0-self-report.log`。如需上报成功或失败后弹 macOS 通知，安装或保存配置时显式加 `--notify`；要恢复静默可用 `--no-notify --install-launchd` 刷新计划，或在菜单“通知 / 静默模式”里切换。
+
 命令行也可直接更新、查看版本或查看当前更新内容：
 
 ```bash
@@ -219,7 +221,7 @@ po0-self-report --changelog
 
 Windows PowerShell Self-report client：
 
-首次交互式运行默认进入菜单，推荐显式加 `-Menu`。菜单里的 `1) 配置并保存上报参数` 只写本地配置文件，不安装计划任务；`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本并写入计划任务；`8) 从 GitHub 更新脚本` 会更新本机 `po0-self-report.ps1` 并重新打开新版菜单；`9) 卸载本客户端` 会删除本脚本管理的计划任务、隐藏 launcher 和本机安装脚本，配置文件与日志默认保留，也可在确认后一起删除。
+首次交互式运行默认进入菜单，推荐显式加 `-Menu`。菜单里的 `1) 配置并保存上报参数` 只写本地配置文件，不安装计划任务；`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本并写入计划任务；`6) Windows 通知 / 静默模式` 会保存通知偏好，并在计划任务已安装时重写隐藏 launcher；`9) 从 GitHub 更新脚本` 会更新本机 `po0-self-report.ps1` 并重新打开新版菜单；`10) 卸载本客户端` 会删除本脚本管理的计划任务、隐藏 launcher 和本机安装脚本，配置文件与日志默认保留，也可在确认后一起删除。
 
 ```powershell
 $script = "$env:TEMP\po0-outbound-ip-report.ps1"
@@ -283,7 +285,7 @@ powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-self-report.
 powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-self-report.ps1" -Changelog
 ```
 
-Windows 非交互安装 / 更新计划任务时，默认每 `3600` 秒上报一次且静默只写日志；安装时会保存本地配置。`-SourceId` 和 `-Identity` 推荐填设备名，`-Secret` 只填纯 token，不要带 `secret:` 或中文冒号前缀；如需自动上报后弹 Windows 通知，额外加 `-Notify`：
+Windows 非交互安装 / 更新计划任务时，默认每 `3600` 秒上报一次且静默只写日志；安装时会保存本地配置。`-SourceId` 和 `-Identity` 推荐填设备名，`-Secret` 只填纯 token，不要带 `secret:` 或中文冒号前缀；如需自动上报后弹 Windows 通知，额外加 `-Notify`；要显式恢复静默可用 `-NoNotify` 或菜单“Windows 通知 / 静默模式”切换：
 
 ```powershell
 $script = "$env:TEMP\po0-outbound-ip-report.ps1"
@@ -643,7 +645,7 @@ po0-self-report --changelog
 
 ### macOS Self-report client
 
-macOS 使用专用 Bash 脚本和用户级 launchd LaunchAgent，不复用 Linux/OpenWrt cron 脚本。菜单编号和 Linux/OpenWrt 客户端一致；`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本，并写入 `~/Library/LaunchAgents/fr.schweppes.po0-self-report.plist`。
+macOS 使用专用 Bash 脚本和用户级 launchd LaunchAgent，不复用 Linux/OpenWrt cron 脚本。`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本，并写入 `~/Library/LaunchAgents/fr.schweppes.po0-self-report.plist`；`6) 通知 / 静默模式` 可切换自动上报完成 / 失败后的 macOS 通知。
 
 首次保存默认配置并打开菜单：
 
@@ -663,6 +665,18 @@ curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report-macos.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --secret <SELF_REPORT_SECRET> --interval-seconds 3600 --install-launchd
 ```
 
+默认静默安装，不弹通知，只写 `/tmp/po0-self-report.log`。如需自动上报成功或失败后弹 macOS 通知，安装或保存配置时加 `--notify`：
+
+```bash
+curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report-macos.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --secret <SELF_REPORT_SECRET> --interval-seconds 3600 --notify --install-launchd
+```
+
+恢复静默：
+
+```bash
+po0-self-report --no-notify --install-launchd
+```
+
 安装后复用本机命令：
 
 ```bash
@@ -677,7 +691,7 @@ po0-self-report --install-launchd
 po0-self-report --schedule-status
 ```
 
-状态入口会显示 launchd / cron 计划状态、原始日志路径和最近结果摘要；完整原始日志仍用 `tail -n 40 /tmp/po0-self-report.log` 查看。
+状态入口会显示 launchd / cron 计划状态、通知模式、原始日志路径和最近结果摘要；完整原始日志仍用 `tail -n 40 /tmp/po0-self-report.log` 查看。macOS 通知依赖当前用户图形会话、系统通知权限和专注模式；通知不可用时只写日志，不影响上报结果。
 
 查看 launchd 状态：
 
@@ -703,7 +717,7 @@ po0-self-report --changelog
 
 Windows 默认按普通用户安装和运行，路径在 `%LOCALAPPDATA%\PO0`。只有用管理员 PowerShell 安装时才会改用 `%ProgramData%\PO0\po0-self-report.ps1`；管理员路径可以作为兜底检查，但日常不要混用两个权限环境。
 
-交互式运行默认进入菜单，推荐显式加 `-Menu`。菜单里的 `1) 配置并保存上报参数` 只写本地配置文件，不安装计划任务；`2) 立即上报一次` 会读取参数或已保存配置；`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本并写入计划任务；`4) 暂停 / 恢复定时上报` 只影响自动计划任务，手动立即上报仍可用；`8) 从 GitHub 更新脚本` 会更新本机 `po0-self-report.ps1` 并重新打开新版菜单；`9) 卸载本客户端` 会删除本脚本管理的计划任务、隐藏 launcher 和本机安装脚本，配置文件与日志默认保留，可选择一起删除。
+交互式运行默认进入菜单，推荐显式加 `-Menu`。菜单里的 `1) 配置并保存上报参数` 只写本地配置文件，不安装计划任务；`2) 立即上报一次` 会读取参数或已保存配置；`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本并写入计划任务；`4) 暂停 / 恢复定时上报` 只影响自动计划任务，手动立即上报仍可用；`6) Windows 通知 / 静默模式` 会保存通知偏好，并在计划任务已安装时重写隐藏 launcher；`9) 从 GitHub 更新脚本` 会更新本机 `po0-self-report.ps1` 并重新打开新版菜单；`10) 卸载本客户端` 会删除本脚本管理的计划任务、隐藏 launcher 和本机安装脚本，配置文件与日志默认保留，可选择一起删除。
 
 首次运行时先下载到临时文件，再打开菜单：
 
@@ -729,12 +743,18 @@ Invoke-WebRequest -UseBasicParsing 'https://github.com/SchweppesSoda/VPS-Toolkit
 powershell -ExecutionPolicy Bypass -File $script -WorkerUrl "https://<SELF_REPORT_DOMAIN>/report" -SourceId $env:COMPUTERNAME -Identity $env:COMPUTERNAME -Secret "<SELF_REPORT_SECRET>" -RunOnce
 ```
 
-非交互安装 / 更新计划任务，默认每 `3600` 秒上报一次。安装 / 更新计划任务时建议从 `$env:TEMP` 下载脚本再运行，让脚本覆盖安装到普通用户默认路径 `%LOCALAPPDATA%\PO0\po0-self-report.ps1`。管理员 PowerShell 安装时会改用 `%ProgramData%\PO0\po0-self-report.ps1`。安装时会保存配置；计划任务后续只引用配置文件，不再把 token 展开写入计划任务参数。计划任务通过隐藏 launcher 启动 PowerShell，不弹出 CMD/PowerShell 窗口；默认静默只写日志，不弹 Windows 通知。如需自动上报成功或失败后弹 Windows 通知，安装计划任务时额外加 `-Notify`，或在菜单“安装 / 更新定时上报”里启用通知：
+非交互安装 / 更新计划任务，默认每 `3600` 秒上报一次。安装 / 更新计划任务时建议从 `$env:TEMP` 下载脚本再运行，让脚本覆盖安装到普通用户默认路径 `%LOCALAPPDATA%\PO0\po0-self-report.ps1`。管理员 PowerShell 安装时会改用 `%ProgramData%\PO0\po0-self-report.ps1`。安装时会保存配置；计划任务后续只引用配置文件，不再把 token 展开写入计划任务参数。计划任务通过隐藏 launcher 启动 PowerShell，不弹出 CMD/PowerShell 窗口；默认静默只写日志，不弹 Windows 通知。如需自动上报成功或失败后弹 Windows 通知，安装计划任务时额外加 `-Notify`，或在菜单“Windows 通知 / 静默模式”里启用通知：
 
 ```powershell
 $script = "$env:TEMP\po0-outbound-ip-report.ps1"
 Invoke-WebRequest -UseBasicParsing 'https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.ps1' -OutFile $script -TimeoutSec 120
 powershell -ExecutionPolicy Bypass -File $script -WorkerUrl "https://<SELF_REPORT_DOMAIN>/report" -SourceId $env:COMPUTERNAME -Identity $env:COMPUTERNAME -Secret "<SELF_REPORT_SECRET>" -InstallTask -IntervalSeconds 3600
+```
+
+显式恢复静默并刷新已安装计划任务：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-self-report.ps1" -NoNotify -InstallTask -IntervalSeconds 3600
 ```
 
 `<SELF_REPORT_SECRET>` 只替换为 secret 本身，例如 `daf80...ce94`；不要写成 `secret:daf80...` 或 `secret：daf80...`。
@@ -761,7 +781,7 @@ powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-self-report.
 
 管理员安装时才把 `$env:LOCALAPPDATA` 改为 `$env:ProgramData`。
 
-查看计划任务状态和最近日志摘要：
+查看计划任务状态和最近日志摘要；状态页会同时显示配置里的通知偏好和已安装计划任务实际是否带 `-Notify`，不一致时提示通知状态漂移：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-self-report.ps1" -ScheduleStatus
@@ -815,7 +835,7 @@ powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-self-report.
 
 三个客户端默认拒绝 `http://`；只有本地调试或临时旧环境才显式使用 `--allow-http` / `-AllowHttp`。Linux/OpenWrt 默认配置文件 root 为 `/etc/po0-self-report/settings.env`，普通用户为 `~/.config/po0-self-report/settings.env`；Windows 默认配置文件普通用户为 `%LOCALAPPDATA%\PO0\self-report.json`，管理员为 `%ProgramData%\PO0\self-report.json`。配置文件会明文保存 self-report secret，请只放在可信设备上。
 
-访问设备客户端的一次性上报会以明确状态行结束：成功时显示 `Self-report 已完成：...`，并保留 LAN Worker 返回的 `OK <ip>; targets=<N>`；URL 校验、公网 IPv4 探测、HTTP 请求或 LAN Worker -> PO0 上报链路失败时显示 `Self-report 未完成：...` 并以非零状态退出。Linux/OpenWrt 和 macOS 定时任务每次运行的完整输出写到 `/tmp/po0-self-report.log`。Windows 计划任务不会弹出可见 CMD/PowerShell 窗口；安装 / 更新计划任务时会生成隐藏 launcher，并把每次运行的开始、LAN Worker 返回和完成/未完成结果写到日志，管理员安装默认在 `%ProgramData%\PO0\po0-self-report.log`，普通用户安装默认在 `%LOCALAPPDATA%\PO0\po0-self-report.log`；自动上报默认不弹 Windows 通知，只写日志。显式启用通知时，自动上报完成或失败会弹 Windows 通知，通知不可用时仍以日志为准；菜单里的“查看定时上报状态”只显示最近结果摘要，并给出原始日志路径 / tail 命令用于排查细节。
+访问设备客户端的一次性上报会以明确状态行结束：成功时显示 `Self-report 已完成：...`，并保留 LAN Worker 返回的 `OK <ip>; targets=<N>`；URL 校验、公网 IPv4 探测、HTTP 请求或 LAN Worker -> PO0 上报链路失败时显示 `Self-report 未完成：...` 并以非零状态退出。Linux/OpenWrt 和 macOS 定时任务每次运行的完整输出写到 `/tmp/po0-self-report.log`；macOS 默认不弹通知，显式启用通知后会调用系统通知中心，通知失败仍只写日志。Windows 计划任务不会弹出可见 CMD/PowerShell 窗口；安装 / 更新计划任务时会生成隐藏 launcher，并把每次运行的开始、LAN Worker 返回和完成/未完成结果写到日志，管理员安装默认在 `%ProgramData%\PO0\po0-self-report.log`，普通用户安装默认在 `%LOCALAPPDATA%\PO0\po0-self-report.log`；自动上报默认不弹 Windows 通知，只写日志。显式启用通知时，自动上报完成或失败会弹 Windows 通知，通知不可用时仍以日志为准；菜单里的“查看定时上报状态”只显示最近结果摘要，并给出原始日志路径 / tail 命令用于排查细节，同时会提示配置通知状态和计划任务实际通知状态是否漂移。
 
 self-report client 查询公网 IPv4 会按默认列表轮询：`https://ip9.com.cn/get`、163 邮箱、Bilibili、126、腾讯新闻、爱奇艺、央视、`https://myip.ipip.net/json`。脚本会记住上次使用位置，下次从下一个接口开始；默认不再使用 `ip-api`、`ipify`、`icanhazip`、`ifconfig.co`，也不再使用 12306 grip 接口。
 

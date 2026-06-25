@@ -64,6 +64,7 @@ install_launchd() {
     echo "LaunchAgent：${plist}"
     echo "脚本路径：${script}"
     echo "配置文件：${CONFIG_FILE}"
+    echo "通知模式：$(notify_status_label)"
     if schedule_paused; then
         self_report_completed "定时上报已安装 / 更新，但当前保持暂停。"
     else
@@ -82,7 +83,11 @@ install_cron_backend() {
         return 1
     }
     script="$(install_self)" || { self_report_incomplete "脚本落盘失败，未安装 cron。"; return 1; }
-    run_cmd="bash $(sh_quote "${script}") --config $(sh_quote "${CONFIG_FILE}") >/tmp/po0-self-report.log 2>&1"
+    run_cmd="bash $(sh_quote "${script}") --config $(sh_quote "${CONFIG_FILE}")"
+    if notify_enabled; then
+        run_cmd="${run_cmd} --notify"
+    fi
+    run_cmd="${run_cmd} >/tmp/po0-self-report.log 2>&1"
     job="$(build_cron_job "${CRON_MINUTES}" "${run_cmd}")"
     if schedule_paused; then
         job="# ${job}"
@@ -105,6 +110,7 @@ install_cron_backend() {
     echo "已安装 self-report cron：每 $(cron_minutes_to_seconds "${CRON_MINUTES}") 秒上报一次。"
     echo "脚本路径：${script}"
     echo "配置文件：${CONFIG_FILE}"
+    echo "通知模式：$(notify_status_label)"
     if schedule_paused; then
         self_report_completed "定时上报已安装 / 更新，但当前保持暂停。"
     else

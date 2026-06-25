@@ -9,6 +9,36 @@ function Get-ScheduledReporterSummary {
     }
 }
 
+function Get-CurrentScheduledReporterNotifyState {
+    try {
+        $task = Get-ScheduledTask -TaskName $script:TaskName -ErrorAction SilentlyContinue
+        return (Get-ScheduledReporterNotifyState -Task $task)
+    } catch {
+        return [pscustomobject]@{
+            Installed = $false
+            LauncherPath = ""
+            LauncherExists = $false
+            ActualNotify = $null
+            HasNotify = $false
+            HasNoNotify = $false
+            IsUnknown = $true
+        }
+    }
+}
+
+function Write-NotifyStatusRows {
+    param($NotifyState)
+    if (-not $NotifyState) {
+        $NotifyState = Get-CurrentScheduledReporterNotifyState
+    }
+    Write-PanelRow "Windows 通知（配置）" (Format-NotifyStatus)
+    Write-PanelRow "Windows 通知（任务）" (Format-TaskNotifyStatus -NotifyState $NotifyState)
+    $drift = Format-NotifyDriftStatus -NotifyState $NotifyState
+    if ($drift) {
+        Write-PanelRow "通知状态漂移" $drift
+    }
+}
+
 function Show-ClientConfig {
     Write-PanelSection "Self-report 客户端配置"
     Write-PanelRow "配置文件" $script:ConfigPath
@@ -19,7 +49,7 @@ function Show-ClientConfig {
     Write-PanelRow "Secret" (Get-MaskedSecret $script:Secret)
     Write-PanelRow "HTTP 上报" $(if ($script:AllowHttp) { "已显式允许" } else { "默认拒绝" })
     Write-PanelRow "上报间隔" ("每 {0} 秒（安装定时上报时使用）" -f (Get-IntervalSeconds))
-    Write-PanelRow "Windows 通知" (Format-NotifyStatus)
+    Write-NotifyStatusRows
     Write-PanelRow "定时暂停" $(if ($script:SchedulePaused) { "已暂停" } else { "未暂停" })
     Write-PanelRow "计划任务" (Get-ScheduledReporterSummary)
     Write-PanelRow "放行 TTL" "由 LAN Worker Self-report 目标控制，默认 43200 秒"
@@ -48,7 +78,7 @@ function Show-ClientDashboard {
     Write-PanelRow "Source ID" $script:SourceId
     Write-PanelRow "Identity" $script:Identity
     Write-PanelRow "运行日志" (Get-DefaultLogPath)
-    Write-PanelRow "Windows 通知" (Format-NotifyStatus)
+    Write-NotifyStatusRows
     Write-PanelRow "计划任务" (Get-ScheduledReporterSummary)
     Write-PanelRow "上报间隔" ("每 {0} 秒（安装计划任务时使用）" -f (Get-IntervalSeconds))
 }
@@ -90,7 +120,7 @@ function Install-ScheduledReporterInteractive {
         $seconds = Read-Default "定时上报每几秒执行一次（60-$($script:MaxMinutes * 60)；必须是 60 的倍数）" ([string](Get-IntervalSeconds))
         $script:Minutes = Convert-IntervalSecondsToMinutes $seconds
     }
-    $script:TaskNotify = Read-YesNoDefault "自动上报完成/失败后弹出 Windows 通知" $false
+    $script:TaskNotify = Read-YesNoDefault "自动上报完成/失败后弹出 Windows 通知" $script:TaskNotify
     Install-ScheduledReporter
 }
 
@@ -102,10 +132,16 @@ function Show-ScheduledReporter {
         $task = Get-ScheduledTask -TaskName $script:TaskName -ErrorAction SilentlyContinue
         if (-not $task) {
             Write-PanelRow "计划任务" "未安装本脚本管理的计划任务"
+            Write-NotifyStatusRows -NotifyState (Get-ScheduledReporterNotifyState -Task $null)
             return
         }
+        $notifyState = Get-ScheduledReporterNotifyState -Task $task
         Write-PanelRow "计划任务" $script:TaskName
         Write-PanelRow "任务状态" ([string]$task.State)
+        Write-NotifyStatusRows -NotifyState $notifyState
+        if ($notifyState.LauncherPath) {
+            Write-PanelRow "隐藏启动器" $notifyState.LauncherPath
+        }
         foreach ($trigger in $task.Triggers) {
             Write-PanelRow "触发器" ([string]$trigger)
         }
@@ -146,6 +182,26 @@ function Set-ScheduledReporterPaused {
 
 function Toggle-ScheduledReporterPaused {
     Set-ScheduledReporterPaused -Paused (-not $script:SchedulePaused)
+}
+
+function Set-ScheduledReporterNotify {
+    param([bool]$Enabled)
+    $script:TaskNotify = $Enabled
+    Save-ClientConfig
+    try {
+        $updated = Update-ScheduledReporterLauncherForExistingTask
+    } catch {
+        throw "重写计划任务隐藏启动器失败：$($_.Exception.Message)"
+    }
+    if ($updated) {
+        Write-SelfReportCompleted "Windows 通知模式已更新为：$(Format-NotifyStatus)；已重写计划任务隐藏启动器。"
+    } else {
+        Write-SelfReportCompleted "Windows 通知模式已更新为：$(Format-NotifyStatus)；当前未安装计划任务。"
+    }
+}
+
+function Toggle-ScheduledReporterNotify {
+    Set-ScheduledReporterNotify -Enabled (-not $script:TaskNotify)
 }
 
 function Remove-ScheduledReporter {

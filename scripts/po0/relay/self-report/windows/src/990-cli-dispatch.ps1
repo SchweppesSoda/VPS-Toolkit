@@ -30,10 +30,21 @@ if ($UpgradeSelf) {
     exit 0
 }
 
-Load-SavedConfig
-Apply-IntervalSeconds
-
 try {
+    if ($Notify -and $NoNotify) {
+        throw "-Notify 与 -NoNotify 不能同时使用。"
+    }
+
+    Load-SavedConfig
+    if ($Notify) {
+        $script:TaskNotify = $true
+        $script:Notify = $true
+    } elseif ($NoNotify) {
+        $script:TaskNotify = $false
+        $script:Notify = $false
+    }
+    Apply-IntervalSeconds
+
     if ($SaveConfig) {
         Save-ClientConfig
     } elseif ($PauseSchedule) {
@@ -47,7 +58,6 @@ try {
     } elseif ($Menu -or (-not $PSBoundParameters.ContainsKey("WorkerUrl") -and -not $InstallTask -and -not $RunOnce -and [Environment]::UserInteractive)) {
         Invoke-InteractiveMenu
     } elseif ($InstallTask) {
-        $script:TaskNotify = [bool]$Notify
         Install-ScheduledReporter
     } else {
         Invoke-SelfReport

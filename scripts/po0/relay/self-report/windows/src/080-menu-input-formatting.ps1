@@ -10,6 +10,22 @@ function Format-NotifyStatus {
     return "静默，仅写日志"
 }
 
+function Format-TaskNotifyStatus {
+    param($NotifyState)
+    if (-not $NotifyState -or -not $NotifyState.Installed) { return "未安装" }
+    if ($NotifyState.IsUnknown) { return "未知；无法解析计划任务启动器" }
+    if ($NotifyState.ActualNotify) { return "已启用（计划任务带 -Notify）" }
+    if ($NotifyState.HasNoNotify) { return "静默（计划任务带 -NoNotify）" }
+    return "静默（计划任务未带 -Notify）"
+}
+
+function Format-NotifyDriftStatus {
+    param($NotifyState)
+    if (-not $NotifyState -or -not $NotifyState.Installed -or $NotifyState.IsUnknown) { return "" }
+    if ([bool]$script:TaskNotify -eq [bool]$NotifyState.ActualNotify) { return "" }
+    return ("漂移：配置为 {0}，实际计划任务为 {1}" -f (Format-NotifyStatus), (Format-TaskNotifyStatus -NotifyState $NotifyState))
+}
+
 function Read-Default {
     param(
         [string]$Prompt,

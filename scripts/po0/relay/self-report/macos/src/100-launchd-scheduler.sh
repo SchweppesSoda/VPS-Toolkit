@@ -50,7 +50,8 @@ write_launchd_plist() {
     else
         disabled="false"
     fi
-    cat > "${plist}" <<EOF
+    {
+        cat <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -63,6 +64,11 @@ write_launchd_plist() {
         <string>$(xml_escape "${script}")</string>
         <string>--config</string>
         <string>$(xml_escape "${CONFIG_FILE}")</string>
+EOF
+        if notify_enabled; then
+            printf '        <string>--notify</string>\n'
+        fi
+        cat <<EOF
     </array>
     <key>StartInterval</key>
     <integer>${interval_seconds}</integer>
@@ -75,6 +81,7 @@ write_launchd_plist() {
 </dict>
 </plist>
 EOF
+    } > "${plist}"
 }
 
 launchd_unload() {

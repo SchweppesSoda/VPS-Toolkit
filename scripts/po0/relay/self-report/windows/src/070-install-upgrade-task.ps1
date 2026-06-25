@@ -10,6 +10,146 @@ function ConvertTo-VbsStringLiteral {
     return '"' + ($Value -replace '"', '""') + '"'
 }
 
+function Test-CommandLineSwitchPresent {
+    param(
+        [string]$CommandLine,
+        [string]$SwitchName
+    )
+    if (-not $CommandLine -or -not $SwitchName) { return $false }
+    $pattern = '(?i)(^|\s)-' + [regex]::Escape($SwitchName) + '($|\s)'
+    return [regex]::IsMatch($CommandLine, $pattern)
+}
+
+function Get-ScheduledReporterTaskArgumentList {
+    param([string]$ScriptPath)
+    $taskArgList = @(
+        "-NoProfile",
+        "-Sta",
+        "-WindowStyle", "Hidden",
+        "-NonInteractive",
+        "-ExecutionPolicy", "Bypass",
+        "-File", (Quote-TaskArg $ScriptPath),
+        "-ConfigPath", (Quote-TaskArg $script:ConfigPath),
+        "-LogPath", (Quote-TaskArg $script:LogPath),
+        "-RunOnce"
+    )
+    if ($script:TaskNotify) {
+        $taskArgList += "-Notify"
+    }
+    return $taskArgList
+}
+
+function Get-ScheduledReporterTaskCommand {
+    param([string]$ScriptPath)
+    return ("powershell.exe " + ((Get-ScheduledReporterTaskArgumentList -ScriptPath $ScriptPath) -join " "))
+}
+
+function Write-ScheduledReporterTaskLauncher {
+    param(
+        [string]$LauncherPath = $(Get-DefaultTaskLauncherPath),
+        [string]$ScriptPath = $(Get-DefaultScriptPath)
+    )
+    $launcherDir = Split-Path -Parent $LauncherPath
+    if ($launcherDir -and -not (Test-Path -LiteralPath $launcherDir)) {
+        New-Item -ItemType Directory -Path $launcherDir -Force | Out-Null
+    }
+    $command = Get-ScheduledReporterTaskCommand -ScriptPath $ScriptPath
+    $launcherContent = @(
+        "Option Explicit",
+        "Dim shell, command",
+        "command = $(ConvertTo-VbsStringLiteral $command)",
+        "Set shell = CreateObject(""WScript.Shell"")",
+        "WScript.Quit shell.Run(command, 0, True)"
+    )
+    Set-Content -LiteralPath $LauncherPath -Encoding Unicode -Value $launcherContent
+    return $LauncherPath
+}
+
+function Get-ScheduledReporterLauncherPath {
+    param($Task)
+    if (-not $Task) { return "" }
+    foreach ($action in $Task.Actions) {
+        $args = [string]$action.Arguments
+        if ($args -match '(?i)"([^"]+\.vbs)"') {
+            return $matches[1]
+        }
+        if ($args -match '(?i)(\S+\.vbs)') {
+            return $matches[1].Trim('"')
+        }
+    }
+    return ""
+}
+
+function Get-ScheduledReporterLauncherCommand {
+    param([string]$LauncherPath)
+    if (-not $LauncherPath -or -not (Test-Path -LiteralPath $LauncherPath)) { return "" }
+    $launcherRaw = Get-Content -LiteralPath $LauncherPath -Raw
+    $match = [regex]::Match($launcherRaw, '(?im)^\s*command\s*=\s*"((?:[^"]|"")*)"')
+    if ($match.Success) {
+        return ($match.Groups[1].Value -replace '""', '"')
+    }
+    return $launcherRaw
+}
+
+function Get-ScheduledReporterNotifyState {
+    param($Task)
+    $state = [pscustomobject]@{
+        Installed = [bool]$Task
+        LauncherPath = ""
+        LauncherExists = $false
+        ActualNotify = $null
+        HasNotify = $false
+        HasNoNotify = $false
+        IsUnknown = $true
+    }
+    if (-not $Task) {
+        return $state
+    }
+
+    $commandTexts = New-Object System.Collections.Generic.List[string]
+    $launcher = Get-ScheduledReporterLauncherPath -Task $Task
+    if ($launcher) {
+        $state.LauncherPath = $launcher
+        $state.LauncherExists = Test-Path -LiteralPath $launcher
+        $launcherCommand = Get-ScheduledReporterLauncherCommand -LauncherPath $launcher
+        if ($launcherCommand) {
+            $commandTexts.Add($launcherCommand)
+        }
+    }
+    foreach ($action in $Task.Actions) {
+        $args = [string]$action.Arguments
+        if ($args -match '(?i)(powershell(\.exe)?|pwsh(\.exe)?|-File\s+)') {
+            $commandTexts.Add($args)
+        }
+    }
+
+    if ($commandTexts.Count -gt 0) {
+        foreach ($commandText in $commandTexts) {
+            if (Test-CommandLineSwitchPresent -CommandLine $commandText -SwitchName "Notify") {
+                $state.HasNotify = $true
+            }
+            if (Test-CommandLineSwitchPresent -CommandLine $commandText -SwitchName "NoNotify") {
+                $state.HasNoNotify = $true
+            }
+        }
+        $state.IsUnknown = $false
+        $state.ActualNotify = [bool]($state.HasNotify -and -not $state.HasNoNotify)
+    }
+    return $state
+}
+
+function Update-ScheduledReporterLauncherForExistingTask {
+    $task = Get-ScheduledTask -TaskName $script:TaskName -ErrorAction SilentlyContinue
+    if (-not $task) { return $false }
+    $launcher = Get-ScheduledReporterLauncherPath -Task $task
+    if (-not $launcher) {
+        Install-ScheduledReporter
+        return $true
+    }
+    Write-ScheduledReporterTaskLauncher -LauncherPath $launcher -ScriptPath (Get-DefaultScriptPath) | Out-Null
+    return $true
+}
+
 function Test-DownloadedScript {
     param([string]$Path)
     $raw = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
@@ -85,31 +225,8 @@ function Install-ScheduledReporter {
     } else {
         Invoke-WebRequest -UseBasicParsing -Uri $DownloadUrl -OutFile $dest -TimeoutSec 120
     }
-    $taskArgList = @(
-        "-NoProfile",
-        "-Sta",
-        "-WindowStyle", "Hidden",
-        "-NonInteractive",
-        "-ExecutionPolicy", "Bypass",
-        "-File", (Quote-TaskArg $dest),
-        "-ConfigPath", (Quote-TaskArg $script:ConfigPath),
-        "-LogPath", (Quote-TaskArg $script:LogPath),
-        "-RunOnce"
-    )
-    if ($script:TaskNotify) {
-        $taskArgList += "-Notify"
-    }
-    $taskArgs = $taskArgList -join " "
     $launcher = Get-DefaultTaskLauncherPath
-    $command = "powershell.exe $taskArgs"
-    $launcherContent = @(
-        "Option Explicit",
-        "Dim shell, command",
-        "command = $(ConvertTo-VbsStringLiteral $command)",
-        "Set shell = CreateObject(""WScript.Shell"")",
-        "WScript.Quit shell.Run(command, 0, True)"
-    )
-    Set-Content -LiteralPath $launcher -Encoding Unicode -Value $launcherContent
+    Write-ScheduledReporterTaskLauncher -LauncherPath $launcher -ScriptPath $dest | Out-Null
     $action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument ("//B //Nologo " + (Quote-TaskArg $launcher))
     $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes $script:Minutes) -RepetitionDuration (New-TimeSpan -Days 3650)
     $description = "探测当前 Windows 公网出口 IPv4，并上报到 LAN Worker。"

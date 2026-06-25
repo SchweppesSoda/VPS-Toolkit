@@ -6,6 +6,10 @@
 
 ## po0-nftables-relay-manager
 
+### 2026.06.25+build.12
+
+- 跟随 PO0 Release asset 批次对齐到 build.12；本脚本无行为变化。
+
 ### 2026.06.25+build.11
 
 - PO0 Bash 构建 / 检查工具在 git 中补齐 executable bit，Release workflow 仍保留显式 `bash` 调用。
@@ -90,6 +94,10 @@
 - 状态面板和资源任务创建计划摘要增加彩色状态提示。
 
 ## po0-lan-worker-client
+
+### 2026.06.25+build.12
+
+- 跟随 PO0 Release asset 批次对齐到 build.12；本脚本无行为变化。
 
 ### 2026.06.25+build.11
 
@@ -180,6 +188,10 @@
 - 状态页 / Widget 优先复用 IP9、163、126、myip.ipip 等 IP 查询接口返回的归属地 / 运营商信息，拿不到时才额外查询。
 
 ## po0-self-report（Linux/OpenWrt）
+
+### 2026.06.25+build.12
+
+- 跟随 PO0 Release asset 批次对齐到 build.12；Linux/OpenWrt 客户端无行为变化。
 
 ### 2026.06.25+build.11
 
@@ -276,6 +288,11 @@
 
 ## po0-self-report（macOS）
 
+### 2026.06.25+build.12
+
+- 新增默认静默的 macOS 通知开关，支持 `--notify` / `--no-notify` 和菜单“通知 / 静默模式”切换。
+- launchd LaunchAgent 默认不带通知参数，只有显式启用通知时才在上报成功或失败后调用 macOS 通知中心；通知失败只写日志，不影响上报结果。
+
 ### 2026.06.25+build.11
 
 - PO0 Bash 构建 / 检查工具在 git 中补齐 executable bit，Release workflow 仍保留显式 `bash` 调用。
@@ -303,6 +320,12 @@
 - 支持 `--save-config --menu` 首次保存默认配置后打开菜单，并提供 `--install-launchd` 别名。
 
 ## po0-self-report（Windows PowerShell）
+
+### 2026.06.25+build.12
+
+- 新增 `-NoNotify` 显式静默参数，并在菜单中加入“Windows 通知 / 静默模式”开关。
+- 配置页和计划任务状态页会同时显示配置通知状态与已安装任务实际是否带 `-Notify`，不一致时提示通知状态漂移。
+- 切换通知模式时会保存配置并刷新计划任务隐藏 launcher，避免旧任务仍按残留 `-Notify` 弹通知。
 
 ### 2026.06.25+build.11
 

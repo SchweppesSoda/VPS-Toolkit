@@ -105,6 +105,7 @@ show_version() {
         "默认安装路径：$(default_install_path)" \
         "配置文件：${CONFIG_FILE}" \
         "定时上报：$(cron_status_summary)" \
+        "通知模式：$(notify_status_label)" \
         "下载 URL：${DOWNLOAD_URL}"
 }
 

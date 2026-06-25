@@ -9,6 +9,7 @@ show_current_config() {
     print_panel_row "HTTP 上报" "$(if http_allowed; then printf '已显式允许'; else printf '默认拒绝'; fi)"
     print_panel_row "上报间隔" "$(cron_minutes_to_seconds "${CRON_MINUTES}") 秒（安装定时上报时使用）"
     print_panel_row "定时暂停" "$(schedule_paused && printf '已暂停' || printf '未暂停')"
+    print_panel_row "通知模式" "$(notify_status_label)"
     print_panel_row "放行 TTL" "由 LAN Worker Self-report 目标控制，默认 43200 秒"
     if [[ -n "${IP_CHECK_URLS}" ]]; then
         print_panel_row "IP 探测列表" "${IP_CHECK_URLS}"
@@ -35,6 +36,7 @@ show_menu_dashboard() {
     print_panel_row "Source ID" "${SOURCE_ID:-未设置}"
     print_panel_row "Identity" "${IDENTITY:-未设置}"
     print_panel_row "定时上报" "$(cron_status_summary)"
+    print_panel_row "通知模式" "$(notify_status_label)"
     print_panel_row "上报间隔" "$(cron_minutes_to_seconds "${CRON_MINUTES}") 秒（安装定时上报时使用）"
 }
 
@@ -106,15 +108,16 @@ menu_loop() {
         print_menu_pair 1 "配置并保存上报参数" 2 "立即上报一次"
         print_menu_section "定时上报"
         print_menu_pair 3 "安装 / 更新定时上报" 4 "暂停 / 恢复定时上报"
-        print_menu_pair 5 "查看定时上报状态" 6 "删除定时上报"
+        print_menu_pair 5 "查看定时上报状态" 6 "通知 / 静默模式"
+        print_menu_item 7 "删除定时上报"
         print_menu_section "查看"
-        print_menu_item 7 "显示当前配置"
+        print_menu_item 8 "显示当前配置"
         print_menu_section "维护"
-        print_menu_pair 8 "从 GitHub 更新脚本" 9 "卸载本客户端"
+        print_menu_pair 9 "从 GitHub 更新脚本" 10 "卸载本客户端"
         print_menu_section "退出"
         print_menu_item 0 "退出"
         print_menu_footer
-        choice="$(read_prompt "请选择操作 [0-9]: ")" || return 0
+        choice="$(read_prompt "请选择操作 [0-10]: ")" || return 0
         choice="$(trim "${choice}")"
         case "${choice}" in
             1) configure_interactive; pause_before_return ;;
@@ -122,7 +125,8 @@ menu_loop() {
             3) install_cron_interactive; pause_before_return ;;
             4) toggle_schedule_interactive; pause_before_return ;;
             5) show_cron_status; pause_before_return ;;
-            6)
+            6) toggle_notify_interactive; pause_before_return ;;
+            7)
                 if prompt_yes_no "确认删除 self-report 定时上报" "n"; then
                     remove_cron
                 else
@@ -130,9 +134,9 @@ menu_loop() {
                 fi
                 pause_before_return
                 ;;
-            7) show_current_config; pause_before_return ;;
-            8) upgrade_self_from_download --reopen-menu || pause_before_return ;;
-            9)
+            8) show_current_config; pause_before_return ;;
+            9) upgrade_self_from_download --reopen-menu || pause_before_return ;;
+            10)
                 uninstall_self_report_interactive
                 rc=$?
                 pause_before_return

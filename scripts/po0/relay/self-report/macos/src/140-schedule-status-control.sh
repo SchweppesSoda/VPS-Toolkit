@@ -131,6 +131,7 @@ show_cron_status() {
     print_panel_row "配置文件" "${CONFIG_FILE}"
     print_panel_row "保存状态" "$([[ -f "${CONFIG_FILE}" ]] && printf '已保存' || printf '未保存')"
     print_panel_row "配置暂停标记" "$(schedule_paused && printf '已暂停（手动立即上报仍可用）' || printf '未暂停')"
+    print_panel_row "通知模式" "$(notify_status_label)"
     print_panel_row "实际状态" "$(cron_state_label "${state}")"
     if [[ -n "${interval}" ]]; then
         print_panel_row "计划间隔" "${interval}"
@@ -183,5 +184,45 @@ toggle_schedule_interactive() {
         set_schedule_paused "0"
     else
         set_schedule_paused "1"
+    fi
+}
+
+set_notify_enabled() {
+    local value="$1" had_schedule=0 previous_notify="${NOTIFY}"
+    if cron_managed_block_exists; then
+        had_schedule=1
+    elif launchd_supported && [[ -f "$(launchd_plist_path)" ]]; then
+        had_schedule=1
+    fi
+    NOTIFY="${value}"
+    save_config_file || return 1
+    if [[ "${had_schedule}" == "1" ]]; then
+        if ! install_cron; then
+            NOTIFY="${previous_notify}"
+            save_config_file >/dev/null 2>&1 || true
+            self_report_incomplete "通知配置未同步到定时上报，已尝试恢复配置。"
+            return 1
+        fi
+    fi
+    if notify_enabled; then
+        if [[ "${had_schedule}" == "1" ]]; then
+            self_report_completed "已启用 macOS 通知，并刷新定时上报。"
+        else
+            self_report_completed "已启用 macOS 通知；当前未安装定时上报。"
+        fi
+    else
+        if [[ "${had_schedule}" == "1" ]]; then
+            self_report_completed "已切换为静默模式，并刷新定时上报。"
+        else
+            self_report_completed "已切换为静默模式；当前未安装定时上报。"
+        fi
+    fi
+}
+
+toggle_notify_interactive() {
+    if notify_enabled; then
+        set_notify_enabled "0"
+    else
+        set_notify_enabled "1"
     fi
 }

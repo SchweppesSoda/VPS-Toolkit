@@ -29,6 +29,21 @@ schedule_paused() {
     esac
 }
 
+notify_enabled() {
+    case "$(to_lower "${NOTIFY}")" in
+        1|true|yes|y|on|enabled) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+notify_status_label() {
+    if notify_enabled; then
+        printf '通知'
+    else
+        printf '静默'
+    fi
+}
+
 validate_worker_url() {
     WORKER_URL="$(normalize_worker_url "${WORKER_URL}")"
     [[ -n "${WORKER_URL}" ]] || {

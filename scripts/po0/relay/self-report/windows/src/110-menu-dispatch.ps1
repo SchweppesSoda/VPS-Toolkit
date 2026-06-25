@@ -9,15 +9,16 @@ function Invoke-InteractiveMenu {
         Write-MenuPair "1" "配置并保存上报参数" "2" "立即上报一次"
         Write-MenuSection "定时上报"
         Write-MenuPair "3" "安装 / 更新定时上报" "4" "暂停 / 恢复定时上报"
-        Write-MenuPair "5" "查看定时上报状态" "6" "删除定时上报"
+        Write-MenuPair "5" "查看定时上报状态" "6" "Windows 通知 / 静默模式"
+        Write-MenuItem "7" "删除定时上报"
         Write-MenuSection "查看"
-        Write-MenuItem "7" "显示当前配置"
+        Write-MenuItem "8" "显示当前配置"
         Write-MenuSection "维护"
-        Write-MenuPair "8" "从 GitHub 更新脚本" "9" "卸载本客户端"
+        Write-MenuPair "9" "从 GitHub 更新脚本" "10" "卸载本客户端"
         Write-MenuSection "退出"
         Write-MenuItem "0" "退出"
         Write-MenuDivider
-        $rawChoice = Read-Host "请选择操作 [0-9]"
+        $rawChoice = Read-Host "请选择操作 [0-10]"
         if ($null -eq $rawChoice) { return }
         $choice = $rawChoice.Trim()
         try {
@@ -34,7 +35,8 @@ function Invoke-InteractiveMenu {
                 }
                 "4" { Toggle-ScheduledReporterPaused; Pause-Menu }
                 "5" { Show-ScheduledReporter; Pause-Menu }
-                "6" {
+                "6" { Toggle-ScheduledReporterNotify; Pause-Menu }
+                "7" {
                     $confirm = Read-Host "确认删除 self-report 定时上报 [y/N]"
                     if ($null -eq $confirm) { $confirm = "" }
                     if ($confirm -match "^(y|yes)$") {
@@ -44,9 +46,9 @@ function Invoke-InteractiveMenu {
                     }
                     Pause-Menu
                 }
-                "7" { Show-ClientConfig; Pause-Menu }
-                "8" { Upgrade-SelfFromDownload -ReopenMenu }
-                "9" {
+                "8" { Show-ClientConfig; Pause-Menu }
+                "9" { Upgrade-SelfFromDownload -ReopenMenu }
+                "10" {
                     $uninstalled = $false
                     Write-Host "卸载会删除计划任务、隐藏启动器和本机安装脚本；配置与日志默认保留。"
                     if (Read-YesNoDefault "确认卸载 self-report 客户端" $false) {

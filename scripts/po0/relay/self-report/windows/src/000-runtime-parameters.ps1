@@ -21,6 +21,7 @@ param(
     [switch]$Version,
     [switch]$Changelog,
     [switch]$Notify,
+    [switch]$NoNotify,
     [switch]$Help
 )
 
@@ -28,10 +29,10 @@ $ErrorActionPreference = "Stop"
 $ReleaseDownloadBaseUrl = $(if ($env:PO0_RELEASE_DOWNLOAD_BASE_URL) { $env:PO0_RELEASE_DOWNLOAD_BASE_URL } else { "https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download" })
 $DownloadUrl = $(if ($env:PO0_SELF_REPORT_PS_DOWNLOAD_URL) { $env:PO0_SELF_REPORT_PS_DOWNLOAD_URL } else { "$ReleaseDownloadBaseUrl/po0-outbound-ip-report.ps1" })
 $ScriptName = "po0-self-report"
-$ScriptVersion = "2026.06.25+build.11"
+$ScriptVersion = "2026.06.25+build.12"
 $ScriptReleaseDate = "2026-06-25"
 # CHANGELOG_BEGIN
-# - Mark PO0 Bash build/check tools executable in git; keep explicit bash invocation in Release workflow.
+# - Windows Self-report 新增显式静默参数、菜单通知开关，并显示配置与计划任务实际通知状态是否漂移。
 # CHANGELOG_END
 $PanelValueColumn = 24
 $MenuRightColumn = 46
