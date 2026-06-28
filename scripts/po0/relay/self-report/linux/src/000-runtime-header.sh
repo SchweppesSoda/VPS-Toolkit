@@ -4,10 +4,11 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_SELF_REPORT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report.sh}"
 SCRIPT_NAME="po0-self-report"
-SCRIPT_VERSION="2026.06.25+build.12"
-SCRIPT_RELEASE_DATE="2026-06-25"
+SCRIPT_VERSION="2026.06.28+build.1"
+SCRIPT_RELEASE_DATE="2026-06-28"
 # CHANGELOG_BEGIN
-# - 跟随 PO0 Release asset 批次对齐到 build.12；Linux/OpenWrt 客户端无行为变化。
+# - Self-report 成功摘要会显示 LAN Worker 已成功转发的 PO0 目标数量。
+# - 定时上报状态页会从旧日志的 LAN Worker 返回体中提取 targets 数量，并合并到对应完成结果。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24

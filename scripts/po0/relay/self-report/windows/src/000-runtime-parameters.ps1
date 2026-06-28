@@ -29,10 +29,11 @@ $ErrorActionPreference = "Stop"
 $ReleaseDownloadBaseUrl = $(if ($env:PO0_RELEASE_DOWNLOAD_BASE_URL) { $env:PO0_RELEASE_DOWNLOAD_BASE_URL } else { "https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download" })
 $DownloadUrl = $(if ($env:PO0_SELF_REPORT_PS_DOWNLOAD_URL) { $env:PO0_SELF_REPORT_PS_DOWNLOAD_URL } else { "$ReleaseDownloadBaseUrl/po0-outbound-ip-report.ps1" })
 $ScriptName = "po0-self-report"
-$ScriptVersion = "2026.06.25+build.12"
-$ScriptReleaseDate = "2026-06-25"
+$ScriptVersion = "2026.06.28+build.1"
+$ScriptReleaseDate = "2026-06-28"
 # CHANGELOG_BEGIN
-# - Windows Self-report 新增显式静默参数、菜单通知开关，并显示配置与计划任务实际通知状态是否漂移。
+# - Windows Self-report 成功摘要会显示 LAN Worker 已成功转发的 PO0 目标数量。
+# - 定时上报状态页会从旧日志的 LAN Worker 返回体中提取 targets 数量，并合并到对应完成结果。
 # CHANGELOG_END
 $PanelValueColumn = 24
 $MenuRightColumn = 46

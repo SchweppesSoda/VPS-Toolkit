@@ -4,10 +4,11 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_SELF_REPORT_MACOS_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report-macos.sh}"
 SCRIPT_NAME="po0-self-report-macos"
-SCRIPT_VERSION="2026.06.25+build.12"
-SCRIPT_RELEASE_DATE="2026-06-25"
+SCRIPT_VERSION="2026.06.28+build.1"
+SCRIPT_RELEASE_DATE="2026-06-28"
 # CHANGELOG_BEGIN
-# - macOS Self-report 新增默认静默的通知开关、--notify / --no-notify 和菜单切换入口。
+# - Self-report 成功摘要会显示 LAN Worker 已成功转发的 PO0 目标数量。
+# - 定时上报状态页会从旧日志的 LAN Worker 返回体中提取 targets 数量，并合并到对应完成结果。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24

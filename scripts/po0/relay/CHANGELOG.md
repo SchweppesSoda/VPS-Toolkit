@@ -6,6 +6,10 @@
 
 ## po0-nftables-relay-manager
 
+### 2026.06.28+build.1
+
+- 跟随 PO0 Release asset 批次对齐到 build.1；本脚本无行为变化。
+
 ### 2026.06.25+build.12
 
 - 跟随 PO0 Release asset 批次对齐到 build.12；本脚本无行为变化。
@@ -94,6 +98,10 @@
 - 状态面板和资源任务创建计划摘要增加彩色状态提示。
 
 ## po0-lan-worker-client
+
+### 2026.06.28+build.1
+
+- 跟随 PO0 Release asset 批次对齐到 build.1；本脚本无行为变化。
 
 ### 2026.06.25+build.12
 
@@ -188,6 +196,11 @@
 - 状态页 / Widget 优先复用 IP9、163、126、myip.ipip 等 IP 查询接口返回的归属地 / 运营商信息，拿不到时才额外查询。
 
 ## po0-self-report（Linux/OpenWrt）
+
+### 2026.06.28+build.1
+
+- 上报成功摘要会显示 LAN Worker 已成功转发的 PO0 目标数量。
+- 定时上报状态页会从旧日志的 LAN Worker 返回体中提取 `targets=N`，并合并到对应完成结果。
 
 ### 2026.06.25+build.12
 
@@ -288,6 +301,11 @@
 
 ## po0-self-report（macOS）
 
+### 2026.06.28+build.1
+
+- 上报成功摘要会显示 LAN Worker 已成功转发的 PO0 目标数量，并同步用于成功通知正文。
+- 定时上报状态页会从旧日志的 LAN Worker 返回体中提取 `targets=N`，并合并到对应完成结果。
+
 ### 2026.06.25+build.12
 
 - 新增默认静默的 macOS 通知开关，支持 `--notify` / `--no-notify` 和菜单“通知 / 静默模式”切换。
@@ -320,6 +338,11 @@
 - 支持 `--save-config --menu` 首次保存默认配置后打开菜单，并提供 `--install-launchd` 别名。
 
 ## po0-self-report（Windows PowerShell）
+
+### 2026.06.28+build.1
+
+- 上报成功摘要会显示 LAN Worker 已成功转发的 PO0 目标数量。
+- 定时上报状态页会从旧日志的 LAN Worker 返回体中提取 `targets=N`，并合并到对应完成结果。
 
 ### 2026.06.25+build.12
 

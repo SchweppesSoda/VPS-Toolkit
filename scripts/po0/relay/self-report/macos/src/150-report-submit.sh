@@ -43,7 +43,7 @@ notify_report_failure() {
 }
 
 report_once() {
-    local ip response curl_rc report_source report_identity curl_args=() http_code
+    local ip response curl_rc report_source report_identity curl_args=() http_code success_message
     validate_worker_url || { self_report_incomplete "LAN Worker URL 未通过检查。"; notify_report_failure "LAN Worker URL 未通过检查。"; return 1; }
     command -v curl >/dev/null 2>&1 || {
         echo "缺少 curl，无法上报到 LAN Worker。" >&2
@@ -74,8 +74,9 @@ report_once() {
         response="${response%$'\n'*}"
         if [[ "${http_code}" == 2* ]]; then
             [[ -n "${response}" ]] && printf '%s\n' "${response}"
-            self_report_completed "公网出口 IPv4 ${ip} 已被 LAN Worker 接收。"
-            notify_report_success "公网出口 IPv4 ${ip} 已被 LAN Worker 接收。"
+            success_message="$(self_report_append_response_target_success "公网出口 IPv4 ${ip} 已被 LAN Worker 接收。" "${response}")"
+            self_report_completed "${success_message}"
+            notify_report_success "${success_message}"
         else
             [[ -n "${response}" ]] && printf '%s\n' "${response}" >&2
             self_report_incomplete "LAN Worker 未确认本次上报（HTTP ${http_code}）。"

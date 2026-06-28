@@ -60,7 +60,7 @@ function Convert-SelfReportLogLineForDisplay {
         $stamp = $matches["stamp"].Trim()
         $level = $matches["level"].Trim()
         $normalizedLevel = $level.ToUpperInvariant()
-        if ($normalizedLevel -notin @("OK", "ERROR", "WARN")) {
+        if ($normalizedLevel -notin @("OK", "ERROR", "WARN", "RESPONSE")) {
             return $null
         }
         $message = $matches["message"].Trim()
@@ -69,17 +69,27 @@ function Convert-SelfReportLogLineForDisplay {
             $stampLabel = "$($matches[1]) $($matches[2])"
         }
         $kind = Get-SelfReportLogDisplayKind -Level $level
+        $targetCount = 0
+        $responseIp = ""
         $message = $message -replace '^Self-report 已完成：', ''
         $message = $message -replace '^Self-report 未完成：', ''
         if ($message -match '^上报当前公网出口 IPv4\s+([0-9.]+)\s+到 LAN Worker：') {
             $message = "上报公网出口 IPv4 $($matches[1]) 到 LAN Worker"
-        } elseif ($kind -eq "返回" -and $message -match '^OK\s+([0-9.]+);\s*targets=([0-9]+)') {
-            $message = "LAN Worker 返回 OK：$($matches[1])，targets=$($matches[2])"
+        } elseif ($kind -eq "返回") {
+            $responseSummary = Get-SelfReportResponseSummary -Content $message
+            if ($responseSummary) {
+                $targetCount = [int]$responseSummary.TargetCount
+                $responseIp = [string]$responseSummary.Ip
+                $message = "LAN Worker 已成功转发 $targetCount 个 PO0 目标（公网出口 IPv4 $responseIp）"
+            }
         }
         return [pscustomobject]@{
             Stamp = $stampLabel
             Kind = $kind
             Message = (Limit-SelfReportLogDisplayText -Text $message)
+            Level = $normalizedLevel
+            TargetCount = $targetCount
+            ResponseIp = $responseIp
         }
     }
 
@@ -87,7 +97,40 @@ function Convert-SelfReportLogLineForDisplay {
         Stamp = ""
         Kind = "日志"
         Message = (Limit-SelfReportLogDisplayText -Text $raw)
+        Level = ""
+        TargetCount = 0
+        ResponseIp = ""
     }
+}
+
+function Merge-SelfReportResponseSummaries {
+    param($Entries)
+    $displayEntries = New-Object System.Collections.Generic.List[object]
+    $pendingResponse = $null
+    foreach ($entry in $Entries) {
+        if ($entry.Level -eq "RESPONSE" -and $entry.TargetCount -gt 0) {
+            if ($pendingResponse) {
+                [void]$displayEntries.Add($pendingResponse)
+            }
+            $pendingResponse = $entry
+            continue
+        }
+        if ($entry.Level -eq "OK" -and $pendingResponse) {
+            if ($entry.Message -notmatch '成功转发\s+[0-9]+\s+个 PO0 目标') {
+                $message = $entry.Message -replace '。$', ''
+                $entry.Message = "$message；LAN Worker 已成功转发 $($pendingResponse.TargetCount) 个 PO0 目标。"
+            }
+            $pendingResponse = $null
+        } elseif ($pendingResponse) {
+            [void]$displayEntries.Add($pendingResponse)
+            $pendingResponse = $null
+        }
+        [void]$displayEntries.Add($entry)
+    }
+    if ($pendingResponse) {
+        [void]$displayEntries.Add($pendingResponse)
+    }
+    return $displayEntries.ToArray()
 }
 
 function Show-SelfReportLogTail {
@@ -112,6 +155,7 @@ function Show-SelfReportLogTail {
         Write-PanelNote "(日志文件为空)"
         return
     }
+    $entries = @(Merge-SelfReportResponseSummaries -Entries $entries)
     $previousStamp = ""
     foreach ($entry in $entries) {
         if ($entry.Stamp) {
