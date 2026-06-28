@@ -302,7 +302,9 @@ def report_all(ip, identity, source_override):
     failed = []
     for target in TARGETS:
         result = report_target(target, ip, identity, source_override)
-        label = f"{safe_report_token(source_override or target['source'], 'self-report')}@{target['host']}"
+        port = target.get('port') or '22'
+        port_suffix = "" if port == "22" else f":{port}"
+        label = f"{safe_report_token(source_override or target['source'], 'self-report')}@{target['host']}{port_suffix}"
         if result.returncode == 0:
             ok.append(label)
         else:
@@ -377,7 +379,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         else:
             self.send_response(200)
             self.end_headers()
-            self.wfile.write((f"OK {ip}; targets={len(ok)}\n").encode())
+            self.wfile.write((f"OK {ip}; targets={len(ok)}; target_names={','.join(ok)}\n").encode())
 
     def log_message(self, fmt, *args):
         sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))

@@ -5,10 +5,10 @@ PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.c
 DOWNLOAD_URL="${PO0_LAN_CLIENT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-lan-client.sh}"
 MANAGER_DOWNLOAD_URL="${PO0_MANAGER_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/nftables-relay-manager.sh}"
 SCRIPT_NAME="po0-lan-worker-client"
-SCRIPT_VERSION="2026.06.28+build.1"
+SCRIPT_VERSION="2026.06.28+build.2"
 SCRIPT_RELEASE_DATE="2026-06-28"
 # CHANGELOG_BEGIN
-# - 跟随 PO0 Release asset 批次对齐到 build.1；本脚本无行为变化。
+# - Self-report 接收端成功响应补充 target_names，便于客户端摘要显示具体 PO0 目标。
 # CHANGELOG_END
 DEFAULT_PO0_SCRIPT="/root/nftables-relay-manager.sh"
 PO0_HOST="${PO0_HOST:-}"

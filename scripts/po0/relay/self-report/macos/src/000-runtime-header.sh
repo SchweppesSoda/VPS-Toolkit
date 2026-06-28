@@ -4,11 +4,11 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_SELF_REPORT_MACOS_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report-macos.sh}"
 SCRIPT_NAME="po0-self-report-macos"
-SCRIPT_VERSION="2026.06.28+build.1"
+SCRIPT_VERSION="2026.06.28+build.2"
 SCRIPT_RELEASE_DATE="2026-06-28"
 # CHANGELOG_BEGIN
-# - Self-report 成功摘要会显示 LAN Worker 已成功转发的 PO0 目标数量。
-# - 定时上报状态页会从旧日志的 LAN Worker 返回体中提取 targets 数量，并合并到对应完成结果。
+# - Self-report 成功摘要和成功通知优先显示 LAN Worker 返回的具体 PO0 目标名。
+# - 连接旧 LAN Worker 时，目标摘要简化为“PO0 目标：N 个”。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24

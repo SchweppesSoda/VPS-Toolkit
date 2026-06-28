@@ -6,6 +6,10 @@
 
 ## po0-nftables-relay-manager
 
+### 2026.06.28+build.2
+
+- 跟随 PO0 Release asset 批次对齐到 build.2；本脚本无行为变化。
+
 ### 2026.06.28+build.1
 
 - 跟随 PO0 Release asset 批次对齐到 build.1；本脚本无行为变化。
@@ -98,6 +102,10 @@
 - 状态面板和资源任务创建计划摘要增加彩色状态提示。
 
 ## po0-lan-worker-client
+
+### 2026.06.28+build.2
+
+- Self-report 接收端成功响应补充 `target_names`，便于客户端摘要显示具体 PO0 目标。
 
 ### 2026.06.28+build.1
 
@@ -196,6 +204,11 @@
 - 状态页 / Widget 优先复用 IP9、163、126、myip.ipip 等 IP 查询接口返回的归属地 / 运营商信息，拿不到时才额外查询。
 
 ## po0-self-report（Linux/OpenWrt）
+
+### 2026.06.28+build.2
+
+- 上报成功摘要优先显示 LAN Worker 返回的具体 PO0 目标名。
+- 连接旧 LAN Worker 时，目标摘要简化为“PO0 目标：N 个”。
 
 ### 2026.06.28+build.1
 
@@ -301,6 +314,11 @@
 
 ## po0-self-report（macOS）
 
+### 2026.06.28+build.2
+
+- 上报成功摘要和成功通知优先显示 LAN Worker 返回的具体 PO0 目标名。
+- 连接旧 LAN Worker 时，目标摘要简化为“PO0 目标：N 个”。
+
 ### 2026.06.28+build.1
 
 - 上报成功摘要会显示 LAN Worker 已成功转发的 PO0 目标数量，并同步用于成功通知正文。
@@ -338,6 +356,11 @@
 - 支持 `--save-config --menu` 首次保存默认配置后打开菜单，并提供 `--install-launchd` 别名。
 
 ## po0-self-report（Windows PowerShell）
+
+### 2026.06.28+build.2
+
+- 上报成功摘要优先显示 LAN Worker 返回的具体 PO0 目标名。
+- 连接旧 LAN Worker 时，目标摘要简化为“PO0 目标：N 个”。
 
 ### 2026.06.28+build.1
 

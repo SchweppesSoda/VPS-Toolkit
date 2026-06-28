@@ -35,12 +35,16 @@ normalize_self_report_log_line() {
 }
 
 self_report_response_summary_parts() {
-    local line="$1"
+    local line="$1" names=""
     line="${line%$'\r'}"
     line="${line#$'\xef\xbb\xbf'}"
     line="$(trim "${line}")"
-    if [[ "${line}" =~ ^OK[[:space:]]+([0-9.]+)\;[[:space:]]*targets=([0-9]+)($|[[:space:]]) ]]; then
-        printf '%s|%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+    if [[ "${line}" =~ ^OK[[:space:]]+([0-9.]+)\;[[:space:]]*targets=([0-9]+)($|[[:space:]]|\;) ]]; then
+        if [[ "${line}" == *"; target_names="* ]]; then
+            names="${line#*; target_names=}"
+            names="$(trim "${names%%;*}")"
+        fi
+        printf '%s|%s|%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${names}"
         return 0
     fi
     return 1
@@ -48,17 +52,24 @@ self_report_response_summary_parts() {
 
 self_report_target_success_text() {
     local count="$1"
+    local names="${2:-}"
     [[ "${count}" =~ ^[0-9]+$ ]] || return 1
     (( count > 0 )) || return 1
-    printf 'LAN Worker 已成功转发 %s 个 PO0 目标\n' "${count}"
+    if [[ -n "${names}" ]]; then
+        names="${names//,/、}"
+        printf 'PO0 目标：%s\n' "${names}"
+    else
+        printf 'PO0 目标：%s 个\n' "${count}"
+    fi
 }
 
 self_report_append_target_success() {
     local message="$1"
     local count="$2"
+    local names="${3:-}"
     local target_text
-    target_text="$(self_report_target_success_text "${count}" 2>/dev/null || true)"
-    if [[ -z "${target_text}" || "${message}" == *"成功转发 "*" 个 PO0 目标"* ]]; then
+    target_text="$(self_report_target_success_text "${count}" "${names}" 2>/dev/null || true)"
+    if [[ -z "${target_text}" || "${message}" == *"PO0 目标："* ]]; then
         printf '%s\n' "${message}"
         return 0
     fi
@@ -71,12 +82,13 @@ self_report_append_target_success() {
 self_report_append_response_target_success() {
     local message="$1"
     local response="$2"
-    local line parts count
+    local line parts count names
     while IFS= read -r line || [[ -n "${line}" ]]; do
         parts="$(self_report_response_summary_parts "${line}" 2>/dev/null || true)"
         [[ -n "${parts}" ]] || continue
-        count="${parts##*|}"
-        self_report_append_target_success "${message}" "${count}"
+        count="$(printf '%s\n' "${parts}" | awk -F'|' '{print $2}')"
+        names="$(printf '%s\n' "${parts}" | awk -F'|' '{print $3}')"
+        self_report_append_target_success "${message}" "${count}" "${names}"
         return 0
     done <<< "${response}"
     printf '%s\n' "${message}"
@@ -105,8 +117,8 @@ self_report_log_event_summary() {
 }
 
 show_recent_self_report_log() {
-    local log_path mtime line normalized event max_events=5 i
-    local pending_response_parts="" pending_target_count="" pending_target_ip=""
+    local log_path mtime line normalized event target_text max_events=5 i
+    local pending_response_parts="" pending_target_count="" pending_target_ip="" pending_target_names=""
     local events=()
     log_path="$(self_report_log_path)"
     print_panel_section "最近日志"
@@ -127,20 +139,24 @@ show_recent_self_report_log() {
         [[ -n "${normalized}" ]] || continue
         pending_response_parts="$(self_report_response_summary_parts "${normalized}" 2>/dev/null || true)"
         if [[ -n "${pending_response_parts}" ]]; then
-            pending_target_ip="${pending_response_parts%%|*}"
-            pending_target_count="${pending_response_parts##*|}"
+            pending_target_ip="$(printf '%s\n' "${pending_response_parts}" | awk -F'|' '{print $1}')"
+            pending_target_count="$(printf '%s\n' "${pending_response_parts}" | awk -F'|' '{print $2}')"
+            pending_target_names="$(printf '%s\n' "${pending_response_parts}" | awk -F'|' '{print $3}')"
             continue
         fi
         event="$(self_report_log_event_summary "${normalized}" 2>/dev/null || true)"
         [[ -n "${event}" ]] || continue
         if [[ -n "${pending_target_count}" && "${event}" == "成功："* ]]; then
-            event="成功：$(self_report_append_target_success "${event#成功：}" "${pending_target_count}")"
+            event="成功：$(self_report_append_target_success "${event#成功：}" "${pending_target_count}" "${pending_target_names}")"
             pending_target_count=""
             pending_target_ip=""
+            pending_target_names=""
         elif [[ -n "${pending_target_count}" ]]; then
-            events+=("成功：LAN Worker 已成功转发 ${pending_target_count} 个 PO0 目标（公网出口 IPv4 ${pending_target_ip}）")
+            target_text="$(self_report_target_success_text "${pending_target_count}" "${pending_target_names}" 2>/dev/null || true)"
+            events+=("成功：${target_text}（公网出口 IPv4 ${pending_target_ip}）")
             pending_target_count=""
             pending_target_ip=""
+            pending_target_names=""
         fi
         events+=("${event}")
         while (( ${#events[@]} > max_events )); do
@@ -148,7 +164,8 @@ show_recent_self_report_log() {
         done
     done < <(tail -n 120 "${log_path}" 2>/dev/null || true)
     if [[ -n "${pending_target_count}" ]]; then
-        events+=("成功：LAN Worker 已成功转发 ${pending_target_count} 个 PO0 目标（公网出口 IPv4 ${pending_target_ip}）")
+        target_text="$(self_report_target_success_text "${pending_target_count}" "${pending_target_names}" 2>/dev/null || true)"
+        events+=("成功：${target_text}（公网出口 IPv4 ${pending_target_ip}）")
         while (( ${#events[@]} > max_events )); do
             events=("${events[@]:1}")
         done

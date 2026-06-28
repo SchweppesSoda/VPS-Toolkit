@@ -71,6 +71,7 @@ function Convert-SelfReportLogLineForDisplay {
         $kind = Get-SelfReportLogDisplayKind -Level $level
         $targetCount = 0
         $responseIp = ""
+        $targetNames = @()
         $message = $message -replace '^Self-report 已完成：', ''
         $message = $message -replace '^Self-report 未完成：', ''
         if ($message -match '^上报当前公网出口 IPv4\s+([0-9.]+)\s+到 LAN Worker：') {
@@ -80,7 +81,11 @@ function Convert-SelfReportLogLineForDisplay {
             if ($responseSummary) {
                 $targetCount = [int]$responseSummary.TargetCount
                 $responseIp = [string]$responseSummary.Ip
-                $message = "LAN Worker 已成功转发 $targetCount 个 PO0 目标（公网出口 IPv4 $responseIp）"
+                $targetNames = @($responseSummary.TargetNames | Where-Object { $_ })
+                $targetSummary = Format-SelfReportTargetSuccessSummary -ResponseSummary $responseSummary
+                if ($targetSummary) {
+                    $message = "$targetSummary（公网出口 IPv4 $responseIp）"
+                }
             }
         }
         return [pscustomobject]@{
@@ -90,6 +95,7 @@ function Convert-SelfReportLogLineForDisplay {
             Level = $normalizedLevel
             TargetCount = $targetCount
             ResponseIp = $responseIp
+            TargetNames = $targetNames
         }
     }
 
@@ -100,6 +106,7 @@ function Convert-SelfReportLogLineForDisplay {
         Level = ""
         TargetCount = 0
         ResponseIp = ""
+        TargetNames = @()
     }
 }
 
@@ -116,9 +123,12 @@ function Merge-SelfReportResponseSummaries {
             continue
         }
         if ($entry.Level -eq "OK" -and $pendingResponse) {
-            if ($entry.Message -notmatch '成功转发\s+[0-9]+\s+个 PO0 目标') {
+            if ($entry.Message -notmatch 'PO0 目标：') {
                 $message = $entry.Message -replace '。$', ''
-                $entry.Message = "$message；LAN Worker 已成功转发 $($pendingResponse.TargetCount) 个 PO0 目标。"
+                $targetSummary = Format-SelfReportTargetSuccessSummary -ResponseSummary $pendingResponse
+                if ($targetSummary) {
+                    $entry.Message = "$message；$targetSummary。"
+                }
             }
             $pendingResponse = $null
         } elseif ($pendingResponse) {

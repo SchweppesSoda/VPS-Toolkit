@@ -4,9 +4,16 @@ function Get-SelfReportResponseSummary {
     foreach ($line in (([string]$Content -replace "`r", "") -split "`n")) {
         $trimmed = $line.Trim()
         if ($trimmed -match '^OK\s+([0-9]{1,3}(?:\.[0-9]{1,3}){3});\s*targets=([0-9]+)\b') {
+            $responseIp = $matches[1]
+            $targetCount = [int]$matches[2]
+            $targetNames = @()
+            if ($trimmed -match ';\s*target_names=([^;]+)') {
+                $targetNames = @($matches[1] -split "," | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+            }
             return [pscustomobject]@{
-                Ip = $matches[1]
-                TargetCount = [int]$matches[2]
+                Ip = $responseIp
+                TargetCount = $targetCount
+                TargetNames = $targetNames
             }
         }
     }
@@ -18,7 +25,11 @@ function Format-SelfReportTargetSuccessSummary {
     if (-not $ResponseSummary) { return "" }
     $count = [int]$ResponseSummary.TargetCount
     if ($count -le 0) { return "" }
-    return ("LAN Worker 已成功转发 {0} 个 PO0 目标" -f $count)
+    $targetNames = @($ResponseSummary.TargetNames | Where-Object { $_ })
+    if ($targetNames.Count -gt 0) {
+        return ("PO0 目标：{0}" -f ($targetNames -join "、"))
+    }
+    return ("PO0 目标：{0} 个" -f $count)
 }
 
 function Invoke-SelfReport {
