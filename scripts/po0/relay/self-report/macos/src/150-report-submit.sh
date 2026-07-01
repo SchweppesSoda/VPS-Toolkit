@@ -44,6 +44,10 @@ notify_report_failure() {
 
 report_once() {
     local ip response curl_rc report_source report_identity curl_args=() http_code success_message
+    if should_skip_wifi_ssid_report; then
+        self_report_completed "$(wifi_ssid_skip_message "${WIFI_SKIP_LAST_SSID:-}")"
+        return 0
+    fi
     validate_worker_url || { self_report_incomplete "LAN Worker URL 未通过检查。"; notify_report_failure "LAN Worker URL 未通过检查。"; return 1; }
     command -v curl >/dev/null 2>&1 || {
         echo "缺少 curl，无法上报到 LAN Worker。" >&2

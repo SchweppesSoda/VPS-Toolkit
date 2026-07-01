@@ -30,6 +30,7 @@ function Get-SelfReportLogDisplayKind {
         "ERROR" { return "失败" }
         "WARN" { return "警告" }
         "INFO" { return "信息" }
+        "SKIP" { return "跳过" }
         "RESPONSE" { return "返回" }
         default {
             if ($normalized) { return $normalized }
@@ -60,7 +61,7 @@ function Convert-SelfReportLogLineForDisplay {
         $stamp = $matches["stamp"].Trim()
         $level = $matches["level"].Trim()
         $normalizedLevel = $level.ToUpperInvariant()
-        if ($normalizedLevel -notin @("OK", "ERROR", "WARN", "RESPONSE")) {
+        if ($normalizedLevel -notin @("OK", "ERROR", "WARN", "SKIP", "RESPONSE")) {
             return $null
         }
         $message = $matches["message"].Trim()
@@ -73,6 +74,7 @@ function Convert-SelfReportLogLineForDisplay {
         $responseIp = ""
         $targetNames = @()
         $message = $message -replace '^PO0 Outbound IP Report 已完成：', ''
+        $message = $message -replace '^PO0 Outbound IP Report 已跳过：', ''
         $message = $message -replace '^PO0 Outbound IP Report 未完成：', ''
         $message = $message -replace '^Self-report 已完成：', ''
         $message = $message -replace '^Self-report 未完成：', ''

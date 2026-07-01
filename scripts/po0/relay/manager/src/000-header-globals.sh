@@ -2,10 +2,10 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-nftables-relay-manager"
-SCRIPT_VERSION="2026.07.01+build.4"
+SCRIPT_VERSION="2026.07.01+build.5"
 SCRIPT_RELEASE_DATE="2026-07-01"
 # CHANGELOG_BEGIN
-# - 跟随 PO0 Release asset 批次对齐到 build.4；访问设备客户端升级后会清理默认旧 po0-self-report 残留。
+# - 跟随 PO0 Release asset 批次对齐到 build.5；本脚本无行为变化。
 # CHANGELOG_END
 CONF_DIR="${PO0_CONF_DIR:-/etc/nftables.d}"
 MAIN_CONF="/etc/nftables.conf"

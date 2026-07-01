@@ -96,7 +96,7 @@ install_cron_backend() {
         return 1
     }
     script="$(install_self)" || { self_report_incomplete "脚本落盘失败，未安装 cron。"; return 1; }
-    run_cmd="bash $(sh_quote "${script}") --config $(sh_quote "${CONFIG_FILE}")"
+    run_cmd="bash $(sh_quote "${script}") --config $(sh_quote "${CONFIG_FILE}") --scheduled-run"
     if notify_enabled; then
         run_cmd="${run_cmd} --notify"
     fi

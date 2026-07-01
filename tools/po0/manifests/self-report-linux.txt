@@ -6,6 +6,7 @@ scripts/po0/relay/self-report/linux/src/040-prompt-and-input-helpers.sh
 scripts/po0/relay/self-report/linux/src/050-config-device-defaults.sh
 scripts/po0/relay/self-report/linux/src/060-worker-url-interval-state.sh
 scripts/po0/relay/self-report/linux/src/070-outbound-ip-detection.sh
+scripts/po0/relay/self-report/linux/src/075-wifi-ssid-skip.sh
 scripts/po0/relay/self-report/linux/src/080-install-and-upgrade.sh
 scripts/po0/relay/self-report/linux/src/090-cron-schedule-management.sh
 scripts/po0/relay/self-report/linux/src/100-self-report-log-display.sh

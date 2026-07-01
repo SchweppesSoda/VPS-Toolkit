@@ -26,6 +26,10 @@ usage() {
         "  --allow-http          允许 http:// 上报；仅用于本地调试或临时旧环境。" \
         "  --notify              启用 macOS 原生通知；保存配置或安装 launchd 时会持久化。" \
         "  --no-notify           切换为静默模式；这是默认行为。" \
+        "  --skip-wifi-ssid SSID 按当前 Wi-Fi SSID 跳过上报；可重复传入，精确大小写匹配。" \
+        "  --skip-wifi-ssids LIST 按当前 Wi-Fi SSID 跳过上报；多个 SSID 用分号 ; 分隔。" \
+        "  --clear-skip-wifi-ssids 清空已保存或环境传入的 Wi-Fi SSID 跳过列表。" \
+        "  --force-report        即使当前 Wi-Fi SSID 命中跳过列表，也强制上报本次。" \
         "  --source-id ID        写入 PO0 client_ip 记录的来源 ID；默认由 hostname + machine-id/MAC 生成: ${SOURCE_ID}" \
         "  --identity ID         LAN Worker/PO0 日志里的设备或用户标签；默认使用设备名: ${IDENTITY}" \
         "  --secret SECRET       可选的 LAN Worker self-report 共享密钥。" \
@@ -107,6 +111,34 @@ parse_args() {
                 fi
                 NOTIFY_ARG="0"
                 NOTIFY="0"
+                shift
+                ;;
+            --skip-wifi-ssid)
+                append_skip_wifi_ssid "${2:-}"
+                shift 2
+                ;;
+            --skip-wifi-ssid=*)
+                append_skip_wifi_ssid "${1#--skip-wifi-ssid=}"
+                shift
+                ;;
+            --skip-wifi-ssids)
+                SKIP_WIFI_SSIDS="$(normalize_wifi_ssid_skip_list "${2:-}")"
+                shift 2
+                ;;
+            --skip-wifi-ssids=*)
+                SKIP_WIFI_SSIDS="$(normalize_wifi_ssid_skip_list "${1#--skip-wifi-ssids=}")"
+                shift
+                ;;
+            --clear-skip-wifi-ssids)
+                SKIP_WIFI_SSIDS=""
+                shift
+                ;;
+            --force-report)
+                FORCE_REPORT="1"
+                shift
+                ;;
+            --scheduled-run)
+                SCHEDULED_RUN="1"
                 shift
                 ;;
             --source-id)

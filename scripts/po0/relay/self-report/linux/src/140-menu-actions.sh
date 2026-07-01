@@ -7,6 +7,7 @@ show_current_config() {
     print_panel_row "Identity" "${IDENTITY:-未设置}"
     print_panel_row "Secret" "$(mask_secret "${SECRET}")"
     print_panel_row "HTTP 上报" "$(if http_allowed; then printf '已显式允许'; else printf '默认拒绝'; fi)"
+    print_panel_row "跳过 Wi-Fi SSID" "$(wifi_ssid_skip_list_display)"
     print_panel_row "上报间隔" "$(cron_minutes_to_seconds "${CRON_MINUTES}") 秒（安装定时上报时使用）"
     print_panel_row "定时暂停" "$(schedule_paused && printf '已暂停' || printf '未暂停')"
     print_panel_row "放行 TTL" "由 LAN Worker Self-report 目标控制，默认 43200 秒"
@@ -34,6 +35,7 @@ show_menu_dashboard() {
     print_panel_row "LAN Worker URL" "${WORKER_URL:-未设置}"
     print_panel_row "Source ID" "${SOURCE_ID:-未设置}"
     print_panel_row "Identity" "${IDENTITY:-未设置}"
+    print_panel_row "跳过 Wi-Fi SSID" "$(wifi_ssid_skip_list_display)"
     print_panel_row "定时上报" "$(cron_status_summary)"
     print_panel_row "上报间隔" "$(cron_minutes_to_seconds "${CRON_MINUTES}") 秒（安装定时上报时使用）"
 }
@@ -73,12 +75,26 @@ configure_interactive() {
     if prompt_yes_no "是否覆盖完整 IP 探测 URL 列表" "n"; then
         IP_CHECK_URLS="$(prompt_default "完整探测 URL 列表，逗号分隔" "${IP_CHECK_URLS}")"
     fi
+    SKIP_WIFI_SSIDS="$(prompt_default "跳过上报的 Wi-Fi SSID 列表（分号 ; 分隔，留空表示不跳过）" "$(normalize_wifi_ssid_skip_list "${SKIP_WIFI_SSIDS:-}")")"
+    SKIP_WIFI_SSIDS="$(normalize_wifi_ssid_skip_list "${SKIP_WIFI_SSIDS:-}")"
     save_config_file
 }
 
 run_once_interactive() {
+    local rc previous_force skip_ssid
     if ! config_complete; then
         configure_interactive || return 1
+    fi
+    skip_ssid="$(wifi_ssid_report_skip_match 2>/dev/null || true)"
+    if [[ -n "${skip_ssid}" ]] && ! force_report_enabled; then
+        if prompt_yes_no "当前 Wi-Fi SSID \"${skip_ssid}\" 在跳过列表中，是否强制上报一次" "n"; then
+            previous_force="${FORCE_REPORT:-}"
+            FORCE_REPORT="1"
+            report_once
+            rc=$?
+            FORCE_REPORT="${previous_force}"
+            return "${rc}"
+        fi
     fi
     report_once
 }

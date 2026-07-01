@@ -33,7 +33,27 @@ function Format-SelfReportTargetSuccessSummary {
 }
 
 function Invoke-SelfReport {
+    param([switch]$PromptForForceOnSkip)
     Assert-WorkerUrl
+    if (-not $script:ForceReport) {
+        $wifiState = Get-WifiSsidPolicyState
+        if ($wifiState.Enabled -and -not $wifiState.ReadSucceeded) {
+            Write-SelfReportLogLine "WARN" "Wi-Fi SSID 读取失败，按 fail-open 继续上报：$($wifiState.Error)"
+        } elseif ($wifiState.Matched) {
+            if ($PromptForForceOnSkip) {
+                Write-Host "当前 Wi-Fi SSID `"$($wifiState.MatchedSsid)`" 命中跳过上报规则。"
+                if (Read-YesNoDefault "是否强制上报一次" $false) {
+                    Write-SelfReportLogLine "INFO" "手动菜单已确认强制上报，忽略 Wi-Fi SSID 跳过规则：$($wifiState.MatchedSsid)"
+                } else {
+                    Write-SelfReportSkippedForWifiSsid -State $wifiState
+                    return
+                }
+            } else {
+                Write-SelfReportSkippedForWifiSsid -State $wifiState
+                return
+            }
+        }
+    }
     Add-Type -AssemblyName System.Web -ErrorAction SilentlyContinue
     $ip = Get-OutboundIPv4
     $builder = [System.UriBuilder]::new($script:WorkerUrl)

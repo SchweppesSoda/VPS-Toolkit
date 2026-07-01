@@ -27,6 +27,9 @@ function Load-SavedConfig {
     if (-not $PSBoundParameters.ContainsKey("IpCheckUrls") -and -not $env:PO0_OUTBOUND_IP_REPORT_IP_CHECK_URLS -and -not $env:IP_CHECK_URLS -and $cfg.IpCheckUrls) {
         $script:IpCheckUrls = @($cfg.IpCheckUrls | Where-Object { $_ })
     }
+    if (-not $script:SkipWifiSsidsExplicit -and -not $env:PO0_OUTBOUND_IP_REPORT_SKIP_WIFI_SSIDS -and $null -ne $cfg.SkipWifiSsids) {
+        $script:SkipWifiSsids = ConvertTo-WifiSsidPolicyList -Value $cfg.SkipWifiSsids
+    }
     if (-not $PSBoundParameters.ContainsKey("IntervalSeconds") -and -not $PSBoundParameters.ContainsKey("Minutes") -and -not $env:PO0_OUTBOUND_IP_REPORT_INTERVAL_SECONDS -and -not $env:PO0_SELF_REPORT_INTERVAL_SECONDS -and -not $env:INTERVAL_SECONDS -and -not $env:PO0_OUTBOUND_IP_REPORT_MINUTES -and -not $env:PO0_SELF_REPORT_MINUTES -and -not $env:MINUTES -and $cfg.IntervalSeconds) {
         $script:IntervalSeconds = [int]$cfg.IntervalSeconds
     } elseif (-not $PSBoundParameters.ContainsKey("Minutes") -and -not $env:PO0_OUTBOUND_IP_REPORT_MINUTES -and -not $env:PO0_SELF_REPORT_MINUTES -and -not $env:MINUTES -and $cfg.Minutes) {
@@ -77,6 +80,7 @@ function Save-ClientConfig {
         IntervalSeconds = [int](Get-IntervalSeconds)
         IpCheckUrl = $script:IpCheckUrl
         IpCheckUrls = @($script:IpCheckUrls)
+        SkipWifiSsids = @($script:SkipWifiSsids)
         LogPath = $script:LogPath
         SchedulePaused = [bool]$script:SchedulePaused
         Notify = [bool]$script:TaskNotify
@@ -116,6 +120,9 @@ self-report 接收服务。访问设备不直接连接 PO0。
   -Secret SECRET      可选的 LAN Worker self-report 共享密钥。
   -IpCheckUrl URL     第一个公网 IPv4 探测地址。默认: $($script:IpCheckUrl)
   -IpCheckUrls URL[]  覆盖完整探测地址列表。
+  -SkipWifiSsids LIST 当前 Wi-Fi SSID 命中时跳过上报；分号分隔，trim 后大小写敏感精确匹配。
+                      也可用 PO0_OUTBOUND_IP_REPORT_SKIP_WIFI_SSIDS 或 JSON SkipWifiSsids 配置。
+  -ForceReport        忽略 Wi-Fi SSID 跳过规则，强制探测并上报一次。
   -InstallTask        安装 / 更新 Windows 计划任务。
   -PauseSchedule      暂停计划任务；手动立即上报仍可用。
   -ResumeSchedule     恢复计划任务。

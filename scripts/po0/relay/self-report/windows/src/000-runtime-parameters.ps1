@@ -6,6 +6,8 @@ param(
     [string]$Secret = $(if ($env:PO0_OUTBOUND_IP_REPORT_SECRET) { $env:PO0_OUTBOUND_IP_REPORT_SECRET } elseif ($env:PO0_SELF_REPORT_SECRET) { $env:PO0_SELF_REPORT_SECRET } else { $env:SELF_REPORT_SECRET }),
     [string]$IpCheckUrl = $(if ($env:PO0_OUTBOUND_IP_REPORT_IP_CHECK_URL) { $env:PO0_OUTBOUND_IP_REPORT_IP_CHECK_URL } elseif ($env:IP_CHECK_URL) { $env:IP_CHECK_URL } else { "https://ip9.com.cn/get" }),
     [string[]]$IpCheckUrls = @(),
+    [string[]]$SkipWifiSsids = @(),
+    [switch]$ForceReport,
     [switch]$InstallTask,
     [switch]$RunOnce,
     [int]$Minutes = $(if ($env:PO0_OUTBOUND_IP_REPORT_MINUTES) { [int]$env:PO0_OUTBOUND_IP_REPORT_MINUTES } elseif ($env:PO0_SELF_REPORT_MINUTES) { [int]$env:PO0_SELF_REPORT_MINUTES } elseif ($env:MINUTES) { [int]$env:MINUTES } else { 60 }),
@@ -29,12 +31,11 @@ $ErrorActionPreference = "Stop"
 $ReleaseDownloadBaseUrl = $(if ($env:PO0_RELEASE_DOWNLOAD_BASE_URL) { $env:PO0_RELEASE_DOWNLOAD_BASE_URL } else { "https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download" })
 $DownloadUrl = $(if ($env:PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL) { $env:PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL } elseif ($env:PO0_SELF_REPORT_PS_DOWNLOAD_URL) { $env:PO0_SELF_REPORT_PS_DOWNLOAD_URL } else { "$ReleaseDownloadBaseUrl/po0-outbound-ip-report.ps1" })
 $ScriptName = "po0-outbound-ip-report"
-$ScriptVersion = "2026.07.01+build.4"
+$ScriptVersion = "2026.07.01+build.5"
 $ScriptReleaseDate = "2026-07-01"
 # CHANGELOG_BEGIN
-# - 更新和旧路径自愈后会迁移默认旧配置、日志、IP 探测状态和计划任务，并删除旧 po0-self-report.ps1 / VBS 默认残留。
-# - 旧计划任务迁移会保留通知、暂停状态、Settings / Principal；删除旧任务失败时会先禁用旧任务，避免双重上报。
-# - 显式 -ConfigPath / -LogPath 自定义路径在迁移和卸载清理时不会被误删。
+# - 新增 SSID 本地跳过上报配置：命中本机当前 SSID 时只在客户端本地记录跳过摘要，不上传 SSID，也不改变 LAN Worker / PO0 协议。
+# - SSID 读取失败会继续正常上报；手动上报命中 SSID 跳过规则时会询问是否强制继续。
 # CHANGELOG_END
 $PanelValueColumn = 24
 $MenuRightColumn = 46

@@ -78,6 +78,7 @@ write_launchd_plist() {
         <string>$(xml_escape "${script}")</string>
         <string>--config</string>
         <string>$(xml_escape "${CONFIG_FILE}")</string>
+        <string>--scheduled-run</string>
 EOF
         if notify_enabled; then
             printf '        <string>--notify</string>\n'
@@ -137,6 +138,11 @@ launchd_disabled_from_plist() {
     printf '%s\n' "${disabled:-0}"
 }
 
+launchd_plist_has_scheduled_run() {
+    local plist="$1"
+    grep -q '<string>--scheduled-run</string>' "${plist}" 2>/dev/null
+}
+
 read_launchd_status_snapshot() {
     local plist interval_seconds interval="" config_paused disabled state consistency="ok" legacy=0
     launchd_supported || return 1
@@ -163,6 +169,14 @@ read_launchd_status_snapshot() {
     elif [[ "${state}" == "paused" && "${config_paused}" != "1" && "${disabled}" == "1" ]]; then
         consistency="drift"
     fi
-    [[ "${legacy}" == "1" ]] && consistency="legacy"
+    if [[ "${legacy}" == "1" ]]; then
+        consistency="legacy"
+    elif ! launchd_plist_has_scheduled_run "${plist}"; then
+        if [[ "${consistency}" == "ok" ]]; then
+            consistency="stale-scheduled-run"
+        else
+            consistency="${consistency},stale-scheduled-run"
+        fi
+    fi
     printf '%s|%s|%s|launchd: %s|%s\n' "${state}" "${interval}" "${config_paused}" "${plist}" "${consistency}"
 }

@@ -10,6 +10,9 @@ if (-not $OutputDir) {
 }
 
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.07.01+build.5" }
+$ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-07-01" }
+$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.07.01.5" }
 
 function ConvertTo-RepoRelativePath {
     param([string]$Path)
@@ -274,6 +277,107 @@ function Test-LegacyNameAllowlist {
     }
 }
 
+function Test-NoNewLegacySsidAliases {
+    foreach ($asset in @(
+        "po0-outbound-ip-report.sh",
+        "po0-outbound-ip-report-macos.sh",
+        "po0-outbound-ip-report.ps1"
+    )) {
+        $path = Join-Path $OutputDir $asset
+        $raw = Get-Content -LiteralPath $path -Raw -Encoding UTF8
+        if ($raw -match 'PO0_SELF_REPORT_[A-Z0-9_]*SSID|SELF_REPORT_[A-Z0-9_]*SSID') {
+            throw "$asset defines a new legacy self-report SSID alias; use PO0_OUTBOUND_IP_REPORT_* only."
+        }
+    }
+}
+
+function Test-UnixSsidGuard {
+    param(
+        [string]$FileName,
+        [string]$Platform
+    )
+    $path = Join-Path $OutputDir $FileName
+    $raw = Get-Content -LiteralPath $path -Raw -Encoding UTF8
+    if ($raw -notmatch 'PO0_OUTBOUND_IP_REPORT_[A-Z0-9_]*SSID') {
+        throw "$Platform asset lacks canonical SSID environment configuration."
+    }
+    if ($raw -notmatch '--[a-z0-9-]*ssid[a-z0-9-]*') {
+        throw "$Platform asset lacks SSID CLI configuration."
+    }
+    if ($raw -notmatch '(?im)(^|[^A-Z0-9_])([A-Z0-9_]*SSID[A-Z0-9_]*)=') {
+        throw "$Platform asset lacks persisted SSID configuration variable."
+    }
+    if ($raw -notmatch '(?is)(ssid.{0,160}(skip|skipped|跳过)|(skip|skipped|跳过).{0,160}ssid)') {
+        throw "$Platform asset lacks SSID skip result wording."
+    }
+    if ($raw -notmatch '(?is)(ssid.{0,160}(summary|log|摘要|日志)|(summary|log|摘要|日志).{0,160}ssid)') {
+        throw "$Platform asset lacks SSID skip log/status summary wording."
+    }
+    if ($raw -notmatch '(?is)(ssid.{0,160}(continue|continued|fail|failed|failure|error|unavailable|读取失败|继续上报)|(continue|continued|fail|failed|failure|error|unavailable|读取失败|继续上报).{0,160}ssid)') {
+        throw "$Platform asset does not state that SSID read failure continues reporting."
+    }
+    $fn = [regex]::Match($raw, '(?ms)^report_once\(\) \{.*?^}')
+    if (-not $fn.Success) {
+        throw "$Platform report_once function was not found."
+    }
+    $guard = [regex]::Match($fn.Value, '(?is)ssid.{0,160}(skip|guard|allow|match|local|跳过|匹配|本地)|(skip|guard|allow|match|local|跳过|匹配|本地).{0,160}ssid')
+    $http = [regex]::Match($fn.Value, 'curl "\$\{curl_args\[@\]\}"')
+    if (-not $guard.Success) {
+        throw "$Platform asset lacks an SSID guard inside report_once."
+    }
+    if (-not $http.Success) {
+        throw "$Platform asset HTTP submit point was not found."
+    }
+    if ($guard.Index -ge $http.Index) {
+        throw "$Platform asset SSID guard must run before HTTP report submission."
+    }
+}
+
+function Test-WindowsSsidGuard {
+    $path = Join-Path $OutputDir "po0-outbound-ip-report.ps1"
+    $raw = Get-Content -LiteralPath $path -Raw -Encoding UTF8
+    if ($raw -notmatch 'PO0_OUTBOUND_IP_REPORT_[A-Z0-9_]*SSID') {
+        throw "Windows asset lacks canonical SSID environment configuration."
+    }
+    if ($raw -notmatch '(?im)^\s*\[[^\r\n]+\]\s*\$[A-Za-z0-9_]*Ssid[A-Za-z0-9_]*') {
+        throw "Windows asset lacks SSID CLI parameter configuration."
+    }
+    if ($raw -notmatch '(?i)(\$cfg\.[A-Za-z0-9_]*Ssid[A-Za-z0-9_]*|[A-Za-z0-9_]*Ssid[A-Za-z0-9_]*\s*=)') {
+        throw "Windows asset lacks persisted SSID configuration."
+    }
+    if ($raw -notmatch '(?is)(ssid.{0,160}(skip|skipped|跳过)|(skip|skipped|跳过).{0,160}ssid)') {
+        throw "Windows asset lacks SSID skip result wording."
+    }
+    if ($raw -notmatch '(?is)(ssid.{0,160}(summary|log|摘要|日志)|(summary|log|摘要|日志).{0,160}ssid)') {
+        throw "Windows asset lacks SSID skip log/status summary wording."
+    }
+    if ($raw -notmatch '(?is)(ssid.{0,160}(continue|continued|fail|failed|failure|error|unavailable|读取失败|继续上报)|(continue|continued|fail|failed|failure|error|unavailable|读取失败|继续上报).{0,160}ssid)') {
+        throw "Windows asset does not state that SSID read failure continues reporting."
+    }
+    $fn = [regex]::Match($raw, '(?ms)^function Invoke-SelfReport \{.*?^}')
+    if (-not $fn.Success) {
+        throw "Windows Invoke-SelfReport function was not found."
+    }
+    $guard = [regex]::Match($fn.Value, '(?is)ssid.{0,160}(skip|guard|allow|match|local|跳过|匹配|本地)|(skip|guard|allow|match|local|跳过|匹配|本地).{0,160}ssid')
+    $http = [regex]::Match($fn.Value, 'Invoke-WebRequest')
+    if (-not $guard.Success) {
+        throw "Windows asset lacks an SSID guard inside Invoke-SelfReport."
+    }
+    if (-not $http.Success) {
+        throw "Windows asset HTTP submit point was not found."
+    }
+    if ($guard.Index -ge $http.Index) {
+        throw "Windows asset SSID guard must run before HTTP report submission."
+    }
+}
+
+function Test-OutboundIpReportSsidGuards {
+    Test-UnixSsidGuard -FileName "po0-outbound-ip-report.sh" -Platform "Linux/OpenWrt"
+    Test-UnixSsidGuard -FileName "po0-outbound-ip-report-macos.sh" -Platform "macOS"
+    Test-WindowsSsidGuard
+    Test-NoNewLegacySsidAliases
+}
+
 function Get-AssetVersion {
     param([string]$FileName)
     $raw = Get-Content -LiteralPath (Join-Path $OutputDir $FileName) -Raw -Encoding UTF8
@@ -315,16 +419,14 @@ function Test-VersionsConsistent {
         "po0-outbound-ip-report-macos.sh",
         "po0-outbound-ip-report.ps1"
     )
-    $expected = $null
+    $expected = $ExpectedPo0Version
     foreach ($asset in $assets) {
         $version = Get-AssetVersion -FileName $asset
-        if (-not $expected) {
-            $expected = $version
-        } elseif ($version -ne $expected) {
+        if ($version -ne $expected) {
             throw "$asset version $version does not match $expected"
         }
         $date = Get-AssetReleaseDate -FileName $asset
-        if ($date -ne "2026-07-01") {
+        if ($date -ne $ExpectedPo0ReleaseDate) {
             throw "$asset release date $date is unexpected"
         }
         Test-AssetChangelogNotEmpty -FileName $asset
@@ -372,6 +474,9 @@ function Test-AssetInventory {
 function Test-VersionsMatchTag {
     $tag = $env:GITHUB_REF_NAME
     if (-not $tag) { return }
+    if ($tag -ne $ExpectedPo0ReleaseTag) {
+        throw "GITHUB_REF_NAME $tag does not match expected PO0 release tag $ExpectedPo0ReleaseTag"
+    }
     $match = [regex]::Match($tag, '^po0-v([0-9]{4}\.[0-9]{2}\.[0-9]{2})\.([0-9]+)$')
     if (-not $match.Success) {
         throw "GITHUB_REF_NAME is set but is not a PO0 release tag: $tag"
@@ -436,6 +541,7 @@ Test-UnixOutboundIpReportCanonicalPath -FileName "po0-outbound-ip-report.sh" -Pl
 Test-UnixOutboundIpReportCanonicalPath -FileName "po0-outbound-ip-report-macos.sh" -Platform "macOS"
 Test-MacOsLaunchdCanonicalPath
 Test-LegacyNameAllowlist
+Test-OutboundIpReportSsidGuards
 Test-VersionsConsistent
 Test-VersionsMatchTag
 

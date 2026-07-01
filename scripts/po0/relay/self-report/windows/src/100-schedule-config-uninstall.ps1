@@ -54,6 +54,8 @@ function Show-ClientConfig {
     Write-PanelRow "Secret" (Get-MaskedSecret $script:Secret)
     Write-PanelRow "HTTP 上报" $(if ($script:AllowHttp) { "已显式允许" } else { "默认拒绝" })
     Write-PanelRow "上报间隔" ("每 {0} 秒（安装定时上报时使用）" -f (Get-IntervalSeconds))
+    Write-PanelRow "跳过 Wi-Fi SSID" (Format-WifiSsidPolicyList -Ssids $script:SkipWifiSsids)
+    Write-PanelRow "当前 Wi-Fi SSID" (Format-CurrentWifiSsidStatus)
     Write-NotifyStatusRows
     Write-PanelRow "定时暂停" $(if ($script:SchedulePaused) { "已暂停" } else { "未暂停" })
     Write-PanelRow "计划任务" (Get-ScheduledReporterSummary)
@@ -83,6 +85,8 @@ function Show-ClientDashboard {
     Write-PanelRow "Source ID" $script:SourceId
     Write-PanelRow "Identity" $script:Identity
     Write-PanelRow "运行日志" (Get-DefaultLogPath)
+    Write-PanelRow "跳过 Wi-Fi SSID" (Format-WifiSsidPolicyList -Ssids $script:SkipWifiSsids)
+    Write-PanelRow "当前 Wi-Fi SSID" (Format-CurrentWifiSsidStatus)
     Write-NotifyStatusRows
     Write-PanelRow "计划任务" (Get-ScheduledReporterSummary)
     Write-PanelRow "上报间隔" ("每 {0} 秒（安装计划任务时使用）" -f (Get-IntervalSeconds))
@@ -115,6 +119,7 @@ function Set-ClientConfigInteractive {
             $script:IpCheckUrls = @()
         }
     }
+    Read-WifiSsidPolicySetting
     Save-ClientConfig
 }
 
@@ -133,6 +138,8 @@ function Show-ScheduledReporter {
     Write-PanelSection "PO0 Outbound IP Report 定时上报"
     Write-PanelRow "配置文件" $script:ConfigPath
     Write-PanelRow "暂停状态" $(if ($script:SchedulePaused) { "已暂停（手动立即上报仍可用）" } else { "未暂停" })
+    Write-PanelRow "跳过 Wi-Fi SSID" (Format-WifiSsidPolicyList -Ssids $script:SkipWifiSsids)
+    Write-PanelRow "当前 Wi-Fi SSID" (Format-CurrentWifiSsidStatus)
     try {
         $record = Get-ScheduledReporterTaskRecord
         $task = $record.Task

@@ -29,6 +29,10 @@ usage() {
         "  --secret SECRET       可选的 LAN Worker self-report 共享密钥。" \
         "  --ip-check-url URL    第一个公网 IPv4 探测地址。默认: ${IP_CHECK_URL}" \
         "  --ip-check-urls CSV   覆盖完整探测地址列表，多个 URL 用逗号分隔。" \
+        "  --skip-wifi-ssid SSID 按 Wi-Fi SSID 跳过上报；可重复，匹配大小写敏感。" \
+        "  --skip-wifi-ssids LIST 覆盖跳过上报的 Wi-Fi SSID 列表，多个 SSID 用分号 ; 分隔。" \
+        "  --clear-skip-wifi-ssids 清空已保存/已加载的 Wi-Fi SSID 跳过列表。" \
+        "  --force-report        忽略 Wi-Fi SSID 跳过列表，强制执行本次上报。" \
         "  --install-cron [N]    安装 / 更新 cron；N 为兼容分钟参数，不带 N 时默认 3600 秒。" \
         "  --pause-schedule      暂停本脚本管理的定时上报；手动立即上报仍可用。" \
         "  --resume-schedule     恢复本脚本管理的定时上报。" \
@@ -110,6 +114,30 @@ parse_args() {
                 IP_CHECK_URLS="${2:-}"
                 shift 2
                 ;;
+            --skip-wifi-ssid)
+                append_wifi_ssid_skip_value "${2:-}"
+                shift 2
+                ;;
+            --skip-wifi-ssid=*)
+                append_wifi_ssid_skip_value "${1#--skip-wifi-ssid=}"
+                shift
+                ;;
+            --skip-wifi-ssids)
+                SKIP_WIFI_SSIDS="${2:-}"
+                shift 2
+                ;;
+            --skip-wifi-ssids=*)
+                SKIP_WIFI_SSIDS="${1#--skip-wifi-ssids=}"
+                shift
+                ;;
+            --clear-skip-wifi-ssids)
+                SKIP_WIFI_SSIDS=""
+                shift
+                ;;
+            --force-report)
+                FORCE_REPORT="1"
+                shift
+                ;;
             --install-path)
                 INSTALL_PATH="${2:-}"
                 INSTALL_PATH_EXPLICIT="1"
@@ -169,6 +197,7 @@ load_saved_config
 apply_env_overrides
 apply_device_defaults
 parse_args "$@"
+SKIP_WIFI_SSIDS="$(normalize_wifi_ssid_skip_list "${SKIP_WIFI_SSIDS:-}")"
 normalize_legacy_default_install_path
 if [[ "${SHOW_VERSION}" != "1" && "${SHOW_CHANGELOG}" != "1" && "${UPGRADE_SELF}" != "1" ]]; then
     apply_interval_seconds_override || exit 1

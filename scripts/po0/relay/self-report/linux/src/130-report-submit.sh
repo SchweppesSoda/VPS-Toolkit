@@ -1,6 +1,9 @@
 report_once() {
     local ip response curl_rc report_source report_identity curl_args=() http_code success_message
     validate_worker_url || { self_report_incomplete "LAN Worker URL 未通过检查。"; return 1; }
+    if skip_report_for_wifi_ssid_if_needed; then
+        return 0
+    fi
     command -v curl >/dev/null 2>&1 || {
         echo "缺少 curl，无法上报到 LAN Worker。" >&2
         self_report_incomplete "缺少 curl，无法发起上报。"

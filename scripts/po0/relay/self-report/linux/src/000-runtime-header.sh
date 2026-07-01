@@ -4,11 +4,11 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_OUTBOUND_IP_REPORT_DOWNLOAD_URL:-${PO0_SELF_REPORT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report.sh}}"
 SCRIPT_NAME="po0-outbound-ip-report"
-SCRIPT_VERSION="2026.07.01+build.4"
+SCRIPT_VERSION="2026.07.01+build.5"
 SCRIPT_RELEASE_DATE="2026-07-01"
 # CHANGELOG_BEGIN
-# - 更新和旧路径自愈后会迁移默认旧配置、日志、IP 探测状态和 cron，并删除默认 po0-self-report 命令残留。
-# - 旧 po0-self-report 环境变量和 CLI alias 继续兼容；显式自定义配置 / 安装路径不会被误删。
+# - 新增 SSID 本地跳过上报配置：命中本机当前 SSID 时只在客户端本地记录跳过摘要，不上传 SSID，也不改变 LAN Worker / PO0 协议。
+# - SSID 读取失败会继续正常上报；手动上报命中 SSID 跳过规则时会询问是否强制继续。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24

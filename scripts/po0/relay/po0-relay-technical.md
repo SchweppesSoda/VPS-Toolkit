@@ -22,7 +22,7 @@
 bash nftables-relay-manager.sh
 ```
 
-脚本版本统一采用 `YYYY.MM.DD+build.N` 混合版本格式；正式 PO0 Release asset 的五个脚本版本必须与 release tag 尾号一致，例如 `po0-v2026.06.25.8` 对应 `2026.06.25+build.8`。PO0 manager 的 `--version` 会像 LAN Worker 一样单独显示 build 构建标识。
+脚本版本统一采用 `YYYY.MM.DD+build.N` 混合版本格式；正式 PO0 Release asset 的五个脚本版本必须与 release tag 尾号一致，例如 `po0-v2026.07.01.5` 对应 `2026.07.01+build.5`。PO0 manager 的 `--version` 会像 LAN Worker 一样单独显示 build 构建标识。
 
 常见操作：
 
@@ -132,7 +132,7 @@ LAN Worker / 外部脚本已经通过 --ddns-report 上报
 
 PO0 nftables 五个可执行脚本的正式发布渠道是 GitHub Release asset。旧 manager、LAN Worker 和 self-report raw URLs are disabled，不再作为兼容入口；新安装、自更新和 LAN Worker manager mirror 都应使用 Release asset 或显式 override URL。Egern canonical raw path、Egern legacy compatibility path、离线 iplist 构建器、外部 ipdb/iplist 数据源和未纳入本阶段的通用 VPS 工具 raw URL 是白名单。
 
-`tools/po0/build-po0-assets.ps1` / `.sh` 按 `tools/po0/manifests/*.txt` 拼接 manager、LAN Worker、Linux self-report、macOS self-report 和 Windows PowerShell self-report 五个 release staging 单文件。构建必须显式控制编码和 LF：Bash/manifest/checksum 使用 UTF-8 no BOM，含中文的 Windows PowerShell `.ps1` 使用 UTF-8 BOM，避免 Windows PowerShell 5 按系统代码页解析失败。Release tag `po0-vYYYY.MM.DD.N` 上传五个脚本和 `checksums.txt`。Release workflow 先创建 draft，上传完整 asset set，下载回校验 checksum 后再 publish/latest；已存在 draft 可补齐缺失 asset，但已发布 release 只校验不修改，缺失或 checksum 不一致都必须打新 tag。CI/release 以 `tools/po0/check-po0-assets.sh` 为 authority；`tools/po0/check-po0-assets.ps1` 是 Windows 本地等价验证入口。
+`tools/po0/build-po0-assets.ps1` / `.sh` 按 `tools/po0/manifests/*.txt` 拼接 manager、LAN Worker、Linux self-report、macOS self-report 和 Windows PowerShell self-report 五个 release staging 单文件。构建必须显式控制编码和 LF：Bash/manifest/checksum 使用 UTF-8 no BOM，含中文的 Windows PowerShell `.ps1` 使用 UTF-8 BOM，避免 Windows PowerShell 5 按系统代码页解析失败。Release tag `po0-vYYYY.MM.DD.N` 上传五个脚本和 `checksums.txt`。Release workflow 先创建 draft，上传完整 asset set，下载回校验 checksum 后再 publish/latest；已存在 draft 可补齐缺失 asset，但已发布 release 只校验不修改，缺失或 checksum 不一致都必须打新 tag。CI/release 以 `tools/po0/check-po0-assets.sh` 为 authority；`tools/po0/check-po0-assets.ps1` 是 Windows 本地等价验证入口。两个检查入口都会确认本批次五个 asset 版本与预期 tag 对齐，并对三端 PO0 Outbound IP Report asset 做 SSID 本地跳过 release gate：必须有 canonical `PO0_OUTBOUND_IP_REPORT_*SSID` 环境入口、CLI/配置入口、HTTP 上报前 guard、跳过日志摘要，并禁止新增 `PO0_SELF_REPORT_*SSID` 或 `SELF_REPORT_*SSID` legacy alias。
 ## 1. 定位与边界
 
 `nftables-relay-manager.sh` 是面向 PO0 或其它专用中转机场景的交互式 Bash 管理脚本。它集中管理：
@@ -828,6 +828,8 @@ $client=Join-Path $env:LOCALAPPDATA 'PO0\po0-outbound-ip-report.ps1'; powershell
 ```
 
 三个访问设备客户端都会把裸域名自动规范化为 HTTPS `/report`，并默认拒绝 `http://`；仅本地调试或临时旧环境才显式使用 `--allow-http` / `-AllowHttp`。Linux/OpenWrt/macOS 的配置文件优先级是 `--config`、`PO0_OUTBOUND_IP_REPORT_CONFIG`、legacy `PO0_SELF_REPORT_CONFIG` / `SELF_REPORT_CONFIG`、已保存配置、root 的 `/etc/po0-outbound-ip-report/settings.env`、`$XDG_CONFIG_HOME/po0-outbound-ip-report/settings.env`、`$HOME/.config/po0-outbound-ip-report/settings.env`、最后 `./po0-outbound-ip-report.env`；旧 `po0-self-report` 配置路径只作 fallback，保存时写入新路径。Windows 默认配置文件普通用户为 `%LOCALAPPDATA%\PO0\outbound-ip-report.json`，管理员为 `%ProgramData%\PO0\outbound-ip-report.json`；旧 `self-report.json` 只作 copy-forward 迁移来源。配置文件会明文保存 self-report secret，请只放在可信设备上。
+
+SSID 跳过是访问设备客户端本地 guard，不属于 LAN Worker 或 PO0 协议。Linux/OpenWrt/macOS 的 CLI 使用 `--skip-wifi-ssid`、`--skip-wifi-ssids`、`--clear-skip-wifi-ssids` 和 `--force-report`，Windows 使用 `-SkipWifiSsids` 和 `-ForceReport`，canonical 环境变量使用 `PO0_OUTBOUND_IP_REPORT_SKIP_WIFI_SSIDS`；保存配置时 Linux/OpenWrt/macOS 写入 `SKIP_WIFI_SSIDS`，Windows 写入 `SkipWifiSsids`。列表用英文分号 `;` 分隔，解析时 trim 每一项并丢弃空项，匹配当前 SSID 时只做精确字符串比较，不支持通配符、正则、大小写折叠或子串命中。命中后客户端在调用公网 IPv4 探测和 HTTP `/report` 前结束本次自动上报，只写本地跳过状态和日志摘要；不会向 LAN Worker 上传 SSID、命中项、跳过原因或任何新 query/header，因此 LAN Worker `/report`、`--client-ip-report` 和 PO0 `entries.tsv` 数据模型都不变。读取当前 SSID 失败、设备没有 Wi-Fi、平台命令不可用或权限不足时，客户端继续正常上报，避免因为本地探测能力缺失导致动态白名单过期。交互式手动运行命中跳过规则时先询问是否强制继续；定时任务 / launchd / Task Scheduler 命中时不阻塞、不询问，只写跳过摘要。
 
 命名迁移只处理脚本可确定的默认 legacy 路径，不做全盘扫描。Linux/OpenWrt/macOS 更新、自愈或安装定时上报时会迁移默认旧配置、旧 `/tmp/po0-self-report.log`、旧 IP 探测 state，并移除默认旧 `po0-self-report` 命令；cron/launchd 会从旧 marker / label 迁到 `PO0_OUTBOUND_IP_REPORT_*` / `fr.schweppes.po0-outbound-ip-report`，macOS 安装 launchd 前会先清旧 cron，清理失败则不加载新 launchd，避免双重上报。Windows 更新、自愈或安装计划任务时会迁移默认旧配置、日志、state 和旧计划任务；新任务注册成功后才删除旧任务，删除失败时先禁用旧任务并报错。显式 `--config` / `-ConfigPath`、`--install-path`、`-LogPath` 等自定义路径按用户自定义处理，不在自动 legacy 清理中删除。
 

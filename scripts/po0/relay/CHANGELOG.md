@@ -6,6 +6,10 @@
 
 ## po0-nftables-relay-manager
 
+### 2026.07.01+build.5
+
+- 跟随 PO0 Release asset 批次对齐到 `po0-v2026.07.01.5`；本脚本无行为变化。
+
 ### 2026.07.01+build.4
 
 - 跟随 PO0 Release asset 批次对齐到 `po0-v2026.07.01.4`；访问设备客户端更新后会迁移并清理默认旧 `po0-self-report*` 残留。
@@ -117,6 +121,10 @@
 - 状态面板和资源任务创建计划摘要增加彩色状态提示。
 
 ## po0-lan-worker-client
+
+### 2026.07.01+build.5
+
+- 跟随 PO0 Release asset 批次对齐到 `po0-v2026.07.01.5`；LAN Worker `/report` 协议保持兼容，本脚本无行为变化。
 
 ### 2026.07.01+build.4
 
@@ -231,6 +239,11 @@
 - 状态页 / Widget 优先复用 IP9、163、126、myip.ipip 等 IP 查询接口返回的归属地 / 运营商信息，拿不到时才额外查询。
 
 ## po0-outbound-ip-report（Linux/OpenWrt）
+
+### 2026.07.01+build.5
+
+- 新增 SSID 本地跳过上报配置；命中当前 SSID 时只写本地跳过日志摘要，不上传 SSID，也不改变 LAN Worker `/report` 或 PO0 协议。
+- SSID 列表用英文分号分隔并做精确匹配；读取当前 SSID 失败时继续上报；手动运行命中跳过规则时询问是否强制继续。
 
 ### 2026.07.01+build.4
 
@@ -357,6 +370,11 @@
 
 ## po0-outbound-ip-report（macOS）
 
+### 2026.07.01+build.5
+
+- 新增 SSID 本地跳过上报配置；命中当前 SSID 时只写本地跳过日志摘要，不上传 SSID，也不改变 LAN Worker `/report` 或 PO0 协议。
+- SSID 列表用英文分号分隔并做精确匹配；读取当前 SSID 失败时继续上报；手动运行命中跳过规则时询问是否强制继续。
+
 ### 2026.07.01+build.4
 
 - 更新和旧路径自愈后会迁移默认旧配置、旧日志、旧 IP 探测状态、旧 launchd / cron，并删除默认旧 `po0-self-report` 命令残留。
@@ -416,6 +434,11 @@
 - 支持 `--save-config --menu` 首次保存默认配置后打开菜单，并提供 `--install-launchd` 别名。
 
 ## po0-outbound-ip-report（Windows PowerShell）
+
+### 2026.07.01+build.5
+
+- 新增 SSID 本地跳过上报配置；命中当前 SSID 时只写本地跳过日志摘要，不上传 SSID，也不改变 LAN Worker `/report` 或 PO0 协议。
+- SSID 列表用英文分号分隔并做精确匹配；读取当前 SSID 失败时继续上报；手动运行命中跳过规则时询问是否强制继续。
 
 ### 2026.07.01+build.4
 

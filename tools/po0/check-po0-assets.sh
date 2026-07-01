@@ -3,6 +3,9 @@ set -euo pipefail
 
 repo_root="$(cd "$(git rev-parse --show-toplevel)" && pwd -P)"
 asset_dir="${1:-${repo_root}/.tmp/po0-check-assets}"
+expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.07.01+build.5}"
+expected_po0_release_date="${PO0_EXPECTED_RELEASE_DATE:-2026-07-01}"
+expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.07.01.5}"
 
 manifest_entries() {
     local manifest="$1"
@@ -209,6 +212,95 @@ check_legacy_name_allowlist() {
     done
 }
 
+check_no_new_legacy_ssid_aliases() {
+    local asset
+    for asset in "${asset_dir}/po0-outbound-ip-report.sh" "${asset_dir}/po0-outbound-ip-report-macos.sh" "${asset_dir}/po0-outbound-ip-report.ps1"; do
+        if grep -Eq 'PO0_SELF_REPORT_[A-Z0-9_]*SSID|SELF_REPORT_[A-Z0-9_]*SSID' "${asset}"; then
+            printf '%s defines a new legacy self-report SSID alias; use PO0_OUTBOUND_IP_REPORT_* only.\n' "${asset##*/}" >&2
+            exit 1
+        fi
+    done
+}
+
+check_unix_ssid_guard() {
+    local asset="$1" platform="$2" guard_line http_line
+    grep -Eiq 'PO0_OUTBOUND_IP_REPORT_[A-Z0-9_]*SSID' "${asset}" || {
+        printf '%s asset lacks canonical SSID environment configuration.\n' "${platform}" >&2
+        exit 1
+    }
+    grep -Eiq -- '--[a-z0-9-]*ssid[a-z0-9-]*' "${asset}" || {
+        printf '%s asset lacks SSID CLI configuration.\n' "${platform}" >&2
+        exit 1
+    }
+    grep -Eiq '(^|[^A-Z0-9_])([A-Z0-9_]*SSID[A-Z0-9_]*)=' "${asset}" || {
+        printf '%s asset lacks persisted SSID configuration variable.\n' "${platform}" >&2
+        exit 1
+    }
+    grep -Eiq 'ssid.*(skip|skipped|跳过)|(skip|skipped|跳过).*ssid' "${asset}" || {
+        printf '%s asset lacks SSID skip result wording.\n' "${platform}" >&2
+        exit 1
+    }
+    grep -Eiq 'ssid.*(summary|log|摘要|日志)|(summary|log|摘要|日志).*ssid' "${asset}" || {
+        printf '%s asset lacks SSID skip log/status summary wording.\n' "${platform}" >&2
+        exit 1
+    }
+    grep -Eiq 'ssid.*(continue|continued|fail|failed|failure|error|unavailable|读取失败|读取.*失败|继续上报)|(continue|continued|fail|failed|failure|error|unavailable|读取失败|继续上报).*ssid' "${asset}" || {
+        printf '%s asset does not state that SSID read failure continues reporting.\n' "${platform}" >&2
+        exit 1
+    }
+    guard_line="$(
+        awk '
+            /^report_once\(\)/ {in_fn=1}
+            in_fn && tolower($0) ~ /ssid/ && (tolower($0) ~ /skip|guard|allow|match|local/ || $0 ~ /跳过|匹配|本地/) {print NR; exit}
+            in_fn && /^}/ {in_fn=0}
+        ' "${asset}"
+    )"
+    http_line="$(
+        awk '
+            /^report_once\(\)/ {in_fn=1}
+            in_fn && /curl "\$\{curl_args\[@\]\}"/ {print NR; exit}
+            in_fn && /^}/ {in_fn=0}
+        ' "${asset}"
+    )"
+    [[ -n "${guard_line}" ]] || { printf '%s asset lacks an SSID guard inside report_once.\n' "${platform}" >&2; exit 1; }
+    [[ -n "${http_line}" ]] || { printf '%s asset HTTP submit point was not found.\n' "${platform}" >&2; exit 1; }
+    if (( guard_line >= http_line )); then
+        printf '%s asset SSID guard must run before HTTP report submission.\n' "${platform}" >&2
+        exit 1
+    fi
+}
+
+check_windows_ssid_guard() {
+    local asset="${asset_dir}/po0-outbound-ip-report.ps1"
+    pwsh -NoProfile -Command "
+\$raw = Get-Content -LiteralPath '${asset}' -Raw -Encoding UTF8
+if (\$raw -notmatch 'PO0_OUTBOUND_IP_REPORT_[A-Z0-9_]*SSID') { throw 'Windows asset lacks canonical SSID environment configuration.' }
+if (\$raw -notmatch '(?im)^\s*\[[^\r\n]+\]\s*\\\$[A-Za-z0-9_]*Ssid[A-Za-z0-9_]*') { throw 'Windows asset lacks SSID CLI parameter configuration.' }
+if (\$raw -notmatch '(?i)(\\\$cfg\.[A-Za-z0-9_]*Ssid[A-Za-z0-9_]*|[A-Za-z0-9_]*Ssid[A-Za-z0-9_]*\s*=)') { throw 'Windows asset lacks persisted SSID configuration.' }
+if (\$raw -notmatch '(?is)(ssid.{0,160}(skip|skipped|跳过)|(skip|skipped|跳过).{0,160}ssid)') { throw 'Windows asset lacks SSID skip result wording.' }
+if (\$raw -notmatch '(?is)(ssid.{0,160}(summary|log|摘要|日志)|(summary|log|摘要|日志).{0,160}ssid)') { throw 'Windows asset lacks SSID skip log/status summary wording.' }
+if (\$raw -notmatch '(?is)(ssid.{0,160}(continue|continued|fail|failed|failure|error|unavailable|读取失败|继续上报)|(continue|continued|fail|failed|failure|error|unavailable|读取失败|继续上报).{0,160}ssid)') { throw 'Windows asset does not state that SSID read failure continues reporting.' }
+\$fn = [regex]::Match(\$raw, '(?ms)^function Invoke-SelfReport \{.*?^}')
+if (-not \$fn.Success) { throw 'Windows Invoke-SelfReport function was not found.' }
+\$guard = [regex]::Match(\$fn.Value, '(?is)ssid.{0,160}(skip|guard|allow|match|local|跳过|匹配|本地)|(skip|guard|allow|match|local|跳过|匹配|本地).{0,160}ssid')
+\$http = [regex]::Match(\$fn.Value, 'Invoke-WebRequest')
+if (-not \$guard.Success) { throw 'Windows asset lacks an SSID guard inside Invoke-SelfReport.' }
+if (-not \$http.Success) { throw 'Windows asset HTTP submit point was not found.' }
+if (\$guard.Index -ge \$http.Index) { throw 'Windows asset SSID guard must run before HTTP report submission.' }
+"
+}
+
+check_outbound_ip_report_ssid_guards() {
+    check_unix_ssid_guard "${asset_dir}/po0-outbound-ip-report.sh" "Linux/OpenWrt"
+    check_unix_ssid_guard "${asset_dir}/po0-outbound-ip-report-macos.sh" "macOS"
+    if command -v pwsh >/dev/null 2>&1; then
+        check_windows_ssid_guard
+    else
+        printf 'pwsh not found; skipping Windows SSID guard check.\n' >&2
+    fi
+    check_no_new_legacy_ssid_aliases
+}
+
 asset_version() {
     local asset="$1"
     if [[ "${asset}" == *.ps1 ]]; then
@@ -242,18 +334,16 @@ asset_has_changelog() {
 }
 
 check_versions_consistent() {
-    local expected="" asset version date
+    local expected="${expected_po0_version}" asset version date
     for asset in nftables-relay-manager.sh po0-lan-client.sh po0-outbound-ip-report.sh po0-outbound-ip-report-macos.sh po0-outbound-ip-report.ps1; do
         version="$(asset_version "${asset_dir}/${asset}")"
         [[ -n "${version}" ]] || { printf 'Could not read version from %s\n' "${asset}" >&2; exit 1; }
-        if [[ -z "${expected}" ]]; then
-            expected="${version}"
-        elif [[ "${version}" != "${expected}" ]]; then
+        if [[ "${version}" != "${expected}" ]]; then
             printf '%s version %s does not match %s\n' "${asset}" "${version}" "${expected}" >&2
             exit 1
         fi
         date="$(asset_release_date "${asset_dir}/${asset}")"
-        [[ "${date}" == "2026-07-01" ]] || { printf '%s release date %s is unexpected\n' "${asset}" "${date}" >&2; exit 1; }
+        [[ "${date}" == "${expected_po0_release_date}" ]] || { printf '%s release date %s is unexpected\n' "${asset}" "${date}" >&2; exit 1; }
         asset_has_changelog "${asset_dir}/${asset}" || { printf '%s changelog block is empty\n' "${asset}" >&2; exit 1; }
     done
 }
@@ -261,6 +351,10 @@ check_versions_consistent() {
 check_versions_match_tag() {
     local tag="${GITHUB_REF_NAME:-}" expected asset version
     [[ -n "${tag}" ]] || return 0
+    [[ "${tag}" == "${expected_po0_release_tag}" ]] || {
+        printf 'GITHUB_REF_NAME %s does not match expected PO0 release tag %s\n' "${tag}" "${expected_po0_release_tag}" >&2
+        exit 1
+    }
     if [[ ! "${tag}" =~ ^po0-v([0-9]{4}\.[0-9]{2}\.[0-9]{2})\.([0-9]+)$ ]]; then
         printf 'GITHUB_REF_NAME is set but is not a PO0 release tag: %s\n' "${tag}" >&2
         exit 1
@@ -327,5 +421,6 @@ check_unix_outbound_ip_report_canonical_path "${asset_dir}/po0-outbound-ip-repor
 check_macos_launchd_canonical_path
 check_windows_canonical_path
 check_legacy_name_allowlist
+check_outbound_ip_report_ssid_guards
 
 printf 'PO0 asset checks passed.\n'

@@ -26,7 +26,7 @@ function Invoke-InteractiveMenu {
                 "1" { Set-ClientConfigInteractive; Pause-Menu }
                 "2" {
                     if (-not (Test-ClientConfigComplete)) { Set-ClientConfigInteractive }
-                    Invoke-SelfReport
+                    Invoke-SelfReport -PromptForForceOnSkip
                     Pause-Menu
                 }
                 "3" {

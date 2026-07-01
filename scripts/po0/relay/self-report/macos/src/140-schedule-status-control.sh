@@ -28,6 +28,11 @@ cron_job_interval_label() {
     fi
 }
 
+cron_job_has_scheduled_run_flag() {
+    local line="$1"
+    [[ "${line}" == *"--scheduled-run"* ]]
+}
+
 read_cron_status_snapshot() {
     local line in_block=0 found=0 legacy_block=0 active_job="" paused_job="" metadata_interval="" job=""
     local state interval="" config_paused consistency="ok"
@@ -98,6 +103,12 @@ read_cron_status_snapshot() {
     fi
     if [[ "${job}" == *"po0-self-report"* || "${legacy_block}" == "1" ]]; then
         consistency="legacy"
+    elif ! cron_job_has_scheduled_run_flag "${job}"; then
+        if [[ "${consistency}" == "ok" ]]; then
+            consistency="stale-scheduled-run"
+        else
+            consistency="${consistency},stale-scheduled-run"
+        fi
     fi
     printf '%s|%s|%s|%s|%s\n' "${state}" "${interval}" "${config_paused}" "${job}" "${consistency}"
 }
@@ -120,8 +131,9 @@ cron_status_summary() {
         running|paused)
             summary="$(cron_state_label "${state}")"
             [[ -n "${interval}" ]] && summary="${summary}，${interval}"
-            [[ "${consistency}" == "drift" ]] && summary="${summary}（与配置暂停标记不一致）"
-            [[ "${consistency}" == "legacy" ]] && summary="${summary}（旧命令，需刷新）"
+            [[ "${consistency}" == *"drift"* ]] && summary="${summary}（与配置暂停标记不一致）"
+            [[ "${consistency}" == *"stale-scheduled-run"* ]] && summary="${summary}（旧任务缺 --scheduled-run，需刷新）"
+            [[ "${consistency}" == *"legacy"* ]] && summary="${summary}（旧命令，需刷新）"
             printf '%s' "${summary}"
             ;;
         *)
@@ -144,9 +156,11 @@ show_cron_status() {
     elif [[ "${state}" == "running" || "${state}" == "paused" ]]; then
         print_panel_row "计划间隔" "已安装，未识别间隔"
     fi
-    if [[ "${consistency}" == "drift" ]]; then
+    if [[ "${consistency}" == *"stale-scheduled-run"* ]]; then
+        print_panel_row "一致性" "旧任务缺少 --scheduled-run；执行安装 / 更新定时上报可刷新"
+    elif [[ "${consistency}" == *"drift"* ]]; then
         print_panel_row "一致性" "不一致，执行安装 / 更新定时上报可刷新"
-    elif [[ "${consistency}" == "legacy" ]]; then
+    elif [[ "${consistency}" == *"legacy"* ]]; then
         print_panel_row "一致性" "旧 po0-self-report 定时上报；执行安装 / 更新定时上报可迁移"
     elif [[ "${state}" == "running" || "${state}" == "paused" ]]; then
         print_panel_row "一致性" "一致"
