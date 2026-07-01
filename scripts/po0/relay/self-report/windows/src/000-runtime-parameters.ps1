@@ -29,11 +29,12 @@ $ErrorActionPreference = "Stop"
 $ReleaseDownloadBaseUrl = $(if ($env:PO0_RELEASE_DOWNLOAD_BASE_URL) { $env:PO0_RELEASE_DOWNLOAD_BASE_URL } else { "https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download" })
 $DownloadUrl = $(if ($env:PO0_SELF_REPORT_PS_DOWNLOAD_URL) { $env:PO0_SELF_REPORT_PS_DOWNLOAD_URL } else { "$ReleaseDownloadBaseUrl/po0-outbound-ip-report.ps1" })
 $ScriptName = "po0-outbound-ip-report"
-$ScriptVersion = "2026.07.01+build.1"
+$ScriptVersion = "2026.07.01+build.2"
 $ScriptReleaseDate = "2026-07-01"
 # CHANGELOG_BEGIN
-# - Windows 默认安装脚本名改为 po0-outbound-ip-report.ps1，计划任务和隐藏启动器会迁移到新路径。
-# - -Version / -ScheduleStatus 会显示计划任务实际脚本目标，并提示旧 po0-self-report.ps1 任务漂移。
+# - 从旧 po0-self-report.ps1 路径启动新版脚本时，会迁移到 po0-outbound-ip-report.ps1 并重开 canonical 菜单。
+# - 旧计划任务迁移会保留 ConfigPath、LogPath 和 Notify / NoNotify 启动参数。
+# - 更新下载校验会拒绝仍以 po0-self-report.ps1 作为默认安装路径的旧 Windows asset。
 # CHANGELOG_END
 $PanelValueColumn = 24
 $MenuRightColumn = 46

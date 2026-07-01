@@ -4,7 +4,7 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_SELF_REPORT_MACOS_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report-macos.sh}"
 SCRIPT_NAME="po0-self-report-macos"
-SCRIPT_VERSION="2026.07.01+build.1"
+SCRIPT_VERSION="2026.07.01+build.2"
 SCRIPT_RELEASE_DATE="2026-07-01"
 # CHANGELOG_BEGIN
 # - macOS root 安装时明确显示 launchd plist，避免把 LaunchDaemon 误写成 LaunchAgent。

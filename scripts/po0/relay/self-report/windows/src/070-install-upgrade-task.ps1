@@ -230,6 +230,12 @@ function Update-ScheduledReporterLauncherForExistingTask {
         if ($existingConfig) { $script:ConfigPath = $existingConfig }
         $existingLog = Get-CommandLineSwitchArgument -CommandLine $commandText -SwitchName "LogPath"
         if ($existingLog) { $script:LogPath = $existingLog }
+        if (Test-CommandLineSwitchPresent -CommandLine $commandText -SwitchName "Notify") {
+            $script:TaskNotify = $true
+        }
+        if (Test-CommandLineSwitchPresent -CommandLine $commandText -SwitchName "NoNotify") {
+            $script:TaskNotify = $false
+        }
     }
     if (-not $script:LogPath) {
         $script:LogPath = Get-DefaultLogPath
@@ -241,11 +247,58 @@ function Update-ScheduledReporterLauncherForExistingTask {
     return $true
 }
 
+function Invoke-LegacyPathSelfHeal {
+    param([switch]$ReopenMenu)
+    if (-not (Test-CurrentScriptPathIsLegacy)) { return $false }
+    if (-not $PSCommandPath -or -not (Test-Path -LiteralPath $PSCommandPath)) { return $false }
+
+    $dest = Get-DefaultScriptPath
+    $current = [System.IO.Path]::GetFullPath($PSCommandPath)
+    $destFull = [System.IO.Path]::GetFullPath($dest)
+    if ([System.String]::Equals($current, $destFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $false
+    }
+
+    $dir = Split-Path -Parent $dest
+    if ($dir -and -not (Test-Path -LiteralPath $dir)) {
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    }
+    Copy-Item -LiteralPath $PSCommandPath -Destination $dest -Force
+    Write-Host "已迁移 Windows Self-report 客户端脚本到 canonical 路径：$dest"
+
+    try {
+        if (Update-ScheduledReporterLauncherForExistingTask) {
+            Write-Host "已刷新计划任务隐藏启动器和脚本目标：$dest"
+        }
+    } catch {
+        Write-Host "刷新计划任务隐藏启动器失败：$($_.Exception.Message)" -ForegroundColor Yellow
+    }
+
+    if ($ReopenMenu) {
+        Write-Host "正在从 canonical 路径重新打开新版菜单：$dest -Menu"
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $dest -ConfigPath $script:ConfigPath -Menu
+        exit $LASTEXITCODE
+    }
+    return $true
+}
+
 function Test-DownloadedScript {
     param([string]$Path)
     $raw = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
     if ($raw -notmatch 'po0-outbound-ip-report\.ps1' -or $raw -notmatch 'PO0 自上报客户端（Windows PowerShell）') {
         throw "更新文件校验失败：下载到的脚本不是 Self-report Windows PowerShell 客户端。"
+    }
+    $scriptName = [regex]::Match($raw, '(?m)^\s*\$ScriptName\s*=\s*"([^"]+)"')
+    if (-not $scriptName.Success -or $scriptName.Groups[1].Value -ne "po0-outbound-ip-report") {
+        throw "更新文件校验失败：下载脚本未声明 canonical 脚本名称 po0-outbound-ip-report。"
+    }
+    $defaultScript = [regex]::Match($raw, '(?ms)^function Get-DefaultScriptPath \{.*?^}')
+    if (-not $defaultScript.Success -or $defaultScript.Value -notmatch 'po0-outbound-ip-report\.ps1' -or $defaultScript.Value -match 'po0-self-report\.ps1') {
+        throw "更新文件校验失败：下载脚本默认安装路径不是 po0-outbound-ip-report.ps1。"
+    }
+    $defaultLauncher = [regex]::Match($raw, '(?ms)^function Get-DefaultTaskLauncherPath \{.*?^}')
+    if (-not $defaultLauncher.Success -or $defaultLauncher.Value -notmatch 'po0-outbound-ip-report-task\.vbs' -or $defaultLauncher.Value -match 'po0-self-report-task\.vbs') {
+        throw "更新文件校验失败：下载脚本默认隐藏启动器不是 po0-outbound-ip-report-task.vbs。"
     }
     $tokens = $null
     $errors = $null

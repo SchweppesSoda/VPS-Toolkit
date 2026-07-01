@@ -2,7 +2,7 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-nftables-relay-manager"
-SCRIPT_VERSION="2026.07.01+build.1"
+SCRIPT_VERSION="2026.07.01+build.2"
 SCRIPT_RELEASE_DATE="2026-07-01"
 # CHANGELOG_BEGIN
 # - 修正 CLI 帮助里的部署命令说明和不存在的 show-client-deploy-commands tokens topic。

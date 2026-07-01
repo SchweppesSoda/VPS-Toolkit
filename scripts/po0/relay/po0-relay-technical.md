@@ -751,6 +751,8 @@ Windows PowerShell 默认按普通用户安装和运行，路径在 `%LOCALAPPDA
 $script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.ps1' -OutFile $script -TimeoutSec 120; powershell -ExecutionPolicy Bypass -File $script -Menu
 ```
 
+Windows 旧版曾把固定脚本写到 `po0-self-report.ps1`。新版脚本如果从旧路径启动，会先复制到 `%LOCALAPPDATA%\PO0\po0-outbound-ip-report.ps1` 或 `%ProgramData%\PO0\po0-outbound-ip-report.ps1`，再刷新已有计划任务的隐藏 launcher；菜单场景会重新打开 canonical 脚本。旧 `po0-self-report.ps1` / `po0-self-report-task.vbs` 只作为迁移、漂移提示和卸载目标，不再作为默认安装入口。
+
 Windows PowerShell 非交互保存配置，不安装计划任务，也不保证安装固定路径脚本；`-SourceId` 和 `-Identity` 推荐填设备名，避免多台设备都混到同一来源：
 
 ```powershell

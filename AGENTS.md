@@ -24,6 +24,7 @@
 ## 发布与构建
 
 - PO0 nftables 五个可执行脚本的正式下载源是 GitHub Release asset：`nftables-relay-manager.sh`、`po0-lan-client.sh`、`po0-outbound-ip-report.sh`、`po0-outbound-ip-report-macos.sh`、`po0-outbound-ip-report.ps1`。
+- Self-report 是功能 / 协议 / 菜单 / 日志名；`po0-outbound-ip-report*` 是访问设备客户端 Release asset 和固定脚本文件名。Windows 旧 `po0-self-report.ps1` / `po0-self-report-task.vbs` 只做 legacy 迁移和卸载，不再作为默认安装路径。
 - `po0-vYYYY.MM.DD.N` tag 触发 PO0 Release；任何会成为 GitHub latest 的正式 release 必须包含完整 PO0 asset 集合和 `checksums.txt`。非 PO0 发布只能用 draft / prerelease，不能抢占 latest。
 - 创建 PO0 Release tag 前，五个 Release asset 脚本的内部版本必须统一为 `YYYY.MM.DD+build.N`，且 `N` 必须与 `po0-vYYYY.MM.DD.N` tag 尾号一致；不要让用户看到 release tag 与脚本 `--version` 输出不一致。
 - Release workflow 只由 `po0-vYYYY.MM.DD.N` tag 触发，失败后用 GitHub Actions rerun，不保留 `workflow_dispatch` 发布入口。

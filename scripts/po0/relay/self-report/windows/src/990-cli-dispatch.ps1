@@ -10,6 +10,24 @@ if ($env:PO0_SELF_REPORT_ALLOW_HTTP -match "^(1|true|yes)$") {
     $script:AllowHttp = $true
 }
 
+$legacyPathShouldOpenMenu = [bool](
+    $Menu -or (
+        -not $Version -and
+        -not $Changelog -and
+        -not $Help -and
+        -not $UpgradeSelf -and
+        -not $SaveConfig -and
+        -not $PauseSchedule -and
+        -not $ResumeSchedule -and
+        -not $ScheduleStatus -and
+        -not $RunOnce -and
+        -not $InstallTask -and
+        -not ($PSBoundParameters.ContainsKey("WorkerUrl")) -and
+        [Environment]::UserInteractive
+    )
+)
+Invoke-LegacyPathSelfHeal -ReopenMenu:$legacyPathShouldOpenMenu | Out-Null
+
 if ($Version) {
     Show-ScriptVersion
     exit 0

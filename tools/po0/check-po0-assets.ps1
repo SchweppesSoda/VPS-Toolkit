@@ -160,6 +160,10 @@ function Test-WindowsCanonicalPath {
     if ($raw -notmatch 'po0-outbound-ip-report\.ps1') {
         throw "Windows self-report asset does not mention canonical po0-outbound-ip-report.ps1 path."
     }
+    $scriptName = [regex]::Match($raw, '(?m)^\s*\$ScriptName\s*=\s*"([^"]+)"')
+    if (-not $scriptName.Success -or $scriptName.Groups[1].Value -ne "po0-outbound-ip-report") {
+        throw "Windows self-report script name is not canonical."
+    }
     $defaultScript = [regex]::Match($raw, '(?ms)^function Get-DefaultScriptPath \{.*?^}')
     $defaultLauncher = [regex]::Match($raw, '(?ms)^function Get-DefaultTaskLauncherPath \{.*?^}')
     if (-not $defaultScript.Success -or $defaultScript.Value -notmatch 'po0-outbound-ip-report\.ps1' -or $defaultScript.Value -match 'po0-self-report\.ps1') {
@@ -167,6 +171,35 @@ function Test-WindowsCanonicalPath {
     }
     if (-not $defaultLauncher.Success -or $defaultLauncher.Value -notmatch 'po0-outbound-ip-report-task\.vbs' -or $defaultLauncher.Value -match 'po0-self-report-task\.vbs') {
         throw "Windows self-report default launcher path is not canonical."
+    }
+}
+
+function Test-VersionsMatchTag {
+    $tag = $env:GITHUB_REF_NAME
+    if (-not $tag) { return }
+    $match = [regex]::Match($tag, '^po0-v([0-9]{4}\.[0-9]{2}\.[0-9]{2})\.([0-9]+)$')
+    if (-not $match.Success) { return }
+    $expected = "$($match.Groups[1].Value)+build.$($match.Groups[2].Value)"
+
+    foreach ($asset in @(
+        "nftables-relay-manager.sh",
+        "po0-lan-client.sh",
+        "po0-outbound-ip-report.sh",
+        "po0-outbound-ip-report-macos.sh"
+    )) {
+        $path = Join-Path $OutputDir $asset
+        $raw = Get-Content -LiteralPath $path -Raw -Encoding UTF8
+        $version = [regex]::Match($raw, '(?m)^SCRIPT_VERSION="([^"]+)"')
+        if (-not $version.Success -or $version.Groups[1].Value -ne $expected) {
+            throw "$asset version $($version.Groups[1].Value) does not match tag $tag"
+        }
+    }
+
+    $psAsset = Join-Path $OutputDir "po0-outbound-ip-report.ps1"
+    $psRaw = Get-Content -LiteralPath $psAsset -Raw -Encoding UTF8
+    $psVersion = [regex]::Match($psRaw, '(?m)^\$ScriptVersion\s*=\s*"([^"]+)"')
+    if (-not $psVersion.Success -or $psVersion.Groups[1].Value -ne $expected) {
+        throw "po0-outbound-ip-report.ps1 version $($psVersion.Groups[1].Value) does not match tag $tag"
     }
 }
 
@@ -201,6 +234,7 @@ Test-ManifestCoverage `
 
 & (Join-Path $PSScriptRoot "build-po0-assets.ps1") -OutputDir $OutputDir
 Test-WindowsCanonicalPath
+Test-VersionsMatchTag
 
 function Get-BashCommand {
     $bash = Get-Command bash -ErrorAction SilentlyContinue

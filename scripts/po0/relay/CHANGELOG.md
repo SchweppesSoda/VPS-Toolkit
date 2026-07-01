@@ -6,7 +6,7 @@
 
 ## po0-nftables-relay-manager
 
-### 2026.07.01+build.1
+### 2026.07.01+build.2
 
 - 修正 CLI 帮助里的 PO0 主控部署说明，避免把 Release asset 下载命令描述成本地上传。
 - 移除不存在的 `--show-client-deploy-commands tokens` 示例，改为索引 topic 和 `--worker-token-bundle`。
@@ -108,6 +108,10 @@
 - 状态面板和资源任务创建计划摘要增加彩色状态提示。
 
 ## po0-lan-worker-client
+
+### 2026.07.01+build.2
+
+- 跟随 PO0 Release asset 批次对齐到 build.2；本脚本无行为变化。
 
 ### 2026.06.28+build.2
 
@@ -211,7 +215,7 @@
 
 ## po0-self-report（Linux/OpenWrt）
 
-### 2026.07.01+build.1
+### 2026.07.01+build.2
 
 - `--help` 明确列出 self-report 配置文件优先级，包括 `XDG_CONFIG_HOME` 和当前目录兜底。
 
@@ -324,7 +328,7 @@
 
 ## po0-self-report（macOS）
 
-### 2026.07.01+build.1
+### 2026.07.01+build.2
 
 - root 安装时明确显示 launchd plist，避免把 LaunchDaemon 误写成 LaunchAgent。
 - `--help` 明确列出 self-report 配置文件优先级，包括 `XDG_CONFIG_HOME` 和当前目录兜底。
@@ -372,10 +376,14 @@
 
 ## po0-self-report（Windows PowerShell）
 
-### 2026.07.01+build.1
+### 2026.07.01+build.2
 
 - Windows 默认安装脚本名改为 `po0-outbound-ip-report.ps1`，计划任务和隐藏启动器会迁移到新路径。
 - `-Version` / `-ScheduleStatus` 会显示计划任务实际脚本目标，并提示旧 `po0-self-report.ps1` 任务漂移。
+- 从旧 `po0-self-report.ps1` 路径启动新版脚本时，会迁移到 `po0-outbound-ip-report.ps1` 并重开 canonical 菜单。
+- 旧计划任务迁移会保留 `ConfigPath`、`LogPath` 和 `Notify` / `NoNotify` 启动参数。
+- 更新下载校验会拒绝仍以 `po0-self-report.ps1` 作为默认安装路径的旧 Windows asset。
+- 发布批次对齐到 `po0-v2026.07.01.2`，避免 GitHub latest 继续停留在 `po0-v2026.06.28.2`。
 
 ### 2026.06.28+build.2
 

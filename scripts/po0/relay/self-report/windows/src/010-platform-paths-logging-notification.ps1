@@ -47,6 +47,18 @@ function Test-LegacySelfReportScriptPath {
     return ([System.IO.Path]::GetFileName($Path) -ieq "po0-self-report.ps1")
 }
 
+function Test-CurrentScriptPathIsLegacy {
+    if (-not $PSCommandPath) { return $false }
+    if (Test-LegacySelfReportScriptPath -Path $PSCommandPath) { return $true }
+    try {
+        $current = [System.IO.Path]::GetFullPath($PSCommandPath)
+        $legacy = [System.IO.Path]::GetFullPath((Get-LegacyScriptPath))
+        return [System.String]::Equals($current, $legacy, [System.StringComparison]::OrdinalIgnoreCase)
+    } catch {
+        return $false
+    }
+}
+
 $script:ConfigPath = $ConfigPath
 $script:ConfigPath = Get-DefaultConfigPath
 $script:WorkerUrl = $WorkerUrl

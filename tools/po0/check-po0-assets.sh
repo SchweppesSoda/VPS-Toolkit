@@ -86,6 +86,10 @@ check_windows_canonical_path() {
         printf 'Windows self-report asset does not mention canonical po0-outbound-ip-report.ps1 path.\n' >&2
         exit 1
     }
+    grep -q '^\$ScriptName = "po0-outbound-ip-report"' "${asset}" || {
+        printf 'Windows self-report script name is not canonical.\n' >&2
+        exit 1
+    }
     default_script="$(awk '/^function Get-DefaultScriptPath /{flag=1} flag{print; if ($0 ~ /^}/) exit}' "${asset}")"
     default_launcher="$(awk '/^function Get-DefaultTaskLauncherPath /{flag=1} flag{print; if ($0 ~ /^}/) exit}' "${asset}")"
     if [[ "${default_script}" != *"po0-outbound-ip-report.ps1"* || "${default_script}" == *"po0-self-report.ps1"* ]]; then

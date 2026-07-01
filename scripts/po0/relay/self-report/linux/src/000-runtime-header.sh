@@ -4,7 +4,7 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_SELF_REPORT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report.sh}"
 SCRIPT_NAME="po0-self-report"
-SCRIPT_VERSION="2026.07.01+build.1"
+SCRIPT_VERSION="2026.07.01+build.2"
 SCRIPT_RELEASE_DATE="2026-07-01"
 # CHANGELOG_BEGIN
 # - --help 明确列出 self-report 配置文件优先级，包括 XDG_CONFIG_HOME 和当前目录兜底。
