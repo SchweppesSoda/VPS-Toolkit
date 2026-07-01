@@ -647,6 +647,8 @@ po0-outbound-ip-report --changelog
 
 macOS 使用专用 Bash 脚本和用户级 launchd LaunchAgent，不复用 Linux/OpenWrt cron 脚本。`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本，并写入 `~/Library/LaunchAgents/fr.schweppes.po0-outbound-ip-report.plist`；`6) 通知 / 静默模式` 可切换自动上报完成 / 失败后的 macOS 通知。
 
+macOS 系统自带 Bash 通常是 3.2，客户端会保持 Bash 3.2 兼容，不要求额外安装新版 Bash。`2026.07.01+build.6` 修复过 SSID 跳过列表在 Bash 3.2 + `set -u` 下可能出现的 `items[@]: unbound variable`；如果看到这类报错，先从 GitHub Release 更新到 build.6 或更新版本。
+
 首次保存默认配置并打开菜单：
 
 ```bash
