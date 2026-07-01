@@ -3,9 +3,9 @@ set -euo pipefail
 
 repo_root="$(cd "$(git rev-parse --show-toplevel)" && pwd -P)"
 asset_dir="${1:-${repo_root}/.tmp/po0-check-assets}"
-expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.07.01+build.7}"
+expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.07.01+build.8}"
 expected_po0_release_date="${PO0_EXPECTED_RELEASE_DATE:-2026-07-01}"
-expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.07.01.7}"
+expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.07.01.8}"
 
 manifest_entries() {
     local manifest="$1"
@@ -81,6 +81,56 @@ check_egern_compat_sync() {
             exit 1
         fi
     done
+}
+
+check_egern_ssid_guard() {
+    local yaml="${repo_root}/scripts/po0/nftables/clients/egern/PO0-SSH-IP-Report.yaml"
+    local js="${repo_root}/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js"
+    local guard_line detect_line
+    grep -Eq '^[[:space:]]+SKIP_WIFI_SSIDS:' "${yaml}" || {
+        printf 'Egern YAML lacks SKIP_WIFI_SSIDS env configuration.\n' >&2
+        exit 1
+    }
+    grep -Fq 'normalizeSsidSkipList' "${js}" || { printf 'Egern JS lacks SSID skip list normalizer.\n' >&2; exit 1; }
+    grep -Fq 'currentWifiSsidFromNetwork' "${js}" || { printf 'Egern JS lacks raw Wi-Fi SSID reader.\n' >&2; exit 1; }
+    grep -Fq 'ssidSkipDecision' "${js}" || { printf 'Egern JS lacks SSID skip decision helper.\n' >&2; exit 1; }
+    grep -Fq 'isAutomaticReportRun' "${js}" || { printf 'Egern JS lacks explicit automatic trigger helper.\n' >&2; exit 1; }
+    grep -Fq "skipType: 'wifi-ssid'" "${js}" || { printf 'Egern JS lacks wifi-ssid skipped state marker.\n' >&2; exit 1; }
+    grep -Fq 'skipReason:' "${js}" || {
+        printf 'Egern JS lacks local skip/no-upload wording.\n' >&2
+        exit 1
+    }
+    if grep -Eq 'PO0_SELF_REPORT_[A-Z0-9_]*SSID|SELF_REPORT_[A-Z0-9_]*SSID' "${yaml}" "${js}" "${repo_root}/scripts/po0/relay/egern/PO0-SSH-IP-Report.yaml" "${repo_root}/scripts/po0/relay/egern/po0-ssh-ip-report.js"; then
+        printf 'Egern SSID guard must not define legacy self-report SSID aliases.\n' >&2
+        exit 1
+    fi
+    guard_line="$(
+        awk '
+            /^export default async function/ {in_fn=1}
+            in_fn && /ssidSkipDecision\(ctx, env, network\)/ {print NR; exit}
+        ' "${js}"
+    )"
+    detect_line="$(
+        awk '
+            /^export default async function/ {in_fn=1}
+            in_fn && /detectCurrentIPv4WithFallback\(ctx, env, policy\)/ {print NR; exit}
+        ' "${js}"
+    )"
+    [[ -n "${guard_line}" ]] || { printf 'Egern JS lacks SSID guard inside default report flow.\n' >&2; exit 1; }
+    [[ -n "${detect_line}" ]] || { printf 'Egern JS IPv4 detection call not found in default report flow.\n' >&2; exit 1; }
+    if (( guard_line >= detect_line )); then
+        printf 'Egern SSID guard must run before public IPv4 detection.\n' >&2
+        exit 1
+    fi
+    if awk '
+        /^async function reportToPO0\(/ {in_fn=1}
+        in_fn && tolower($0) ~ /ssid/ {found=1}
+        in_fn && /^}/ {exit}
+        END {exit found ? 0 : 1}
+    ' "${js}"; then
+        printf 'Egern reportToPO0 must not pass SSID through SSH report args.\n' >&2
+        exit 1
+    fi
 }
 
 check_windows_canonical_path() {
@@ -443,6 +493,7 @@ check_versions_match_tag
 check_versions_consistent
 check_raw_refs
 check_egern_compat_sync
+check_egern_ssid_guard
 check_asset_inventory
 check_unix_outbound_ip_report_canonical_path "${asset_dir}/po0-outbound-ip-report.sh" "Linux/OpenWrt"
 check_unix_outbound_ip_report_canonical_path "${asset_dir}/po0-outbound-ip-report-macos.sh" "macOS"

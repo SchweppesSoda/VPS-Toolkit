@@ -687,6 +687,8 @@ po0-outbound-ip-report --no-notify --install-launchd
 
 安装后复用本机命令：
 
+普通用户默认安装到 `~/.local/bin/po0-outbound-ip-report`。如果安装后当前终端的 `PATH` 不包含 `~/.local/bin`，菜单里的“安装 / 更新定时上报”和“从 GitHub 更新脚本”会询问是否写入 `~/.zprofile`；非交互安装只打印提示和可直接运行的完整路径，不自动修改 shell 配置。root 安装默认路径为 `/usr/local/sbin/po0-outbound-ip-report`，脚本只提示，不自动改全局 PATH。
+
 ```bash
 po0-outbound-ip-report --menu
 ```
@@ -864,7 +866,7 @@ Egern 模块不是 DDNS 模块。它的逻辑是：
 bash /root/nftables-relay-manager.sh --ssh-ip-report <source-id> <ipv4> <token> [identity] [ttl] [cidr-prefix]
 ```
 
-Egern 放行 TTL 默认 `43200` 秒（12 小时）。单 PO0 可在模块环境变量 `TTL_SECONDS` 覆盖；多个 PO0 可在 `SSH_REPORT_TARGETS` 每行最后一列分别覆盖。实际 SSH 自动上报周期由 `AUTO_REPORT_INTERVAL_SECONDS` 控制，默认 `3600` 秒，可设置 `600` 到 `86400` 秒；建议让 TTL 至少大于自动上报周期并留出余量。模块 schedule 每 10 分钟轻量检查一次；如果 TTL 小于自动上报周期，脚本会提前续期，尽量避免过期空窗。Egern 蜂窝网络默认按 `CELLULAR_CIDR_PREFIX=24` 上报 `/24`，同一 `/24` 内 IP 跳动时自动触发会跳过 SSH；Wi-Fi 和未知网络固定 `/32`，出口 IP 变化就会重新上报。把 `CELLULAR_CIDR_PREFIX` 设为 `32` 可关闭蜂窝 `/24`。
+Egern 放行 TTL 默认 `43200` 秒（12 小时）。单 PO0 可在模块环境变量 `TTL_SECONDS` 覆盖；多个 PO0 可在 `SSH_REPORT_TARGETS` 每行最后一列分别覆盖。实际 SSH 自动上报周期由 `AUTO_REPORT_INTERVAL_SECONDS` 控制，默认 `3600` 秒，可设置 `600` 到 `86400` 秒；建议让 TTL 至少大于自动上报周期并留出余量。模块 schedule 每 10 分钟轻量检查一次；如果 TTL 小于自动上报周期，脚本会提前续期，尽量避免过期空窗。Egern 蜂窝网络默认按 `CELLULAR_CIDR_PREFIX=24` 上报 `/24`，同一 `/24` 内 IP 跳动时自动触发会跳过 SSH；Wi-Fi 和未知网络固定 `/32`，出口 IP 变化就会重新上报。把 `CELLULAR_CIDR_PREFIX` 设为 `32` 可关闭蜂窝 `/24`。可选 `SKIP_WIFI_SSIDS` 只对定时/网络变化自动触发生效；当前 Wi-Fi SSID 精确命中分号分隔列表时，本机跳过本次公网 IP 探测和 SSH 上报，只写 Egern 本地状态/日志，不上传 SSID，也不改 PO0 或 LAN Worker 协议。读取不到 SSID 时继续上报；手动运行、状态页和 Widget 刷新会强制继续上报。
 
 只读检查：
 

@@ -10,9 +10,9 @@ if (-not $OutputDir) {
 }
 
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.07.01+build.7" }
+$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.07.01+build.8" }
 $ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-07-01" }
-$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.07.01.7" }
+$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.07.01.8" }
 
 function ConvertTo-RepoRelativePath {
     param([string]$Path)
@@ -153,6 +153,58 @@ function Test-EgernCompatibilitySync {
         if ($canonicalText -ne $legacyText) {
             throw "Legacy Egern compatibility file differs from canonical after LF normalization: $name"
         }
+    }
+}
+
+function Test-EgernSsidGuard {
+    Write-Host "Checking Egern SSID local guard"
+    $yaml = Join-Path $RepoRoot "scripts/po0/nftables/clients/egern/PO0-SSH-IP-Report.yaml"
+    $js = Join-Path $RepoRoot "scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js"
+    $legacyYaml = Join-Path $RepoRoot "scripts/po0/relay/egern/PO0-SSH-IP-Report.yaml"
+    $legacyJs = Join-Path $RepoRoot "scripts/po0/relay/egern/po0-ssh-ip-report.js"
+    $yamlRaw = Get-Content -LiteralPath $yaml -Raw -Encoding UTF8
+    $jsRaw = Get-Content -LiteralPath $js -Raw -Encoding UTF8
+    if ($yamlRaw -notmatch '(?m)^\s+SKIP_WIFI_SSIDS:') {
+        throw "Egern YAML lacks SKIP_WIFI_SSIDS env configuration."
+    }
+    foreach ($token in @("normalizeSsidSkipList", "currentWifiSsidFromNetwork", "ssidSkipDecision", "isAutomaticReportRun")) {
+        if (-not $jsRaw.Contains($token)) {
+            throw "Egern JS lacks $token."
+        }
+    }
+    if (-not $jsRaw.Contains("skipType: 'wifi-ssid'")) {
+        throw "Egern JS lacks wifi-ssid skipped state marker."
+    }
+    if (-not $jsRaw.Contains("skipReason:")) {
+        throw "Egern JS lacks local skip/no-upload state wording."
+    }
+    foreach ($path in @($yaml, $js, $legacyYaml, $legacyJs)) {
+        $raw = Get-Content -LiteralPath $path -Raw -Encoding UTF8
+        if ($raw -match 'PO0_SELF_REPORT_[A-Z0-9_]*SSID|SELF_REPORT_[A-Z0-9_]*SSID') {
+            throw "Egern SSID guard must not define legacy self-report SSID aliases: $path"
+        }
+    }
+    $defaultFn = [regex]::Match($jsRaw, '(?ms)^export default async function\(ctx\) \{.*?^}')
+    if (-not $defaultFn.Success) {
+        throw "Egern default report flow was not found."
+    }
+    $guard = $defaultFn.Value.IndexOf("ssidSkipDecision(ctx, env, network)", [System.StringComparison]::Ordinal)
+    $detect = $defaultFn.Value.IndexOf("detectCurrentIPv4WithFallback(ctx, env, policy)", [System.StringComparison]::Ordinal)
+    if ($guard -lt 0) {
+        throw "Egern JS lacks SSID guard inside default report flow."
+    }
+    if ($detect -lt 0) {
+        throw "Egern JS IPv4 detection call not found in default report flow."
+    }
+    if ($guard -ge $detect) {
+        throw "Egern SSID guard must run before public IPv4 detection."
+    }
+    $reportFn = [regex]::Match($jsRaw, '(?ms)^async function reportToPO0\(.*?^}')
+    if (-not $reportFn.Success) {
+        throw "Egern reportToPO0 function was not found."
+    }
+    if ($reportFn.Value -match '(?i)ssid') {
+        throw "Egern reportToPO0 must not pass SSID through SSH report args."
     }
 }
 
@@ -529,6 +581,7 @@ function Test-VersionsMatchTag {
 
 Test-RawReferences
 Test-EgernCompatibilitySync
+Test-EgernSsidGuard
 
 Test-ManifestCoverage `
     -Name "manager" `

@@ -944,7 +944,7 @@ Egern 把最近状态写入 ctx.storage，Widget 读取显示
 bash /root/nftables-relay-manager.sh --ssh-ip-report <source-id> <ipv4> <token> [identity] [ttl] [cidr-prefix]
 ```
 
-Egern / ssh-report 放行 TTL 默认 `43200` 秒（12 小时）。单 PO0 可在模块环境变量 `TTL_SECONDS` 覆盖；多个 PO0 可在 `SSH_REPORT_TARGETS` 每行最后一列分别覆盖。实际 SSH 自动上报周期由 `AUTO_REPORT_INTERVAL_SECONDS` 控制，默认 `3600` 秒，可设置 `600` 到 `86400` 秒；建议 TTL 大于自动上报周期并留出余量。模块 schedule 每 10 分钟轻量检查一次；如果 TTL 小于自动上报周期，脚本会提前续期，尽量避免过期空窗。Egern 蜂窝网络默认按 `CELLULAR_CIDR_PREFIX=24` 上报 `/24`；Wi-Fi 和未知网络固定 `/32`。
+Egern / ssh-report 放行 TTL 默认 `43200` 秒（12 小时）。单 PO0 可在模块环境变量 `TTL_SECONDS` 覆盖；多个 PO0 可在 `SSH_REPORT_TARGETS` 每行最后一列分别覆盖。实际 SSH 自动上报周期由 `AUTO_REPORT_INTERVAL_SECONDS` 控制，默认 `3600` 秒，可设置 `600` 到 `86400` 秒；建议 TTL 大于自动上报周期并留出余量。模块 schedule 每 10 分钟轻量检查一次；如果 TTL 小于自动上报周期，脚本会提前续期，尽量避免过期空窗。Egern 蜂窝网络默认按 `CELLULAR_CIDR_PREFIX=24` 上报 `/24`；Wi-Fi 和未知网络固定 `/32`。`SKIP_WIFI_SSIDS` 是 Egern 本地 guard：仅 schedule/network 自动触发读取 `ctx.device.wifi.ssid` 并按英文分号列表精确匹配；命中时不探测公网 IP、不执行 SSH、不通知，只在 Egern 本地 storage/log/widget 记录跳过状态并优先保留上一轮成功状态。SSID 读取失败、非 Wi-Fi、手动运行、状态页和 Widget 刷新都 fail-open / force-report；SSID 不进入 `--ssh-ip-report` 参数、PO0 状态、LAN Worker `/report` 或任何新协议字段。
 
 多 PO0 上报由模块环境变量 `SSH_REPORT_TARGETS` 控制，一行一个目标：
 

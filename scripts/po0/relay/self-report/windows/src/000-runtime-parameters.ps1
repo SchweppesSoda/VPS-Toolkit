@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$ConfigPath = $(if ($env:PO0_OUTBOUND_IP_REPORT_CONFIG) { $env:PO0_OUTBOUND_IP_REPORT_CONFIG } elseif ($env:PO0_SELF_REPORT_CONFIG) { $env:PO0_SELF_REPORT_CONFIG } else { "" }),
     [string]$WorkerUrl = $(if ($env:PO0_OUTBOUND_IP_REPORT_WORKER_URL) { $env:PO0_OUTBOUND_IP_REPORT_WORKER_URL } elseif ($env:PO0_LAN_WORKER_URL) { $env:PO0_LAN_WORKER_URL } else { $env:WORKER_URL }),
     [string]$SourceId = $(if ($env:PO0_OUTBOUND_IP_REPORT_SOURCE) { $env:PO0_OUTBOUND_IP_REPORT_SOURCE } elseif ($env:PO0_SELF_REPORT_SOURCE) { $env:PO0_SELF_REPORT_SOURCE } elseif ($env:SOURCE_ID) { $env:SOURCE_ID } elseif ($env:PO0_OUTBOUND_IP_REPORT_IDENTITY) { $env:PO0_OUTBOUND_IP_REPORT_IDENTITY } elseif ($env:PO0_SELF_REPORT_IDENTITY) { $env:PO0_SELF_REPORT_IDENTITY } elseif ($env:IDENTITY) { $env:IDENTITY } elseif ($env:COMPUTERNAME) { $env:COMPUTERNAME } else { "windows-outbound-ip-report" }),
@@ -31,10 +31,10 @@ $ErrorActionPreference = "Stop"
 $ReleaseDownloadBaseUrl = $(if ($env:PO0_RELEASE_DOWNLOAD_BASE_URL) { $env:PO0_RELEASE_DOWNLOAD_BASE_URL } else { "https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download" })
 $DownloadUrl = $(if ($env:PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL) { $env:PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL } elseif ($env:PO0_SELF_REPORT_PS_DOWNLOAD_URL) { $env:PO0_SELF_REPORT_PS_DOWNLOAD_URL } else { "$ReleaseDownloadBaseUrl/po0-outbound-ip-report.ps1" })
 $ScriptName = "po0-outbound-ip-report"
-$ScriptVersion = "2026.07.01+build.7"
+$ScriptVersion = "2026.07.01+build.8"
 $ScriptReleaseDate = "2026-07-01"
 # CHANGELOG_BEGIN
-# - 跟随 PO0 Release asset 批次对齐到 build.7；Windows 客户端无行为变化。
+# - 跟随 PO0 Release asset 批次对齐到 build.8；Windows 客户端无行为变化。
 # CHANGELOG_END
 $PanelValueColumn = 24
 $MenuRightColumn = 46

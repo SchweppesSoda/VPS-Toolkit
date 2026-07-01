@@ -26,6 +26,101 @@ default_install_path() {
     fi
 }
 
+path_dir_in_path() {
+    local dir="$1" rest item
+    [[ -n "${dir}" ]] || return 1
+    rest="${PATH:-}"
+    while true; do
+        case "${rest}" in
+            *:*)
+                item="${rest%%:*}"
+                rest="${rest#*:}"
+                ;;
+            *)
+                item="${rest}"
+                rest=""
+                ;;
+        esac
+        [[ "${item}" == "${dir}" ]] && return 0
+        [[ -n "${rest}" ]] || break
+    done
+    return 1
+}
+
+shell_path_export_line() {
+    local dir="$1" rel
+    if [[ -n "${HOME:-}" ]]; then
+        case "${dir}" in
+            "${HOME}"/*)
+                rel="${dir#"${HOME}/"}"
+                printf 'export PATH="$HOME/%s:$PATH"\n' "${rel}"
+                return 0
+                ;;
+        esac
+    fi
+    printf 'export PATH="%s:$PATH"\n' "${dir}"
+}
+
+shell_path_profile_path() {
+    [[ "${EUID:-$(id -u 2>/dev/null || printf 1)}" -eq 0 ]] && return 1
+    [[ -n "${HOME:-}" ]] || return 1
+    printf '%s\n' "${HOME}/.zprofile"
+}
+
+shell_profile_has_path_dir() {
+    local profile="$1" dir="$2" line
+    [[ -f "${profile}" ]] || return 1
+    line="$(shell_path_export_line "${dir}")"
+    grep -Fqx "${line}" "${profile}" 2>/dev/null
+}
+
+append_shell_path_profile() {
+    local profile="$1" dir="$2" line
+    line="$(shell_path_export_line "${dir}")"
+    shell_profile_has_path_dir "${profile}" "${dir}" && return 0
+    mkdir -p "$(path_dirname "${profile}")" || return 1
+    {
+        if [[ -s "${profile}" ]]; then
+            printf '\n'
+        fi
+        printf '# PO0 Outbound IP Report command\n'
+        printf '%s\n' "${line}"
+    } >> "${profile}"
+}
+
+ensure_install_path_visible() {
+    local dest="$1" prompt_mode="${2:-0}" dir profile line
+    dir="$(path_dirname "${dest}")"
+    case "${dir}" in
+        /*) ;;
+        *) return 0 ;;
+    esac
+    path_dir_in_path "${dir}" && return 0
+
+    profile="$(shell_path_profile_path 2>/dev/null || true)"
+    line="$(shell_path_export_line "${dir}")"
+    printf '提示：已安装 PO0 Outbound IP Report 命令：%s\n' "${dest}" >&2
+    printf '提示：当前终端 PATH 尚未包含安装目录：%s\n' "${dir}" >&2
+    printf '本次可直接运行：%s --menu\n' "${dest}" >&2
+    if [[ -n "${profile}" ]]; then
+        printf '如需直接运行 po0-outbound-ip-report，可将以下行加入 %s：\n%s\n' "${profile}" "${line}" >&2
+    else
+        printf '如需直接运行 po0-outbound-ip-report，请把 %s 加入当前用户 shell PATH。\n' "${dir}" >&2
+    fi
+
+    [[ "${prompt_mode}" == "1" ]] || return 0
+    [[ -n "${profile}" ]] || return 0
+    [[ -r /dev/tty && -w /dev/tty ]] || return 0
+    if prompt_yes_no "是否现在写入 ${profile}" "y"; then
+        append_shell_path_profile "${profile}" "${dir}" || {
+            printf '写入 PATH 配置失败：%s\n' "${profile}" >&2
+            return 1
+        }
+        printf '已写入 PATH 配置：%s\n' "${profile}" >&2
+        printf '请重新打开终端，或执行：source %s\n' "${profile}" >&2
+    fi
+}
+
 is_legacy_install_path() {
     local path="$1" legacy
     legacy="$(legacy_install_path)"
@@ -141,6 +236,7 @@ install_self() {
     fi
     chmod 755 "${dest}" || true
     cleanup_legacy_self_report_artifacts "${dest}" || true
+    ensure_install_path_visible "${dest}" "${PO0_PATH_PROMPT:-0}" || true
     printf '%s\n' "${dest}"
 }
 
@@ -224,6 +320,11 @@ upgrade_self_from_download() {
         chmod_message="警告：已更新，但自动设置执行权限失败；请手动执行 chmod 755 ${dest}"
     fi
     cleanup_legacy_self_report_artifacts "${dest}" || true
+    if [[ "${reopen_mode}" == "--reopen-menu" ]]; then
+        ensure_install_path_visible "${dest}" "1" || true
+    else
+        ensure_install_path_visible "${dest}" "0" || true
+    fi
     printf '已更新 PO0 Outbound IP Report 客户端脚本：%s\n' "${dest}"
     printf '下载 URL：%s\n' "${DOWNLOAD_URL}"
     printf '%s\n' "${chmod_message}"

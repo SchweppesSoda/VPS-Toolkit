@@ -314,6 +314,18 @@ function isManualRun(ctx) {
   return /generic|manual|now|立即|手动/i.test(scriptLabel(ctx));
 }
 
+function isAutomaticReportRun(ctx) {
+  if (isManualRun(ctx) || isWidgetRun(ctx) || isStatusRun(ctx) || isDeviceSetupRun(ctx) || isDeviceClearRun(ctx)) return false;
+  const exactTriggers = [
+    ctx?.trigger,
+    ctx?.type,
+    ctx?.executionType,
+    ctx?.script?.type,
+  ].map((value) => String(value || '').trim().toLowerCase());
+  if (exactTriggers.some((value) => value === 'schedule' || value === 'network')) return true;
+  return /(^|\s)(schedule|network)(\s|$)|定时|网络/i.test(scriptLabel(ctx));
+}
+
 function isWidgetRun(ctx) {
   return Boolean(ctx?.widgetFamily);
 }
@@ -541,6 +553,7 @@ function targetName(target) {
 
 function targetDisplayValue(target) {
   const name = `${target.sourceId || 'egern'}@${shortHost(target.host)}`;
+  if (target.skipped) return `${name} 已跳过`;
   if (target.ok) return `${name} TTL ${ttlRemaining(target.expiresAt)}`;
   return `${name} 失败: ${target.error || '未知错误'}`;
 }
@@ -559,11 +572,11 @@ function targetSummaryRows(state, ctx, metrics = widgetMetrics(ctx)) {
   return targets.slice(0, maxTargets).map((target, index) => {
     const ok = Boolean(target.ok);
     return rowNode(
-      ok ? 'server.rack' : 'exclamationmark.triangle.fill',
-      ok ? WIDGET_COLORS.green : WIDGET_COLORS.red,
+      target.skipped ? 'pause.circle.fill' : ok ? 'server.rack' : 'exclamationmark.triangle.fill',
+      target.skipped ? WIDGET_COLORS.yellow : ok ? WIDGET_COLORS.green : WIDGET_COLORS.red,
       `目标${index + 1}`,
       targetDisplayValue(target),
-      ok ? WIDGET_COLORS.text : WIDGET_COLORS.red,
+      target.skipped ? WIDGET_COLORS.yellow : ok ? WIDGET_COLORS.text : WIDGET_COLORS.red,
       metrics,
     );
   });
@@ -571,6 +584,7 @@ function targetSummaryRows(state, ctx, metrics = widgetMetrics(ctx)) {
 
 function widgetFromState(state, ctx, deviceId = '') {
   const ok = Boolean(state?.ok);
+  const skipped = Boolean(state?.skipped && state?.skipType === 'wifi-ssid');
   const family = widgetFamily(ctx);
   const metrics = widgetMetrics(ctx);
   const isSmall = family.includes('small');
@@ -581,19 +595,19 @@ function widgetFromState(state, ctx, deviceId = '') {
   const targets = Array.isArray(state?.targets) ? state.targets : [];
   const successCount = state?.successCount ?? targets.filter((target) => target.ok).length;
   const targetCount = state?.targetCount ?? targets.length;
-  const statusColor = ok ? WIDGET_COLORS.green : WIDGET_COLORS.red;
-  const statusIcon = ok ? 'checkmark.shield.fill' : 'exclamationmark.triangle.fill';
-  const timeText = formatTime(state?.at || state?.checkedAt);
+  const statusColor = skipped ? WIDGET_COLORS.yellow : ok ? WIDGET_COLORS.green : WIDGET_COLORS.red;
+  const statusIcon = skipped ? 'pause.circle.fill' : ok ? 'checkmark.shield.fill' : 'exclamationmark.triangle.fill';
+  const timeText = formatTime(skipped ? state?.checkedAt || state?.at : state?.at || state?.checkedAt);
 
   if (!state) {
     return widgetPanel(REPORT_TITLE, [`设备: ${deviceName}`, '暂无上报状态。', '点按刷新即可立即上报。'], false, ctx);
   }
 
   const publicRows = [
-    rowNode('globe.asia.australia.fill', WIDGET_COLORS.blue, '公网', state.ip || '未知', WIDGET_COLORS.text, metrics),
-    rowNode('point.3.connected.trianglepath.dotted', WIDGET_COLORS.blue, 'CIDR', reportedCidr || '未知', WIDGET_COLORS.text, metrics),
-    rowNode('mappin.and.ellipse', WIDGET_COLORS.blue, '位置', trimDisplayText(ipProfile.location || '未知', 28), WIDGET_COLORS.text, metrics),
-    rowNode('building.2.fill', WIDGET_COLORS.blue, '运营商', trimDisplayText(ipProfile.isp || '未知', 28), WIDGET_COLORS.text, metrics),
+    rowNode('globe.asia.australia.fill', WIDGET_COLORS.blue, '公网', state.ip || (skipped ? '本次未探测' : '未知'), WIDGET_COLORS.text, metrics),
+    rowNode('point.3.connected.trianglepath.dotted', WIDGET_COLORS.blue, 'CIDR', reportedCidr || (skipped ? '本次未上传' : '未知'), WIDGET_COLORS.text, metrics),
+    rowNode('mappin.and.ellipse', WIDGET_COLORS.blue, '位置', trimDisplayText(ipProfile.location || (skipped ? '沿用上次或未探测' : '未知'), 28), WIDGET_COLORS.text, metrics),
+    rowNode('building.2.fill', WIDGET_COLORS.blue, '运营商', trimDisplayText(ipProfile.isp || (skipped ? '沿用上次或未探测' : '未知'), 28), WIDGET_COLORS.text, metrics),
   ];
   const networkRows = [
     rowNode(network.icon, WIDGET_COLORS.blue, network.label, network.value, WIDGET_COLORS.text, metrics),
@@ -601,8 +615,11 @@ function widgetFromState(state, ctx, deviceId = '') {
     rowNode('wifi.router.fill', WIDGET_COLORS.blue, '网关', network.gateway || '不适用', WIDGET_COLORS.text, metrics),
     rowNode('timer', WIDGET_COLORS.blue, '周期', formatDurationSeconds(autoReportIntervalSeconds(ctx?.env || {})), WIDGET_COLORS.text, metrics),
   ];
-  const summaryRow = summaryRowNode(deviceName, `${successCount}/${targetCount || 1} 成功`, statusColor, metrics);
+  const summaryRow = summaryRowNode(deviceName, skipped ? 'SSID 跳过' : `${successCount}/${targetCount || 1} 成功`, statusColor, metrics);
   const targetRows = targetSummaryRows(state, ctx, metrics);
+  if (!isSmall && skipped) {
+    targetRows.unshift(rowNode('pause.circle.fill', WIDGET_COLORS.yellow, '本次', 'SSID 命中，未探测/未上传', WIDGET_COLORS.yellow, metrics));
+  }
   if (!isSmall && !ok && targetRows.length === 0) {
     targetRows.push(rowNode('exclamationmark.triangle.fill', WIDGET_COLORS.red, '原因', state.error || '未知错误', WIDGET_COLORS.red, metrics));
   }
@@ -684,12 +701,35 @@ function radioLabel(radio) {
   return labels[key] || radio || '';
 }
 
+function normalizeSsidSkipList(value) {
+  return String(value || '')
+    .split(';')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function currentWifiSsidFromNetwork(ctx, network) {
+  const raw = String(ctx?.device?.wifi?.ssid || network?.ssid || '').trim();
+  if (!raw || network?.kind !== 'wifi') return '';
+  return raw;
+}
+
+function ssidSkipDecision(ctx, env, network) {
+  if (!isAutomaticReportRun(ctx)) return { skip: false };
+  const skipList = normalizeSsidSkipList(env?.SKIP_WIFI_SSIDS);
+  if (skipList.length === 0) return { skip: false };
+  const ssid = currentWifiSsidFromNetwork(ctx, network);
+  if (!ssid) return { skip: false };
+  if (!skipList.includes(ssid)) return { skip: false, ssid };
+  return { skip: true, ssid };
+}
+
 function networkInfo(ctx) {
   const device = ctx?.device || {};
   const runtimeNetwork = (typeof $network !== 'undefined') ? $network : (ctx?.network || {});
   const localIp = runtimeNetwork?.v4?.primaryAddress || device?.ipv4?.address || '';
   const gateway = runtimeNetwork?.v4?.primaryRouter || device?.ipv4?.gateway || '';
-  const wifiName = device?.wifi?.ssid || '';
+  const wifiName = String(device?.wifi?.ssid || '').trim();
   const carrier = carrierLabel(device?.cellular?.carrier || '');
   const radio = radioLabel(device?.cellular?.radio || '');
 
@@ -698,6 +738,7 @@ function networkInfo(ctx) {
       kind: 'wifi',
       label: 'Wi-Fi',
       value: wifiName,
+      ssid: wifiName,
       icon: 'wifi',
       localIp,
       gateway,
@@ -731,6 +772,7 @@ function normalizeNetworkInfo(value) {
       kind: value.kind || 'unknown',
       label: value.label || '网络',
       value: value.value || '未知',
+      ssid: value.ssid || (value.kind === 'wifi' ? value.value || '' : ''),
       icon: value.icon || 'network',
       localIp: value.localIp || '',
       gateway: value.gateway || '',
@@ -740,6 +782,7 @@ function normalizeNetworkInfo(value) {
     kind: 'unknown',
     label: '网络',
     value: String(value || '未知'),
+    ssid: '',
     icon: 'network',
     localIp: '',
     gateway: '',
@@ -839,6 +882,89 @@ function targetConfigSignature(target) {
 
 function targetConfigSignatures(targets) {
   return (targets || []).map(targetConfigSignature).sort().join('\n');
+}
+
+function sanitizedTargetStatus(target, skipped = false) {
+  const clean = {
+    sourceId: target?.sourceId || '',
+    host: target?.host || '',
+    port: target?.port || '',
+    identity: target?.identity || '',
+    ttlSeconds: target?.ttlSeconds || '',
+  };
+  if (target?.ok !== undefined) clean.ok = Boolean(target.ok);
+  if (target?.cidrPrefix !== undefined) clean.cidrPrefix = target.cidrPrefix;
+  if (target?.reportedCidr) clean.reportedCidr = target.reportedCidr;
+  if (target?.expiresAt) clean.expiresAt = target.expiresAt;
+  if (target?.error) clean.error = String(target.error);
+  if (skipped || target?.skipped) clean.skipped = true;
+  return clean;
+}
+
+function sanitizedStoredState(raw) {
+  const state = parseStoredState(raw);
+  if (!state || typeof state !== 'object') return null;
+  const clean = {};
+  for (const key of [
+    'ok',
+    'sourceId',
+    'ip',
+    'reportedCidr',
+    'cidrPrefix',
+    'ipProfile',
+    'po0Host',
+    'identity',
+    'network',
+    'at',
+    'checkedAt',
+    'deviceId',
+    'targetCount',
+    'successCount',
+    'failureCount',
+    'targetConfigSignature',
+    'expiresAt',
+    'skipped',
+    'skipType',
+    'skipReason',
+  ]) {
+    if (state[key] !== undefined) clean[key] = state[key];
+  }
+  if (Array.isArray(state.targets)) {
+    clean.targets = state.targets.map((target) => sanitizedTargetStatus(target));
+  }
+  return clean;
+}
+
+async function buildWifiSsidSkippedState(ctx, targets, network, deviceId, decision) {
+  const now = new Date().toISOString();
+  const previous = sanitizedStoredState(await storageGet(ctx, STORAGE_KEY));
+  const currentTargets = (targets || []).map((target) => sanitizedTargetStatus(target, true));
+  const previousHasSuccess = previous?.ok && (previous.ip || previous.reportedCidr || previous.targets?.length);
+  const base = previousHasSuccess ? previous : {
+    ok: true,
+    sourceId: (targets || []).map((target) => target.sourceId).join(','),
+    po0Host: (targets || []).map((target) => target.host).join(','),
+    identity: (targets || []).map((target) => target.identity).filter(Boolean).join(','),
+    network,
+    deviceId,
+    targetCount: targets.length,
+    successCount: 0,
+    failureCount: 0,
+    targets: currentTargets,
+  };
+  return {
+    ...base,
+    ok: true,
+    skipped: true,
+    skipType: 'wifi-ssid',
+    checkedAt: now,
+    skipReason: `当前 Wi-Fi SSID "${decision.ssid}" 命中跳过列表，本次未探测公网 IP，未上传 PO0。`,
+    network,
+    deviceId,
+    targetConfigSignature: targetConfigSignatures(targets),
+    targetCount: base.targetCount || targets.length,
+    targets: previousHasSuccess && Array.isArray(base.targets) && base.targets.length > 0 ? base.targets : currentTargets,
+  };
 }
 
 function clampInteger(value, fallback, min, max) {
@@ -1270,6 +1396,15 @@ export default async function(ctx) {
 
   try {
     targets = parseTargets(env, deviceId);
+    network = networkInfo(ctx);
+    const wifiSsidSkip = ssidSkipDecision(ctx, env, network);
+    if (wifiSsidSkip.skip) {
+      const state = await buildWifiSsidSkippedState(ctx, targets, network, deviceId, wifiSsidSkip);
+      await storageSet(ctx, STORAGE_KEY, JSON.stringify(state));
+      logMessage(ctx, 'info', '跳过 SSH 上报', state.skipReason);
+      return shouldReturnWidget(ctx) ? widgetFromState(state, ctx, deviceId) : state;
+    }
+
     const detected = await detectCurrentIPv4WithFallback(ctx, env, policy);
     ip = detected.ip;
     ipProfile = normalizeIpProfile(detected.ipProfile);

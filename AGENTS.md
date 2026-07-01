@@ -16,6 +16,7 @@
 - `po0-lan-client.sh` 的源码位于 `scripts/po0/relay/lan-worker/src/`，运行在 LAN Worker，负责轮询领取任务、DDNS、自上报接收、WebAuth 接收和本机轮询器。
 - LAN Worker 的 DDNS resolver 上报计划和资源任务领取计划必须分开；资源任务只领取 PO0 已创建的 pending 任务，不复用 DDNS TTL / 上报频率作为资源轮询逻辑。
 - Egern 模块只做当前出口 IPv4 的 SSH report，不做 DDNS。
+- Egern 的 SSID 跳过只允许作为本地 guard：仅 schedule/network 自动触发命中时跳过本次公网 IP 探测和 SSH 上报；手动运行、状态页和 Widget 刷新视为强制继续；SSID 只写入 Egern 本地状态 / 日志 / Widget，不新增 PO0、LAN Worker 或 `--ssh-ip-report` 协议字段。
 - Self-report 客户端上报到 LAN Worker，再由 LAN Worker SSH 到 PO0。
 - PO0 动态来源中 `source-id` / `source-key` 是参与分组、续期、裁剪的稳定 key；`identity` 只做备注和审计。DDNS 只有 `source-key`，没有 `identity`。
 - PO0 manager 首次部署仍推荐本地 `scp` 上传；后续可由 PO0 通过 LAN Worker HTTP 更新镜像拉取固定 manager 脚本，必须校验 resource token HMAC 后才替换。

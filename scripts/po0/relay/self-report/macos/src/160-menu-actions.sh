@@ -112,7 +112,7 @@ install_cron_interactive() {
             return 1
         }
     fi
-    install_cron
+    PO0_PATH_PROMPT=1 install_cron
 }
 
 menu_loop() {

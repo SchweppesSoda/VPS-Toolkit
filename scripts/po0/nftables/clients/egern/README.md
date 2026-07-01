@@ -34,6 +34,7 @@ https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nft
 - `TTL_SECONDS`：默认 `43200` 秒（12 小时）。
 - `AUTO_REPORT_INTERVAL_SECONDS`：实际 SSH 自动上报周期，默认 `3600` 秒，可设置 `600` 到 `86400` 秒；建议小于 `TTL_SECONDS` 并留出余量。
 - `CELLULAR_CIDR_PREFIX`：蜂窝网络默认 `24`，按 `/24` 上报；设为 `32` 可关闭。Wi-Fi 和未知网络始终按 `/32` 上报。
+- `SKIP_WIFI_SSIDS`：可选。仅对 `schedule` / `network` 自动触发生效；当前 Wi-Fi SSID 命中后，本机跳过本次公网 IP 探测和 SSH 上报。多个 SSID 用英文分号 `;` 分隔，精确大小写匹配；读取不到 SSID 时继续正常上报。手动运行、状态页和 Widget 刷新会强制继续上报。SSID 只写入 Egern 本地状态 / 日志，不上传到 PO0 或 LAN Worker。
 - `IP_CHECK_URL` / `IP_CHECK_URLS`：公网 IPv4 查询接口；默认从 IP9 开始，失败后轮询其它国内接口和 `myip.ipip.net`。
 - `POLICY`：默认 `DIRECT`，用于尽量获取当前真实出口 IP。
 - `DEVICE_ID_SETUP`：只在手动运行 `保存本机设备 ID` 时读取，用于把本机设备 ID 写入 `ctx.storage`。定时/网络上报不会直接使用这个同步 env。
@@ -97,7 +98,7 @@ source-id|host|port|user|script|token|identity|ttl
 - `清除本机设备 ID`：清除本机 `ctx.storage` 里的设备 ID。
 - `PO0 SSH 上报状态` / `widget`：显示本机设备 ID、公网 IP、上报 CIDR、IP 归属地、运营商、自动上报周期、每个 PO0 target 的成功/失败、时间、TTL 和错误原因。归属地 / 运营商优先使用本次 IP 查询接口返回的数据，拿不到时才额外查询。
 
-自动触发会先探测当前出口 IPv4，并按网络类型计算上报 CIDR：蜂窝默认 `/24`，Wi-Fi/未知固定 `/32`。如果本次上报 CIDR 和上次成功记录一致、PO0 target 配置未变化，并且距离上次成功还小于 `AUTO_REPORT_INTERVAL_SECONDS`，脚本会跳过 SSH 上报；因此只有蜂窝 `/24` 会出现“IP 变了但同一 CIDR，所以跳过 SSH”。该周期默认 `3600` 秒，可设置 `600` 到 `86400` 秒；模块定时任务每 10 分钟唤醒检查一次，所以实际执行精度以 10 分钟为粒度。建议 `TTL_SECONDS` 至少大于自动上报周期；如果 TTL 小于自动上报周期，脚本会提前续期，尽量避免白名单过期空窗。跨 `/24`、Wi-Fi/未知网络 IP 变化、target 配置变化（含 TTL、CIDR 前缀、脚本路径、用户、token 指纹等）、自动周期到达、手动执行和 Widget 刷新都会继续执行 SSH 上报。
+自动触发会先校验 target 配置，再读取当前 Wi-Fi SSID；如果 `SKIP_WIFI_SSIDS` 命中，脚本只写本地跳过状态，不探测公网 IP、不 SSH、不通知，并优先保留上一轮成功状态供 Widget 查看。SSID 读取失败会 fail-open 继续正常上报。未命中 SSID guard 时，脚本会探测当前出口 IPv4，并按网络类型计算上报 CIDR：蜂窝默认 `/24`，Wi-Fi/未知固定 `/32`。如果本次上报 CIDR 和上次成功记录一致、PO0 target 配置未变化，并且距离上次成功还小于 `AUTO_REPORT_INTERVAL_SECONDS`，脚本会跳过 SSH 上报；因此只有蜂窝 `/24` 会出现“IP 变了但同一 CIDR，所以跳过 SSH”。该周期默认 `3600` 秒，可设置 `600` 到 `86400` 秒；模块定时任务每 10 分钟唤醒检查一次，所以实际执行精度以 10 分钟为粒度。建议 `TTL_SECONDS` 至少大于自动上报周期；如果 TTL 小于自动上报周期，脚本会提前续期，尽量避免白名单过期空窗。跨 `/24`、Wi-Fi/未知网络 IP 变化、target 配置变化（含 TTL、CIDR 前缀、脚本路径、用户、token 指纹等）、自动周期到达、手动执行、状态页和 Widget 刷新都会继续执行 SSH 上报。
 
 手动执行成功/失败都会尽量通知；自动成功默认不通知，失败默认通知。手动执行和 Status 脚本开启 debug，SSH stderr 会写入 Egern 脚本日志；长错误会分段通知，避免只显示半截 `PO0 restricted report key denied`。
 

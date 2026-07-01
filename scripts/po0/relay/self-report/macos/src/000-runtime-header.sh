@@ -4,10 +4,10 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_OUTBOUND_IP_REPORT_MACOS_DOWNLOAD_URL:-${PO0_SELF_REPORT_MACOS_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report-macos.sh}}"
 SCRIPT_NAME="po0-outbound-ip-report"
-SCRIPT_VERSION="2026.07.01+build.7"
+SCRIPT_VERSION="2026.07.01+build.8"
 SCRIPT_RELEASE_DATE="2026-07-01"
 # CHANGELOG_BEGIN
-# - 新增 --show-wifi-ssid 诊断入口，并增强 macOS 当前 Wi-Fi SSID 探测 fallback；主菜单和定时状态页会显示当前 SSID。
+# - 安装 / 更新本机命令后会检查安装目录是否在 PATH 中；菜单安装会询问是否写入 ~/.zprofile，非交互安装只打印提示和可直接运行的完整路径。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24

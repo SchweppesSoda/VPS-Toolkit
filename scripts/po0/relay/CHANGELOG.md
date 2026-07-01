@@ -6,6 +6,10 @@
 
 ## po0-nftables-relay-manager
 
+### 2026.07.01+build.8
+
+- 跟随 PO0 Release asset 批次对齐到 `po0-v2026.07.01.8`；本脚本无行为变化。
+
 ### 2026.07.01+build.7
 
 - 跟随 PO0 Release asset 批次对齐到 `po0-v2026.07.01.7`；本脚本无行为变化。
@@ -130,6 +134,10 @@
 
 ## po0-lan-worker-client
 
+### 2026.07.01+build.8
+
+- 跟随 PO0 Release asset 批次对齐到 `po0-v2026.07.01.8`；LAN Worker `/report` 协议保持兼容，本脚本无行为变化。
+
 ### 2026.07.01+build.7
 
 - 跟随 PO0 Release asset 批次对齐到 `po0-v2026.07.01.7`；LAN Worker `/report` 协议保持兼容，本脚本无行为变化。
@@ -249,12 +257,21 @@
 
 ## Egern SSH IP Report
 
+### 2026-07-01
+
+- 新增 `SKIP_WIFI_SSIDS` 本地跳过 guard；定时/网络变化自动触发命中当前 Wi-Fi SSID 时，不探测公网 IP、不执行 SSH 上报、不通知，只写 Egern 本地状态/日志并保留上一轮成功状态用于 Widget。
+- SSID 列表使用英文分号分隔并精确大小写匹配；读取不到 SSID、非 Wi-Fi、手动运行、状态页和 Widget 刷新都会继续上报；SSID 不上传到 PO0 或 LAN Worker，也不新增 `--ssh-ip-report` 协议字段。
+
 ### 2026-06-23
 
 - 默认公网 IPv4 探测列表删除 12306 grip 接口，继续以 IP9 为首选并轮询其它国内接口和 `myip.ipip.net`。
 - 状态页 / Widget 优先复用 IP9、163、126、myip.ipip 等 IP 查询接口返回的归属地 / 运营商信息，拿不到时才额外查询。
 
 ## po0-outbound-ip-report（Linux/OpenWrt）
+
+### 2026.07.01+build.8
+
+- 跟随 PO0 Release asset 批次对齐到 `po0-v2026.07.01.8`；Linux/OpenWrt 客户端无行为变化。
 
 ### 2026.07.01+build.7
 
@@ -394,6 +411,10 @@
 
 ## po0-outbound-ip-report（macOS）
 
+### 2026.07.01+build.8
+
+- 安装 / 更新本机 `po0-outbound-ip-report` 命令后会检查安装目录是否在当前 `PATH` 中；菜单安装会询问是否写入 `~/.zprofile`，非交互安装只打印提示和可直接运行的完整路径。
+
 ### 2026.07.01+build.7
 
 - 新增 `--show-wifi-ssid` 诊断入口，可直接显示 macOS 客户端当前读取到的 Wi-Fi SSID。
@@ -468,6 +489,10 @@
 - 支持 `--save-config --menu` 首次保存默认配置后打开菜单，并提供 `--install-launchd` 别名。
 
 ## po0-outbound-ip-report（Windows PowerShell）
+
+### 2026.07.01+build.8
+
+- 跟随 PO0 Release asset 批次对齐到 `po0-v2026.07.01.8`；Windows 客户端无行为变化。
 
 ### 2026.07.01+build.7
 
