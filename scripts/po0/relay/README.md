@@ -717,7 +717,7 @@ po0-outbound-ip-report --changelog
 
 Windows 默认按普通用户安装和运行，路径在 `%LOCALAPPDATA%\PO0\po0-outbound-ip-report.ps1`。只有用管理员 PowerShell 安装时才会改用 `%ProgramData%\PO0\po0-outbound-ip-report.ps1`；管理员路径可以作为兜底检查，但日常不要混用两个权限环境。
 
-旧版曾把 Windows 本机脚本写到 `po0-self-report.ps1`。新版从旧路径启动时会迁移到 `po0-outbound-ip-report.ps1` 并刷新计划任务；旧路径只作为兼容迁移和卸载目标，不再作为新安装入口。
+旧版曾把 Windows 本机脚本写到 `po0-self-report.ps1`。新版从旧路径启动时会迁移到 `po0-outbound-ip-report.ps1` 并刷新计划任务；更新或自愈完成后会把默认旧配置、旧日志、旧 IP 探测状态、旧 VBS launcher 和旧计划任务迁到新命名并删除旧默认残留。旧路径只作为兼容迁移和卸载目标，不再作为新安装入口。
 
 交互式运行默认进入菜单，推荐显式加 `-Menu`。菜单里的 `1) 配置并保存上报参数` 只写本地配置文件，不安装计划任务；`2) 立即上报一次` 会读取参数或已保存配置；`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本并写入计划任务；`4) 暂停 / 恢复定时上报` 只影响自动计划任务，手动立即上报仍可用；`6) Windows 通知 / 静默模式` 会保存通知偏好，并在计划任务已安装时重写隐藏 launcher；`9) 从 GitHub 更新脚本` 会更新本机 `po0-outbound-ip-report.ps1` 并重新打开新版菜单；`10) 卸载本客户端` 会删除本脚本管理的计划任务、隐藏 launcher 和本机安装脚本，配置文件与日志默认保留，可选择一起删除。
 
@@ -836,6 +836,8 @@ powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-outbound-ip-
 ### PO0 Outbound IP Report client 共同说明
 
 三个客户端默认拒绝 `http://`；只有本地调试或临时旧环境才显式使用 `--allow-http` / `-AllowHttp`。Linux/OpenWrt/macOS 默认配置文件 root 为 `/etc/po0-outbound-ip-report/settings.env`，普通用户为 `~/.config/po0-outbound-ip-report/settings.env`；Windows 默认配置文件普通用户为 `%LOCALAPPDATA%\PO0\outbound-ip-report.json`，管理员为 `%ProgramData%\PO0\outbound-ip-report.json`。优先级为 CLI > `PO0_OUTBOUND_IP_REPORT_*` > legacy `PO0_SELF_REPORT_*` / `SELF_REPORT_*` > 已保存配置 > 默认值；旧 `po0-self-report` 配置只作 fallback，保存时写入新路径。配置文件会明文保存 self-report secret，请只放在可信设备上。
+
+更新脚本、从旧 `po0-self-report*` 路径自愈启动，或安装 / 更新定时上报时，客户端会清理脚本自己能确定的默认旧名残留：Linux/OpenWrt/macOS 会迁移默认旧配置、旧 `/tmp/po0-self-report.log`、旧 IP 探测 state，并移除默认旧命令；macOS 还会迁移 legacy launchd / cron；Windows 会迁移默认旧 `self-report.json`、旧日志、旧 state、旧计划任务、旧 `po0-self-report.ps1` 和旧 VBS launcher。显式传入的自定义 `--config` / `-ConfigPath`、`--install-path`、`-LogPath` 等路径不会被当成默认残留误删。
 
 访问设备客户端的一次性上报会以明确状态行结束：成功时显示 `PO0 Outbound IP Report 已完成：...`，并保留 LAN Worker 返回的 `OK <ip>; targets=<N>; target_names=<目标列表>`；客户端摘要优先显示具体 PO0 目标名，连接旧 LAN Worker 时退回显示 `PO0 目标：N 个`。URL 校验、公网 IPv4 探测、HTTP 请求或 LAN Worker -> PO0 上报链路失败时显示 `PO0 Outbound IP Report 未完成：...` 并以非零状态退出。Linux/OpenWrt 和 macOS 定时任务每次运行的完整输出写到 `/tmp/po0-outbound-ip-report.log`；macOS 默认不弹通知，显式启用通知后会调用系统通知中心，通知失败仍只写日志。Windows 计划任务不会弹出可见 CMD/PowerShell 窗口；安装 / 更新计划任务时会生成隐藏 launcher，并把每次运行的开始、LAN Worker 返回和完成/未完成结果写到日志，管理员安装默认在 `%ProgramData%\PO0\po0-outbound-ip-report.log`，普通用户安装默认在 `%LOCALAPPDATA%\PO0\po0-outbound-ip-report.log`；自动上报默认不弹 Windows 通知，只写日志。显式启用通知时，自动上报完成或失败会弹 Windows 通知，通知不可用时仍以日志为准；菜单里的“查看定时上报状态”只显示最近结果摘要，会从 LAN Worker 返回体汇总 PO0 目标，并给出原始日志路径 / tail 命令用于排查细节，同时会提示配置通知状态和计划任务实际通知状态是否漂移。
 

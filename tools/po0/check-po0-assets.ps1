@@ -190,6 +190,15 @@ function Test-WindowsCanonicalPath {
     if ($raw -notmatch 'PO0_OUTBOUND_IP_REPORT_CONFIG') {
         throw "Windows self-report asset lacks canonical env aliases."
     }
+    if ($raw -notmatch 'Cleanup-LegacySelfReportArtifacts') {
+        throw "Windows self-report asset lacks legacy artifact cleanup."
+    }
+    if ($raw -notmatch 'Remove-LegacyScheduledReporterTask') {
+        throw "Windows self-report asset lacks robust legacy scheduled task cleanup."
+    }
+    if ($raw -notmatch '"-NoNotify"') {
+        throw "Windows self-report scheduled task does not preserve explicit -NoNotify."
+    }
 }
 
 function Test-UnixOutboundIpReportCanonicalPath {
@@ -225,6 +234,12 @@ function Test-UnixOutboundIpReportCanonicalPath {
     if ($raw -notmatch 'PO0_OUTBOUND_IP_REPORT_CONFIG') {
         throw "$Platform asset lacks canonical env aliases."
     }
+    if ($raw -match 'write_legacy_command_shim' -or $raw -match 'ln -s "\$\{dest\}" "\$\{legacy\}"') {
+        throw "$Platform still creates a legacy po0-self-report command shim."
+    }
+    if ($raw -notmatch 'cleanup_legacy_self_report_artifacts') {
+        throw "$Platform lacks legacy artifact cleanup after upgrade/self-heal."
+    }
 }
 
 function Test-MacOsLaunchdCanonicalPath {
@@ -243,7 +258,7 @@ function Test-LegacyNameAllowlist {
         "po0-outbound-ip-report.ps1"
     )
     $legacyPattern = 'po0-self-report|PO0_SELF_REPORT|SELF_REPORT_|PO0 Self Report|Self-report 已完成|Self-report 未完成|self-report\.json|po0-self-report\.log|fr\.schweppes\.po0-self-report|PO0_SELF_REPORT_BEGIN|PO0_SELF_REPORT_END'
-    $allowedContext = '(?i:legacy|compat|fallback|alias|shim|migrat|cleanup|old|Test-DownloadedScript|defaultScript\.Value|defaultLauncher\.Value|defaultLog\.Value)|旧|兼容|迁移|回退|别名|历史|Get-Legacy|legacy_|LegacyTaskName|旧版|校验失败|grep -q|Self-report 已完成|Self-report 未完成|PO0_SELF_REPORT|SELF_REPORT_'
+    $allowedContext = '(?i:legacy|compat|fallback|alias|migrat|cleanup|old|Test-DownloadedScript|defaultScript\.Value|defaultLauncher\.Value|defaultLog\.Value)|旧|兼容|迁移|回退|别名|历史|Get-Legacy|legacy_|LegacyTaskName|旧版|校验失败|grep -q|Self-report 已完成|Self-report 未完成|PO0_SELF_REPORT|SELF_REPORT_'
     foreach ($asset in $assets) {
         $path = Join-Path $OutputDir $asset
         $lines = Get-Content -LiteralPath $path -Encoding UTF8

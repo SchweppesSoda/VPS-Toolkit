@@ -123,6 +123,18 @@ check_windows_canonical_path() {
         printf 'Windows self-report asset lacks canonical env aliases.\n' >&2
         exit 1
     }
+    grep -q 'Cleanup-LegacySelfReportArtifacts' "${asset}" || {
+        printf 'Windows self-report asset lacks legacy artifact cleanup.\n' >&2
+        exit 1
+    }
+    grep -q 'Remove-LegacyScheduledReporterTask' "${asset}" || {
+        printf 'Windows self-report asset lacks robust legacy scheduled task cleanup.\n' >&2
+        exit 1
+    }
+    grep -q '"-NoNotify"' "${asset}" || {
+        printf 'Windows self-report scheduled task does not preserve explicit -NoNotify.\n' >&2
+        exit 1
+    }
 }
 
 check_unix_outbound_ip_report_canonical_path() {
@@ -160,6 +172,14 @@ check_unix_outbound_ip_report_canonical_path() {
         printf '%s asset lacks canonical env aliases.\n' "${platform}" >&2
         exit 1
     }
+    if grep -q 'write_legacy_command_shim' "${asset}" || grep -q 'ln -s "${dest}" "${legacy}"' "${asset}"; then
+        printf '%s still creates a legacy po0-self-report command shim.\n' "${platform}" >&2
+        exit 1
+    fi
+    grep -q 'cleanup_legacy_self_report_artifacts' "${asset}" || {
+        printf '%s lacks legacy artifact cleanup after upgrade/self-heal.\n' "${platform}" >&2
+        exit 1
+    }
 }
 
 check_macos_launchd_canonical_path() {
@@ -174,7 +194,7 @@ check_macos_launchd_canonical_path() {
 check_legacy_name_allowlist() {
     local asset line_no line start end context
     local pattern='po0-self-report|PO0_SELF_REPORT|SELF_REPORT_|PO0 Self Report|Self-report 已完成|Self-report 未完成|self-report\.json|po0-self-report\.log|fr\.schweppes\.po0-self-report|PO0_SELF_REPORT_BEGIN|PO0_SELF_REPORT_END'
-    local allowed='legacy|compat|fallback|alias|shim|migrat|cleanup|old|Test-DownloadedScript|defaultScript\.Value|defaultLauncher\.Value|defaultLog\.Value|旧|兼容|迁移|回退|别名|历史|Get-Legacy|legacy_|LegacyTaskName|旧版|校验失败|grep -q|Self-report 已完成|Self-report 未完成|PO0_SELF_REPORT|SELF_REPORT_'
+    local allowed='legacy|compat|fallback|alias|migrat|cleanup|old|Test-DownloadedScript|defaultScript\.Value|defaultLauncher\.Value|defaultLog\.Value|旧|兼容|迁移|回退|别名|历史|Get-Legacy|legacy_|LegacyTaskName|旧版|校验失败|grep -q|Self-report 已完成|Self-report 未完成|PO0_SELF_REPORT|SELF_REPORT_'
     for asset in "${asset_dir}/po0-outbound-ip-report.sh" "${asset_dir}/po0-outbound-ip-report-macos.sh" "${asset_dir}/po0-outbound-ip-report.ps1"; do
         while IFS=: read -r line_no line; do
             [[ -n "${line_no}" ]] || continue

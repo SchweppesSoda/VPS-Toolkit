@@ -6,6 +6,10 @@
 
 ## po0-nftables-relay-manager
 
+### 2026.07.01+build.4
+
+- 跟随 PO0 Release asset 批次对齐到 `po0-v2026.07.01.4`；访问设备客户端更新后会迁移并清理默认旧 `po0-self-report*` 残留。
+
 ### 2026.07.01+build.3
 
 - PO0 Outbound IP Report 客户端部署命令和下载源覆盖变量改用三端统一命名。
@@ -113,6 +117,10 @@
 - 状态面板和资源任务创建计划摘要增加彩色状态提示。
 
 ## po0-lan-worker-client
+
+### 2026.07.01+build.4
+
+- 跟随 PO0 Release asset 批次对齐到 `po0-v2026.07.01.4`；LAN Worker `/report` 协议保持兼容。
 
 ### 2026.07.01+build.3
 
@@ -223,6 +231,11 @@
 - 状态页 / Widget 优先复用 IP9、163、126、myip.ipip 等 IP 查询接口返回的归属地 / 运营商信息，拿不到时才额外查询。
 
 ## po0-outbound-ip-report（Linux/OpenWrt）
+
+### 2026.07.01+build.4
+
+- 更新和旧路径自愈后会迁移默认旧配置、旧日志、旧 IP 探测状态和旧 cron，并删除默认旧 `po0-self-report` 命令残留。
+- 旧 `PO0_SELF_REPORT_*` / `SELF_REPORT_*` 环境变量和旧 CLI alias 继续兼容；显式自定义配置或安装路径不会被自动 legacy 清理误删。
 
 ### 2026.07.01+build.3
 
@@ -344,6 +357,11 @@
 
 ## po0-outbound-ip-report（macOS）
 
+### 2026.07.01+build.4
+
+- 更新和旧路径自愈后会迁移默认旧配置、旧日志、旧 IP 探测状态、旧 launchd / cron，并删除默认旧 `po0-self-report` 命令残留。
+- 安装新 launchd 前先清理旧 cron；旧 cron 清理失败时不加载新 launchd，避免双重上报。
+
 ### 2026.07.01+build.3
 
 - 本机命令、默认配置、默认日志、IP 探测状态和用户可见结果行统一迁移到 `po0-outbound-ip-report` / `PO0 Outbound IP Report`。
@@ -398,6 +416,12 @@
 - 支持 `--save-config --menu` 首次保存默认配置后打开菜单，并提供 `--install-launchd` 别名。
 
 ## po0-outbound-ip-report（Windows PowerShell）
+
+### 2026.07.01+build.4
+
+- 更新和旧 `po0-self-report.ps1` 路径自愈后会迁移默认旧 `self-report.json`、旧日志、旧 IP 探测状态和旧计划任务，并删除默认旧 ps1 / VBS launcher 残留。
+- 旧计划任务迁移保留通知参数、暂停状态、Settings / Principal；新任务注册成功后再删除旧任务，删除失败会先禁用旧任务以避免双重上报。
+- 显式 `-ConfigPath` / `-LogPath` 自定义路径在迁移和卸载清理时不会被误删。
 
 ### 2026.07.01+build.3
 

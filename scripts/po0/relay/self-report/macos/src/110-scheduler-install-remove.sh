@@ -57,20 +57,21 @@ install_launchd() {
     if [[ "${EUID:-$(id -u 2>/dev/null || printf 1)}" -eq 0 ]]; then
         chown root:wheel "${plist}" 2>/dev/null || true
     fi
+    if command -v crontab >/dev/null 2>&1 && cron_managed_block_exists; then
+        if remove_cron_backend >/dev/null 2>&1; then
+            echo "已清理旧 cron 定时上报，避免与 launchd 双重上报。"
+        else
+            rm -f "${plist}" 2>/dev/null || true
+            self_report_incomplete "旧 cron 定时上报清理失败，未加载新 launchd，避免双重上报；请手动删除旧 cron block 后重试。"
+            return 1
+        fi
+    fi
     launchd_unload "${plist}"
     if ! schedule_paused; then
         launchd_load "${plist}" || {
             self_report_incomplete "launchd 加载失败，已写入 plist：${plist}"
             return 1
         }
-    fi
-    if command -v crontab >/dev/null 2>&1 && cron_managed_block_exists; then
-        if remove_cron_backend >/dev/null 2>&1; then
-            echo "已清理旧 cron 定时上报，避免与 launchd 双重上报。"
-        else
-            self_report_incomplete "launchd 已安装，但旧 cron 定时上报清理失败；请手动删除旧 cron block。"
-            return 1
-        fi
     fi
     echo "已安装 PO0 Outbound IP Report launchd 计划：每 ${interval_seconds} 秒上报一次。"
     echo "launchd plist：${plist}"

@@ -32,21 +32,71 @@ is_legacy_install_path() {
     [[ "${path}" == "${legacy}" || "${path##*/}" == "po0-self-report" ]]
 }
 
-write_legacy_command_shim() {
-    local dest="$1" legacy dir
+same_path() {
+    local left="$1" right="$2"
+    [[ -n "${left}" && -n "${right}" ]] || return 1
+    [[ "${left}" == "${right}" ]] && return 0
+    [[ -e "${left}" && -e "${right}" && "${left}" -ef "${right}" ]]
+}
+
+remove_legacy_command_path() {
+    local dest="$1" legacy
     legacy="$(legacy_install_path)"
-    [[ -n "${dest}" && "${dest}" != "${legacy}" ]] || return 0
-    dir="$(dirname "${legacy}")"
-    mkdir -p "${dir}" 2>/dev/null || true
-    rm -f -- "${legacy}" 2>/dev/null || true
-    if ln -s "${dest}" "${legacy}" 2>/dev/null; then
+    [[ -n "${legacy}" && -n "${dest}" ]] || return 0
+    same_path "${legacy}" "${dest}" && return 0
+    [[ -e "${legacy}" || -L "${legacy}" ]] || return 0
+    rm -f -- "${legacy}" 2>/dev/null || {
+        printf 'Warning: failed to remove legacy command path: %s\n' "${legacy}" >&2
+        return 1
+    }
+}
+
+migrate_legacy_file_to_canonical() {
+    local legacy="$1" canonical="$2" mode="${3:-}"
+    [[ -n "${legacy}" && -n "${canonical}" ]] || return 0
+    same_path "${legacy}" "${canonical}" && return 0
+    [[ -e "${legacy}" || -L "${legacy}" ]] || return 0
+    mkdir -p "$(dirname "${canonical}")" 2>/dev/null || return 1
+    if [[ ! -e "${canonical}" ]]; then
+        mv -f -- "${legacy}" "${canonical}" 2>/dev/null || {
+            cp -p -- "${legacy}" "${canonical}" 2>/dev/null && rm -f -- "${legacy}" 2>/dev/null
+        } || return 1
+    else
+        rm -f -- "${legacy}" 2>/dev/null || return 1
+    fi
+    [[ -n "${mode}" ]] && chmod "${mode}" "${canonical}" 2>/dev/null || true
+}
+
+merge_legacy_log_to_canonical() {
+    local legacy="$1" canonical="$2"
+    [[ -n "${legacy}" && -n "${canonical}" ]] || return 0
+    same_path "${legacy}" "${canonical}" && return 0
+    [[ -e "${legacy}" || -L "${legacy}" ]] || return 0
+    mkdir -p "$(dirname "${canonical}")" 2>/dev/null || return 1
+    if [[ ! -e "${canonical}" ]]; then
+        mv -f -- "${legacy}" "${canonical}" 2>/dev/null || {
+            cp -p -- "${legacy}" "${canonical}" 2>/dev/null && rm -f -- "${legacy}" 2>/dev/null
+        } || return 1
         return 0
     fi
-    {
-        printf '#!/usr/bin/env sh\n'
-        printf 'exec %s "$@"\n' "$(sh_quote "${dest}")"
-    } > "${legacy}" || return 0
-    chmod 755 "${legacy}" 2>/dev/null || true
+    if [[ -s "${legacy}" ]]; then
+        {
+            printf '\n# migrated from %s at %s\n' "${legacy}" "$(date '+%Y-%m-%d %H:%M:%S %z' 2>/dev/null || true)"
+            cat "${legacy}"
+        } >> "${canonical}" 2>/dev/null || return 1
+    fi
+    rm -f -- "${legacy}" 2>/dev/null || return 1
+}
+
+cleanup_legacy_self_report_artifacts() {
+    local dest="${1:-$(default_install_path)}" failed=0
+    if [[ "${CONFIG_FILE_EXPLICIT:-0}" != "1" ]]; then
+        migrate_legacy_file_to_canonical "$(legacy_config_file)" "$(canonical_config_file)" "600" || failed=1
+    fi
+    merge_legacy_log_to_canonical "$(legacy_self_report_log_path)" "$(self_report_log_path)" || failed=1
+    migrate_legacy_file_to_canonical "$(legacy_ip_check_state_file)" "$(ip_check_state_file)" || failed=1
+    remove_legacy_command_path "${dest}" || failed=1
+    return "${failed}"
 }
 
 run_updated_script() {
@@ -90,7 +140,7 @@ install_self() {
         return 1
     fi
     chmod 755 "${dest}" || true
-    write_legacy_command_shim "${dest}" || true
+    cleanup_legacy_self_report_artifacts "${dest}" || true
     printf '%s\n' "${dest}"
 }
 
@@ -113,6 +163,7 @@ invoke_legacy_path_self_heal() {
     dest="$(default_install_path)"
     [[ "${dest}" != "${source}" ]] || return 1
     install_self >/dev/null || return 1
+    refresh_schedule_after_script_update "${dest}" || true
     printf '已迁移 PO0 Outbound IP Report 客户端脚本到 canonical 路径：%s\n' "${dest}"
     if [[ "${reopen_menu}" == "1" ]]; then
         printf '正在从 canonical 路径重新打开新版菜单：%s --menu\n' "${dest}"
@@ -172,7 +223,7 @@ upgrade_self_from_download() {
     else
         chmod_message="警告：已更新，但自动设置执行权限失败；请手动执行 chmod 755 ${dest}"
     fi
-    write_legacy_command_shim "${dest}" || true
+    cleanup_legacy_self_report_artifacts "${dest}" || true
     printf '已更新 PO0 Outbound IP Report 客户端脚本：%s\n' "${dest}"
     printf '下载 URL：%s\n' "${DOWNLOAD_URL}"
     printf '%s\n' "${chmod_message}"

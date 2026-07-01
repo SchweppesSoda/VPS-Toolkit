@@ -29,12 +29,12 @@ $ErrorActionPreference = "Stop"
 $ReleaseDownloadBaseUrl = $(if ($env:PO0_RELEASE_DOWNLOAD_BASE_URL) { $env:PO0_RELEASE_DOWNLOAD_BASE_URL } else { "https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download" })
 $DownloadUrl = $(if ($env:PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL) { $env:PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL } elseif ($env:PO0_SELF_REPORT_PS_DOWNLOAD_URL) { $env:PO0_SELF_REPORT_PS_DOWNLOAD_URL } else { "$ReleaseDownloadBaseUrl/po0-outbound-ip-report.ps1" })
 $ScriptName = "po0-outbound-ip-report"
-$ScriptVersion = "2026.07.01+build.3"
+$ScriptVersion = "2026.07.01+build.4"
 $ScriptReleaseDate = "2026-07-01"
 # CHANGELOG_BEGIN
-# - 默认配置、日志和计划任务迁移到 po0-outbound-ip-report 命名。
-# - 旧 po0-self-report.ps1、旧配置、旧日志和旧计划任务作为 legacy 兼容入口自动迁移。
-# - 新增 PO0_OUTBOUND_IP_REPORT_* 环境变量别名，旧 PO0_SELF_REPORT_* 继续兼容。
+# - 更新和旧路径自愈后会迁移默认旧配置、日志、IP 探测状态和计划任务，并删除旧 po0-self-report.ps1 / VBS 默认残留。
+# - 旧计划任务迁移会保留通知、暂停状态、Settings / Principal；删除旧任务失败时会先禁用旧任务，避免双重上报。
+# - 显式 -ConfigPath / -LogPath 自定义路径在迁移和卸载清理时不会被误删。
 # CHANGELOG_END
 $PanelValueColumn = 24
 $MenuRightColumn = 46

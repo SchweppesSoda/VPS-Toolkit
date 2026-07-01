@@ -4,11 +4,11 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_OUTBOUND_IP_REPORT_MACOS_DOWNLOAD_URL:-${PO0_SELF_REPORT_MACOS_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report-macos.sh}}"
 SCRIPT_NAME="po0-outbound-ip-report"
-SCRIPT_VERSION="2026.07.01+build.3"
+SCRIPT_VERSION="2026.07.01+build.4"
 SCRIPT_RELEASE_DATE="2026-07-01"
 # CHANGELOG_BEGIN
-# - 本机命令、默认配置、日志、launchd/cron 和状态文件迁移到 po0-outbound-ip-report 命名。
-# - 旧 po0-self-report 命令、配置、launchd/cron 和环境变量作为 legacy 兼容入口自动迁移。
+# - 更新和旧路径自愈后会迁移默认旧配置、日志、IP 探测状态、launchd/cron，并删除默认 po0-self-report 命令残留。
+# - 安装 launchd 前先清旧 cron，避免旧 cron 清理失败时出现双重上报。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24

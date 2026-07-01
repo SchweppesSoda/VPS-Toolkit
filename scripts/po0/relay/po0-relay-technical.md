@@ -751,7 +751,7 @@ Windows PowerShell 默认按普通用户安装和运行，路径在 `%LOCALAPPDA
 $script="$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing 'https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.ps1' -OutFile $script -TimeoutSec 120; powershell -ExecutionPolicy Bypass -File $script -Menu
 ```
 
-Windows 旧版曾把固定脚本写到 `po0-self-report.ps1`。新版脚本如果从旧路径启动，会先复制到 `%LOCALAPPDATA%\PO0\po0-outbound-ip-report.ps1` 或 `%ProgramData%\PO0\po0-outbound-ip-report.ps1`，再刷新已有计划任务的隐藏 launcher；菜单场景会重新打开 canonical 脚本。旧 `po0-self-report.ps1` / `po0-self-report-task.vbs` 只作为迁移、漂移提示和卸载目标，不再作为默认安装入口。
+Windows 旧版曾把固定脚本写到 `po0-self-report.ps1`。新版脚本如果从旧路径启动，会先复制到 `%LOCALAPPDATA%\PO0\po0-outbound-ip-report.ps1` 或 `%ProgramData%\PO0\po0-outbound-ip-report.ps1`，再刷新已有计划任务的隐藏 launcher；菜单场景会重新打开 canonical 脚本。更新或旧路径自愈成功后会迁移默认旧配置、日志、IP 探测 state 和旧计划任务，并删除默认旧 `po0-self-report.ps1` / `po0-self-report-task.vbs` 残留。旧路径只作为迁移、漂移提示和卸载目标，不再作为默认安装入口。
 
 Windows PowerShell 非交互保存配置，不安装计划任务，也不保证安装固定路径脚本；`-SourceId` 和 `-Identity` 推荐填设备名，避免多台设备都混到同一来源：
 
@@ -828,6 +828,8 @@ $client=Join-Path $env:LOCALAPPDATA 'PO0\po0-outbound-ip-report.ps1'; powershell
 ```
 
 三个访问设备客户端都会把裸域名自动规范化为 HTTPS `/report`，并默认拒绝 `http://`；仅本地调试或临时旧环境才显式使用 `--allow-http` / `-AllowHttp`。Linux/OpenWrt/macOS 的配置文件优先级是 `--config`、`PO0_OUTBOUND_IP_REPORT_CONFIG`、legacy `PO0_SELF_REPORT_CONFIG` / `SELF_REPORT_CONFIG`、已保存配置、root 的 `/etc/po0-outbound-ip-report/settings.env`、`$XDG_CONFIG_HOME/po0-outbound-ip-report/settings.env`、`$HOME/.config/po0-outbound-ip-report/settings.env`、最后 `./po0-outbound-ip-report.env`；旧 `po0-self-report` 配置路径只作 fallback，保存时写入新路径。Windows 默认配置文件普通用户为 `%LOCALAPPDATA%\PO0\outbound-ip-report.json`，管理员为 `%ProgramData%\PO0\outbound-ip-report.json`；旧 `self-report.json` 只作 copy-forward 迁移来源。配置文件会明文保存 self-report secret，请只放在可信设备上。
+
+命名迁移只处理脚本可确定的默认 legacy 路径，不做全盘扫描。Linux/OpenWrt/macOS 更新、自愈或安装定时上报时会迁移默认旧配置、旧 `/tmp/po0-self-report.log`、旧 IP 探测 state，并移除默认旧 `po0-self-report` 命令；cron/launchd 会从旧 marker / label 迁到 `PO0_OUTBOUND_IP_REPORT_*` / `fr.schweppes.po0-outbound-ip-report`，macOS 安装 launchd 前会先清旧 cron，清理失败则不加载新 launchd，避免双重上报。Windows 更新、自愈或安装计划任务时会迁移默认旧配置、日志、state 和旧计划任务；新任务注册成功后才删除旧任务，删除失败时先禁用旧任务并报错。显式 `--config` / `-ConfigPath`、`--install-path`、`-LogPath` 等自定义路径按用户自定义处理，不在自动 legacy 清理中删除。
 
 访问设备客户端的用户可见结果行统一为 `PO0 Outbound IP Report 已完成：...` 或 `PO0 Outbound IP Report 未完成：...`。一次性上报只有在本机探测到公网 IPv4、LAN Worker HTTP 返回 2xx，且 LAN Worker 已成功代报 PO0 后才打印完成；否则保留底层错误并返回非零状态。LAN Worker 成功返回 `OK <ip>; targets=<N>; target_names=<目标列表>` 时，三个客户端都会把目标列表汇总到完成结果和定时上报状态摘要；连接旧 LAN Worker 只有 `targets=<N>` 时退回显示 `PO0 目标：N 个`。Linux/OpenWrt 和 macOS 定时任务的每次运行输出重定向到 `/tmp/po0-outbound-ip-report.log`，其中也包含同样的结果行。macOS 默认静默；显式启用通知后，成功/失败通知只是附加 UI 提示，通知失败不能影响上报结果。Windows 计划任务不会依赖一闪而过的控制台窗口；`-InstallTask` 会把 `-LogPath` 写入任务参数，管理员安装默认日志为 `%ProgramData%\PO0\po0-outbound-ip-report.log`，普通用户安装默认日志为 `%LOCALAPPDATA%\PO0\po0-outbound-ip-report.log`，运行时会记录可执行到的上报过程、LAN Worker 返回体和完成/未完成结果；参数、配置或探测阶段的早期失败只记录错误路径。Windows 的通知实际行为由计划任务/VBS launcher 是否带 `-Notify` 决定；菜单“查看定时上报状态”会解析 launcher，展示配置通知状态、任务实际通知状态和实际 `-File` 脚本目标，不一致时提示通知或旧路径漂移，同时展示计划任务上次运行结果和最近结果摘要，原始日志路径 / tail 命令仍保留用于排查细节。
 

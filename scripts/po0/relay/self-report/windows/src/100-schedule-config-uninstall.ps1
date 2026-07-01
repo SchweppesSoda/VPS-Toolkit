@@ -235,7 +235,9 @@ function Remove-ScheduledReporter {
         Unregister-ScheduledTask -TaskName $record.Name -Confirm:$false
         Write-Host "已删除计划任务：$($record.Name)"
         if (-not $record.IsLegacy) {
-            Unregister-ScheduledTask -TaskName $script:LegacyTaskName -Confirm:$false -ErrorAction SilentlyContinue
+            if (-not (Remove-LegacyScheduledReporterTask)) {
+                throw "旧计划任务删除失败，已尝试禁用旧任务；请检查计划任务：$script:LegacyTaskName"
+            }
         }
         Write-SelfReportCompleted "已删除本脚本管理的计划任务。"
     } catch {
@@ -291,11 +293,15 @@ function Uninstall-SelfReportClient {
     }
 
     if ($RemoveData) {
-        if (-not (Remove-SelfReportPathIfExists -Label "配置文件" -Path $script:ConfigPath)) { $ok = $false }
+        if ($script:ConfigPathExplicit) {
+            Write-Host "已保留显式配置文件：$script:ConfigPath"
+        } elseif (-not (Remove-SelfReportPathIfExists -Label "配置文件" -Path $script:ConfigPath)) { $ok = $false }
         if ($legacyConfigPath -ne $script:ConfigPath) {
             if (-not (Remove-SelfReportPathIfExists -Label "旧配置文件" -Path $legacyConfigPath)) { $ok = $false }
         }
-        if (-not (Remove-SelfReportPathIfExists -Label "日志文件" -Path $logPath)) { $ok = $false }
+        if ($script:LogPathExplicit) {
+            Write-Host "已保留显式日志文件：$logPath"
+        } elseif (-not (Remove-SelfReportPathIfExists -Label "日志文件" -Path $logPath)) { $ok = $false }
         if ($legacyLogPath -ne $logPath) {
             if (-not (Remove-SelfReportPathIfExists -Label "旧日志文件" -Path $legacyLogPath)) { $ok = $false }
         }
