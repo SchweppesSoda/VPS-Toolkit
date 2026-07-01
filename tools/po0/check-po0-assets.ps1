@@ -474,6 +474,7 @@ function Test-AssetInventory {
 function Test-VersionsMatchTag {
     $tag = $env:GITHUB_REF_NAME
     if (-not $tag) { return }
+    if ($env:GITHUB_REF_TYPE -eq "branch" -or $env:GITHUB_REF -like "refs/heads/*") { return }
     if ($tag -ne $ExpectedPo0ReleaseTag) {
         throw "GITHUB_REF_NAME $tag does not match expected PO0 release tag $ExpectedPo0ReleaseTag"
     }

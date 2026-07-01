@@ -349,8 +349,11 @@ check_versions_consistent() {
 }
 
 check_versions_match_tag() {
-    local tag="${GITHUB_REF_NAME:-}" expected asset version
+    local tag="${GITHUB_REF_NAME:-}" ref_type="${GITHUB_REF_TYPE:-}" ref="${GITHUB_REF:-}" expected asset version
     [[ -n "${tag}" ]] || return 0
+    if [[ "${ref_type}" == "branch" || "${ref}" == refs/heads/* ]]; then
+        return 0
+    fi
     [[ "${tag}" == "${expected_po0_release_tag}" ]] || {
         printf 'GITHUB_REF_NAME %s does not match expected PO0 release tag %s\n' "${tag}" "${expected_po0_release_tag}" >&2
         exit 1
