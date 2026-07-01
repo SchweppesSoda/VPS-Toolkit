@@ -40,6 +40,7 @@ show_menu_dashboard() {
     print_panel_row "定时上报" "$(cron_status_summary)"
     print_panel_row "通知模式" "$(notify_status_label)"
     print_panel_row "跳过 Wi-Fi SSID" "$(skip_wifi_ssids_label)"
+    print_panel_row "当前 Wi-Fi SSID" "$(current_wifi_ssid_label)"
     print_panel_row "上报间隔" "$(cron_minutes_to_seconds "${CRON_MINUTES}") 秒（安装定时上报时使用）"
 }
 

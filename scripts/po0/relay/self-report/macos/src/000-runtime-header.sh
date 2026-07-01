@@ -4,10 +4,10 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_OUTBOUND_IP_REPORT_MACOS_DOWNLOAD_URL:-${PO0_SELF_REPORT_MACOS_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report-macos.sh}}"
 SCRIPT_NAME="po0-outbound-ip-report"
-SCRIPT_VERSION="2026.07.01+build.6"
+SCRIPT_VERSION="2026.07.01+build.7"
 SCRIPT_RELEASE_DATE="2026-07-01"
 # CHANGELOG_BEGIN
-# - 修复 macOS 默认 Bash 3.2 + set -u 下，空 SSID 跳过列表可能触发 items[@] unbound variable 的问题；读取 SSID 失败仍继续上报，跳过时仍只写本地日志摘要。
+# - 新增 --show-wifi-ssid 诊断入口，并增强 macOS 当前 Wi-Fi SSID 探测 fallback；主菜单和定时状态页会显示当前 SSID。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24
@@ -45,6 +45,7 @@ INSTALL_CRON=""
 SHOW_MENU=""
 SHOW_VERSION=""
 SHOW_CHANGELOG=""
+SHOW_WIFI_SSID=""
 UPGRADE_SELF=""
 SAVE_CONFIG=""
 PAUSE_SCHEDULE=""

@@ -54,6 +54,18 @@ wifi_hardware_device() {
     '
 }
 
+networksetup_all_devices() {
+    command -v networksetup >/dev/null 2>&1 || return 1
+    networksetup -listallhardwareports 2>/dev/null | awk '
+        /^Device:[[:space:]]*/ {
+            sub(/^Device:[[:space:]]*/, "")
+            if ($0 != "") {
+                print
+            }
+        }
+    '
+}
+
 networksetup_wifi_ssid() {
     local device="$1" output ssid
     [[ -n "${device}" ]] || return 1
@@ -61,7 +73,7 @@ networksetup_wifi_ssid() {
     output="$(networksetup -getairportnetwork "${device}" 2>/dev/null || true)"
     output="${output%$'\r'}"
     case "${output}" in
-        *"not associated"*|*"Not associated"*|"")
+        *"not associated"*|*"Not associated"*|*"not a Wi-Fi interface"*|*"not a Wi-Fi device"*|*"not an AirPort interface"*|"")
             return 1
             ;;
     esac
@@ -70,6 +82,36 @@ networksetup_wifi_ssid() {
     ssid="$(trim "${ssid}")"
     [[ -n "${ssid}" ]] || return 1
     printf '%s\n' "${ssid}"
+}
+
+networksetup_any_wifi_ssid() {
+    local device ssid seen=";"
+    while IFS= read -r device || [[ -n "${device}" ]]; do
+        device="$(trim "${device}")"
+        [[ -n "${device}" ]] || continue
+        case "${seen}" in
+            *";${device};"*) continue ;;
+        esac
+        seen="${seen}${device};"
+        ssid="$(networksetup_wifi_ssid "${device}" 2>/dev/null || true)"
+        if [[ -n "${ssid}" ]]; then
+            printf '%s\n' "${ssid}"
+            return 0
+        fi
+    done < <(networksetup_all_devices)
+    return 1
+}
+
+networksetup_common_wifi_ssid() {
+    local device ssid
+    for device in en0 en1 en2; do
+        ssid="$(networksetup_wifi_ssid "${device}" 2>/dev/null || true)"
+        if [[ -n "${ssid}" ]]; then
+            printf '%s\n' "${ssid}"
+            return 0
+        fi
+    done
+    return 1
 }
 
 ipconfig_wifi_ssid() {
@@ -118,6 +160,24 @@ airport_wifi_ssid() {
     printf '%s\n' "${ssid}"
 }
 
+wdutil_wifi_ssid() {
+    local ssid
+    command -v wdutil >/dev/null 2>&1 || return 1
+    ssid="$(wdutil info 2>/dev/null | awk '
+        /^[[:space:]]*SSID[[:space:]]*:/ {
+            line=$0
+            sub(/^[^:]*:[[:space:]]*/, "", line)
+            print line
+            exit
+        }
+    ')"
+    ssid="$(trim "${ssid}")"
+    case "${ssid}" in
+        ""|"<none>"|"None"|"none") return 1 ;;
+    esac
+    printf '%s\n' "${ssid}"
+}
+
 current_wifi_ssid() {
     local device ssid
     device="$(wifi_hardware_device 2>/dev/null || true)"
@@ -133,7 +193,22 @@ current_wifi_ssid() {
             return 0
         fi
     fi
+    ssid="$(networksetup_any_wifi_ssid 2>/dev/null || true)"
+    if [[ -n "${ssid}" ]]; then
+        printf '%s\n' "${ssid}"
+        return 0
+    fi
+    ssid="$(networksetup_common_wifi_ssid 2>/dev/null || true)"
+    if [[ -n "${ssid}" ]]; then
+        printf '%s\n' "${ssid}"
+        return 0
+    fi
     ssid="$(airport_wifi_ssid 2>/dev/null || true)"
+    if [[ -n "${ssid}" ]]; then
+        printf '%s\n' "${ssid}"
+        return 0
+    fi
+    ssid="$(wdutil_wifi_ssid 2>/dev/null || true)"
     if [[ -n "${ssid}" ]]; then
         printf '%s\n' "${ssid}"
         return 0
@@ -149,6 +224,17 @@ current_wifi_ssid_label() {
     else
         printf '读取失败或未连接（fail-open）\n'
     fi
+}
+
+show_current_wifi_ssid_once() {
+    local ssid
+    ssid="$(current_wifi_ssid 2>/dev/null || true)"
+    if [[ -n "${ssid}" ]]; then
+        printf '当前 Wi-Fi SSID：%s\n' "${ssid}"
+        return 0
+    fi
+    printf '当前 Wi-Fi SSID：读取失败或未连接（fail-open）\n'
+    return 1
 }
 
 wifi_ssid_in_skip_list() {

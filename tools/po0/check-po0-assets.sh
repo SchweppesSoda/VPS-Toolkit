@@ -3,9 +3,9 @@ set -euo pipefail
 
 repo_root="$(cd "$(git rev-parse --show-toplevel)" && pwd -P)"
 asset_dir="${1:-${repo_root}/.tmp/po0-check-assets}"
-expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.07.01+build.6}"
+expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.07.01+build.7}"
 expected_po0_release_date="${PO0_EXPECTED_RELEASE_DATE:-2026-07-01}"
-expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.07.01.6}"
+expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.07.01.7}"
 
 manifest_entries() {
     local manifest="$1"
@@ -240,11 +240,11 @@ check_unix_ssid_guard() {
         printf '%s asset lacks SSID skip result wording.\n' "${platform}" >&2
         exit 1
     }
-    grep -Eiq 'ssid.*(summary|log|摘要|日志)|(summary|log|摘要|日志).*ssid' "${asset}" || {
+    grep -Eiq 'ssid.*(summary|log|摘要|日志)|(summary|log|摘要|日志).*ssid' "${asset}" || grep -Eq 'self_report_log_event_summary|show_recent_self_report_log' "${asset}" || {
         printf '%s asset lacks SSID skip log/status summary wording.\n' "${platform}" >&2
         exit 1
     }
-    grep -Eiq 'ssid.*(continue|continued|fail|failed|failure|error|unavailable|读取失败|读取.*失败|继续上报)|(continue|continued|fail|failed|failure|error|unavailable|读取失败|继续上报).*ssid' "${asset}" || {
+    grep -Eiq 'ssid.*(continue|continued|fail|failed|failure|error|unavailable|读取失败|读取.*失败|继续上报)|(continue|continued|fail|failed|failure|error|unavailable|读取失败|继续上报).*ssid' "${asset}" || grep -Eq 'current_wifi_ssid[[:space:]]+2>/dev/null[[:space:]]+\|\|[[:space:]]+true' "${asset}" || {
         printf '%s asset does not state that SSID read failure continues reporting.\n' "${platform}" >&2
         exit 1
     }
@@ -274,6 +274,26 @@ check_unix_ssid_guard() {
     fi
 }
 
+check_macos_wifi_ssid_diagnostic() {
+    local asset="${asset_dir}/po0-outbound-ip-report-macos.sh"
+    grep -Fq -- '--show-wifi-ssid' "${asset}" || {
+        printf 'macOS asset lacks --show-wifi-ssid diagnostic CLI.\n' >&2
+        exit 1
+    }
+    grep -Fq 'show_current_wifi_ssid_once()' "${asset}" || {
+        printf 'macOS asset lacks explicit current Wi-Fi SSID diagnostic function.\n' >&2
+        exit 1
+    }
+    grep -Fq 'networksetup_any_wifi_ssid()' "${asset}" || {
+        printf 'macOS asset lacks networksetup fallback across hardware devices.\n' >&2
+        exit 1
+    }
+    grep -Fq 'wdutil_wifi_ssid()' "${asset}" || {
+        printf 'macOS asset lacks wdutil Wi-Fi SSID fallback.\n' >&2
+        exit 1
+    }
+}
+
 check_windows_ssid_guard() {
     local asset="${asset_dir}/po0-outbound-ip-report.ps1"
     pwsh -NoProfile -Command "
@@ -297,6 +317,7 @@ if (\$guard.Index -ge \$http.Index) { throw 'Windows asset SSID guard must run b
 check_outbound_ip_report_ssid_guards() {
     check_unix_ssid_guard "${asset_dir}/po0-outbound-ip-report.sh" "Linux/OpenWrt"
     check_unix_ssid_guard "${asset_dir}/po0-outbound-ip-report-macos.sh" "macOS"
+    check_macos_wifi_ssid_diagnostic
     if command -v pwsh >/dev/null 2>&1; then
         check_windows_ssid_guard
     else

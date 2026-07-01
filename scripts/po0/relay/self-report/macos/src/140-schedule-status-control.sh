@@ -150,6 +150,8 @@ show_cron_status() {
     print_panel_row "保存状态" "$([[ -f "${CONFIG_FILE}" ]] && printf '已保存' || printf '未保存')"
     print_panel_row "配置暂停标记" "$(schedule_paused && printf '已暂停（手动立即上报仍可用）' || printf '未暂停')"
     print_panel_row "通知模式" "$(notify_status_label)"
+    print_panel_row "跳过 Wi-Fi SSID" "$(skip_wifi_ssids_label)"
+    print_panel_row "当前 Wi-Fi SSID" "$(current_wifi_ssid_label)"
     print_panel_row "实际状态" "$(cron_state_label "${state}")"
     if [[ -n "${interval}" ]]; then
         print_panel_row "计划间隔" "${interval}"

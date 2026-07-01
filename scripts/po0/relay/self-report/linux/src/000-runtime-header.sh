@@ -4,10 +4,10 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_OUTBOUND_IP_REPORT_DOWNLOAD_URL:-${PO0_SELF_REPORT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report.sh}}"
 SCRIPT_NAME="po0-outbound-ip-report"
-SCRIPT_VERSION="2026.07.01+build.6"
+SCRIPT_VERSION="2026.07.01+build.7"
 SCRIPT_RELEASE_DATE="2026-07-01"
 # CHANGELOG_BEGIN
-# - SSID 跳过列表解析不再使用 Bash 数组，避免旧 Bash + set -u 下触发 items[@] unbound variable；读取 SSID 失败仍继续上报，跳过时仍只写本地日志摘要。
+# - 跟随 PO0 Release asset 批次对齐到 build.7；Linux/OpenWrt 客户端无行为变化。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24

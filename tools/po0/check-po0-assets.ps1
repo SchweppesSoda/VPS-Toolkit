@@ -10,9 +10,9 @@ if (-not $OutputDir) {
 }
 
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.07.01+build.6" }
+$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.07.01+build.7" }
 $ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-07-01" }
-$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.07.01.6" }
+$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.07.01.7" }
 
 function ConvertTo-RepoRelativePath {
     param([string]$Path)
@@ -310,10 +310,10 @@ function Test-UnixSsidGuard {
     if ($raw -notmatch '(?is)(ssid.{0,160}(skip|skipped|跳过)|(skip|skipped|跳过).{0,160}ssid)') {
         throw "$Platform asset lacks SSID skip result wording."
     }
-    if ($raw -notmatch '(?is)(ssid.{0,160}(summary|log|摘要|日志)|(summary|log|摘要|日志).{0,160}ssid)') {
+    if ($raw -notmatch '(?is)(ssid.{0,160}(summary|log|摘要|日志)|(summary|log|摘要|日志).{0,160}ssid)' -and $raw -notmatch 'self_report_log_event_summary|show_recent_self_report_log') {
         throw "$Platform asset lacks SSID skip log/status summary wording."
     }
-    if ($raw -notmatch '(?is)(ssid.{0,160}(continue|continued|fail|failed|failure|error|unavailable|读取失败|继续上报)|(continue|continued|fail|failed|failure|error|unavailable|读取失败|继续上报).{0,160}ssid)') {
+    if ($raw -notmatch '(?is)(ssid.{0,160}(continue|continued|fail|failed|failure|error|unavailable|读取失败|继续上报)|(continue|continued|fail|failed|failure|error|unavailable|读取失败|继续上报).{0,160}ssid)' -and $raw -notmatch 'current_wifi_ssid\s+2>/dev/null\s+\|\|\s+true') {
         throw "$Platform asset does not state that SSID read failure continues reporting."
     }
     if ($raw -match 'local -a items=|read -r -a items') {
@@ -333,6 +333,23 @@ function Test-UnixSsidGuard {
     }
     if ($guard.Index -ge $http.Index) {
         throw "$Platform asset SSID guard must run before HTTP report submission."
+    }
+}
+
+function Test-MacOsWifiSsidDiagnostic {
+    $path = Join-Path $OutputDir "po0-outbound-ip-report-macos.sh"
+    $raw = Get-Content -LiteralPath $path -Raw -Encoding UTF8
+    if ($raw -notmatch '--show-wifi-ssid') {
+        throw "macOS asset lacks --show-wifi-ssid diagnostic CLI."
+    }
+    if ($raw -notmatch 'show_current_wifi_ssid_once\(\)') {
+        throw "macOS asset lacks explicit current Wi-Fi SSID diagnostic function."
+    }
+    if ($raw -notmatch 'networksetup_any_wifi_ssid\(\)') {
+        throw "macOS asset lacks networksetup fallback across hardware devices."
+    }
+    if ($raw -notmatch 'wdutil_wifi_ssid\(\)') {
+        throw "macOS asset lacks wdutil Wi-Fi SSID fallback."
     }
 }
 
@@ -377,6 +394,7 @@ function Test-WindowsSsidGuard {
 function Test-OutboundIpReportSsidGuards {
     Test-UnixSsidGuard -FileName "po0-outbound-ip-report.sh" -Platform "Linux/OpenWrt"
     Test-UnixSsidGuard -FileName "po0-outbound-ip-report-macos.sh" -Platform "macOS"
+    Test-MacOsWifiSsidDiagnostic
     Test-WindowsSsidGuard
     Test-NoNewLegacySsidAliases
 }

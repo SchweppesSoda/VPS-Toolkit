@@ -92,7 +92,7 @@ po0-lan-client --probe
 po0-lan-client --version
 ```
 
-PO0 nftables 子系统内带 `SCRIPT_VERSION`、`--version` / `--changelog` 或自更新提示的可独立部署脚本（PO0 manager、LAN Worker client、PO0 Outbound IP Report clients）统一使用 `YYYY.MM.DD+build.N` 混合版本格式。正式 PO0 Release asset 的脚本内部版本必须与 release tag 尾号一致：`po0-vYYYY.MM.DD.N` 对应 `YYYY.MM.DD+build.N`，例如 `po0-v2026.07.01.6` 对应 `2026.07.01+build.6`。完整历史写在 [`CHANGELOG.md`](CHANGELOG.md)。
+PO0 nftables 子系统内带 `SCRIPT_VERSION`、`--version` / `--changelog` 或自更新提示的可独立部署脚本（PO0 manager、LAN Worker client、PO0 Outbound IP Report clients）统一使用 `YYYY.MM.DD+build.N` 混合版本格式。正式 PO0 Release asset 的脚本内部版本必须与 release tag 尾号一致：`po0-vYYYY.MM.DD.N` 对应 `YYYY.MM.DD+build.N`，例如 `po0-v2026.07.01.7` 对应 `2026.07.01+build.7`。完整历史写在 [`CHANGELOG.md`](CHANGELOG.md)。
 
 更新 LAN Worker 上已安装的 client：
 
@@ -649,6 +649,12 @@ macOS 使用专用 Bash 脚本和用户级 launchd LaunchAgent，不复用 Linux
 
 macOS 系统自带 Bash 通常是 3.2，客户端会保持 Bash 3.2 兼容，不要求额外安装新版 Bash。`2026.07.01+build.6` 修复过 SSID 跳过列表在 Bash 3.2 + `set -u` 下可能出现的 `items[@]: unbound variable`；如果看到这类报错，先从 GitHub Release 更新到 build.6 或更新版本。
 
+检查 macOS 客户端当前能读取到的 Wi-Fi SSID：
+
+```bash
+po0-outbound-ip-report --show-wifi-ssid
+```
+
 首次保存默认配置并打开菜单：
 
 ```bash
@@ -839,7 +845,7 @@ powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-outbound-ip-
 
 三个客户端默认拒绝 `http://`；只有本地调试或临时旧环境才显式使用 `--allow-http` / `-AllowHttp`。Linux/OpenWrt/macOS 默认配置文件 root 为 `/etc/po0-outbound-ip-report/settings.env`，普通用户为 `~/.config/po0-outbound-ip-report/settings.env`；Windows 默认配置文件普通用户为 `%LOCALAPPDATA%\PO0\outbound-ip-report.json`，管理员为 `%ProgramData%\PO0\outbound-ip-report.json`。优先级为 CLI > `PO0_OUTBOUND_IP_REPORT_*` > legacy `PO0_SELF_REPORT_*` / `SELF_REPORT_*` > 已保存配置 > 默认值；旧 `po0-self-report` 配置只作 fallback，保存时写入新路径。配置文件会明文保存 self-report secret，请只放在可信设备上。
 
-三个客户端支持按当前 Wi-Fi SSID 在本地跳过上报。Linux/OpenWrt 和 macOS 使用 `--skip-wifi-ssid SSID`（可重复）、`--skip-wifi-ssids "SSID1;SSID2"`、`--clear-skip-wifi-ssids` 和 `--force-report`，也可用 `PO0_OUTBOUND_IP_REPORT_SKIP_WIFI_SSIDS`；Windows 使用 `-SkipWifiSsids "SSID1;SSID2"`、`-ForceReport` 和同名环境变量；保存配置后会写入本机配置文件。SSID 列表用英文分号 `;` 分隔，匹配时只做去首尾空白后的精确匹配，不做通配、正则或子串匹配。命中时客户端只在本机日志 / 状态摘要里记录“因 SSID 跳过”，不会把 SSID、跳过原因或任何新字段上传到 LAN Worker，也不改变 LAN Worker `/report` 或 PO0 上报协议。读取当前 SSID 失败时按安全兼容原则继续正常上报。手动运行命中跳过规则时会先询问是否强制继续；定时任务命中时直接本地跳过并写日志。
+三个客户端支持按当前 Wi-Fi SSID 在本地跳过上报。Linux/OpenWrt 和 macOS 使用 `--skip-wifi-ssid SSID`（可重复）、`--skip-wifi-ssids "SSID1;SSID2"`、`--clear-skip-wifi-ssids` 和 `--force-report`，也可用 `PO0_OUTBOUND_IP_REPORT_SKIP_WIFI_SSIDS`；macOS 还可用 `--show-wifi-ssid` 直接检查当前读取结果。Windows 使用 `-SkipWifiSsids "SSID1;SSID2"`、`-ForceReport` 和同名环境变量；保存配置后会写入本机配置文件。SSID 列表用英文分号 `;` 分隔，匹配时只做去首尾空白后的精确匹配，不做通配、正则或子串匹配。命中时客户端只在本机日志 / 状态摘要里记录“因 SSID 跳过”，不会把 SSID、跳过原因或任何新字段上传到 LAN Worker，也不改变 LAN Worker `/report` 或 PO0 上报协议。读取当前 SSID 失败时按安全兼容原则继续正常上报。手动运行命中跳过规则时会先询问是否强制继续；定时任务命中时直接本地跳过并写日志。
 
 更新脚本、从旧 `po0-self-report*` 路径自愈启动，或安装 / 更新定时上报时，客户端会清理脚本自己能确定的默认旧名残留：Linux/OpenWrt/macOS 会迁移默认旧配置、旧 `/tmp/po0-self-report.log`、旧 IP 探测 state，并移除默认旧命令；macOS 还会迁移 legacy launchd / cron；Windows 会迁移默认旧 `self-report.json`、旧日志、旧 state、旧计划任务、旧 `po0-self-report.ps1` 和旧 VBS launcher。显式传入的自定义 `--config` / `-ConfigPath`、`--install-path`、`-LogPath` 等路径不会被当成默认残留误删。
 
