@@ -5,15 +5,23 @@ write_env_assignment() {
 }
 
 load_saved_config() {
-    [[ -r "${CONFIG_FILE}" ]] || return 0
+    local read_file
+    read_file="$(config_read_file 2>/dev/null || true)"
+    [[ -n "${read_file}" && -r "${read_file}" ]] || return 0
     # This file is created by this script with chmod 600 and may contain secrets.
     # shellcheck disable=SC1090
-    . "${CONFIG_FILE}" || return 1
+    . "${read_file}" || return 1
+    normalize_legacy_default_install_path
 }
 
 apply_env_overrides() {
     [[ -n "${PO0_LAN_WORKER_URL+x}" ]] && WORKER_URL="${PO0_LAN_WORKER_URL}"
+    [[ -n "${PO0_OUTBOUND_IP_REPORT_WORKER_URL+x}" ]] && WORKER_URL="${PO0_OUTBOUND_IP_REPORT_WORKER_URL}"
     [[ -n "${ENV_WORKER_URL}" ]] && WORKER_URL="${ENV_WORKER_URL}"
+    if [[ -n "${PO0_OUTBOUND_IP_REPORT_SOURCE+x}" ]]; then
+        SOURCE_ID="${PO0_OUTBOUND_IP_REPORT_SOURCE}"
+        SOURCE_ID_EXPLICIT="1"
+    fi
     if [[ -n "${PO0_SELF_REPORT_SOURCE+x}" ]]; then
         SOURCE_ID="${PO0_SELF_REPORT_SOURCE}"
         SOURCE_ID_EXPLICIT="1"
@@ -21,6 +29,10 @@ apply_env_overrides() {
     if [[ -n "${ENV_SOURCE_ID}" ]]; then
         SOURCE_ID="${ENV_SOURCE_ID}"
         SOURCE_ID_EXPLICIT="1"
+    fi
+    if [[ -n "${PO0_OUTBOUND_IP_REPORT_IDENTITY+x}" ]]; then
+        IDENTITY="${PO0_OUTBOUND_IP_REPORT_IDENTITY}"
+        IDENTITY_EXPLICIT="1"
     fi
     if [[ -n "${PO0_SELF_REPORT_IDENTITY+x}" ]]; then
         IDENTITY="${PO0_SELF_REPORT_IDENTITY}"
@@ -30,22 +42,69 @@ apply_env_overrides() {
         IDENTITY="${ENV_IDENTITY}"
         IDENTITY_EXPLICIT="1"
     fi
+    [[ -n "${PO0_OUTBOUND_IP_REPORT_SECRET+x}" ]] && SECRET="${PO0_OUTBOUND_IP_REPORT_SECRET}"
     [[ -n "${PO0_SELF_REPORT_SECRET+x}" ]] && SECRET="${PO0_SELF_REPORT_SECRET}"
     [[ -n "${SELF_REPORT_SECRET+x}" ]] && SECRET="${SELF_REPORT_SECRET}"
+    [[ -n "${PO0_OUTBOUND_IP_REPORT_ALLOW_HTTP+x}" ]] && ALLOW_HTTP="${PO0_OUTBOUND_IP_REPORT_ALLOW_HTTP}"
     [[ -n "${PO0_SELF_REPORT_ALLOW_HTTP+x}" ]] && ALLOW_HTTP="${PO0_SELF_REPORT_ALLOW_HTTP}"
     [[ -n "${ENV_ALLOW_HTTP}" ]] && ALLOW_HTTP="${ENV_ALLOW_HTTP}"
+    [[ -n "${PO0_OUTBOUND_IP_REPORT_IP_CHECK_URL+x}" ]] && IP_CHECK_URL="${PO0_OUTBOUND_IP_REPORT_IP_CHECK_URL}"
     [[ -n "${ENV_IP_CHECK_URL}" ]] && IP_CHECK_URL="${ENV_IP_CHECK_URL}"
+    [[ -n "${PO0_OUTBOUND_IP_REPORT_IP_CHECK_URLS+x}" ]] && IP_CHECK_URLS="${PO0_OUTBOUND_IP_REPORT_IP_CHECK_URLS}"
     [[ -n "${ENV_IP_CHECK_URLS}" ]] && IP_CHECK_URLS="${ENV_IP_CHECK_URLS}"
+    if [[ -n "${PO0_OUTBOUND_IP_REPORT_INSTALL_PATH+x}" ]]; then
+        INSTALL_PATH="${PO0_OUTBOUND_IP_REPORT_INSTALL_PATH}"
+        INSTALL_PATH_EXPLICIT="1"
+    fi
     [[ -n "${PO0_SELF_REPORT_INSTALL_PATH+x}" ]] && INSTALL_PATH="${PO0_SELF_REPORT_INSTALL_PATH}"
-    [[ -n "${ENV_INSTALL_PATH}" ]] && INSTALL_PATH="${ENV_INSTALL_PATH}"
+    [[ -n "${PO0_SELF_REPORT_INSTALL_PATH+x}" ]] && INSTALL_PATH_EXPLICIT="1"
+    [[ -n "${ENV_INSTALL_PATH}" ]] && INSTALL_PATH="${ENV_INSTALL_PATH}" && INSTALL_PATH_EXPLICIT="1"
+    [[ -n "${PO0_OUTBOUND_IP_REPORT_MINUTES+x}" ]] && CRON_MINUTES="${PO0_OUTBOUND_IP_REPORT_MINUTES}"
     [[ -n "${PO0_SELF_REPORT_MINUTES+x}" ]] && CRON_MINUTES="${PO0_SELF_REPORT_MINUTES}"
     [[ -n "${ENV_MINUTES}" ]] && CRON_MINUTES="${ENV_MINUTES}"
+    [[ -n "${PO0_OUTBOUND_IP_REPORT_INTERVAL_SECONDS+x}" ]] && INTERVAL_SECONDS="${PO0_OUTBOUND_IP_REPORT_INTERVAL_SECONDS}"
     [[ -n "${PO0_SELF_REPORT_INTERVAL_SECONDS+x}" ]] && INTERVAL_SECONDS="${PO0_SELF_REPORT_INTERVAL_SECONDS}"
     [[ -n "${ENV_INTERVAL_SECONDS}" ]] && INTERVAL_SECONDS="${ENV_INTERVAL_SECONDS}"
+    [[ -n "${PO0_OUTBOUND_IP_REPORT_MAX_MINUTES+x}" ]] && MAX_CRON_MINUTES="${PO0_OUTBOUND_IP_REPORT_MAX_MINUTES}"
     [[ -n "${PO0_SELF_REPORT_MAX_MINUTES+x}" ]] && MAX_CRON_MINUTES="${PO0_SELF_REPORT_MAX_MINUTES}"
+    [[ -n "${PO0_OUTBOUND_IP_REPORT_PAUSED+x}" ]] && SCHEDULE_PAUSED="${PO0_OUTBOUND_IP_REPORT_PAUSED}"
     [[ -n "${PO0_SELF_REPORT_PAUSED+x}" ]] && SCHEDULE_PAUSED="${PO0_SELF_REPORT_PAUSED}"
+    [[ -n "${PO0_OUTBOUND_IP_REPORT_NOTIFY+x}" ]] && NOTIFY="${PO0_OUTBOUND_IP_REPORT_NOTIFY}"
     [[ -n "${PO0_SELF_REPORT_NOTIFY+x}" ]] && NOTIFY="${PO0_SELF_REPORT_NOTIFY}"
     [[ -n "${ENV_NOTIFY}" ]] && NOTIFY="${ENV_NOTIFY}"
+    # Canonical aliases win when both old and new environment variables are present.
+    [[ -n "${PO0_OUTBOUND_IP_REPORT_WORKER_URL+x}" ]] && WORKER_URL="${PO0_OUTBOUND_IP_REPORT_WORKER_URL}"
+    if [[ -n "${PO0_OUTBOUND_IP_REPORT_SOURCE+x}" ]]; then
+        SOURCE_ID="${PO0_OUTBOUND_IP_REPORT_SOURCE}"
+        SOURCE_ID_EXPLICIT="1"
+    fi
+    if [[ -n "${PO0_OUTBOUND_IP_REPORT_IDENTITY+x}" ]]; then
+        IDENTITY="${PO0_OUTBOUND_IP_REPORT_IDENTITY}"
+        IDENTITY_EXPLICIT="1"
+    fi
+    [[ -n "${PO0_OUTBOUND_IP_REPORT_SECRET+x}" ]] && SECRET="${PO0_OUTBOUND_IP_REPORT_SECRET}"
+    [[ -n "${PO0_OUTBOUND_IP_REPORT_ALLOW_HTTP+x}" ]] && ALLOW_HTTP="${PO0_OUTBOUND_IP_REPORT_ALLOW_HTTP}"
+    [[ -n "${PO0_OUTBOUND_IP_REPORT_IP_CHECK_URL+x}" ]] && IP_CHECK_URL="${PO0_OUTBOUND_IP_REPORT_IP_CHECK_URL}"
+    [[ -n "${PO0_OUTBOUND_IP_REPORT_IP_CHECK_URLS+x}" ]] && IP_CHECK_URLS="${PO0_OUTBOUND_IP_REPORT_IP_CHECK_URLS}"
+    if [[ -n "${PO0_OUTBOUND_IP_REPORT_INSTALL_PATH+x}" ]]; then
+        INSTALL_PATH="${PO0_OUTBOUND_IP_REPORT_INSTALL_PATH}"
+        INSTALL_PATH_EXPLICIT="1"
+    fi
+    [[ -n "${PO0_OUTBOUND_IP_REPORT_MINUTES+x}" ]] && CRON_MINUTES="${PO0_OUTBOUND_IP_REPORT_MINUTES}"
+    [[ -n "${PO0_OUTBOUND_IP_REPORT_INTERVAL_SECONDS+x}" ]] && INTERVAL_SECONDS="${PO0_OUTBOUND_IP_REPORT_INTERVAL_SECONDS}"
+    [[ -n "${PO0_OUTBOUND_IP_REPORT_MAX_MINUTES+x}" ]] && MAX_CRON_MINUTES="${PO0_OUTBOUND_IP_REPORT_MAX_MINUTES}"
+    [[ -n "${PO0_OUTBOUND_IP_REPORT_PAUSED+x}" ]] && SCHEDULE_PAUSED="${PO0_OUTBOUND_IP_REPORT_PAUSED}"
+    [[ -n "${PO0_OUTBOUND_IP_REPORT_NOTIFY+x}" ]] && NOTIFY="${PO0_OUTBOUND_IP_REPORT_NOTIFY}"
+    normalize_legacy_default_install_path
+}
+
+normalize_legacy_default_install_path() {
+    [[ -n "${INSTALL_PATH:-}" ]] || return 0
+    case "${INSTALL_PATH}" in
+        "/usr/local/sbin/po0-self-report"|"${HOME:-}/.local/bin/po0-self-report"|"./po0-self-report")
+            INSTALL_PATH=""
+            ;;
+    esac
 }
 
 sanitize_device_id_part() {

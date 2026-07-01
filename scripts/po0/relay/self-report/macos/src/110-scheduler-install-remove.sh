@@ -44,6 +44,10 @@ install_launchd() {
     plist="$(launchd_plist_path)"
     dir="$(path_dirname "${plist}")"
     mkdir -p "${dir}" || { self_report_incomplete "launchd plist 目录创建失败：${dir}"; return 1; }
+    remove_legacy_launchd_if_exists || {
+        self_report_incomplete "旧 launchd 计划删除失败，未安装新计划。"
+        return 1
+    }
     interval_seconds="$(cron_minutes_to_seconds "${CRON_MINUTES}")"
     write_launchd_plist "${plist}" "${script}" "${interval_seconds}" || {
         self_report_incomplete "launchd plist 写入失败：${plist}"
@@ -60,7 +64,15 @@ install_launchd() {
             return 1
         }
     fi
-    echo "已安装 self-report launchd 计划：每 ${interval_seconds} 秒上报一次。"
+    if command -v crontab >/dev/null 2>&1 && cron_managed_block_exists; then
+        if remove_cron_backend >/dev/null 2>&1; then
+            echo "已清理旧 cron 定时上报，避免与 launchd 双重上报。"
+        else
+            self_report_incomplete "launchd 已安装，但旧 cron 定时上报清理失败；请手动删除旧 cron block。"
+            return 1
+        fi
+    fi
+    echo "已安装 PO0 Outbound IP Report launchd 计划：每 ${interval_seconds} 秒上报一次。"
     echo "launchd plist：${plist}"
     echo "脚本路径：${script}"
     echo "配置文件：${CONFIG_FILE}"
@@ -87,12 +99,12 @@ install_cron_backend() {
     if notify_enabled; then
         run_cmd="${run_cmd} --notify"
     fi
-    run_cmd="${run_cmd} >/tmp/po0-self-report.log 2>&1"
+    run_cmd="${run_cmd} >$(sh_quote "$(self_report_log_path)") 2>&1"
     job="$(build_cron_job "${CRON_MINUTES}" "${run_cmd}")"
     if schedule_paused; then
         job="# ${job}"
     fi
-    tmp="/tmp/po0-self-report-cron.$$"
+    tmp="/tmp/po0-outbound-ip-report-cron.$$"
     {
         crontab -l 2>/dev/null | write_cron_without_managed_block
         cron_begin_marker
@@ -107,7 +119,7 @@ install_cron_backend() {
         return 1
     }
     rm -f "${tmp}" 2>/dev/null || true
-    echo "已安装 self-report cron：每 $(cron_minutes_to_seconds "${CRON_MINUTES}") 秒上报一次。"
+    echo "已安装 PO0 Outbound IP Report cron：每 $(cron_minutes_to_seconds "${CRON_MINUTES}") 秒上报一次。"
     echo "脚本路径：${script}"
     echo "配置文件：${CONFIG_FILE}"
     echo "通知模式：$(notify_status_label)"
@@ -154,9 +166,9 @@ remove_cron_backend() {
         return 1
     }
     if command -v mktemp >/dev/null 2>&1; then
-        tmp="$(mktemp "${TMPDIR:-/tmp}/po0-self-report-cron.XXXXXX")" || return 1
+        tmp="$(mktemp "${TMPDIR:-/tmp}/po0-outbound-ip-report-cron.XXXXXX")" || return 1
     else
-        tmp="${TMPDIR:-/tmp}/po0-self-report-cron.$$"
+        tmp="${TMPDIR:-/tmp}/po0-outbound-ip-report-cron.$$"
     fi
     crontab -l 2>/dev/null | write_cron_without_managed_block > "${tmp}" || true
     crontab "${tmp}" || {
@@ -165,7 +177,7 @@ remove_cron_backend() {
         return 1
     }
     rm -f "${tmp}" 2>/dev/null || true
-    echo "已删除本脚本管理的 self-report cron。"
+    echo "已删除本脚本管理的 PO0 Outbound IP Report cron。"
 }
 
 remove_cron() {
@@ -176,6 +188,10 @@ remove_cron() {
     fi
     if launchd_supported && [[ -f "$(launchd_plist_path)" ]]; then
         remove_launchd || errors=1
+        did=1
+    fi
+    if launchd_supported && [[ -f "$(legacy_launchd_plist_path)" ]]; then
+        remove_legacy_launchd_if_exists || errors=1
         did=1
     fi
     if [[ "${did}" != "1" ]]; then

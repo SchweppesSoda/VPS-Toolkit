@@ -6,6 +6,11 @@
 
 ## po0-nftables-relay-manager
 
+### 2026.07.01+build.3
+
+- PO0 Outbound IP Report 客户端部署命令和下载源覆盖变量改用三端统一命名。
+- 发布批次对齐到 `po0-v2026.07.01.3`。
+
 ### 2026.07.01+build.2
 
 - 修正 CLI 帮助里的 PO0 主控部署说明，避免把 Release asset 下载命令描述成本地上传。
@@ -108,6 +113,10 @@
 - 状态面板和资源任务创建计划摘要增加彩色状态提示。
 
 ## po0-lan-worker-client
+
+### 2026.07.01+build.3
+
+- 跟随 PO0 Release asset 批次对齐到 build.3；LAN Worker `/report` 协议保持兼容。
 
 ### 2026.07.01+build.2
 
@@ -213,7 +222,14 @@
 - 默认公网 IPv4 探测列表删除 12306 grip 接口，继续以 IP9 为首选并轮询其它国内接口和 `myip.ipip.net`。
 - 状态页 / Widget 优先复用 IP9、163、126、myip.ipip 等 IP 查询接口返回的归属地 / 运营商信息，拿不到时才额外查询。
 
-## po0-self-report（Linux/OpenWrt）
+## po0-outbound-ip-report（Linux/OpenWrt）
+
+### 2026.07.01+build.3
+
+- 本机命令、默认配置、默认日志、IP 探测状态和 cron marker 统一迁移到 `po0-outbound-ip-report` / `PO0 Outbound IP Report`。
+- 旧 `po0-self-report` 命令、配置、日志、状态和 env / CLI alias 仅作为 legacy 迁移入口继续识别；保存和安装默认写入 canonical 路径。
+- 旧默认 `INSTALL_PATH=.../po0-self-report` 会规范化到 canonical 路径；显式自定义安装路径继续保留。
+- 旧路径自愈和自更新重开新版菜单时保留旧配置 fallback，不会把新进程强制指向不存在的 canonical 配置。
 
 ### 2026.07.01+build.2
 
@@ -326,7 +342,14 @@
 - 新增从 GitHub 更新脚本入口，并在更新后显示版本变化和更新内容。
 - 新增 `--version` 和 `--changelog` 只读入口。
 
-## po0-self-report（macOS）
+## po0-outbound-ip-report（macOS）
+
+### 2026.07.01+build.3
+
+- 本机命令、默认配置、默认日志、IP 探测状态和用户可见结果行统一迁移到 `po0-outbound-ip-report` / `PO0 Outbound IP Report`。
+- launchd label 迁移为 `fr.schweppes.po0-outbound-ip-report`；安装新 launchd 时会卸载旧 label，并清理旧 cron block，避免双重上报。
+- 旧 `po0-self-report` 命令、配置、日志、状态、launchd/cron 和 env / CLI alias 仅作为 legacy 迁移入口继续识别。
+- 旧默认 `INSTALL_PATH=.../po0-self-report` 会规范化到 canonical 路径；显式自定义安装路径继续保留。
 
 ### 2026.07.01+build.2
 
@@ -374,7 +397,14 @@
 - 定时上报使用用户级 launchd LaunchAgent；自更新默认继续拉取 macOS 专用 asset。
 - 支持 `--save-config --menu` 首次保存默认配置后打开菜单，并提供 `--install-launchd` 别名。
 
-## po0-self-report（Windows PowerShell）
+## po0-outbound-ip-report（Windows PowerShell）
+
+### 2026.07.01+build.3
+
+- 默认配置迁移为 `outbound-ip-report.json`，默认日志迁移为 `po0-outbound-ip-report.log`，默认计划任务名迁移为 `PO0 Outbound IP Report to LAN Worker`。
+- 菜单、版本输出、通知标题和完成 / 未完成结果行统一显示 `PO0 Outbound IP Report`。
+- 旧 `self-report.json`、旧日志、旧 `po0-self-report.ps1` / VBS launcher 和旧计划任务只作为 legacy copy-forward、迁移和卸载目标继续识别。
+- 旧计划任务迁移会先读取原 action / launcher 里的 `ConfigPath`、`LogPath`、通知参数和 Disabled 状态，新任务注册成功后再删除旧任务，避免双任务。
 
 ### 2026.07.01+build.2
 

@@ -17,11 +17,19 @@ function Get-DefaultDataDir {
 
 function Get-DefaultConfigPath {
     if ($script:ConfigPath) { return $script:ConfigPath }
+    return (Join-Path (Get-DefaultDataDir) "outbound-ip-report.json")
+}
+
+function Get-LegacyConfigPath {
     return (Join-Path (Get-DefaultDataDir) "self-report.json")
 }
 
 function Get-DefaultLogPath {
     if ($script:LogPath) { return $script:LogPath }
+    return (Join-Path (Get-DefaultDataDir) "po0-outbound-ip-report.log")
+}
+
+function Get-LegacyLogPath {
     return (Join-Path (Get-DefaultDataDir) "po0-self-report.log")
 }
 
@@ -60,6 +68,7 @@ function Test-CurrentScriptPathIsLegacy {
 }
 
 $script:ConfigPath = $ConfigPath
+$script:ConfigPathExplicit = [bool]$ConfigPath
 $script:ConfigPath = Get-DefaultConfigPath
 $script:WorkerUrl = $WorkerUrl
 $script:SourceId = $SourceId
@@ -67,7 +76,9 @@ $script:Identity = $Identity
 $script:Secret = $Secret
 $script:IpCheckUrl = $IpCheckUrl
 $script:IpCheckUrls = @()
-if ($env:IP_CHECK_URLS -and -not $PSBoundParameters.ContainsKey("IpCheckUrls")) {
+if ($env:PO0_OUTBOUND_IP_REPORT_IP_CHECK_URLS -and -not $PSBoundParameters.ContainsKey("IpCheckUrls")) {
+    $script:IpCheckUrls = $env:PO0_OUTBOUND_IP_REPORT_IP_CHECK_URLS -split "\s*,\s*" | Where-Object { $_ }
+} elseif ($env:IP_CHECK_URLS -and -not $PSBoundParameters.ContainsKey("IpCheckUrls")) {
     $script:IpCheckUrls = $env:IP_CHECK_URLS -split "\s*,\s*" | Where-Object { $_ }
 } elseif ($IpCheckUrls) {
     $script:IpCheckUrls = @($IpCheckUrls)
@@ -75,6 +86,7 @@ if ($env:IP_CHECK_URLS -and -not $PSBoundParameters.ContainsKey("IpCheckUrls")) 
 $script:Minutes = $Minutes
 $script:IntervalSeconds = $IntervalSeconds
 $script:LogPath = $LogPath
+$script:LogPathExplicit = [bool]$LogPath
 $script:AllowHttp = [bool]$AllowHttp
 $script:SchedulePaused = $false
 $script:Notify = [bool]$Notify
@@ -108,14 +120,14 @@ function Write-SelfReportInfo {
 
 function Write-SelfReportCompleted {
     param([string]$Message)
-    Write-Host "Self-report 已完成：$Message" -ForegroundColor Green
-    Write-SelfReportLogLine "OK" "Self-report 已完成：$Message"
+    Write-Host "PO0 Outbound IP Report 已完成：$Message" -ForegroundColor Green
+    Write-SelfReportLogLine "OK" "PO0 Outbound IP Report 已完成：$Message"
 }
 
 function Write-SelfReportIncomplete {
     param([string]$Message)
-    [Console]::Error.WriteLine("Self-report 未完成：$Message")
-    Write-SelfReportLogLine "ERROR" "Self-report 未完成：$Message"
+    [Console]::Error.WriteLine("PO0 Outbound IP Report 未完成：$Message")
+    Write-SelfReportLogLine "ERROR" "PO0 Outbound IP Report 未完成：$Message"
 }
 
 function Show-WindowsSelfReportNotification {
@@ -140,7 +152,7 @@ function Show-WindowsSelfReportNotification {
         if ($Message.Length -gt 240) {
             $Message = $Message.Substring(0, 237) + "..."
         }
-        $notify.Text = "PO0 Self-report"
+        $notify.Text = "PO0 Outbound IP Report"
         $notify.BalloonTipTitle = $Title
         $notify.BalloonTipText = $Message
         $notify.Visible = $true

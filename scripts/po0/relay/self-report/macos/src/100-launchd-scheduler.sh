@@ -3,6 +3,10 @@ is_macos() {
 }
 
 launchd_label() {
+    printf '%s\n' "fr.schweppes.po0-outbound-ip-report"
+}
+
+legacy_launchd_label() {
     printf '%s\n' "fr.schweppes.po0-self-report"
 }
 
@@ -18,6 +22,16 @@ launchd_supported() {
 launchd_plist_path() {
     local label
     label="$(launchd_label)"
+    if [[ "${EUID:-$(id -u 2>/dev/null || printf 1)}" -eq 0 ]]; then
+        printf '/Library/LaunchDaemons/%s.plist\n' "${label}"
+    else
+        printf '%s/Library/LaunchAgents/%s.plist\n' "${HOME}" "${label}"
+    fi
+}
+
+legacy_launchd_plist_path() {
+    local label
+    label="$(legacy_launchd_label)"
     if [[ "${EUID:-$(id -u 2>/dev/null || printf 1)}" -eq 0 ]]; then
         printf '/Library/LaunchDaemons/%s.plist\n' "${label}"
     else
@@ -90,6 +104,20 @@ launchd_unload() {
     launchctl bootout "${domain}" "${plist}" >/dev/null 2>&1 || launchctl unload "${plist}" >/dev/null 2>&1 || true
 }
 
+remove_legacy_launchd_if_exists() {
+    local plist domain label
+    launchd_supported || return 0
+    plist="$(legacy_launchd_plist_path)"
+    label="$(legacy_launchd_label)"
+    domain="$(launchd_domain)"
+    launchctl bootout "${domain}" "${plist}" >/dev/null 2>&1 || launchctl unload "${plist}" >/dev/null 2>&1 || true
+    launchctl disable "${domain}/${label}" >/dev/null 2>&1 || true
+    if [[ -f "${plist}" ]]; then
+        rm -f "${plist}" || return 1
+        echo "已删除旧 launchd 计划：${plist}"
+    fi
+}
+
 launchd_load() {
     local plist="$1" domain label
     domain="$(launchd_domain)"
@@ -110,10 +138,14 @@ launchd_disabled_from_plist() {
 }
 
 read_launchd_status_snapshot() {
-    local plist interval_seconds interval="" config_paused disabled state consistency="ok"
+    local plist interval_seconds interval="" config_paused disabled state consistency="ok" legacy=0
     launchd_supported || return 1
     plist="$(launchd_plist_path)"
     config_paused="$(schedule_paused && printf '1' || printf '0')"
+    if [[ ! -f "${plist}" && -f "$(legacy_launchd_plist_path)" ]]; then
+        plist="$(legacy_launchd_plist_path)"
+        legacy=1
+    fi
     [[ -f "${plist}" ]] || {
         printf 'uninstalled||%s||ok\n' "${config_paused}"
         return 0
@@ -131,5 +163,6 @@ read_launchd_status_snapshot() {
     elif [[ "${state}" == "paused" && "${config_paused}" != "1" && "${disabled}" == "1" ]]; then
         consistency="drift"
     fi
+    [[ "${legacy}" == "1" ]] && consistency="legacy"
     printf '%s|%s|%s|launchd: %s|%s\n' "${state}" "${interval}" "${config_paused}" "${plist}" "${consistency}"
 }

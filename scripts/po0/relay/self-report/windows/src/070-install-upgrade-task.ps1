@@ -207,19 +207,44 @@ function Get-ScheduledReporterNotifyState {
     return $state
 }
 
-function Update-ScheduledReporterLauncherForExistingTask {
-    $task = Get-ScheduledTask -TaskName $script:TaskName -ErrorAction SilentlyContinue
-    if (-not $task) { return $false }
-    $scriptPath = Ensure-DefaultSelfReportScriptInstalled
+function Get-ScheduledReporterTaskRecord {
+    try {
+        $task = Get-ScheduledTask -TaskName $script:TaskName -ErrorAction SilentlyContinue
+        if ($task) {
+            return [pscustomobject]@{ Task = $task; Name = $script:TaskName; IsLegacy = $false }
+        }
+        $legacyTask = Get-ScheduledTask -TaskName $script:LegacyTaskName -ErrorAction SilentlyContinue
+        if ($legacyTask) {
+            return [pscustomobject]@{ Task = $legacyTask; Name = $script:LegacyTaskName; IsLegacy = $true }
+        }
+    } catch {}
+    return [pscustomobject]@{ Task = $null; Name = ""; IsLegacy = $false }
+}
+
+function Normalize-DefaultConfigPath {
+    if (-not $script:ConfigPath -or $script:ConfigPathExplicit) { return }
+    try {
+        $current = [System.IO.Path]::GetFullPath($script:ConfigPath)
+        $legacy = [System.IO.Path]::GetFullPath((Get-LegacyConfigPath))
+        if ([System.String]::Equals($current, $legacy, [System.StringComparison]::OrdinalIgnoreCase)) {
+            $script:ConfigPath = ""
+            $script:ConfigPath = Get-DefaultConfigPath
+        }
+    } catch {}
+}
+
+function Import-ScheduledReporterTaskSettings {
+    param($Task)
+    if (-not $Task) { return }
     $commandTexts = New-Object System.Collections.Generic.List[string]
-    $oldLauncher = Get-ScheduledReporterLauncherPath -Task $task
+    $oldLauncher = Get-ScheduledReporterLauncherPath -Task $Task
     if ($oldLauncher) {
         $oldLauncherCommand = Get-ScheduledReporterLauncherCommand -LauncherPath $oldLauncher
         if ($oldLauncherCommand) {
             $commandTexts.Add($oldLauncherCommand)
         }
     }
-    foreach ($action in $task.Actions) {
+    foreach ($action in $Task.Actions) {
         $args = [string]$action.Arguments
         if ($args) {
             $commandTexts.Add($args)
@@ -227,9 +252,15 @@ function Update-ScheduledReporterLauncherForExistingTask {
     }
     foreach ($commandText in $commandTexts) {
         $existingConfig = Get-CommandLineSwitchArgument -CommandLine $commandText -SwitchName "ConfigPath"
-        if ($existingConfig) { $script:ConfigPath = $existingConfig }
+        if ($existingConfig -and -not $script:ConfigPathExplicit) {
+            $script:ConfigPath = $existingConfig
+            Normalize-DefaultConfigPath
+        }
         $existingLog = Get-CommandLineSwitchArgument -CommandLine $commandText -SwitchName "LogPath"
-        if ($existingLog) { $script:LogPath = $existingLog }
+        if ($existingLog -and -not $script:LogPathExplicit) {
+            $script:LogPath = $existingLog
+            Normalize-DefaultLogPath
+        }
         if (Test-CommandLineSwitchPresent -CommandLine $commandText -SwitchName "Notify") {
             $script:TaskNotify = $true
         }
@@ -237,13 +268,35 @@ function Update-ScheduledReporterLauncherForExistingTask {
             $script:TaskNotify = $false
         }
     }
+    if ($Task.State -eq "Disabled") {
+        $script:SchedulePaused = $true
+    }
+}
+
+function Update-ScheduledReporterLauncherForExistingTask {
+    $record = Get-ScheduledReporterTaskRecord
+    $task = $record.Task
+    if (-not $task) { return $false }
+    $scriptPath = Ensure-DefaultSelfReportScriptInstalled
+    Import-ScheduledReporterTaskSettings -Task $task
     if (-not $script:LogPath) {
         $script:LogPath = Get-DefaultLogPath
     }
     $launcher = Get-DefaultTaskLauncherPath
     Write-ScheduledReporterTaskLauncher -LauncherPath $launcher -ScriptPath $scriptPath | Out-Null
     $action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument ("//B //Nologo " + (Quote-TaskArg $launcher))
-    Set-ScheduledTask -TaskName $script:TaskName -Action $action | Out-Null
+    if ($record.IsLegacy) {
+        $description = "探测当前 Windows 公网出口 IPv4，并上报到 LAN Worker。"
+        Register-ScheduledTask -TaskName $script:TaskName -Action $action -Trigger $task.Triggers -Description $description -Force | Out-Null
+        if ($script:SchedulePaused) {
+            Disable-ScheduledTask -TaskName $script:TaskName | Out-Null
+        } else {
+            Enable-ScheduledTask -TaskName $script:TaskName | Out-Null
+        }
+        Unregister-ScheduledTask -TaskName $script:LegacyTaskName -Confirm:$false -ErrorAction SilentlyContinue
+    } else {
+        Set-ScheduledTask -TaskName $script:TaskName -Action $action | Out-Null
+    }
     return $true
 }
 
@@ -264,7 +317,7 @@ function Invoke-LegacyPathSelfHeal {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
     }
     Copy-Item -LiteralPath $PSCommandPath -Destination $dest -Force
-    Write-Host "已迁移 Windows Self-report 客户端脚本到 canonical 路径：$dest"
+    Write-Host "已迁移 Windows PO0 Outbound IP Report 客户端脚本到 canonical 路径：$dest"
 
     try {
         if (Update-ScheduledReporterLauncherForExistingTask) {
@@ -300,6 +353,17 @@ function Test-DownloadedScript {
     if (-not $defaultLauncher.Success -or $defaultLauncher.Value -notmatch 'po0-outbound-ip-report-task\.vbs' -or $defaultLauncher.Value -match 'po0-self-report-task\.vbs') {
         throw "更新文件校验失败：下载脚本默认隐藏启动器不是 po0-outbound-ip-report-task.vbs。"
     }
+    $defaultConfig = [regex]::Match($raw, '(?ms)^function Get-DefaultConfigPath \{.*?^}')
+    if (-not $defaultConfig.Success -or $defaultConfig.Value -notmatch 'outbound-ip-report\.json' -or $defaultConfig.Value -match 'self-report\.json') {
+        throw "更新文件校验失败：下载脚本默认配置文件不是 outbound-ip-report.json。"
+    }
+    $defaultLog = [regex]::Match($raw, '(?ms)^function Get-DefaultLogPath \{.*?^}')
+    if (-not $defaultLog.Success -or $defaultLog.Value -notmatch 'po0-outbound-ip-report\.log' -or $defaultLog.Value -match 'po0-self-report\.log') {
+        throw "更新文件校验失败：下载脚本默认日志文件不是 po0-outbound-ip-report.log。"
+    }
+    if ($raw -notmatch '\$script:TaskName = "PO0 Outbound IP Report to LAN Worker"') {
+        throw "更新文件校验失败：下载脚本默认计划任务名不是 PO0 Outbound IP Report to LAN Worker。"
+    }
     $tokens = $null
     $errors = $null
     [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$tokens, [ref]$errors) | Out-Null
@@ -322,7 +386,7 @@ function Upgrade-SelfFromDownload {
         $newVersion = Get-ScriptFileVersion -Path $tmp
         $newChangelog = Get-ScriptFileChangelog -Path $tmp
         Move-Item -LiteralPath $tmp -Destination $dest -Force
-        Write-Host "已更新 Self-report 客户端脚本：$dest"
+        Write-Host "已更新 PO0 Outbound IP Report 客户端脚本：$dest"
         Write-Host "下载 URL：$DownloadUrl"
         if ($newVersion) {
             if ($newVersion -eq $ScriptVersion) {
@@ -360,12 +424,24 @@ function Upgrade-SelfFromDownload {
 }
 
 function Install-ScheduledReporter {
+    $existingRecord = Get-ScheduledReporterTaskRecord
+    if ($existingRecord.Task) {
+        Import-ScheduledReporterTaskSettings -Task $existingRecord.Task
+        Load-SavedConfig
+    }
     Assert-WorkerUrl
     Assert-Minutes
     $dir = Get-DefaultDataDir
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
     $dest = Get-DefaultScriptPath
-    $script:LogPath = Get-DefaultLogPath
+    if (-not $script:LogPath) {
+        $script:LogPath = Get-DefaultLogPath
+    } else {
+        Normalize-DefaultLogPath
+        if (-not $script:LogPath) {
+            $script:LogPath = Get-DefaultLogPath
+        }
+    }
     Save-ClientConfig
     if ($PSCommandPath -and (Test-Path -LiteralPath $PSCommandPath)) {
         $sourcePath = [System.IO.Path]::GetFullPath($PSCommandPath)
@@ -386,6 +462,9 @@ function Install-ScheduledReporter {
         Disable-ScheduledTask -TaskName $script:TaskName | Out-Null
     } else {
         Enable-ScheduledTask -TaskName $script:TaskName | Out-Null
+    }
+    if ($existingRecord.IsLegacy) {
+        Unregister-ScheduledTask -TaskName $script:LegacyTaskName -Confirm:$false -ErrorAction SilentlyContinue
     }
     Write-Host ("已安装计划任务：{0}，每 {1} 秒执行一次。" -f $script:TaskName, (Get-IntervalSeconds))
     Write-Host "脚本路径：$dest"

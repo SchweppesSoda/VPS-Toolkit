@@ -1,9 +1,9 @@
 self_report_completed() {
-    printf '%bSelf-report 已完成：%s%b\n' "${C_GREEN}" "$1" "${C_RESET}"
+    printf '%bPO0 Outbound IP Report 已完成：%s%b\n' "${C_GREEN}" "$1" "${C_RESET}"
 }
 
 self_report_incomplete() {
-    printf '%bSelf-report 未完成：%s%b\n' "${C_RED}" "$1" "${C_RESET}" >&2
+    printf '%bPO0 Outbound IP Report 未完成：%s%b\n' "${C_RED}" "$1" "${C_RESET}" >&2
 }
 
 script_file_var() {

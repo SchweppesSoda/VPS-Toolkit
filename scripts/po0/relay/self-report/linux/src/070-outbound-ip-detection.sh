@@ -43,6 +43,16 @@ fetch_url_no_proxy() {
 
 ip_check_state_file() {
     if [[ -n "${XDG_STATE_HOME:-}" ]]; then
+        printf '%s\n' "${XDG_STATE_HOME}/po0-outbound-ip-report/ip-check-index"
+    elif [[ -n "${HOME:-}" ]]; then
+        printf '%s\n' "${HOME}/.local/state/po0-outbound-ip-report/ip-check-index"
+    else
+        printf '%s\n' "/tmp/po0-outbound-ip-report-ip-check-index"
+    fi
+}
+
+legacy_ip_check_state_file() {
+    if [[ -n "${XDG_STATE_HOME:-}" ]]; then
         printf '%s\n' "${XDG_STATE_HOME}/po0-self-report/ip-check-index"
     elif [[ -n "${HOME:-}" ]]; then
         printf '%s\n' "${HOME}/.local/state/po0-self-report/ip-check-index"
@@ -55,6 +65,9 @@ read_ip_check_index() {
     local count="$1" state raw
     [[ "${count}" =~ ^[0-9]+$ && "${count}" -gt 0 ]] || { printf '0\n'; return 0; }
     state="$(ip_check_state_file)"
+    if [[ ! -r "${state}" && -r "$(legacy_ip_check_state_file)" ]]; then
+        state="$(legacy_ip_check_state_file)"
+    fi
     if [[ -r "${state}" ]]; then
         IFS= read -r raw < "${state}" || raw=""
         raw="$(digits_only "${raw}")"

@@ -29,7 +29,7 @@ cron_job_interval_label() {
 }
 
 read_cron_status_snapshot() {
-    local line in_block=0 found=0 active_job="" paused_job="" metadata_interval="" job=""
+    local line in_block=0 found=0 legacy_block=0 active_job="" paused_job="" metadata_interval="" job=""
     local state interval="" config_paused consistency="ok"
     config_paused="$(schedule_paused && printf '1' || printf '0')"
     if ! command -v crontab >/dev/null 2>&1; then
@@ -38,7 +38,9 @@ read_cron_status_snapshot() {
     fi
     while IFS= read -r line || [[ -n "${line}" ]]; do
         case "${line}" in
-            "# PO0_SELF_REPORT_BEGIN"*) in_block=1; found=1; continue ;;
+            "# PO0_OUTBOUND_IP_REPORT_BEGIN"*) in_block=1; found=1; legacy_block=0; continue ;;
+            "# PO0_OUTBOUND_IP_REPORT_END"*) in_block=0; continue ;;
+            "# PO0_SELF_REPORT_BEGIN"*) in_block=1; found=1; legacy_block=1; continue ;;
             "# PO0_SELF_REPORT_END"*) in_block=0; continue ;;
         esac
         [[ "${in_block}" == "1" ]] || continue
@@ -86,6 +88,9 @@ read_cron_status_snapshot() {
     elif [[ "${state}" == "paused" && "${config_paused}" != "1" ]]; then
         consistency="drift"
     fi
+    if [[ "${job}" == *"po0-self-report"* || "${legacy_block}" == "1" ]]; then
+        consistency="legacy"
+    fi
     printf '%s|%s|%s|%s|%s\n' "${state}" "${interval}" "${config_paused}" "${job}" "${consistency}"
 }
 
@@ -108,6 +113,7 @@ cron_status_summary() {
             summary="$(cron_state_label "${state}")"
             [[ -n "${interval}" ]] && summary="${summary}，${interval}"
             [[ "${consistency}" == "drift" ]] && summary="${summary}（与配置暂停标记不一致）"
+            [[ "${consistency}" == "legacy" ]] && summary="${summary}（旧命令，需刷新）"
             printf '%s' "${summary}"
             ;;
         *)
@@ -119,7 +125,7 @@ cron_status_summary() {
 show_cron_status() {
     local state interval config_paused job consistency
     IFS='|' read -r state interval config_paused job consistency < <(read_cron_status_snapshot)
-    print_panel_section "Self-report 定时上报"
+    print_panel_section "PO0 Outbound IP Report 定时上报"
     print_panel_row "配置文件" "${CONFIG_FILE}"
     print_panel_row "保存状态" "$([[ -f "${CONFIG_FILE}" ]] && printf '已保存' || printf '未保存')"
     print_panel_row "配置暂停标记" "$(schedule_paused && printf '已暂停（手动立即上报仍可用）' || printf '未暂停')"
@@ -131,6 +137,8 @@ show_cron_status() {
     fi
     if [[ "${consistency}" == "drift" ]]; then
         print_panel_row "一致性" "不一致，执行安装 / 更新定时上报可刷新"
+    elif [[ "${consistency}" == "legacy" ]]; then
+        print_panel_row "一致性" "旧 po0-self-report cron；执行安装 / 更新定时上报可迁移"
     elif [[ "${state}" == "running" || "${state}" == "paused" ]]; then
         print_panel_row "一致性" "一致"
     fi

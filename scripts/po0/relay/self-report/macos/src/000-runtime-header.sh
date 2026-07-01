@@ -2,13 +2,13 @@
 set -uo pipefail
 
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
-DOWNLOAD_URL="${PO0_SELF_REPORT_MACOS_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report-macos.sh}"
-SCRIPT_NAME="po0-self-report-macos"
-SCRIPT_VERSION="2026.07.01+build.2"
+DOWNLOAD_URL="${PO0_OUTBOUND_IP_REPORT_MACOS_DOWNLOAD_URL:-${PO0_SELF_REPORT_MACOS_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report-macos.sh}}"
+SCRIPT_NAME="po0-outbound-ip-report"
+SCRIPT_VERSION="2026.07.01+build.3"
 SCRIPT_RELEASE_DATE="2026-07-01"
 # CHANGELOG_BEGIN
-# - macOS root 安装时明确显示 launchd plist，避免把 LaunchDaemon 误写成 LaunchAgent。
-# - --help 明确列出 self-report 配置文件优先级，包括 XDG_CONFIG_HOME 和当前目录兜底。
+# - 本机命令、默认配置、日志、launchd/cron 和状态文件迁移到 po0-outbound-ip-report 命名。
+# - 旧 po0-self-report 命令、配置、launchd/cron 和环境变量作为 legacy 兼容入口自动迁移。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24
@@ -22,7 +22,9 @@ ENV_INSTALL_PATH="${INSTALL_PATH-}"
 ENV_MINUTES="${MINUTES-}"
 ENV_INTERVAL_SECONDS="${INTERVAL_SECONDS-}"
 ENV_NOTIFY="${NOTIFY-}"
-CONFIG_FILE="${PO0_SELF_REPORT_CONFIG:-${SELF_REPORT_CONFIG:-}}"
+CONFIG_FILE="${PO0_OUTBOUND_IP_REPORT_CONFIG:-${PO0_SELF_REPORT_CONFIG:-${SELF_REPORT_CONFIG:-}}}"
+CONFIG_FILE_EXPLICIT="0"
+[[ -n "${CONFIG_FILE}" ]] && CONFIG_FILE_EXPLICIT="1"
 WORKER_URL=""
 SOURCE_ID=""
 IDENTITY=""
@@ -33,6 +35,7 @@ ALLOW_HTTP=""
 IP_CHECK_URL="https://ip9.com.cn/get"
 IP_CHECK_URLS=""
 INSTALL_PATH=""
+INSTALL_PATH_EXPLICIT="0"
 INSTALL_CRON=""
 SHOW_MENU=""
 SHOW_VERSION=""

@@ -66,5 +66,5 @@ function Invoke-SelfReport {
     }
     $message = "$message。"
     Write-SelfReportCompleted $message
-    Show-WindowsSelfReportNotification -Title "PO0 Self-report 已完成" -Message $message -Kind "Info"
+    Show-WindowsSelfReportNotification -Title "PO0 Outbound IP Report 已完成" -Message $message -Kind "Info"
 }

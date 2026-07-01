@@ -34,12 +34,12 @@ send_macos_notification() {
 
 notify_report_success() {
     local message="$1"
-    send_macos_notification "PO0 Self-report 成功" "${message}"
+    send_macos_notification "PO0 Outbound IP Report 成功" "${message}"
 }
 
 notify_report_failure() {
     local message="$1"
-    send_macos_notification "PO0 Self-report 失败" "${message}"
+    send_macos_notification "PO0 Outbound IP Report 失败" "${message}"
 }
 
 report_once() {

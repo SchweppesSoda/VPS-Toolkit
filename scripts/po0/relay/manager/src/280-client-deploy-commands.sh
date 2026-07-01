@@ -48,7 +48,7 @@ do_show_client_deploy_index() {
     print_panel_row "4" "LAN Worker DDNS 解析 Worker"
     print_panel_row "5" "LAN Worker self-report server"
     print_panel_row "6" "LAN Worker WebAuth worker"
-    print_panel_row "7" "Self-report client"
+    print_panel_row "7" "Outbound IP Report client"
     print_panel_row "8" "Egern SSH report"
     print_panel_section "CLI 示例"
     print_panel_row "资源任务" "bash nftables-relay-manager.sh --show-client-deploy-commands lan-resource"
@@ -156,7 +156,7 @@ do_show_self_report_server_commands() {
 
 do_show_self_report_client_commands() {
     ensure_layout || return 1
-    print_title "Self-report client"
+    print_title "PO0 Outbound IP Report client"
     echo "在访问设备上执行；检测设备当前出口 IPv4 后上报 LAN Worker，不直连 PO0。"
     echo ""
     echo "Linux / OpenWrt:"
@@ -248,7 +248,7 @@ do_manage_client_deploy_commands() {
         print_menu_pair 3 "资源任务 Worker" 4 "DDNS 解析 Worker"
         print_menu_pair 5 "Self-report 接收服务" 6 "WebAuth 接收服务"
         print_menu_section "访问端客户端"
-        print_menu_pair 7 "Self-report 客户端" 8 "Egern SSH report"
+        print_menu_pair 7 "Outbound IP Report 客户端" 8 "Egern SSH report"
         print_menu_section "退出"
         print_menu_item 0 "返回"
         print_menu_footer

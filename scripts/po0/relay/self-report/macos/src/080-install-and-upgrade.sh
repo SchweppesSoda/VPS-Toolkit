@@ -1,12 +1,71 @@
-default_install_path() {
-    if [[ -n "${INSTALL_PATH}" ]]; then
-        printf '%s\n' "${INSTALL_PATH}"
-    elif [[ "${EUID:-$(id -u 2>/dev/null || printf 1)}" -eq 0 ]]; then
+canonical_install_path() {
+    if [[ "${EUID:-$(id -u 2>/dev/null || printf 1)}" -eq 0 ]]; then
+        printf '%s\n' "/usr/local/sbin/po0-outbound-ip-report"
+    elif [[ -n "${HOME:-}" ]]; then
+        printf '%s\n' "${HOME}/.local/bin/po0-outbound-ip-report"
+    else
+        printf '%s\n' "./po0-outbound-ip-report"
+    fi
+}
+
+legacy_install_path() {
+    if [[ "${EUID:-$(id -u 2>/dev/null || printf 1)}" -eq 0 ]]; then
         printf '%s\n' "/usr/local/sbin/po0-self-report"
     elif [[ -n "${HOME:-}" ]]; then
         printf '%s\n' "${HOME}/.local/bin/po0-self-report"
     else
         printf '%s\n' "./po0-self-report"
+    fi
+}
+
+default_install_path() {
+    if [[ -n "${INSTALL_PATH}" ]]; then
+        printf '%s\n' "${INSTALL_PATH}"
+    else
+        canonical_install_path
+    fi
+}
+
+is_legacy_install_path() {
+    local path="$1" legacy
+    legacy="$(legacy_install_path)"
+    [[ "${path}" == "${legacy}" || "${path##*/}" == "po0-self-report" ]]
+}
+
+write_legacy_command_shim() {
+    local dest="$1" legacy dir
+    legacy="$(legacy_install_path)"
+    [[ -n "${dest}" && "${dest}" != "${legacy}" ]] || return 0
+    dir="$(dirname "${legacy}")"
+    mkdir -p "${dir}" 2>/dev/null || true
+    rm -f -- "${legacy}" 2>/dev/null || true
+    if ln -s "${dest}" "${legacy}" 2>/dev/null; then
+        return 0
+    fi
+    {
+        printf '#!/usr/bin/env sh\n'
+        printf 'exec %s "$@"\n' "$(sh_quote "${dest}")"
+    } > "${legacy}" || return 0
+    chmod 755 "${legacy}" 2>/dev/null || true
+}
+
+run_updated_script() {
+    local dest="$1"
+    shift
+    if [[ "${CONFIG_FILE_EXPLICIT:-0}" == "1" ]]; then
+        "${BASH:-bash}" "${dest}" --config "${CONFIG_FILE}" "$@"
+    else
+        "${BASH:-bash}" "${dest}" "$@"
+    fi
+}
+
+exec_updated_script() {
+    local dest="$1"
+    shift
+    if [[ "${CONFIG_FILE_EXPLICIT:-0}" == "1" ]]; then
+        exec "${BASH:-bash}" "${dest}" --config "${CONFIG_FILE}" "$@"
+    else
+        exec "${BASH:-bash}" "${dest}" "$@"
     fi
 }
 
@@ -31,7 +90,35 @@ install_self() {
         return 1
     fi
     chmod 755 "${dest}" || true
+    write_legacy_command_shim "${dest}" || true
     printf '%s\n' "${dest}"
+}
+
+refresh_schedule_after_script_update() {
+    local dest="$1"
+    if cron_managed_block_exists || { launchd_supported && { [[ -f "$(launchd_plist_path)" ]] || [[ -f "$(legacy_launchd_plist_path)" ]]; }; }; then
+        if run_updated_script "${dest}" --install-launchd >/dev/null 2>&1; then
+            printf '已刷新定时上报到 canonical 命令：%s\n' "${dest}"
+        else
+            printf '警告：脚本已更新，但自动刷新定时上报失败；请运行 %s --install-launchd。\n' "${dest}" >&2
+        fi
+    fi
+}
+
+invoke_legacy_path_self_heal() {
+    local reopen_menu="${1:-0}" source dest
+    source="$(current_script_source_file 2>/dev/null || true)"
+    [[ -n "${source}" ]] || return 1
+    is_legacy_install_path "${source}" || return 1
+    dest="$(default_install_path)"
+    [[ "${dest}" != "${source}" ]] || return 1
+    install_self >/dev/null || return 1
+    printf '已迁移 PO0 Outbound IP Report 客户端脚本到 canonical 路径：%s\n' "${dest}"
+    if [[ "${reopen_menu}" == "1" ]]; then
+        printf '正在从 canonical 路径重新打开新版菜单：%s --menu\n' "${dest}"
+        exec_updated_script "${dest}" --menu
+    fi
+    return 0
 }
 
 upgrade_self_from_download() {
@@ -40,7 +127,7 @@ upgrade_self_from_download() {
     dir="$(dirname "${dest}")"
     mkdir -p "${dir}" || return 1
     if command -v mktemp >/dev/null 2>&1; then
-        tmp="$(mktemp "${dir}/.po0-self-report.XXXXXX")" || return 1
+        tmp="$(mktemp "${dir}/.po0-outbound-ip-report.XXXXXX")" || return 1
     else
         tmp="${dest}.tmp.$$"
     fi
@@ -59,9 +146,14 @@ upgrade_self_from_download() {
         printf '无法更新：系统缺少 curl/wget。\n' >&2
         return 1
     fi
-    if ! grep -q 'po0-outbound-ip-report-macos.sh' "${tmp}" || ! grep -q 'PO0 自上报客户端（macOS）' "${tmp}"; then
+    if ! grep -q 'po0-outbound-ip-report-macos.sh' "${tmp}" || ! grep -q 'PO0 自上报客户端（macOS）' "${tmp}" || ! grep -q '^SCRIPT_NAME="po0-outbound-ip-report"' "${tmp}"; then
         rm -f "${tmp}" 2>/dev/null || true
-        printf '更新文件校验失败：下载到的脚本不是 Self-report macOS 客户端。\n' >&2
+        printf '更新文件校验失败：下载到的脚本不是 PO0 Outbound IP Report macOS 客户端。\n' >&2
+        return 1
+    fi
+    if awk '/^default_install_path\(\)/{flag=1} flag{print; if ($0 ~ /^}/) exit}' "${tmp}" | grep -q 'po0-self-report'; then
+        rm -f "${tmp}" 2>/dev/null || true
+        printf '更新文件校验失败：下载脚本默认安装路径仍指向 po0-self-report。\n' >&2
         return 1
     fi
     if ! bash -n "${tmp}"; then
@@ -80,7 +172,8 @@ upgrade_self_from_download() {
     else
         chmod_message="警告：已更新，但自动设置执行权限失败；请手动执行 chmod 755 ${dest}"
     fi
-    printf '已更新 Self-report 客户端脚本：%s\n' "${dest}"
+    write_legacy_command_shim "${dest}" || true
+    printf '已更新 PO0 Outbound IP Report 客户端脚本：%s\n' "${dest}"
     printf '下载 URL：%s\n' "${DOWNLOAD_URL}"
     printf '%s\n' "${chmod_message}"
     if [[ -n "${new_version}" ]]; then
@@ -97,10 +190,11 @@ upgrade_self_from_download() {
     else
         printf '更新内容：新脚本未提供更新说明。\n'
     fi
+    refresh_schedule_after_script_update "${dest}" || true
     if [[ "${reopen_mode}" == "--reopen-menu" ]]; then
         read_prompt "更新完成。按回车打开新版菜单..." >/dev/null || true
         printf '正在重新打开新版菜单：%s --menu\n' "${dest}"
-        exec "${BASH:-bash}" "${dest}" --config "${CONFIG_FILE}" --install-path "${dest}" --menu
+        exec_updated_script "${dest}" --menu
         printf '重新打开新版脚本失败，请手动执行：%s --menu\n' "${dest}" >&2
         return 1
     fi

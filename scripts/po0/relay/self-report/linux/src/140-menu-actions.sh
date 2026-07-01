@@ -1,5 +1,5 @@
 show_current_config() {
-    print_panel_section "Self-report 客户端配置"
+    print_panel_section "PO0 Outbound IP Report 客户端配置"
     print_panel_row "配置文件" "${CONFIG_FILE}"
     print_panel_row "保存状态" "$([[ -f "${CONFIG_FILE}" ]] && printf '已保存' || printf '未保存')"
     print_panel_row "LAN Worker URL" "${WORKER_URL:-未设置}"
@@ -18,7 +18,7 @@ show_current_config() {
 }
 
 show_menu_dashboard() {
-    print_title "PO0 Self-report Client"
+    print_title "PO0 Outbound IP Report Client"
     print_panel_section "脚本信息"
     print_panel_row "脚本名称" "${SCRIPT_NAME}"
     print_panel_row "版本" "${SCRIPT_VERSION}"
@@ -123,7 +123,7 @@ menu_loop() {
             4) toggle_schedule_interactive; pause_before_return ;;
             5) show_cron_status; pause_before_return ;;
             6)
-                if prompt_yes_no "确认删除 self-report 定时上报" "n"; then
+                if prompt_yes_no "确认删除 PO0 Outbound IP Report 定时上报" "n"; then
                     remove_cron
                 else
                     echo "已取消。"

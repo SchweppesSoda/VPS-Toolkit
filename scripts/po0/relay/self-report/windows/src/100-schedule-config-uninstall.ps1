@@ -1,9 +1,11 @@
 function Get-ScheduledReporterSummary {
     try {
-        $task = Get-ScheduledTask -TaskName $script:TaskName -ErrorAction SilentlyContinue
+        $record = Get-ScheduledReporterTaskRecord
+        $task = $record.Task
         if (-not $task) { return "未安装" }
-        if ($task.State -eq "Disabled") { return "已安装，当前暂停" }
-        return "已安装，状态 $($task.State)"
+        $prefix = $(if ($record.IsLegacy) { "旧计划任务，" } else { "" })
+        if ($task.State -eq "Disabled") { return "${prefix}已安装，当前暂停" }
+        return "${prefix}已安装，状态 $($task.State)"
     } catch {
         return "无法读取"
     }
@@ -11,8 +13,8 @@ function Get-ScheduledReporterSummary {
 
 function Get-CurrentScheduledReporterNotifyState {
     try {
-        $task = Get-ScheduledTask -TaskName $script:TaskName -ErrorAction SilentlyContinue
-        return (Get-ScheduledReporterNotifyState -Task $task)
+        $record = Get-ScheduledReporterTaskRecord
+        return (Get-ScheduledReporterNotifyState -Task $record.Task)
     } catch {
         return [pscustomobject]@{
             Installed = $false
@@ -43,7 +45,7 @@ function Write-NotifyStatusRows {
 }
 
 function Show-ClientConfig {
-    Write-PanelSection "Self-report 客户端配置"
+    Write-PanelSection "PO0 Outbound IP Report 客户端配置"
     Write-PanelRow "配置文件" $script:ConfigPath
     Write-PanelRow "保存状态" $(if (Test-Path -LiteralPath $script:ConfigPath) { "已保存" } else { "未保存" })
     Write-PanelRow "LAN Worker URL" $(if ($script:WorkerUrl) { $script:WorkerUrl } else { "未设置" })
@@ -64,7 +66,7 @@ function Show-ClientConfig {
 }
 
 function Show-ClientDashboard {
-    Write-Title "PO0 Self-report Client"
+    Write-Title "PO0 Outbound IP Report Client"
     Write-PanelSection "脚本信息"
     Write-PanelRow "脚本名称" $ScriptName
     Write-PanelRow "版本" $ScriptVersion
@@ -128,18 +130,19 @@ function Install-ScheduledReporterInteractive {
 }
 
 function Show-ScheduledReporter {
-    Write-PanelSection "Self-report 定时上报"
+    Write-PanelSection "PO0 Outbound IP Report 定时上报"
     Write-PanelRow "配置文件" $script:ConfigPath
     Write-PanelRow "暂停状态" $(if ($script:SchedulePaused) { "已暂停（手动立即上报仍可用）" } else { "未暂停" })
     try {
-        $task = Get-ScheduledTask -TaskName $script:TaskName -ErrorAction SilentlyContinue
+        $record = Get-ScheduledReporterTaskRecord
+        $task = $record.Task
         if (-not $task) {
             Write-PanelRow "计划任务" "未安装本脚本管理的计划任务"
             Write-NotifyStatusRows -NotifyState (Get-ScheduledReporterNotifyState -Task $null)
             return
         }
         $notifyState = Get-ScheduledReporterNotifyState -Task $task
-        Write-PanelRow "计划任务" $script:TaskName
+        Write-PanelRow "计划任务" $(if ($record.IsLegacy) { "$($record.Name)（旧名，运行安装 / 更新可迁移）" } else { $script:TaskName })
         Write-PanelRow "任务状态" ([string]$task.State)
         Write-NotifyStatusRows -NotifyState $notifyState
         if ($notifyState.LauncherPath) {
@@ -160,7 +163,7 @@ function Show-ScheduledReporter {
         foreach ($trigger in $task.Triggers) {
             Write-PanelRow "触发器" ([string]$trigger)
         }
-        $info = Get-ScheduledTaskInfo -TaskName $script:TaskName -ErrorAction SilentlyContinue
+        $info = Get-ScheduledTaskInfo -TaskName $record.Name -ErrorAction SilentlyContinue
         if ($info) {
             Write-PanelRow "上次运行" (Format-TaskTime $info.LastRunTime)
             Write-PanelRow "上次结果" (Format-TaskResult $info.LastTaskResult)
@@ -177,12 +180,13 @@ function Set-ScheduledReporterPaused {
     $script:SchedulePaused = $Paused
     Save-ClientConfig
     try {
-        $task = Get-ScheduledTask -TaskName $script:TaskName -ErrorAction SilentlyContinue
+        $record = Get-ScheduledReporterTaskRecord
+        $task = $record.Task
         if ($task) {
             if ($Paused) {
-                Disable-ScheduledTask -TaskName $script:TaskName | Out-Null
+                Disable-ScheduledTask -TaskName $record.Name | Out-Null
             } else {
-                Enable-ScheduledTask -TaskName $script:TaskName | Out-Null
+                Enable-ScheduledTask -TaskName $record.Name | Out-Null
             }
         }
     } catch {
@@ -221,14 +225,18 @@ function Toggle-ScheduledReporterNotify {
 
 function Remove-ScheduledReporter {
     try {
-        $task = Get-ScheduledTask -TaskName $script:TaskName -ErrorAction SilentlyContinue
+        $record = Get-ScheduledReporterTaskRecord
+        $task = $record.Task
         if (-not $task) {
             Write-PanelRow "计划任务" "未安装本脚本管理的计划任务"
             Write-SelfReportCompleted "当前没有本脚本管理的计划任务。"
             return
         }
-        Unregister-ScheduledTask -TaskName $script:TaskName -Confirm:$false
-        Write-Host "已删除计划任务：$script:TaskName"
+        Unregister-ScheduledTask -TaskName $record.Name -Confirm:$false
+        Write-Host "已删除计划任务：$($record.Name)"
+        if (-not $record.IsLegacy) {
+            Unregister-ScheduledTask -TaskName $script:LegacyTaskName -Confirm:$false -ErrorAction SilentlyContinue
+        }
         Write-SelfReportCompleted "已删除本脚本管理的计划任务。"
     } catch {
         throw "删除计划任务失败：$($_.Exception.Message)"
@@ -263,6 +271,8 @@ function Uninstall-SelfReportClient {
     $legacyScriptPath = Get-LegacyScriptPath
     $legacyLauncherPath = Get-LegacyTaskLauncherPath
     $logPath = Get-DefaultLogPath
+    $legacyConfigPath = Get-LegacyConfigPath
+    $legacyLogPath = Get-LegacyLogPath
     $ok = $true
 
     Write-Host "卸载会删除本脚本管理的计划任务、隐藏启动器和本机安装脚本。"
@@ -282,7 +292,15 @@ function Uninstall-SelfReportClient {
 
     if ($RemoveData) {
         if (-not (Remove-SelfReportPathIfExists -Label "配置文件" -Path $script:ConfigPath)) { $ok = $false }
+        if ($legacyConfigPath -ne $script:ConfigPath) {
+            if (-not (Remove-SelfReportPathIfExists -Label "旧配置文件" -Path $legacyConfigPath)) { $ok = $false }
+        }
         if (-not (Remove-SelfReportPathIfExists -Label "日志文件" -Path $logPath)) { $ok = $false }
+        if ($legacyLogPath -ne $logPath) {
+            if (-not (Remove-SelfReportPathIfExists -Label "旧日志文件" -Path $legacyLogPath)) { $ok = $false }
+        }
+        if (-not (Remove-SelfReportPathIfExists -Label "IP 探测状态" -Path (Get-IpCheckStatePath))) { $ok = $false }
+        if (-not (Remove-SelfReportPathIfExists -Label "旧 IP 探测状态" -Path (Get-LegacyIpCheckStatePath))) { $ok = $false }
     } else {
         Write-Host "已保留配置文件：$script:ConfigPath"
         Write-Host "已保留日志文件：$logPath"

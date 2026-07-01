@@ -23,29 +23,48 @@ remove_cron_for_uninstall() {
 }
 
 uninstall_self_report_interactive() {
-    local install_path log_path remove_data errors=0
-    install_path="$(default_install_path)"
+    local install_path legacy_path config_path log_path legacy_log remove_data errors=0 legacy_config
+    install_path="$(canonical_install_path)"
+    legacy_path="$(legacy_install_path)"
+    config_path="$(canonical_config_file)"
     log_path="$(self_report_log_path)"
+    legacy_log="$(legacy_self_report_log_path)"
+    legacy_config="$(legacy_config_file)"
     echo "卸载会删除本脚本管理的定时上报和本机安装脚本。"
     echo "本机安装脚本：${install_path}"
+    echo "旧兼容命令：${legacy_path}"
     echo "配置文件和日志默认保留，后续可选择是否一起删除。"
-    if ! prompt_yes_no "确认卸载 self-report 客户端" "n"; then
+    if ! prompt_yes_no "确认卸载 PO0 Outbound IP Report 客户端" "n"; then
         echo "已取消。"
         return 2
     fi
     remove_cron_for_uninstall || errors=1
     remove_file_if_exists "本机脚本" "${install_path}" || errors=1
+    if [[ "${legacy_path}" != "${install_path}" ]]; then
+        remove_file_if_exists "旧兼容命令" "${legacy_path}" || errors=1
+    fi
     if prompt_yes_no "是否同时删除配置文件和日志" "n"; then
         remove_data="1"
     else
         remove_data="0"
     fi
     if [[ "${remove_data}" == "1" ]]; then
-        remove_file_if_exists "配置文件" "${CONFIG_FILE}" || errors=1
+        remove_file_if_exists "配置文件" "${config_path}" || errors=1
+        if [[ "${legacy_config}" != "${config_path}" ]]; then
+            remove_file_if_exists "旧配置文件" "${legacy_config}" || errors=1
+        fi
         remove_file_if_exists "日志文件" "${log_path}" || errors=1
+        if [[ "${legacy_log}" != "${log_path}" ]]; then
+            remove_file_if_exists "旧日志文件" "${legacy_log}" || errors=1
+        fi
+        remove_file_if_exists "IP 探测状态" "$(ip_check_state_file)" || errors=1
+        remove_file_if_exists "旧 IP 探测状态" "$(legacy_ip_check_state_file)" || errors=1
     else
-        echo "已保留配置文件：${CONFIG_FILE}"
+        echo "已保留配置文件：${config_path}"
         echo "已保留日志文件：${log_path}"
+    fi
+    if [[ "${CONFIG_FILE_EXPLICIT:-0}" == "1" && "${CONFIG_FILE}" != "${config_path}" && "${CONFIG_FILE}" != "${legacy_config}" ]]; then
+        echo "自定义配置文件未删除：${CONFIG_FILE}"
     fi
     if [[ "${errors}" == "1" ]]; then
         self_report_incomplete "卸载已执行，但有项目删除失败。"

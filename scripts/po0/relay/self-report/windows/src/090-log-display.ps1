@@ -72,6 +72,8 @@ function Convert-SelfReportLogLineForDisplay {
         $targetCount = 0
         $responseIp = ""
         $targetNames = @()
+        $message = $message -replace '^PO0 Outbound IP Report 已完成：', ''
+        $message = $message -replace '^PO0 Outbound IP Report 未完成：', ''
         $message = $message -replace '^Self-report 已完成：', ''
         $message = $message -replace '^Self-report 未完成：', ''
         if ($message -match '^上报当前公网出口 IPv4\s+([0-9.]+)\s+到 LAN Worker：') {

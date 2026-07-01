@@ -1,6 +1,6 @@
 usage() {
     printf '%s\n' \
-        "PO0 自上报客户端（Linux/OpenWrt）" \
+        "PO0 Outbound IP Report 客户端（Linux/OpenWrt）" \
         "" \
         "本脚本探测当前设备的公网出口 IPv4，并上报到 LAN Worker 的 self-report" \
         "接收服务。访问设备不直接连接 PO0。Self-report 放行 TTL 由 LAN Worker" \
@@ -20,7 +20,7 @@ usage() {
         "  --version             显示脚本版本、发布日期、当前路径和默认安装路径。" \
         "  --changelog           显示当前版本更新内容。" \
         "  --upgrade-self        从 GitHub Release 下载并更新本机脚本；菜单内更新会自动重开新版菜单。" \
-        "  --config PATH         self-report 本地配置文件；优先级：--config / PO0_SELF_REPORT_CONFIG 或 SELF_REPORT_CONFIG / root 的 /etc/po0-self-report/settings.env / XDG_CONFIG_HOME / ~/.config / ./po0-self-report.env。" \
+        "  --config PATH         本地配置文件；优先级：--config / PO0_OUTBOUND_IP_REPORT_CONFIG / PO0_SELF_REPORT_CONFIG 或 SELF_REPORT_CONFIG / root 的 /etc/po0-outbound-ip-report/settings.env / XDG_CONFIG_HOME / ~/.config / ./po0-outbound-ip-report.env；旧 po0-self-report 配置仅作 fallback。" \
         "  --save-config         保存当前参数到本地配置文件，不安装 cron；可与 --menu 组合为首次保存后打开菜单。" \
         "  --worker-url URL      LAN Worker self-report HTTPS 接收地址，例如 https://report.example.com/report；裸域名会自动补全。" \
         "  --allow-http          允许 http:// 上报；仅用于本地调试或临时旧环境。" \
@@ -68,10 +68,12 @@ parse_args() {
                 ;;
             --config)
                 CONFIG_FILE="${2:-}"
+                CONFIG_FILE_EXPLICIT="1"
                 shift 2
                 ;;
             --config=*)
                 CONFIG_FILE="${1#--config=}"
+                CONFIG_FILE_EXPLICIT="1"
                 shift
                 ;;
             --save-config)
@@ -110,6 +112,7 @@ parse_args() {
                 ;;
             --install-path)
                 INSTALL_PATH="${2:-}"
+                INSTALL_PATH_EXPLICIT="1"
                 shift 2
                 ;;
             --minutes|--cron-minutes)
@@ -166,11 +169,17 @@ load_saved_config
 apply_env_overrides
 apply_device_defaults
 parse_args "$@"
+normalize_legacy_default_install_path
 if [[ "${SHOW_VERSION}" != "1" && "${SHOW_CHANGELOG}" != "1" && "${UPGRADE_SELF}" != "1" ]]; then
     apply_interval_seconds_override || exit 1
 fi
 apply_device_defaults
 CONFIG_FILE="$(default_config_file)"
+legacy_reopen_menu="0"
+if [[ "${SHOW_MENU}" == "1" || ( "${HAD_ARGS}" == "0" && -r /dev/tty && -w /dev/tty ) ]]; then
+    legacy_reopen_menu="1"
+fi
+invoke_legacy_path_self_heal "${legacy_reopen_menu}" || true
 
 if [[ "${SHOW_VERSION}" == "1" ]]; then
     show_version

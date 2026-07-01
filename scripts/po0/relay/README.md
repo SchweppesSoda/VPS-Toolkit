@@ -1,6 +1,6 @@
 # PO0 nftables Relay / LAN Worker
 
-这里是 PO0 nftables 中转管理器、LAN Worker、Egern 当前出口 IP 上报和 self-report client 的文档。
+这里是 PO0 nftables 中转管理器、LAN Worker、Egern 当前出口 IP 上报和 PO0 Outbound IP Report client 的文档。
 
 完整版本历史维护在 [`CHANGELOG.md`](./CHANGELOG.md)。各独立部署脚本的 `--changelog` 或更新完成提示只显示当前版本更新内容，避免远端单文件脚本长期累积历史。
 
@@ -42,7 +42,7 @@ PO0 nftables 五个可执行脚本的新安装和自更新默认使用 GitHub Re
 
 旧 manager、LAN Worker 和 self-report raw URLs are disabled，不再作为兼容入口。Egern canonical raw path、Egern legacy compatibility path、离线 iplist 构建器、外部 ipdb/iplist 数据源和未纳入本阶段的通用 VPS 工具 raw URL 仍是白名单。
 
-如需测试或回滚下载源，可临时设置 `PO0_MANAGER_DOWNLOAD_URL`、`PO0_LAN_CLIENT_DOWNLOAD_URL`、`PO0_SELF_REPORT_DOWNLOAD_URL`、`PO0_SELF_REPORT_MACOS_DOWNLOAD_URL`、`PO0_SELF_REPORT_PS_DOWNLOAD_URL`；这些覆盖值不会写入配置文件。
+如需测试或回滚下载源，可临时设置 `PO0_MANAGER_DOWNLOAD_URL`、`PO0_LAN_CLIENT_DOWNLOAD_URL`、`PO0_OUTBOUND_IP_REPORT_DOWNLOAD_URL`、`PO0_OUTBOUND_IP_REPORT_MACOS_DOWNLOAD_URL`、`PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL`；旧 `PO0_SELF_REPORT_*` 下载源变量仍作为 legacy alias 接受。这些覆盖值不会写入配置文件。
 
 ## 部署命令
 
@@ -68,7 +68,7 @@ ssh root@<PO0_HOST> 'bash /root/nftables-relay-manager.sh --version'
 ssh root@<PO0_HOST> 'bash /root/nftables-relay-manager.sh --changelog'
 ```
 
-LAN Worker 命令在内网 Worker 机器上执行，不在 PO0 上执行。PO0 manager 和 LAN Worker 当前按 Debian/Linux VPS 维护；OpenWrt/BusyBox 兼容只属于访问设备上的 Linux/OpenWrt Self-report client。DDNS 解析上报 + 资源任务轮询领取：
+LAN Worker 命令在内网 Worker 机器上执行，不在 PO0 上执行。PO0 manager 和 LAN Worker 当前按 Debian/Linux VPS 维护；OpenWrt/BusyBox 兼容只属于访问设备上的 Linux/OpenWrt PO0 Outbound IP Report client。DDNS 解析上报 + 资源任务轮询领取：
 
 推荐先用交互向导。向导会检查到 PO0 的密钥 SSH；密钥 SSH 可用时，会自动调用 PO0 主控读取所需 token，然后写入本机配置、安装本机 `po0-lan-client` 命令，并按选择安装本机 Worker 轮询器 / systemd 服务。首次向导里的 PO0 SSH 地址一次只填一个；多个 PO0 目标后续进入菜单添加：
 
@@ -92,7 +92,7 @@ po0-lan-client --probe
 po0-lan-client --version
 ```
 
-PO0 nftables 子系统内带 `SCRIPT_VERSION`、`--version` / `--changelog` 或自更新提示的可独立部署脚本（PO0 manager、LAN Worker client、Self-report clients）统一使用 `YYYY.MM.DD+build.N` 混合版本格式。正式 PO0 Release asset 的脚本内部版本必须与 release tag 尾号一致：`po0-vYYYY.MM.DD.N` 对应 `YYYY.MM.DD+build.N`，例如 `po0-v2026.06.25.8` 对应 `2026.06.25+build.8`。完整历史写在 [`CHANGELOG.md`](CHANGELOG.md)。
+PO0 nftables 子系统内带 `SCRIPT_VERSION`、`--version` / `--changelog` 或自更新提示的可独立部署脚本（PO0 manager、LAN Worker client、PO0 Outbound IP Report clients）统一使用 `YYYY.MM.DD+build.N` 混合版本格式。正式 PO0 Release asset 的脚本内部版本必须与 release tag 尾号一致：`po0-vYYYY.MM.DD.N` 对应 `YYYY.MM.DD+build.N`，例如 `po0-v2026.06.25.8` 对应 `2026.06.25+build.8`。完整历史写在 [`CHANGELOG.md`](CHANGELOG.md)。
 
 更新 LAN Worker 上已安装的 client：
 
@@ -151,9 +151,9 @@ curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download
 
 兼容旧用法时，`--install-cron N` 会把 DDNS 和资源任务两个计划都设为 `N` 分钟；不带 `N` 时，LAN Worker 默认 DDNS 每 `3600` 秒上报、资源任务每 `1440` 分钟检查一次。推荐用 `--ddns-interval-seconds 3600` 显式设置 DDNS 上报间隔，资源任务领取计划仍按分钟设置。
 
-Linux / OpenWrt Self-report client：
+Linux / OpenWrt PO0 Outbound IP Report client：
 
-首次交互式运行默认进入菜单。菜单里的 `1) 配置并保存上报参数` 只写本地配置文件，不安装 cron，也不保证安装 `po0-self-report` 命令；`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本并写入 cron；`8) 从 GitHub 更新脚本` 会更新本机 `po0-self-report` 命令并重新打开新版菜单；`9) 卸载本客户端` 会删除本脚本管理的 cron 和本机安装脚本，配置文件与日志默认保留，也可在确认后一起删除。
+首次交互式运行默认进入菜单。菜单里的 `1) 配置并保存上报参数` 只写本地配置文件，不安装 cron，也不保证安装 `po0-outbound-ip-report` 命令；`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本并写入 cron；`8) 从 GitHub 更新脚本` 会更新本机 `po0-outbound-ip-report` 命令并重新打开新版菜单；`9) 卸载本客户端` 会删除本脚本管理的 cron 和本机安装脚本，配置文件与日志默认保留，也可在确认后一起删除。
 
 ```bash
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.sh | bash
@@ -171,18 +171,18 @@ curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --secret <SELF_REPORT_SECRET> --save-config
 ```
 
-保存配置后，如果本机已经通过菜单更新或安装 cron 落盘了 `po0-self-report` 命令，可以直接复用已保存配置：
+保存配置后，如果本机已经通过菜单更新或安装 cron 落盘了 `po0-outbound-ip-report` 命令，可以直接复用已保存配置：
 
 ```bash
-po0-self-report --menu
+po0-outbound-ip-report --menu
 ```
 
 ```bash
-po0-self-report
+po0-outbound-ip-report
 ```
 
 ```bash
-po0-self-report --install-cron
+po0-outbound-ip-report --install-cron
 ```
 
 安装 / 更新 cron，默认每 `3600` 秒上报一次；安装时会同步保存配置，之后 cron 只引用配置文件，不把 token 展开写入 cron 命令行：
@@ -191,7 +191,7 @@ po0-self-report --install-cron
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --secret <SELF_REPORT_SECRET> --interval-seconds 3600 --install-cron
 ```
 
-macOS Self-report client 使用专用脚本和 launchd，不复用 Linux/OpenWrt cron 脚本。首次保存默认配置并打开菜单：
+macOS PO0 Outbound IP Report client 使用专用脚本和 launchd，不复用 Linux/OpenWrt cron 脚本。首次保存默认配置并打开菜单：
 
 ```bash
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report-macos.sh | bash -s -- --save-config --menu
@@ -203,23 +203,23 @@ macOS 非交互安装 / 更新 launchd 定时上报：
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report-macos.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --secret <SELF_REPORT_SECRET> --interval-seconds 3600 --install-launchd
 ```
 
-macOS 默认静默，只写 `/tmp/po0-self-report.log`。如需上报成功或失败后弹 macOS 通知，安装或保存配置时显式加 `--notify`；要恢复静默可用 `--no-notify --install-launchd` 刷新计划，或在菜单“通知 / 静默模式”里切换。
+macOS 默认静默，只写 `/tmp/po0-outbound-ip-report.log`。如需上报成功或失败后弹 macOS 通知，安装或保存配置时显式加 `--notify`；要恢复静默可用 `--no-notify --install-launchd` 刷新计划，或在菜单“通知 / 静默模式”里切换。
 
 命令行也可直接更新、查看版本或查看当前更新内容：
 
 ```bash
-po0-self-report --upgrade-self
+po0-outbound-ip-report --upgrade-self
 ```
 
 ```bash
-po0-self-report --version
+po0-outbound-ip-report --version
 ```
 
 ```bash
-po0-self-report --changelog
+po0-outbound-ip-report --changelog
 ```
 
-Windows PowerShell Self-report client：
+Windows PowerShell PO0 Outbound IP Report client：
 
 首次交互式运行默认进入菜单，推荐显式加 `-Menu`。菜单里的 `1) 配置并保存上报参数` 只写本地配置文件，不安装计划任务；`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本并写入计划任务；`6) Windows 通知 / 静默模式` 会保存通知偏好，并在计划任务已安装时重写隐藏 launcher；`9) 从 GitHub 更新脚本` 会更新本机 `po0-outbound-ip-report.ps1` 并重新打开新版菜单；`10) 卸载本客户端` 会删除本脚本管理的计划任务、隐藏 launcher 和本机安装脚本，配置文件与日志默认保留，也可在确认后一起删除。
 
@@ -515,7 +515,7 @@ non-root: ~/.local/bin/po0-lan-client
 Self-report 用于“访问设备自己检测当前出口 IPv4，然后报给 LAN Worker”。PO0 仍然不开放 HTTP，LAN Worker 通过 SSH 调 PO0 的 `--client-ip-report`：
 
 ```text
-访问设备 self-report client -> LAN Worker HTTPS/Caddy -> 本机 self-report 后端 -> SSH -> PO0 --client-ip-report
+访问设备 PO0 Outbound IP Report client -> LAN Worker HTTPS/Caddy -> 本机 self-report 后端 -> SSH -> PO0 --client-ip-report
 ```
 
 LAN Worker 启动接收端推荐走菜单：
@@ -551,9 +551,9 @@ self-report|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR
 po0-lan-client --install-self-report-https --self-report-https-domain <SELF_REPORT_DOMAIN> --self-report-targets 'self-report|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|43200|;self-report|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|43200|' --self-report-secret <SELF_REPORT_SECRET>
 ```
 
-### Linux / OpenWrt Self-report client
+### Linux / OpenWrt PO0 Outbound IP Report client
 
-访问设备定时自上报。交互式无参数运行默认进入菜单；菜单里的 `1) 配置并保存上报参数` 只写本地配置文件，不安装 cron，也不保证安装 `po0-self-report` 命令；`2) 立即上报一次` 会读取参数或已保存配置；`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本并写入 cron；`4) 暂停 / 恢复定时上报` 只影响自动 cron，手动立即上报仍可用；`8) 从 GitHub 更新脚本` 会更新本机 `po0-self-report` 命令并重新打开新版菜单；`9) 卸载本客户端` 会删除本脚本管理的 cron 和本机安装脚本，配置文件与 `/tmp/po0-self-report.log` 默认保留，可选择一起删除。
+访问设备定时自上报。交互式无参数运行默认进入菜单；菜单里的 `1) 配置并保存上报参数` 只写本地配置文件，不安装 cron，也不保证安装 `po0-outbound-ip-report` 命令；`2) 立即上报一次` 会读取参数或已保存配置；`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本并写入 cron；`4) 暂停 / 恢复定时上报` 只影响自动 cron，手动立即上报仍可用；`8) 从 GitHub 更新脚本` 会更新本机 `po0-outbound-ip-report` 命令并重新打开新版菜单；`9) 卸载本客户端` 会删除本脚本管理的 cron 和本机安装脚本，配置文件与 `/tmp/po0-outbound-ip-report.log` 默认保留，可选择一起删除。
 
 首次进入菜单：
 
@@ -579,36 +579,36 @@ curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --secret <SELF_REPORT_SECRET>
 ```
 
-非交互安装 / 更新 cron，默认和示例推荐每 `3600` 秒上报一次；`--interval-seconds N` 是 canonical 参数，旧 `--install-cron N` 的分钟写法仍兼容。安装时会保存配置并安装本机 `po0-self-report` 命令；cron 后续只引用配置文件，不再把 token 展开写入 cron 命令行：
+非交互安装 / 更新 cron，默认和示例推荐每 `3600` 秒上报一次；`--interval-seconds N` 是 canonical 参数，旧 `--install-cron N` 的分钟写法仍兼容。安装时会保存配置并安装本机 `po0-outbound-ip-report` 命令；cron 后续只引用配置文件，不再把 token 展开写入 cron 命令行：
 
 ```bash
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --secret <SELF_REPORT_SECRET> --interval-seconds 3600 --install-cron
 ```
 
-保存配置后，如果本机已经通过菜单更新或安装 cron 落盘了 `po0-self-report` 命令，可直接复用已保存配置：
+保存配置后，如果本机已经通过菜单更新或安装 cron 落盘了 `po0-outbound-ip-report` 命令，可直接复用已保存配置：
 
 ```bash
-po0-self-report --menu
+po0-outbound-ip-report --menu
 ```
 
 ```bash
-po0-self-report
+po0-outbound-ip-report
 ```
 
 ```bash
-po0-self-report --install-cron
+po0-outbound-ip-report --install-cron
 ```
 
 查看本脚本管理的 cron 计划：
 
 ```bash
-crontab -l | sed -n '/# PO0_SELF_REPORT_BEGIN/,/# PO0_SELF_REPORT_END/p'
+crontab -l | sed -n '/# PO0_OUTBOUND_IP_REPORT_BEGIN/,/# PO0_OUTBOUND_IP_REPORT_END/p'
 ```
 
 也可以用脚本内置状态入口：
 
 ```bash
-po0-self-report --schedule-status
+po0-outbound-ip-report --schedule-status
 ```
 
 状态入口会显示本脚本管理的计划状态、原始日志路径和最近结果摘要；完整原始日志仍用下面的 `tail` 命令查看。
@@ -616,36 +616,36 @@ po0-self-report --schedule-status
 暂停或恢复本脚本管理的定时上报；暂停只影响自动 cron，不影响手动立即上报：
 
 ```bash
-po0-self-report --pause-schedule
+po0-outbound-ip-report --pause-schedule
 ```
 
 ```bash
-po0-self-report --resume-schedule
+po0-outbound-ip-report --resume-schedule
 ```
 
-查看最近 self-report 日志：
+查看最近 PO0 Outbound IP Report 日志：
 
 ```bash
-tail -n 40 /tmp/po0-self-report.log
+tail -n 40 /tmp/po0-outbound-ip-report.log
 ```
 
 更新、查看版本或查看当前更新内容：
 
 ```bash
-po0-self-report --upgrade-self
+po0-outbound-ip-report --upgrade-self
 ```
 
 ```bash
-po0-self-report --version
+po0-outbound-ip-report --version
 ```
 
 ```bash
-po0-self-report --changelog
+po0-outbound-ip-report --changelog
 ```
 
-### macOS Self-report client
+### macOS PO0 Outbound IP Report client
 
-macOS 使用专用 Bash 脚本和用户级 launchd LaunchAgent，不复用 Linux/OpenWrt cron 脚本。`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本，并写入 `~/Library/LaunchAgents/fr.schweppes.po0-self-report.plist`；`6) 通知 / 静默模式` 可切换自动上报完成 / 失败后的 macOS 通知。
+macOS 使用专用 Bash 脚本和用户级 launchd LaunchAgent，不复用 Linux/OpenWrt cron 脚本。`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本，并写入 `~/Library/LaunchAgents/fr.schweppes.po0-outbound-ip-report.plist`；`6) 通知 / 静默模式` 可切换自动上报完成 / 失败后的 macOS 通知。
 
 首次保存默认配置并打开菜单：
 
@@ -665,7 +665,7 @@ curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report-macos.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --secret <SELF_REPORT_SECRET> --interval-seconds 3600 --install-launchd
 ```
 
-默认静默安装，不弹通知，只写 `/tmp/po0-self-report.log`。如需自动上报成功或失败后弹 macOS 通知，安装或保存配置时加 `--notify`：
+默认静默安装，不弹通知，只写 `/tmp/po0-outbound-ip-report.log`。如需自动上报成功或失败后弹 macOS 通知，安装或保存配置时加 `--notify`：
 
 ```bash
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report-macos.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --secret <SELF_REPORT_SECRET> --interval-seconds 3600 --notify --install-launchd
@@ -674,46 +674,46 @@ curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download
 恢复静默：
 
 ```bash
-po0-self-report --no-notify --install-launchd
+po0-outbound-ip-report --no-notify --install-launchd
 ```
 
 安装后复用本机命令：
 
 ```bash
-po0-self-report --menu
+po0-outbound-ip-report --menu
 ```
 
 ```bash
-po0-self-report --install-launchd
+po0-outbound-ip-report --install-launchd
 ```
 
 ```bash
-po0-self-report --schedule-status
+po0-outbound-ip-report --schedule-status
 ```
 
-状态入口会显示 launchd / cron 计划状态、通知模式、原始日志路径和最近结果摘要；完整原始日志仍用 `tail -n 40 /tmp/po0-self-report.log` 查看。macOS 通知依赖当前用户图形会话、系统通知权限和专注模式；通知不可用时只写日志，不影响上报结果。
+状态入口会显示 launchd / cron 计划状态、通知模式、原始日志路径和最近结果摘要；完整原始日志仍用 `tail -n 40 /tmp/po0-outbound-ip-report.log` 查看。macOS 通知依赖当前用户图形会话、系统通知权限和专注模式；通知不可用时只写日志，不影响上报结果。
 
 查看 launchd 状态：
 
 ```bash
-launchctl print gui/$(id -u)/fr.schweppes.po0-self-report
+launchctl print gui/$(id -u)/fr.schweppes.po0-outbound-ip-report
 ```
 
 更新、查看版本或查看当前更新内容：
 
 ```bash
-po0-self-report --upgrade-self
+po0-outbound-ip-report --upgrade-self
 ```
 
 ```bash
-po0-self-report --version
+po0-outbound-ip-report --version
 ```
 
 ```bash
-po0-self-report --changelog
+po0-outbound-ip-report --changelog
 ```
 
-### Windows PowerShell Self-report client
+### Windows PowerShell PO0 Outbound IP Report client
 
 Windows 默认按普通用户安装和运行，路径在 `%LOCALAPPDATA%\PO0\po0-outbound-ip-report.ps1`。只有用管理员 PowerShell 安装时才会改用 `%ProgramData%\PO0\po0-outbound-ip-report.ps1`；管理员路径可以作为兜底检查，但日常不要混用两个权限环境。
 
@@ -792,7 +792,7 @@ powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-outbound-ip-
 也可以直接看 Windows 计划任务：
 
 ```powershell
-Get-ScheduledTaskInfo -TaskName "PO0 Self Report to LAN Worker"
+Get-ScheduledTaskInfo -TaskName "PO0 Outbound IP Report to LAN Worker"
 ```
 
 暂停或恢复本脚本管理的定时上报；暂停只影响自动计划任务，不影响手动立即上报：
@@ -808,9 +808,9 @@ powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-outbound-ip-
 查看最近日志：
 
 ```powershell
-$log = "$env:LOCALAPPDATA\PO0\po0-self-report.log"
+$log = "$env:LOCALAPPDATA\PO0\po0-outbound-ip-report.log"
 if (-not (Test-Path -LiteralPath $log)) {
-    $log = "$env:ProgramData\PO0\po0-self-report.log"
+    $log = "$env:ProgramData\PO0\po0-outbound-ip-report.log"
 }
 Get-Content -Tail 40 -LiteralPath $log
 ```
@@ -833,13 +833,13 @@ powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-outbound-ip-
 powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-outbound-ip-report.ps1" -Changelog
 ```
 
-### Self-report client 共同说明
+### PO0 Outbound IP Report client 共同说明
 
-三个客户端默认拒绝 `http://`；只有本地调试或临时旧环境才显式使用 `--allow-http` / `-AllowHttp`。Linux/OpenWrt 默认配置文件 root 为 `/etc/po0-self-report/settings.env`，普通用户为 `~/.config/po0-self-report/settings.env`；Windows 默认配置文件普通用户为 `%LOCALAPPDATA%\PO0\self-report.json`，管理员为 `%ProgramData%\PO0\self-report.json`。配置文件会明文保存 self-report secret，请只放在可信设备上。
+三个客户端默认拒绝 `http://`；只有本地调试或临时旧环境才显式使用 `--allow-http` / `-AllowHttp`。Linux/OpenWrt/macOS 默认配置文件 root 为 `/etc/po0-outbound-ip-report/settings.env`，普通用户为 `~/.config/po0-outbound-ip-report/settings.env`；Windows 默认配置文件普通用户为 `%LOCALAPPDATA%\PO0\outbound-ip-report.json`，管理员为 `%ProgramData%\PO0\outbound-ip-report.json`。优先级为 CLI > `PO0_OUTBOUND_IP_REPORT_*` > legacy `PO0_SELF_REPORT_*` / `SELF_REPORT_*` > 已保存配置 > 默认值；旧 `po0-self-report` 配置只作 fallback，保存时写入新路径。配置文件会明文保存 self-report secret，请只放在可信设备上。
 
-访问设备客户端的一次性上报会以明确状态行结束：成功时显示 `Self-report 已完成：...`，并保留 LAN Worker 返回的 `OK <ip>; targets=<N>; target_names=<目标列表>`；客户端摘要优先显示具体 PO0 目标名，连接旧 LAN Worker 时退回显示 `PO0 目标：N 个`。URL 校验、公网 IPv4 探测、HTTP 请求或 LAN Worker -> PO0 上报链路失败时显示 `Self-report 未完成：...` 并以非零状态退出。Linux/OpenWrt 和 macOS 定时任务每次运行的完整输出写到 `/tmp/po0-self-report.log`；macOS 默认不弹通知，显式启用通知后会调用系统通知中心，通知失败仍只写日志。Windows 计划任务不会弹出可见 CMD/PowerShell 窗口；安装 / 更新计划任务时会生成隐藏 launcher，并把每次运行的开始、LAN Worker 返回和完成/未完成结果写到日志，管理员安装默认在 `%ProgramData%\PO0\po0-self-report.log`，普通用户安装默认在 `%LOCALAPPDATA%\PO0\po0-self-report.log`；自动上报默认不弹 Windows 通知，只写日志。显式启用通知时，自动上报完成或失败会弹 Windows 通知，通知不可用时仍以日志为准；菜单里的“查看定时上报状态”只显示最近结果摘要，会从 LAN Worker 返回体汇总 PO0 目标，并给出原始日志路径 / tail 命令用于排查细节，同时会提示配置通知状态和计划任务实际通知状态是否漂移。
+访问设备客户端的一次性上报会以明确状态行结束：成功时显示 `PO0 Outbound IP Report 已完成：...`，并保留 LAN Worker 返回的 `OK <ip>; targets=<N>; target_names=<目标列表>`；客户端摘要优先显示具体 PO0 目标名，连接旧 LAN Worker 时退回显示 `PO0 目标：N 个`。URL 校验、公网 IPv4 探测、HTTP 请求或 LAN Worker -> PO0 上报链路失败时显示 `PO0 Outbound IP Report 未完成：...` 并以非零状态退出。Linux/OpenWrt 和 macOS 定时任务每次运行的完整输出写到 `/tmp/po0-outbound-ip-report.log`；macOS 默认不弹通知，显式启用通知后会调用系统通知中心，通知失败仍只写日志。Windows 计划任务不会弹出可见 CMD/PowerShell 窗口；安装 / 更新计划任务时会生成隐藏 launcher，并把每次运行的开始、LAN Worker 返回和完成/未完成结果写到日志，管理员安装默认在 `%ProgramData%\PO0\po0-outbound-ip-report.log`，普通用户安装默认在 `%LOCALAPPDATA%\PO0\po0-outbound-ip-report.log`；自动上报默认不弹 Windows 通知，只写日志。显式启用通知时，自动上报完成或失败会弹 Windows 通知，通知不可用时仍以日志为准；菜单里的“查看定时上报状态”只显示最近结果摘要，会从 LAN Worker 返回体汇总 PO0 目标，并给出原始日志路径 / tail 命令用于排查细节，同时会提示配置通知状态和计划任务实际通知状态是否漂移。
 
-self-report client 查询公网 IPv4 会按默认列表轮询：`https://ip9.com.cn/get`、163 邮箱、Bilibili、126、腾讯新闻、爱奇艺、央视、`https://myip.ipip.net/json`。脚本会记住上次使用位置，下次从下一个接口开始；默认不再使用 `ip-api`、`ipify`、`icanhazip`、`ifconfig.co`，也不再使用 12306 grip 接口。
+PO0 Outbound IP Report client 查询公网 IPv4 会按默认列表轮询：`https://ip9.com.cn/get`、163 邮箱、Bilibili、126、腾讯新闻、爱奇艺、央视、`https://myip.ipip.net/json`。脚本会记住上次使用位置，下次从下一个接口开始；默认不再使用 `ip-api`、`ipify`、`icanhazip`、`ifconfig.co`，也不再使用 12306 grip 接口。
 
 ## Egern 当前出口 IP 上报
 

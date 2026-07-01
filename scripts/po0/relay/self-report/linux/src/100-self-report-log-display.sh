@@ -1,5 +1,20 @@
 self_report_log_path() {
+    printf '%s\n' "/tmp/po0-outbound-ip-report.log"
+}
+
+legacy_self_report_log_path() {
     printf '%s\n' "/tmp/po0-self-report.log"
+}
+
+self_report_display_log_path() {
+    local path legacy
+    path="$(self_report_log_path)"
+    legacy="$(legacy_self_report_log_path)"
+    if [[ ! -e "${path}" && -e "${legacy}" ]]; then
+        printf '%s\n' "${legacy}"
+    else
+        printf '%s\n' "${path}"
+    fi
 }
 
 log_file_mtime_label() {
@@ -98,8 +113,14 @@ self_report_log_event_summary() {
     local line="$1"
     line="$(normalize_self_report_log_line "${line}")" || return 1
     case "${line}" in
+        "PO0 Outbound IP Report 已完成："*)
+            printf '成功：%s\n' "${line#PO0 Outbound IP Report 已完成：}"
+            ;;
         "Self-report 已完成："*)
             printf '成功：%s\n' "${line#Self-report 已完成：}"
+            ;;
+        "PO0 Outbound IP Report 未完成："*)
+            printf '失败：%s\n' "${line#PO0 Outbound IP Report 未完成：}"
             ;;
         "Self-report 未完成："*)
             printf '失败：%s\n' "${line#Self-report 未完成：}"
@@ -120,7 +141,7 @@ show_recent_self_report_log() {
     local log_path mtime line normalized event target_text max_events=5 i
     local pending_response_parts="" pending_target_count="" pending_target_ip="" pending_target_names=""
     local events=()
-    log_path="$(self_report_log_path)"
+    log_path="$(self_report_display_log_path)"
     print_panel_section "最近日志"
     print_panel_row "原始日志" "${log_path}"
     print_panel_row "查看原文" "tail -n 40 ${log_path}"

@@ -660,7 +660,7 @@ chmod 755 /usr/local/sbin/po0-lan-client
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script /root/nftables-relay-manager.sh --source-key home --ddns-domain home.example.com --token <DDNS_TOKEN> --resource-token <RESOURCE_TOKEN> --ddns-interval-seconds 3600 --install-cron
 ```
 
-Self-report client 适合运行在访问设备上：它检测自身当前出口公网 IPv4，并通过 `https://<SELF_REPORT_DOMAIN>/report` 上报给 LAN Worker self-report server；LAN Worker 的 Caddy HTTPS 入口反代到本机后端，再通过 SSH 调 PO0。Linux/OpenWrt 客户端菜单按 `[0-9]` 管理；macOS 和 Windows 客户端因新增通知 / 静默模式开关，菜单按 `[0-10]` 管理。三个客户端的 `1) 配置并保存上报参数` 只持久写入本地配置文件，不安装定时任务；`2) 立即上报一次` 读取参数或已保存配置；`3) 安装 / 更新定时上报` 读取已保存配置并创建 cron / launchd / Windows 计划任务；`4) 暂停 / 恢复定时上报` 只影响自动任务，不影响手动立即上报。macOS 的 `6) 通知 / 静默模式` 和 Windows 的 `6) Windows 通知 / 静默模式` 会保存通知偏好，并在定时任务已安装时刷新实际 launchd / 计划任务启动参数。Linux/OpenWrt 的 `8) 从 GitHub 更新脚本` / `9) 卸载本客户端` 与 macOS、Windows 的 `9) 从 GitHub 更新脚本` / `10) 卸载本客户端` 语义一致，都会更新本机脚本或删除本脚本管理的定时任务和安装脚本；配置与日志默认保留，可在确认后一起删除。
+PO0 Outbound IP Report client 适合运行在访问设备上：它检测自身当前出口公网 IPv4，并通过 `https://<SELF_REPORT_DOMAIN>/report` 上报给 LAN Worker self-report server；LAN Worker 的 Caddy HTTPS 入口反代到本机后端，再通过 SSH 调 PO0。Linux/OpenWrt 客户端菜单按 `[0-9]` 管理；macOS 和 Windows 客户端因新增通知 / 静默模式开关，菜单按 `[0-10]` 管理。三个客户端的 `1) 配置并保存上报参数` 只持久写入本地配置文件，不安装定时任务；`2) 立即上报一次` 读取参数或已保存配置；`3) 安装 / 更新定时上报` 读取已保存配置并创建 cron / launchd / Windows 计划任务；`4) 暂停 / 恢复定时上报` 只影响自动任务，不影响手动立即上报。macOS 的 `6) 通知 / 静默模式` 和 Windows 的 `6) Windows 通知 / 静默模式` 会保存通知偏好，并在定时任务已安装时刷新实际 launchd / 计划任务启动参数。Linux/OpenWrt 的 `8) 从 GitHub 更新脚本` / `9) 卸载本客户端` 与 macOS、Windows 的 `9) 从 GitHub 更新脚本` / `10) 卸载本客户端` 语义一致，都会更新本机脚本或删除本脚本管理的定时任务和安装脚本；配置与日志默认保留，可在确认后一起删除。
 
 Linux/OpenWrt 客户端未传 `--source-id` / `--identity` 时，会用 hostname + machine-id/MAC 生成默认 Source ID，并用设备名作为 Identity；显式参数、环境变量和已保存配置优先。首次进入菜单：
 
@@ -674,7 +674,7 @@ Linux/OpenWrt 首次保存默认配置并打开菜单：
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.sh | bash -s -- --save-config --menu
 ```
 
-Linux/OpenWrt 非交互保存配置，不安装 cron，也不保证安装 `po0-self-report` 命令：
+Linux/OpenWrt 非交互保存配置，不安装 cron，也不保证安装 `po0-outbound-ip-report` 命令：
 
 ```bash
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --secret <SELF_REPORT_SECRET> --save-config
@@ -686,46 +686,46 @@ Linux/OpenWrt 非交互立即上报一次；不传 `--worker-url` 等参数时�
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --secret <SELF_REPORT_SECRET>
 ```
 
-Linux/OpenWrt 非交互安装 cron 时，默认和示例推荐每 `3600` 秒上报一次；`--interval-seconds N` 必须是 60 的倍数，旧 `--install-cron N` 兼容分钟参数仍可用。安装时会保存配置并安装本机 `po0-self-report` 命令；cron 后续只引用配置文件，不再把 token 展开写入 cron 命令行：
+Linux/OpenWrt 非交互安装 cron 时，默认和示例推荐每 `3600` 秒上报一次；`--interval-seconds N` 必须是 60 的倍数，旧 `--install-cron N` 兼容分钟参数仍可用。安装时会保存配置并安装本机 `po0-outbound-ip-report` 命令；cron 后续只引用配置文件，不再把 token 展开写入 cron 命令行：
 
 ```bash
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --secret <SELF_REPORT_SECRET> --interval-seconds 3600 --install-cron
 ```
 
-保存配置后，如果本机已经通过菜单更新或安装 cron 落盘了 `po0-self-report` 命令，可直接复用已保存配置：
+保存配置后，如果本机已经通过菜单更新或安装 cron 落盘了 `po0-outbound-ip-report` 命令，可直接复用已保存配置：
 
 ```bash
-po0-self-report --menu
+po0-outbound-ip-report --menu
 ```
 
 ```bash
-po0-self-report
+po0-outbound-ip-report
 ```
 
 ```bash
-po0-self-report --install-cron
+po0-outbound-ip-report --install-cron
 ```
 
 Linux/OpenWrt 查看本脚本管理的 cron 计划：
 
 ```bash
-crontab -l | sed -n '/# PO0_SELF_REPORT_BEGIN/,/# PO0_SELF_REPORT_END/p'
+crontab -l | sed -n '/# PO0_OUTBOUND_IP_REPORT_BEGIN/,/# PO0_OUTBOUND_IP_REPORT_END/p'
 ```
 
 Linux/OpenWrt 查看脚本内置定时状态：
 
 ```bash
-po0-self-report --schedule-status
+po0-outbound-ip-report --schedule-status
 ```
 
 Linux/OpenWrt 暂停 / 恢复本脚本管理的定时上报：
 
 ```bash
-po0-self-report --pause-schedule
-po0-self-report --resume-schedule
+po0-outbound-ip-report --pause-schedule
+po0-outbound-ip-report --resume-schedule
 ```
 
-macOS 客户端使用专用 Release asset，优先安装 launchd 定时任务；普通用户写 `~/Library/LaunchAgents/fr.schweppes.po0-self-report.plist`，root 写 `/Library/LaunchDaemons/fr.schweppes.po0-self-report.plist` 并使用 `system` launchd domain，launchd 不可用但存在 `crontab` 时回退到 cron。首次保存默认配置并打开菜单：
+macOS 客户端使用专用 Release asset，优先安装 launchd 定时任务；普通用户写 `~/Library/LaunchAgents/fr.schweppes.po0-outbound-ip-report.plist`，root 写 `/Library/LaunchDaemons/fr.schweppes.po0-outbound-ip-report.plist` 并使用 `system` launchd domain，launchd 不可用但存在 `crontab` 时回退到 cron。首次保存默认配置并打开菜单：
 
 ```bash
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report-macos.sh | bash -s -- --save-config --menu
@@ -737,12 +737,12 @@ macOS 非交互安装 / 更新 launchd 定时上报：
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report-macos.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --secret <SELF_REPORT_SECRET> --interval-seconds 3600 --install-launchd
 ```
 
-macOS 默认静默；`--notify` 会把通知偏好写入配置并在 launchd `ProgramArguments` 中追加 `--notify`，上报成功或失败后通过 `osascript display notification` 调用系统通知中心。通知不可用、被系统权限或专注模式抑制时只写 `/tmp/po0-self-report.log`，不改变上报退出码。恢复静默需要用 `--no-notify --install-launchd` 或菜单通知开关刷新 launchd plist。
+macOS 默认静默；`--notify` 会把通知偏好写入配置并在 launchd `ProgramArguments` 中追加 `--notify`，上报成功或失败后通过 `osascript display notification` 调用系统通知中心。通知不可用、被系统权限或专注模式抑制时只写 `/tmp/po0-outbound-ip-report.log`，不改变上报退出码。恢复静默需要用 `--no-notify --install-launchd` 或菜单通知开关刷新 launchd plist。
 
-Linux/OpenWrt/macOS 查看最近 self-report 定时任务输出：
+Linux/OpenWrt/macOS 查看最近 PO0 Outbound IP Report 定时任务输出：
 
 ```bash
-tail -n 40 /tmp/po0-self-report.log
+tail -n 40 /tmp/po0-outbound-ip-report.log
 ```
 
 Windows PowerShell 默认按普通用户安装和运行，路径在 `%LOCALAPPDATA%\PO0`；只有用管理员 PowerShell 安装时才会改用 `%ProgramData%\PO0`，日常不要混用两个权限环境。交互式运行默认进入菜单，推荐显式加 `-Menu`：
@@ -796,7 +796,7 @@ $client=Join-Path $env:LOCALAPPDATA 'PO0\po0-outbound-ip-report.ps1'; powershell
 ```
 
 ```powershell
-Get-ScheduledTaskInfo -TaskName "PO0 Self Report to LAN Worker"
+Get-ScheduledTaskInfo -TaskName "PO0 Outbound IP Report to LAN Worker"
 ```
 
 Windows PowerShell 暂停 / 恢复本脚本管理的定时上报：
@@ -810,7 +810,7 @@ $client=Join-Path $env:LOCALAPPDATA 'PO0\po0-outbound-ip-report.ps1'; powershell
 ```
 
 ```powershell
-$log="$env:LOCALAPPDATA\PO0\po0-self-report.log"; if (-not (Test-Path -LiteralPath $log)) { $log="$env:ProgramData\PO0\po0-self-report.log" }; Get-Content -Tail 40 -LiteralPath $log
+$log="$env:LOCALAPPDATA\PO0\po0-outbound-ip-report.log"; if (-not (Test-Path -LiteralPath $log)) { $log="$env:ProgramData\PO0\po0-outbound-ip-report.log" }; Get-Content -Tail 40 -LiteralPath $log
 ```
 
 Windows PowerShell 更新、查看版本或查看当前更新内容：
@@ -827,9 +827,9 @@ $client=Join-Path $env:LOCALAPPDATA 'PO0\po0-outbound-ip-report.ps1'; powershell
 $client=Join-Path $env:LOCALAPPDATA 'PO0\po0-outbound-ip-report.ps1'; powershell -ExecutionPolicy Bypass -File $client -Changelog
 ```
 
-三个访问设备客户端都会把裸域名自动规范化为 HTTPS `/report`，并默认拒绝 `http://`；仅本地调试或临时旧环境才显式使用 `--allow-http` / `-AllowHttp`。Linux/OpenWrt/macOS 的配置文件优先级是 `--config`、`PO0_SELF_REPORT_CONFIG` / `SELF_REPORT_CONFIG`、root 的 `/etc/po0-self-report/settings.env`、`$XDG_CONFIG_HOME/po0-self-report/settings.env`、`$HOME/.config/po0-self-report/settings.env`、最后 `./po0-self-report.env`；Windows 默认配置文件普通用户为 `%LOCALAPPDATA%\PO0\self-report.json`，管理员为 `%ProgramData%\PO0\self-report.json`。配置文件会明文保存 self-report secret，请只放在可信设备上。
+三个访问设备客户端都会把裸域名自动规范化为 HTTPS `/report`，并默认拒绝 `http://`；仅本地调试或临时旧环境才显式使用 `--allow-http` / `-AllowHttp`。Linux/OpenWrt/macOS 的配置文件优先级是 `--config`、`PO0_OUTBOUND_IP_REPORT_CONFIG`、legacy `PO0_SELF_REPORT_CONFIG` / `SELF_REPORT_CONFIG`、已保存配置、root 的 `/etc/po0-outbound-ip-report/settings.env`、`$XDG_CONFIG_HOME/po0-outbound-ip-report/settings.env`、`$HOME/.config/po0-outbound-ip-report/settings.env`、最后 `./po0-outbound-ip-report.env`；旧 `po0-self-report` 配置路径只作 fallback，保存时写入新路径。Windows 默认配置文件普通用户为 `%LOCALAPPDATA%\PO0\outbound-ip-report.json`，管理员为 `%ProgramData%\PO0\outbound-ip-report.json`；旧 `self-report.json` 只作 copy-forward 迁移来源。配置文件会明文保存 self-report secret，请只放在可信设备上。
 
-访问设备客户端的用户可见结果行统一为 `Self-report 已完成：...` 或 `Self-report 未完成：...`。一次性上报只有在本机探测到公网 IPv4、LAN Worker HTTP 返回 2xx，且 LAN Worker 已成功代报 PO0 后才打印完成；否则保留底层错误并返回非零状态。LAN Worker 成功返回 `OK <ip>; targets=<N>; target_names=<目标列表>` 时，三个客户端都会把目标列表汇总到完成结果和定时上报状态摘要；连接旧 LAN Worker 只有 `targets=<N>` 时退回显示 `PO0 目标：N 个`。Linux/OpenWrt 和 macOS 定时任务的每次运行输出重定向到 `/tmp/po0-self-report.log`，其中也包含同样的结果行。macOS 默认静默；显式启用通知后，成功/失败通知只是附加 UI 提示，通知失败不能影响上报结果。Windows 计划任务不会依赖一闪而过的控制台窗口；`-InstallTask` 会把 `-LogPath` 写入任务参数，管理员安装默认日志为 `%ProgramData%\PO0\po0-self-report.log`，普通用户安装默认日志为 `%LOCALAPPDATA%\PO0\po0-self-report.log`，运行时会记录可执行到的上报过程、LAN Worker 返回体和完成/未完成结果；参数、配置或探测阶段的早期失败只记录错误路径。Windows 的通知实际行为由计划任务/VBS launcher 是否带 `-Notify` 决定；菜单“查看定时上报状态”会解析 launcher，展示配置通知状态、任务实际通知状态和实际 `-File` 脚本目标，不一致时提示通知或旧路径漂移，同时展示计划任务上次运行结果和最近结果摘要，原始日志路径 / tail 命令仍保留用于排查细节。
+访问设备客户端的用户可见结果行统一为 `PO0 Outbound IP Report 已完成：...` 或 `PO0 Outbound IP Report 未完成：...`。一次性上报只有在本机探测到公网 IPv4、LAN Worker HTTP 返回 2xx，且 LAN Worker 已成功代报 PO0 后才打印完成；否则保留底层错误并返回非零状态。LAN Worker 成功返回 `OK <ip>; targets=<N>; target_names=<目标列表>` 时，三个客户端都会把目标列表汇总到完成结果和定时上报状态摘要；连接旧 LAN Worker 只有 `targets=<N>` 时退回显示 `PO0 目标：N 个`。Linux/OpenWrt 和 macOS 定时任务的每次运行输出重定向到 `/tmp/po0-outbound-ip-report.log`，其中也包含同样的结果行。macOS 默认静默；显式启用通知后，成功/失败通知只是附加 UI 提示，通知失败不能影响上报结果。Windows 计划任务不会依赖一闪而过的控制台窗口；`-InstallTask` 会把 `-LogPath` 写入任务参数，管理员安装默认日志为 `%ProgramData%\PO0\po0-outbound-ip-report.log`，普通用户安装默认日志为 `%LOCALAPPDATA%\PO0\po0-outbound-ip-report.log`，运行时会记录可执行到的上报过程、LAN Worker 返回体和完成/未完成结果；参数、配置或探测阶段的早期失败只记录错误路径。Windows 的通知实际行为由计划任务/VBS launcher 是否带 `-Notify` 决定；菜单“查看定时上报状态”会解析 launcher，展示配置通知状态、任务实际通知状态和实际 `-File` 脚本目标，不一致时提示通知或旧路径漂移，同时展示计划任务上次运行结果和最近结果摘要，原始日志路径 / tail 命令仍保留用于排查细节。
 
 Self-report / WebAuth 放行 TTL 默认均为 `43200` 秒（12 小时），由 LAN Worker 上报 PO0 时传入；客户端只控制上报频率，不控制 TTL。TTL 可以通过 `po0-lan-client --self-report-ttl <秒数>` / `--webauth-ttl <秒数>`、bootstrap 向导，或 LAN Worker 菜单 `Self-report / WebAuth TTL` 修改。Self-report / WebAuth TTL 会被限制在 `60-604800` 秒内；WebAuth 由 LAN Worker 传入 expires-at，PO0 端也会把过远的 expires-at 截到 7 天内。旧安装的本机 `settings.env` 如果仍保存旧默认 `3600` 或 `21600`，脚本加载时会迁移到新默认；各 PO0 目标行中显式写入的 TTL 不自动改写。
 

@@ -172,13 +172,195 @@ function Test-WindowsCanonicalPath {
     if (-not $defaultLauncher.Success -or $defaultLauncher.Value -notmatch 'po0-outbound-ip-report-task\.vbs' -or $defaultLauncher.Value -match 'po0-self-report-task\.vbs') {
         throw "Windows self-report default launcher path is not canonical."
     }
+    $defaultConfig = [regex]::Match($raw, '(?ms)^function Get-DefaultConfigPath \{.*?^}')
+    $defaultLog = [regex]::Match($raw, '(?ms)^function Get-DefaultLogPath \{.*?^}')
+    $defaultState = [regex]::Match($raw, '(?ms)^function Get-IpCheckStatePath \{.*?^}')
+    if (-not $defaultConfig.Success -or $defaultConfig.Value -notmatch 'outbound-ip-report\.json' -or $defaultConfig.Value -match 'self-report\.json') {
+        throw "Windows self-report default config path is not canonical."
+    }
+    if (-not $defaultLog.Success -or $defaultLog.Value -notmatch 'po0-outbound-ip-report\.log' -or $defaultLog.Value -match 'po0-self-report\.log') {
+        throw "Windows self-report default log path is not canonical."
+    }
+    if (-not $defaultState.Success -or $defaultState.Value -notmatch 'outbound-ip-report-ip-check-index\.txt' -or $defaultState.Value -match 'self-report-ip-check-index\.txt') {
+        throw "Windows self-report IP check state path is not canonical."
+    }
+    if ($raw -notmatch '\$script:TaskName = "PO0 Outbound IP Report to LAN Worker"') {
+        throw "Windows self-report task name is not canonical."
+    }
+    if ($raw -notmatch 'PO0_OUTBOUND_IP_REPORT_CONFIG') {
+        throw "Windows self-report asset lacks canonical env aliases."
+    }
+}
+
+function Test-UnixOutboundIpReportCanonicalPath {
+    param(
+        [string]$FileName,
+        [string]$Platform
+    )
+    $path = Join-Path $OutputDir $FileName
+    $raw = Get-Content -LiteralPath $path -Raw -Encoding UTF8
+    if ($raw -notmatch '(?m)^SCRIPT_NAME="po0-outbound-ip-report"') {
+        throw "$Platform script name is not canonical."
+    }
+    $install = [regex]::Match($raw, '(?ms)^default_install_path\(\) \{.*?^}')
+    $canonicalInstall = [regex]::Match($raw, '(?ms)^canonical_install_path\(\) \{.*?^}')
+    $config = [regex]::Match($raw, '(?ms)^canonical_config_file\(\) \{.*?^}')
+    $log = [regex]::Match($raw, '(?ms)^self_report_log_path\(\) \{.*?^}')
+    $state = [regex]::Match($raw, '(?ms)^ip_check_state_file\(\) \{.*?^}')
+    if (-not $install.Success -or $install.Value -match 'po0-self-report' -or -not $canonicalInstall.Success -or $canonicalInstall.Value -notmatch 'po0-outbound-ip-report' -or $canonicalInstall.Value -match 'po0-self-report') {
+        throw "$Platform default install path is not canonical."
+    }
+    if (-not $config.Success -or $config.Value -notmatch 'po0-outbound-ip-report' -or $config.Value -match 'po0-self-report') {
+        throw "$Platform default config path is not canonical."
+    }
+    if (-not $log.Success -or $log.Value -notmatch 'po0-outbound-ip-report\.log' -or $log.Value -match 'po0-self-report\.log') {
+        throw "$Platform default log path is not canonical."
+    }
+    if (-not $state.Success -or $state.Value -notmatch 'po0-outbound-ip-report' -or $state.Value -match 'po0-self-report') {
+        throw "$Platform IP check state path is not canonical."
+    }
+    if ($raw -notmatch 'PO0_OUTBOUND_IP_REPORT_BEGIN') {
+        throw "$Platform cron marker is not canonical."
+    }
+    if ($raw -notmatch 'PO0_OUTBOUND_IP_REPORT_CONFIG') {
+        throw "$Platform asset lacks canonical env aliases."
+    }
+}
+
+function Test-MacOsLaunchdCanonicalPath {
+    $path = Join-Path $OutputDir "po0-outbound-ip-report-macos.sh"
+    $raw = Get-Content -LiteralPath $path -Raw -Encoding UTF8
+    $label = [regex]::Match($raw, '(?ms)^launchd_label\(\) \{.*?^}')
+    if (-not $label.Success -or $label.Value -notmatch 'fr\.schweppes\.po0-outbound-ip-report' -or $label.Value -match 'fr\.schweppes\.po0-self-report') {
+        throw "macOS launchd label is not canonical."
+    }
+}
+
+function Test-LegacyNameAllowlist {
+    $assets = @(
+        "po0-outbound-ip-report.sh",
+        "po0-outbound-ip-report-macos.sh",
+        "po0-outbound-ip-report.ps1"
+    )
+    $legacyPattern = 'po0-self-report|PO0_SELF_REPORT|SELF_REPORT_|PO0 Self Report|Self-report 已完成|Self-report 未完成|self-report\.json|po0-self-report\.log|fr\.schweppes\.po0-self-report|PO0_SELF_REPORT_BEGIN|PO0_SELF_REPORT_END'
+    $allowedContext = '(?i:legacy|compat|fallback|alias|shim|migrat|cleanup|old|Test-DownloadedScript|defaultScript\.Value|defaultLauncher\.Value|defaultLog\.Value)|旧|兼容|迁移|回退|别名|历史|Get-Legacy|legacy_|LegacyTaskName|旧版|校验失败|grep -q|Self-report 已完成|Self-report 未完成|PO0_SELF_REPORT|SELF_REPORT_'
+    foreach ($asset in $assets) {
+        $path = Join-Path $OutputDir $asset
+        $lines = Get-Content -LiteralPath $path -Encoding UTF8
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -notmatch $legacyPattern) { continue }
+            $start = [Math]::Max(0, $i - 10)
+            $end = [Math]::Min($lines.Count - 1, $i + 10)
+            $context = ($lines[$start..$end] -join "`n")
+            if ($context -notmatch $allowedContext) {
+                throw "$asset contains legacy name outside migration/compat context at line $($i + 1): $($lines[$i])"
+            }
+        }
+    }
+}
+
+function Get-AssetVersion {
+    param([string]$FileName)
+    $raw = Get-Content -LiteralPath (Join-Path $OutputDir $FileName) -Raw -Encoding UTF8
+    if ($FileName.EndsWith(".ps1")) {
+        $match = [regex]::Match($raw, '(?m)^\$ScriptVersion\s*=\s*"([^"]+)"')
+    } else {
+        $match = [regex]::Match($raw, '(?m)^SCRIPT_VERSION="([^"]+)"')
+    }
+    if (-not $match.Success) { throw "Could not read version from $FileName" }
+    return $match.Groups[1].Value
+}
+
+function Get-AssetReleaseDate {
+    param([string]$FileName)
+    $raw = Get-Content -LiteralPath (Join-Path $OutputDir $FileName) -Raw -Encoding UTF8
+    if ($FileName.EndsWith(".ps1")) {
+        $match = [regex]::Match($raw, '(?m)^\$ScriptReleaseDate\s*=\s*"([^"]+)"')
+    } else {
+        $match = [regex]::Match($raw, '(?m)^SCRIPT_RELEASE_DATE="([^"]+)"')
+    }
+    if (-not $match.Success) { throw "Could not read release date from $FileName" }
+    return $match.Groups[1].Value
+}
+
+function Test-AssetChangelogNotEmpty {
+    param([string]$FileName)
+    $raw = Get-Content -LiteralPath (Join-Path $OutputDir $FileName) -Raw -Encoding UTF8
+    $match = [regex]::Match($raw, '(?ms)^# CHANGELOG_BEGIN\s*(.*?)^# CHANGELOG_END')
+    if (-not $match.Success -or -not (($match.Groups[1].Value -replace '(?m)^# ?', '').Trim())) {
+        throw "$FileName changelog block is empty."
+    }
+}
+
+function Test-VersionsConsistent {
+    $assets = @(
+        "nftables-relay-manager.sh",
+        "po0-lan-client.sh",
+        "po0-outbound-ip-report.sh",
+        "po0-outbound-ip-report-macos.sh",
+        "po0-outbound-ip-report.ps1"
+    )
+    $expected = $null
+    foreach ($asset in $assets) {
+        $version = Get-AssetVersion -FileName $asset
+        if (-not $expected) {
+            $expected = $version
+        } elseif ($version -ne $expected) {
+            throw "$asset version $version does not match $expected"
+        }
+        $date = Get-AssetReleaseDate -FileName $asset
+        if ($date -ne "2026-07-01") {
+            throw "$asset release date $date is unexpected"
+        }
+        Test-AssetChangelogNotEmpty -FileName $asset
+    }
+}
+
+function Test-AssetInventory {
+    $expected = @(
+        "checksums.txt",
+        "nftables-relay-manager.sh",
+        "po0-lan-client.sh",
+        "po0-outbound-ip-report-macos.sh",
+        "po0-outbound-ip-report.ps1",
+        "po0-outbound-ip-report.sh"
+    ) | Sort-Object
+    $actual = Get-ChildItem -LiteralPath $OutputDir -File | ForEach-Object Name | Sort-Object
+    if (($expected -join "`n") -ne ($actual -join "`n")) {
+        throw "Unexpected PO0 asset inventory. Actual: $($actual -join ', ')"
+    }
+    $checksumPath = Join-Path $OutputDir "checksums.txt"
+    $checksumNames = Get-Content -LiteralPath $checksumPath -Encoding UTF8 |
+        ForEach-Object { ($_ -split '\s+', 2)[1] } |
+        Sort-Object
+    $expectedAssets = $expected | Where-Object { $_ -ne "checksums.txt" }
+    if (($checksumNames -join "`n") -ne ($expectedAssets -join "`n")) {
+        throw "checksums.txt does not cover the exact asset set."
+    }
+    foreach ($line in Get-Content -LiteralPath $checksumPath -Encoding UTF8) {
+        if ($line -notmatch '^([0-9a-fA-F]{64})\s+(.+)$') {
+            throw "Malformed checksum line: $line"
+        }
+        $expectedHash = $matches[1].ToLowerInvariant()
+        $name = $matches[2]
+        $assetPath = Join-Path $OutputDir $name
+        if (-not (Test-Path -LiteralPath $assetPath)) {
+            throw "checksums.txt references missing asset: $name"
+        }
+        $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $assetPath).Hash.ToLowerInvariant()
+        if ($actualHash -ne $expectedHash) {
+            throw "Checksum mismatch for $name"
+        }
+    }
 }
 
 function Test-VersionsMatchTag {
     $tag = $env:GITHUB_REF_NAME
     if (-not $tag) { return }
     $match = [regex]::Match($tag, '^po0-v([0-9]{4}\.[0-9]{2}\.[0-9]{2})\.([0-9]+)$')
-    if (-not $match.Success) { return }
+    if (-not $match.Success) {
+        throw "GITHUB_REF_NAME is set but is not a PO0 release tag: $tag"
+    }
     $expected = "$($match.Groups[1].Value)+build.$($match.Groups[2].Value)"
 
     foreach ($asset in @(
@@ -233,7 +415,13 @@ Test-ManifestCoverage `
     -Filter "*.ps1"
 
 & (Join-Path $PSScriptRoot "build-po0-assets.ps1") -OutputDir $OutputDir
+Test-AssetInventory
 Test-WindowsCanonicalPath
+Test-UnixOutboundIpReportCanonicalPath -FileName "po0-outbound-ip-report.sh" -Platform "Linux/OpenWrt"
+Test-UnixOutboundIpReportCanonicalPath -FileName "po0-outbound-ip-report-macos.sh" -Platform "macOS"
+Test-MacOsLaunchdCanonicalPath
+Test-LegacyNameAllowlist
+Test-VersionsConsistent
 Test-VersionsMatchTag
 
 function Get-BashCommand {

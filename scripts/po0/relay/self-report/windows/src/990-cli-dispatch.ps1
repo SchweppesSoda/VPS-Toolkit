@@ -2,11 +2,11 @@ if ($env:INSTALL_TASK -match "^(1|true|yes)$") {
     $InstallTask = $true
 }
 
-if ($env:PO0_SELF_REPORT_MENU -match "^(1|true|yes)$") {
+if ($env:PO0_OUTBOUND_IP_REPORT_MENU -match "^(1|true|yes)$" -or $env:PO0_SELF_REPORT_MENU -match "^(1|true|yes)$") {
     $Menu = $true
 }
 
-if ($env:PO0_SELF_REPORT_ALLOW_HTTP -match "^(1|true|yes)$") {
+if ($env:PO0_OUTBOUND_IP_REPORT_ALLOW_HTTP -match "^(1|true|yes)$" -or $env:PO0_SELF_REPORT_ALLOW_HTTP -match "^(1|true|yes)$") {
     $script:AllowHttp = $true
 }
 
@@ -82,6 +82,6 @@ try {
     }
 } catch {
     Write-SelfReportIncomplete $_.Exception.Message
-    Show-WindowsSelfReportNotification -Title "PO0 Self-report 未完成" -Message $_.Exception.Message -Kind "Error"
+    Show-WindowsSelfReportNotification -Title "PO0 Outbound IP Report 未完成" -Message $_.Exception.Message -Kind "Error"
     exit 1
 }

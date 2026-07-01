@@ -1,36 +1,42 @@
 function Load-SavedConfig {
-    if (-not (Test-Path -LiteralPath $script:ConfigPath)) { return }
-    $raw = Get-Content -LiteralPath $script:ConfigPath -Raw -Encoding UTF8
+    $readPath = $script:ConfigPath
+    $legacyConfig = Get-LegacyConfigPath
+    if (-not (Test-Path -LiteralPath $readPath) -and -not $script:ConfigPathExplicit -and (Test-Path -LiteralPath $legacyConfig)) {
+        $readPath = $legacyConfig
+    }
+    if (-not (Test-Path -LiteralPath $readPath)) { return }
+    $raw = Get-Content -LiteralPath $readPath -Raw -Encoding UTF8
     if (-not $raw.Trim()) { return }
     $cfg = $raw | ConvertFrom-Json
 
-    if (-not $PSBoundParameters.ContainsKey("WorkerUrl") -and -not $env:PO0_LAN_WORKER_URL -and -not $env:WORKER_URL -and $cfg.WorkerUrl) {
+    if (-not $PSBoundParameters.ContainsKey("WorkerUrl") -and -not $env:PO0_OUTBOUND_IP_REPORT_WORKER_URL -and -not $env:PO0_LAN_WORKER_URL -and -not $env:WORKER_URL -and $cfg.WorkerUrl) {
         $script:WorkerUrl = [string]$cfg.WorkerUrl
     }
-    if (-not $PSBoundParameters.ContainsKey("SourceId") -and -not $env:PO0_SELF_REPORT_SOURCE -and -not $env:SOURCE_ID -and $cfg.SourceId) {
+    if (-not $PSBoundParameters.ContainsKey("SourceId") -and -not $env:PO0_OUTBOUND_IP_REPORT_SOURCE -and -not $env:PO0_SELF_REPORT_SOURCE -and -not $env:SOURCE_ID -and $cfg.SourceId) {
         $script:SourceId = [string]$cfg.SourceId
     }
-    if (-not $PSBoundParameters.ContainsKey("Identity") -and -not $env:PO0_SELF_REPORT_IDENTITY -and -not $env:IDENTITY -and $cfg.Identity) {
+    if (-not $PSBoundParameters.ContainsKey("Identity") -and -not $env:PO0_OUTBOUND_IP_REPORT_IDENTITY -and -not $env:PO0_SELF_REPORT_IDENTITY -and -not $env:IDENTITY -and $cfg.Identity) {
         $script:Identity = [string]$cfg.Identity
     }
-    if (-not $PSBoundParameters.ContainsKey("Secret") -and -not $env:PO0_SELF_REPORT_SECRET -and -not $env:SELF_REPORT_SECRET -and $null -ne $cfg.Secret) {
+    if (-not $PSBoundParameters.ContainsKey("Secret") -and -not $env:PO0_OUTBOUND_IP_REPORT_SECRET -and -not $env:PO0_SELF_REPORT_SECRET -and -not $env:SELF_REPORT_SECRET -and $null -ne $cfg.Secret) {
         $script:Secret = [string]$cfg.Secret
     }
-    if (-not $PSBoundParameters.ContainsKey("IpCheckUrl") -and -not $env:IP_CHECK_URL -and $cfg.IpCheckUrl) {
+    if (-not $PSBoundParameters.ContainsKey("IpCheckUrl") -and -not $env:PO0_OUTBOUND_IP_REPORT_IP_CHECK_URL -and -not $env:IP_CHECK_URL -and $cfg.IpCheckUrl) {
         $script:IpCheckUrl = [string]$cfg.IpCheckUrl
     }
-    if (-not $PSBoundParameters.ContainsKey("IpCheckUrls") -and -not $env:IP_CHECK_URLS -and $cfg.IpCheckUrls) {
+    if (-not $PSBoundParameters.ContainsKey("IpCheckUrls") -and -not $env:PO0_OUTBOUND_IP_REPORT_IP_CHECK_URLS -and -not $env:IP_CHECK_URLS -and $cfg.IpCheckUrls) {
         $script:IpCheckUrls = @($cfg.IpCheckUrls | Where-Object { $_ })
     }
-    if (-not $PSBoundParameters.ContainsKey("IntervalSeconds") -and -not $PSBoundParameters.ContainsKey("Minutes") -and -not $env:PO0_SELF_REPORT_INTERVAL_SECONDS -and -not $env:INTERVAL_SECONDS -and -not $env:PO0_SELF_REPORT_MINUTES -and -not $env:MINUTES -and $cfg.IntervalSeconds) {
+    if (-not $PSBoundParameters.ContainsKey("IntervalSeconds") -and -not $PSBoundParameters.ContainsKey("Minutes") -and -not $env:PO0_OUTBOUND_IP_REPORT_INTERVAL_SECONDS -and -not $env:PO0_SELF_REPORT_INTERVAL_SECONDS -and -not $env:INTERVAL_SECONDS -and -not $env:PO0_OUTBOUND_IP_REPORT_MINUTES -and -not $env:PO0_SELF_REPORT_MINUTES -and -not $env:MINUTES -and $cfg.IntervalSeconds) {
         $script:IntervalSeconds = [int]$cfg.IntervalSeconds
-    } elseif (-not $PSBoundParameters.ContainsKey("Minutes") -and -not $env:PO0_SELF_REPORT_MINUTES -and -not $env:MINUTES -and $cfg.Minutes) {
+    } elseif (-not $PSBoundParameters.ContainsKey("Minutes") -and -not $env:PO0_OUTBOUND_IP_REPORT_MINUTES -and -not $env:PO0_SELF_REPORT_MINUTES -and -not $env:MINUTES -and $cfg.Minutes) {
         $script:Minutes = [int]$cfg.Minutes
     }
-    if (-not $PSBoundParameters.ContainsKey("LogPath") -and -not $env:PO0_SELF_REPORT_LOG -and -not $env:SELF_REPORT_LOG -and $cfg.LogPath) {
+    if (-not $PSBoundParameters.ContainsKey("LogPath") -and -not $env:PO0_OUTBOUND_IP_REPORT_LOG -and -not $env:PO0_SELF_REPORT_LOG -and -not $env:SELF_REPORT_LOG -and $cfg.LogPath) {
         $script:LogPath = [string]$cfg.LogPath
+        Normalize-DefaultLogPath
     }
-    if (-not $PSBoundParameters.ContainsKey("AllowHttp") -and -not $env:PO0_SELF_REPORT_ALLOW_HTTP -and $null -ne $cfg.AllowHttp) {
+    if (-not $PSBoundParameters.ContainsKey("AllowHttp") -and -not $env:PO0_OUTBOUND_IP_REPORT_ALLOW_HTTP -and -not $env:PO0_SELF_REPORT_ALLOW_HTTP -and $null -ne $cfg.AllowHttp) {
         $script:AllowHttp = [bool]$cfg.AllowHttp
     }
     if ($null -ne $cfg.SchedulePaused) {
@@ -39,6 +45,20 @@ function Load-SavedConfig {
     if (-not $PSBoundParameters.ContainsKey("Notify") -and -not $PSBoundParameters.ContainsKey("NoNotify") -and $null -ne $cfg.Notify) {
         $script:TaskNotify = [bool]$cfg.Notify
     }
+    if ($readPath -ne $script:ConfigPath -and -not $script:ConfigPathExplicit) {
+        Save-ClientConfig
+    }
+}
+
+function Normalize-DefaultLogPath {
+    if (-not $script:LogPath -or $script:LogPathExplicit) { return }
+    try {
+        $current = [System.IO.Path]::GetFullPath($script:LogPath)
+        $legacy = [System.IO.Path]::GetFullPath((Get-LegacyLogPath))
+        if ([System.String]::Equals($current, $legacy, [System.StringComparison]::OrdinalIgnoreCase)) {
+            $script:LogPath = ""
+        }
+    } catch {}
 }
 
 function Save-ClientConfig {
@@ -67,7 +87,7 @@ function Save-ClientConfig {
 
 function Show-Usage {
     @"
-PO0 自上报客户端（Windows PowerShell）
+PO0 Outbound IP Report 客户端（Windows PowerShell）
 
 本脚本探测当前 Windows 设备的公网出口 IPv4，并上报到 LAN Worker 的
 self-report 接收服务。访问设备不直接连接 PO0。
@@ -86,7 +106,7 @@ self-report 接收服务。访问设备不直接连接 PO0。
   -Version            显示脚本版本、发布日期、当前路径和默认安装路径。
   -Changelog          显示当前版本更新内容。
   -UpgradeSelf        从 GitHub Release 下载并更新本机脚本；菜单内更新会自动重开新版菜单。
-  -ConfigPath PATH    self-report 本地配置文件；默认管理员用 ProgramData，普通用户用 LocalAppData。
+  -ConfigPath PATH    本地配置文件；默认 outbound-ip-report.json，旧 self-report.json 仅作 fallback。
   -SaveConfig         保存当前参数到本地配置文件，不安装计划任务。
   -RunOnce            从参数或已保存配置立即上报一次，不进入交互菜单。
   -WorkerUrl URL      LAN Worker self-report HTTPS 接收地址；裸域名会自动补全。
@@ -102,7 +122,7 @@ self-report 接收服务。访问设备不直接连接 PO0。
   -ScheduleStatus     查看计划任务状态。
   -IntervalSeconds N  计划任务间隔秒数，必须是 60 的倍数。默认: 3600。
   -Minutes N          兼容旧参数：计划任务间隔分钟数，范围 1-$MaxMinutes。默认: 60。
-  -LogPath PATH       计划任务运行日志路径；安装计划任务时默认写到 PO0 配置目录。
+  -LogPath PATH       计划任务运行日志路径；默认 po0-outbound-ip-report.log。
   -Notify             上报完成或失败时显示 Windows 通知；安装计划任务时显式启用。
   -NoNotify           显式关闭 Windows 通知 / 使用静默模式；不能与 -Notify 同时使用。
                       Self-report 放行 TTL 由 LAN Worker 接收端配置，不由客户端决定。
@@ -169,8 +189,12 @@ function Show-ScriptVersion {
     Write-Host "运行日志：$(Get-DefaultLogPath)"
     Write-Host "计划任务：$(Get-ScheduledReporterSummary)"
     try {
-        $task = Get-ScheduledTask -TaskName $script:TaskName -ErrorAction SilentlyContinue
+        $record = Get-ScheduledReporterTaskRecord
+        $task = $record.Task
         if ($task) {
+            if ($record.IsLegacy) {
+                Write-Host "计划任务名称状态：旧任务名 $($record.Name)；运行 -InstallTask 或 -UpgradeSelf 可迁移到 $script:TaskName。"
+            }
             $notifyState = Get-ScheduledReporterNotifyState -Task $task
             if ($notifyState.ScriptPath) {
                 Write-Host "计划任务脚本：$($notifyState.ScriptPath)"

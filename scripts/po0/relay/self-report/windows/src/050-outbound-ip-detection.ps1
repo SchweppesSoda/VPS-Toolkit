@@ -39,6 +39,16 @@ function Invoke-HttpNoProxy {
 
 function Get-IpCheckStatePath {
     if ($env:LOCALAPPDATA) {
+        return (Join-Path $env:LOCALAPPDATA "PO0\outbound-ip-report-ip-check-index.txt")
+    }
+    if ($env:TEMP) {
+        return (Join-Path $env:TEMP "po0-outbound-ip-report-ip-check-index.txt")
+    }
+    return "po0-outbound-ip-report-ip-check-index.txt"
+}
+
+function Get-LegacyIpCheckStatePath {
+    if ($env:LOCALAPPDATA) {
         return (Join-Path $env:LOCALAPPDATA "PO0\self-report-ip-check-index.txt")
     }
     if ($env:TEMP) {
@@ -52,6 +62,12 @@ function Get-IpCheckIndex {
     if ($Count -le 0) { return 0 }
     $path = Get-IpCheckStatePath
     try {
+        if (-not (Test-Path -LiteralPath $path)) {
+            $legacy = Get-LegacyIpCheckStatePath
+            if (Test-Path -LiteralPath $legacy) {
+                $path = $legacy
+            }
+        }
         if (Test-Path -LiteralPath $path) {
             $raw = (Get-Content -LiteralPath $path -Raw) -replace "[^\d]", ""
             if ($raw) { return ([int]$raw % $Count) }
