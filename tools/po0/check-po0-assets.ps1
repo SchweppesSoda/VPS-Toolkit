@@ -10,9 +10,9 @@ if (-not $OutputDir) {
 }
 
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.07.01+build.8" }
-$ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-07-01" }
-$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.07.01.8" }
+$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.07.02+build.1" }
+$ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-07-02" }
+$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.07.02.1" }
 
 function ConvertTo-RepoRelativePath {
     param([string]$Path)
@@ -394,14 +394,48 @@ function Test-MacOsWifiSsidDiagnostic {
     if ($raw -notmatch '--show-wifi-ssid') {
         throw "macOS asset lacks --show-wifi-ssid diagnostic CLI."
     }
+    if ($raw -notmatch '--diagnose-wifi-ssid') {
+        throw "macOS asset lacks --diagnose-wifi-ssid permission diagnostic CLI."
+    }
     if ($raw -notmatch 'show_current_wifi_ssid_once\(\)') {
         throw "macOS asset lacks explicit current Wi-Fi SSID diagnostic function."
+    }
+    if ($raw -notmatch 'show_wifi_ssid_permission_help\(\)') {
+        throw "macOS asset lacks Wi-Fi SSID permission diagnostic helper."
+    }
+    if ($raw -notmatch '\[0-11\]' -or $raw -notmatch '9\) show_wifi_ssid_permission_help; pause_before_return ;;') {
+        throw "macOS asset lacks Wi-Fi SSID diagnostic menu/range/case wiring."
+    }
+    if ($raw -notmatch 'accepted_wifi_ssid_value\(\)') {
+        throw "macOS asset lacks centralized Wi-Fi SSID value filter."
+    }
+    if ($raw -notmatch '<redacted>' -or $raw -notmatch 'redacted') {
+        throw "macOS asset must reject redacted Wi-Fi SSID placeholders."
+    }
+    if ($raw -notmatch 'WIFI_SSID_LAST_ERROR="privacy"') {
+        throw "macOS asset must record privacy-hidden Wi-Fi SSID state."
+    }
+    if ($raw -notmatch 'Location Services') {
+        throw "macOS asset lacks Location Services/privacy diagnostic guidance."
+    }
+    if ($raw -notmatch 'no auto-grant' -or $raw -notmatch 'sudo' -or $raw -notmatch 'TCC') {
+        throw "macOS asset must state that it does not auto-grant system permissions."
     }
     if ($raw -notmatch 'networksetup_any_wifi_ssid\(\)') {
         throw "macOS asset lacks networksetup fallback across hardware devices."
     }
     if ($raw -notmatch 'wdutil_wifi_ssid\(\)') {
         throw "macOS asset lacks wdutil Wi-Fi SSID fallback."
+    }
+    foreach ($fnName in @("accepted_wifi_ssid_value", "print_wifi_ssid_permission_guidance", "show_wifi_ssid_permission_help")) {
+        $pattern = "(?ms)^" + [regex]::Escape($fnName) + "\(\) \{.*?^}"
+        $fn = [regex]::Match($raw, $pattern)
+        if (-not $fn.Success) {
+            throw "macOS asset lacks $fnName body."
+        }
+        if ($fn.Value -match '(?m)^\s*(sudo|tccutil|sqlite3|osascript)\s') {
+            throw "macOS Wi-Fi SSID diagnostic must not run sudo/tccutil/sqlite3/osascript auto-grant commands in $fnName."
+        }
     }
 }
 
@@ -694,6 +728,22 @@ function Invoke-BashSyntax {
     }
 }
 
+function Invoke-BashToolScript {
+    param([string]$RelativePath)
+    $bash = Get-BashCommand
+    if (-not $bash) {
+        Write-Warning "bash not found; skipping Bash tool test $RelativePath"
+        return
+    }
+    $path = Join-Path $RepoRoot $RelativePath
+    $bashPath = ConvertTo-BashPath -Path $path
+    Write-Host "Checking bash $RelativePath"
+    & $bash $bashPath | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw "Command failed: bash $RelativePath"
+    }
+}
+
 function Test-PowerShellSyntax {
     param([string]$FileName)
     $path = Join-Path $OutputDir $FileName
@@ -707,6 +757,7 @@ function Test-PowerShellSyntax {
     }
 }
 
+Invoke-BashToolScript "tools/po0/test-macos-ssid-diagnostic.sh"
 Invoke-BashSyntax "nftables-relay-manager.sh"
 Invoke-BashSyntax "po0-lan-client.sh"
 Invoke-BashSyntax "po0-outbound-ip-report.sh"

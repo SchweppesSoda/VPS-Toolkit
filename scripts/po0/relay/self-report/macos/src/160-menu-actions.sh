@@ -127,13 +127,13 @@ menu_loop() {
         print_menu_pair 5 "查看定时上报状态" 6 "通知 / 静默模式"
         print_menu_item 7 "删除定时上报"
         print_menu_section "查看"
-        print_menu_item 8 "显示当前配置"
+        print_menu_pair 8 "显示当前配置" 9 "Wi-Fi SSID 权限诊断"
         print_menu_section "维护"
-        print_menu_pair 9 "从 GitHub 更新脚本" 10 "卸载本客户端"
+        print_menu_pair 10 "从 GitHub 更新脚本" 11 "卸载本客户端"
         print_menu_section "退出"
         print_menu_item 0 "退出"
         print_menu_footer
-        choice="$(read_prompt "请选择操作 [0-10]: ")" || return 0
+        choice="$(read_prompt "请选择操作 [0-11]: ")" || return 0
         choice="$(trim "${choice}")"
         case "${choice}" in
             1) configure_interactive; pause_before_return ;;
@@ -151,8 +151,9 @@ menu_loop() {
                 pause_before_return
                 ;;
             8) show_current_config; pause_before_return ;;
-            9) upgrade_self_from_download --reopen-menu || pause_before_return ;;
-            10)
+            9) show_wifi_ssid_permission_help; pause_before_return ;;
+            10) upgrade_self_from_download --reopen-menu || pause_before_return ;;
+            11)
                 uninstall_self_report_interactive
                 rc=$?
                 pause_before_return

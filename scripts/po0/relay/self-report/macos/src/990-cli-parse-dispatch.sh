@@ -20,6 +20,7 @@ usage() {
         "  --version             显示脚本版本、发布日期、当前路径和默认安装路径。" \
         "  --changelog           显示当前版本更新内容。" \
         "  --show-wifi-ssid      显示当前 Wi-Fi SSID 探测结果后退出。" \
+        "  --diagnose-wifi-ssid  显示当前 Wi-Fi SSID 探测结果和 macOS 定位权限诊断后退出。" \
         "  --upgrade-self        从 GitHub Release 下载并更新本机脚本；菜单内更新会自动重开新版菜单。" \
         "  --config PATH         本地配置文件；优先级：--config / PO0_OUTBOUND_IP_REPORT_CONFIG / PO0_SELF_REPORT_CONFIG 或 SELF_REPORT_CONFIG / root 的 /etc/po0-outbound-ip-report/settings.env / XDG_CONFIG_HOME / ~/.config / ./po0-outbound-ip-report.env；旧 po0-self-report 配置仅作 fallback。" \
         "  --save-config         保存当前参数到本地配置文件；可与 --menu 组合为首次保存后打开菜单。" \
@@ -72,6 +73,10 @@ parse_args() {
                 ;;
             --show-wifi-ssid)
                 SHOW_WIFI_SSID="1"
+                shift
+                ;;
+            --diagnose-wifi-ssid)
+                SHOW_WIFI_SSID_DIAGNOSTIC="1"
                 shift
                 ;;
             --upgrade-self)
@@ -228,7 +233,7 @@ apply_env_overrides
 apply_device_defaults
 parse_args "$@"
 normalize_legacy_default_install_path
-if [[ "${SHOW_VERSION}" != "1" && "${SHOW_CHANGELOG}" != "1" && "${SHOW_WIFI_SSID}" != "1" && "${UPGRADE_SELF}" != "1" ]]; then
+if [[ "${SHOW_VERSION}" != "1" && "${SHOW_CHANGELOG}" != "1" && "${SHOW_WIFI_SSID}" != "1" && "${SHOW_WIFI_SSID_DIAGNOSTIC}" != "1" && "${UPGRADE_SELF}" != "1" ]]; then
     apply_interval_seconds_override || exit 1
 fi
 apply_device_defaults
@@ -245,6 +250,8 @@ elif [[ "${SHOW_CHANGELOG}" == "1" ]]; then
     show_changelog
 elif [[ "${SHOW_WIFI_SSID}" == "1" ]]; then
     show_current_wifi_ssid_once
+elif [[ "${SHOW_WIFI_SSID_DIAGNOSTIC}" == "1" ]]; then
+    show_wifi_ssid_permission_help
 elif [[ "${UPGRADE_SELF}" == "1" ]]; then
     upgrade_self_from_download
 elif [[ "${SAVE_CONFIG}" == "1" && "${SHOW_MENU}" == "1" ]]; then

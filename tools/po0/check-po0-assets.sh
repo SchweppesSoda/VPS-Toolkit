@@ -3,9 +3,9 @@ set -euo pipefail
 
 repo_root="$(cd "$(git rev-parse --show-toplevel)" && pwd -P)"
 asset_dir="${1:-${repo_root}/.tmp/po0-check-assets}"
-expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.07.01+build.8}"
-expected_po0_release_date="${PO0_EXPECTED_RELEASE_DATE:-2026-07-01}"
-expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.07.01.8}"
+expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.07.02+build.1}"
+expected_po0_release_date="${PO0_EXPECTED_RELEASE_DATE:-2026-07-02}"
+expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.07.02.1}"
 
 manifest_entries() {
     local manifest="$1"
@@ -325,13 +325,49 @@ check_unix_ssid_guard() {
 }
 
 check_macos_wifi_ssid_diagnostic() {
-    local asset="${asset_dir}/po0-outbound-ip-report-macos.sh"
+    local asset="${asset_dir}/po0-outbound-ip-report-macos.sh" fn body
     grep -Fq -- '--show-wifi-ssid' "${asset}" || {
         printf 'macOS asset lacks --show-wifi-ssid diagnostic CLI.\n' >&2
         exit 1
     }
+    grep -Fq -- '--diagnose-wifi-ssid' "${asset}" || {
+        printf 'macOS asset lacks --diagnose-wifi-ssid permission diagnostic CLI.\n' >&2
+        exit 1
+    }
     grep -Fq 'show_current_wifi_ssid_once()' "${asset}" || {
         printf 'macOS asset lacks explicit current Wi-Fi SSID diagnostic function.\n' >&2
+        exit 1
+    }
+    grep -Fq 'show_wifi_ssid_permission_help()' "${asset}" || {
+        printf 'macOS asset lacks Wi-Fi SSID permission diagnostic helper.\n' >&2
+        exit 1
+    }
+    grep -Fq 'Wi-Fi SSID 权限诊断' "${asset}" && grep -Fq '请选择操作 [0-11]' "${asset}" && grep -Fq '9) show_wifi_ssid_permission_help; pause_before_return ;;' "${asset}" || {
+        printf 'macOS asset lacks Wi-Fi SSID diagnostic menu/range/case wiring.\n' >&2
+        exit 1
+    }
+    grep -Fq 'accepted_wifi_ssid_value()' "${asset}" || {
+        printf 'macOS asset lacks centralized Wi-Fi SSID value filter.\n' >&2
+        exit 1
+    }
+    grep -Fq '<redacted>' "${asset}" && grep -Fq 'redacted' "${asset}" || {
+        printf 'macOS asset must reject redacted Wi-Fi SSID placeholders.\n' >&2
+        exit 1
+    }
+    grep -Fq 'WIFI_SSID_LAST_ERROR="privacy"' "${asset}" || {
+        printf 'macOS asset must record privacy-hidden Wi-Fi SSID state.\n' >&2
+        exit 1
+    }
+    grep -Eq '定位服务|隐私权限' "${asset}" || {
+        printf 'macOS asset lacks Location Services/privacy diagnostic guidance.\n' >&2
+        exit 1
+    }
+    grep -Fq '不会自动获取或修改系统权限' "${asset}" || {
+        printf 'macOS asset must state that it does not auto-grant system permissions.\n' >&2
+        exit 1
+    }
+    grep -Fq 'no auto-grant' "${asset}" || {
+        printf 'macOS asset must include an ASCII no-auto-grant marker for Windows parser-safe checks.\n' >&2
         exit 1
     }
     grep -Fq 'networksetup_any_wifi_ssid()' "${asset}" || {
@@ -342,6 +378,20 @@ check_macos_wifi_ssid_diagnostic() {
         printf 'macOS asset lacks wdutil Wi-Fi SSID fallback.\n' >&2
         exit 1
     }
+    for fn in accepted_wifi_ssid_value print_wifi_ssid_permission_guidance show_wifi_ssid_permission_help; do
+        body="$(
+            awk -v fn="${fn}" '
+                $0 == fn "() {" {in_fn=1}
+                in_fn {print}
+                in_fn && /^}/ {exit}
+            ' "${asset}"
+        )"
+        [[ -n "${body}" ]] || { printf 'macOS asset lacks %s body.\n' "${fn}" >&2; exit 1; }
+        if printf '%s\n' "${body}" | grep -Eq '^[[:space:]]*(sudo|tccutil|sqlite3|osascript)[[:space:]]'; then
+            printf 'macOS Wi-Fi SSID diagnostic must not run sudo/tccutil/sqlite3/osascript auto-grant commands in %s.\n' "${fn}" >&2
+            exit 1
+        fi
+    done
 }
 
 check_windows_ssid_guard() {
@@ -468,6 +518,7 @@ check_manifest_coverage "self-report-linux" "tools/po0/manifests/self-report-lin
 check_manifest_coverage "self-report-macos" "tools/po0/manifests/self-report-macos.txt" "scripts/po0/relay/self-report/macos/src"
 check_manifest_coverage "self-report-windows" "tools/po0/manifests/self-report-windows.txt" "scripts/po0/relay/self-report/windows/src" "*.ps1"
 
+bash "${repo_root}/tools/po0/test-macos-ssid-diagnostic.sh"
 bash "${repo_root}/tools/po0/build-po0-assets.sh" "${asset_dir}"
 
 for asset in nftables-relay-manager.sh po0-lan-client.sh po0-outbound-ip-report.sh po0-outbound-ip-report-macos.sh; do

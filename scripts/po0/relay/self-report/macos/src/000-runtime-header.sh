@@ -4,10 +4,11 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_OUTBOUND_IP_REPORT_MACOS_DOWNLOAD_URL:-${PO0_SELF_REPORT_MACOS_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report-macos.sh}}"
 SCRIPT_NAME="po0-outbound-ip-report"
-SCRIPT_VERSION="2026.07.01+build.8"
-SCRIPT_RELEASE_DATE="2026-07-01"
+SCRIPT_VERSION="2026.07.02+build.1"
+SCRIPT_RELEASE_DATE="2026-07-02"
 # CHANGELOG_BEGIN
-# - 安装 / 更新本机命令后会检查安装目录是否在 PATH 中；菜单安装会询问是否写入 ~/.zprofile，非交互安装只打印提示和可直接运行的完整路径。
+# - 当前 Wi-Fi SSID 探测会把 redacted / <redacted> 视为 macOS 隐私权限隐藏并 fail-open 继续上报，不再误当真实 SSID。
+# - 新增 --diagnose-wifi-ssid 和菜单诊断入口，提示到系统设置授权定位服务；脚本不会自动获取或修改系统权限。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24
@@ -46,6 +47,7 @@ SHOW_MENU=""
 SHOW_VERSION=""
 SHOW_CHANGELOG=""
 SHOW_WIFI_SSID=""
+SHOW_WIFI_SSID_DIAGNOSTIC=""
 UPGRADE_SELF=""
 SAVE_CONFIG=""
 PAUSE_SCHEDULE=""
@@ -55,6 +57,8 @@ SCHEDULE_PAUSED="0"
 NOTIFY="0"
 NOTIFY_ARG=""
 SKIP_WIFI_SSIDS=""
+WIFI_SSID_LAST_ERROR=""
+WIFI_SSID_PROBE_VALUE=""
 FORCE_REPORT="0"
 SCHEDULED_RUN="0"
 CRON_MINUTES="60"
