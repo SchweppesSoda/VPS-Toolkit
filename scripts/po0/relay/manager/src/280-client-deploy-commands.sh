@@ -61,7 +61,7 @@ do_show_po0_manager_deploy_commands() {
     print_title "PO0 主控脚本上传"
     printf '安装路径 : %s\n' "${MANAGER_INSTALL_PATH}"
     echo ""
-    echo "在本地机器执行上传，然后登录 PO0 启动主控脚本："
+    echo "在 PO0 上执行下载并启动主控脚本；首次部署如需本地上传，可改用 scp 上传同一 Release asset："
     printf '  curl -fsSL %s -o %s\n' "${MANAGER_DOWNLOAD_URL}" "${MANAGER_INSTALL_PATH}"
     printf '  chmod +x %s && bash %s\n' "${MANAGER_INSTALL_PATH}" "${MANAGER_INSTALL_PATH}"
 }
@@ -199,7 +199,7 @@ do_show_egern_deploy_commands() {
     printf 'SSH_REPORT_TOKEN  : %s\n' "${DEPLOY_SSH_TOKEN}"
     printf 'PO0_SCRIPT        : %s\n' "${MANAGER_INSTALL_PATH}"
     echo ""
-    printf 'SSH_REPORT_TARGETS row: source_id|host|port|user|script|token|identity|ttl\n'
+    printf 'SSH_REPORT_TARGETS row: source-id|host|port|user|script|token|identity|ttl\n'
     printf '  egern-po0|<PO0_HOST>|22|root|%s|%s|egern|43200\n' "${MANAGER_INSTALL_PATH}" "${DEPLOY_SSH_TOKEN}"
 }
 

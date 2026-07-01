@@ -20,7 +20,7 @@ usage() {
         "  --version             显示脚本版本、发布日期、当前路径和默认安装路径。" \
         "  --changelog           显示当前版本更新内容。" \
         "  --upgrade-self        从 GitHub Release 下载并更新本机脚本；菜单内更新会自动重开新版菜单。" \
-        "  --config PATH         self-report 本地配置文件；默认 root 用 /etc/po0-self-report/settings.env，普通用户用 ~/.config/po0-self-report/settings.env。" \
+        "  --config PATH         self-report 本地配置文件；优先级：--config / PO0_SELF_REPORT_CONFIG 或 SELF_REPORT_CONFIG / root 的 /etc/po0-self-report/settings.env / XDG_CONFIG_HOME / ~/.config / ./po0-self-report.env。" \
         "  --save-config         保存当前参数到本地配置文件；可与 --menu 组合为首次保存后打开菜单。" \
         "  --worker-url URL      LAN Worker self-report HTTPS 接收地址，例如 https://report.example.com/report；裸域名会自动补全。" \
         "  --allow-http          允许 http:// 上报；仅用于本地调试或临时旧环境。" \

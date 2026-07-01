@@ -48,7 +48,7 @@ env_schema:
     description: "蜂窝网络默认按 /24 上报，减少蜂窝公网出口在同一网段内跳 IP 造成的重复 SSH 上报；设为 32 可关闭。Wi-Fi 和未知网络始终按 /32 上报。"
   SSH_REPORT_TARGETS:
     name: 多个 PO0 目标
-    description: "可选。多个目标可用换行、逗号、分号或空格分隔：source_id|host|port|user|script|token|identity|ttl。source_id 和 identity 支持 {device}，本机 ID 推荐通过 DEVICE_ID_SETUP + “保存本机设备 ID”写入。"
+    description: "可选。多个目标可用换行、逗号、分号或空格分隔：source-id|host|port|user|script|token|identity|ttl。source-id 会映射到 SSH_REPORT_SOURCE；source-id 和 identity 支持 {device}，本机 ID 推荐通过 DEVICE_ID_SETUP + “保存本机设备 ID”写入。"
   DEVICE_ID_SETUP:
     name: 本机设备 ID 设置值
     description: "只在手动运行“保存本机设备 ID”时读取并写入本机 storage；定时/网络上报不会直接使用这个同步 env。示例：iphone15pm。"

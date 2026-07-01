@@ -2,10 +2,11 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-nftables-relay-manager"
-SCRIPT_VERSION="2026.06.28+build.2"
-SCRIPT_RELEASE_DATE="2026-06-28"
+SCRIPT_VERSION="2026.07.01+build.1"
+SCRIPT_RELEASE_DATE="2026-07-01"
 # CHANGELOG_BEGIN
-# - 跟随 PO0 Release asset 批次对齐到 build.2；本脚本无行为变化。
+# - 修正 CLI 帮助里的部署命令说明和不存在的 show-client-deploy-commands tokens topic。
+# - Egern 部署命令输出统一使用 source-id|host|port|user|script|token|identity|ttl。
 # CHANGELOG_END
 CONF_DIR="${PO0_CONF_DIR:-/etc/nftables.d}"
 MAIN_CONF="/etc/nftables.conf"

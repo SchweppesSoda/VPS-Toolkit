@@ -37,14 +37,63 @@ check_manifest_coverage() {
 }
 
 check_raw_refs() {
-    local scan_file="${repo_root}/.tmp/po0-raw-scan.txt"
+    local scan_file="${repo_root}/.tmp/po0-raw-scan.txt" line unexpected=0
     mkdir -p "${repo_root}/.tmp"
     : > "${scan_file}"
     rg -n "raw\\.githubusercontent\\.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0|RAW_URL|GitHub raw|raw URL" \
         "${repo_root}/scripts/po0" "${repo_root}/README.md" "${repo_root}/README.en.md" "${repo_root}/AGENTS.md" \
         > "${scan_file}" || true
-    if grep -Ev 'clients[\\/]egern|relay[\\/]egern|EGERN_SSH_REPORT_MODULE_RAW_URL|iplist|ipdb|proxy-services|reinstall|legacy[\\/]nftables-legacy|raw URL is disabled|raw URLs are disabled' "${scan_file}"; then
+    while IFS= read -r line; do
+        [[ "${line}" == *"raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0"* ]] || continue
+        case "${line}" in
+            *"scripts/po0/nftables/clients/egern/PO0-SSH-IP-Report.yaml"*|\
+            *"scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js"*|\
+            *"scripts/po0/relay/egern/PO0-SSH-IP-Report.yaml"*|\
+            *"scripts/po0/relay/egern/po0-ssh-ip-report.js"*|\
+            *"scripts/po0/nftables/tools/build-iplist-package.sh"*|\
+            *"scripts/po0/nftables/tools/build-iplist-package.ps1"*|\
+            *"scripts/po0/proxy-services/vless-raw-enc-argosbx-enhancer.sh"*)
+                ;;
+            *)
+                printf '%s\n' "${line}" >&2
+                unexpected=1
+                ;;
+        esac
+    done < "${scan_file}"
+    if [[ "${unexpected}" == "1" ]]; then
         printf 'Unexpected PO0 raw URL reference found.\n' >&2
+        exit 1
+    fi
+}
+
+check_egern_compat_sync() {
+    local file canonical legacy
+    for file in PO0-SSH-IP-Report.yaml po0-ssh-ip-report.js; do
+        canonical="${repo_root}/scripts/po0/nftables/clients/egern/${file}"
+        legacy="${repo_root}/scripts/po0/relay/egern/${file}"
+        [[ -f "${canonical}" ]] || { printf 'Canonical Egern file missing: %s\n' "${canonical}" >&2; exit 1; }
+        [[ -f "${legacy}" ]] || { printf 'Legacy Egern compatibility file missing: %s\n' "${legacy}" >&2; exit 1; }
+        if ! cmp -s <(tr -d '\r' < "${canonical}") <(tr -d '\r' < "${legacy}"); then
+            printf 'Legacy Egern compatibility file differs from canonical after LF normalization: %s\n' "${file}" >&2
+            exit 1
+        fi
+    done
+}
+
+check_windows_canonical_path() {
+    local asset="${asset_dir}/po0-outbound-ip-report.ps1" default_script default_launcher
+    grep -q 'po0-outbound-ip-report\.ps1' "${asset}" || {
+        printf 'Windows self-report asset does not mention canonical po0-outbound-ip-report.ps1 path.\n' >&2
+        exit 1
+    }
+    default_script="$(awk '/^function Get-DefaultScriptPath /{flag=1} flag{print; if ($0 ~ /^}/) exit}' "${asset}")"
+    default_launcher="$(awk '/^function Get-DefaultTaskLauncherPath /{flag=1} flag{print; if ($0 ~ /^}/) exit}' "${asset}")"
+    if [[ "${default_script}" != *"po0-outbound-ip-report.ps1"* || "${default_script}" == *"po0-self-report.ps1"* ]]; then
+        printf 'Windows self-report default script path is not canonical.\n' >&2
+        exit 1
+    fi
+    if [[ "${default_launcher}" != *"po0-outbound-ip-report-task.vbs"* || "${default_launcher}" == *"po0-self-report-task.vbs"* ]]; then
+        printf 'Windows self-report default launcher path is not canonical.\n' >&2
         exit 1
     fi
 }
@@ -90,5 +139,7 @@ bash "${asset_dir}/po0-outbound-ip-report-macos.sh" --changelog >/dev/null
 
 check_versions_match_tag
 check_raw_refs
+check_egern_compat_sync
+check_windows_canonical_path
 
 printf 'PO0 asset checks passed.\n'

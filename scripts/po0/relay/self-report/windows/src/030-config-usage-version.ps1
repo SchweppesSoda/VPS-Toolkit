@@ -168,6 +168,24 @@ function Show-ScriptVersion {
     Write-Host "配置文件：$script:ConfigPath"
     Write-Host "运行日志：$(Get-DefaultLogPath)"
     Write-Host "计划任务：$(Get-ScheduledReporterSummary)"
+    try {
+        $task = Get-ScheduledTask -TaskName $script:TaskName -ErrorAction SilentlyContinue
+        if ($task) {
+            $notifyState = Get-ScheduledReporterNotifyState -Task $task
+            if ($notifyState.ScriptPath) {
+                Write-Host "计划任务脚本：$($notifyState.ScriptPath)"
+                if ($notifyState.ScriptPathIsLegacy) {
+                    Write-Host "计划任务脚本状态：旧 po0-self-report.ps1 路径；运行 -InstallTask 或 -UpgradeSelf 可迁移到新路径。"
+                } elseif (-not $notifyState.ScriptPathExists) {
+                    Write-Host "计划任务脚本状态：目标不存在；请重新运行 -InstallTask。"
+                }
+            } else {
+                Write-Host "计划任务脚本：无法从任务动作或隐藏启动器读取"
+            }
+        }
+    } catch {
+        Write-Host "计划任务脚本：读取失败：$($_.Exception.Message)"
+    }
     Write-Host "下载 URL：$DownloadUrl"
 }
 

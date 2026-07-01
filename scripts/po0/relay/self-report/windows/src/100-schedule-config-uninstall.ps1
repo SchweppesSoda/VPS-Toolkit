@@ -18,6 +18,9 @@ function Get-CurrentScheduledReporterNotifyState {
             Installed = $false
             LauncherPath = ""
             LauncherExists = $false
+            ScriptPath = ""
+            ScriptPathExists = $false
+            ScriptPathIsLegacy = $false
             ActualNotify = $null
             HasNotify = $false
             HasNoNotify = $false
@@ -142,6 +145,18 @@ function Show-ScheduledReporter {
         if ($notifyState.LauncherPath) {
             Write-PanelRow "隐藏启动器" $notifyState.LauncherPath
         }
+        if ($notifyState.ScriptPath) {
+            Write-PanelRow "计划任务脚本" $notifyState.ScriptPath
+            if ($notifyState.ScriptPathIsLegacy) {
+                Write-PanelRow "脚本路径状态" "旧 po0-self-report.ps1 路径；运行 -InstallTask 或 -UpgradeSelf 迁移"
+            } elseif (-not $notifyState.ScriptPathExists) {
+                Write-PanelRow "脚本路径状态" "目标不存在；请重新运行 -InstallTask"
+            } else {
+                Write-PanelRow "脚本路径状态" "已指向 canonical 安装脚本"
+            }
+        } else {
+            Write-PanelRow "计划任务脚本" "无法从任务动作或隐藏启动器读取"
+        }
         foreach ($trigger in $task.Triggers) {
             Write-PanelRow "触发器" ([string]$trigger)
         }
@@ -245,15 +260,25 @@ function Uninstall-SelfReportClient {
 
     $scriptPath = Get-DefaultScriptPath
     $launcherPath = Get-DefaultTaskLauncherPath
+    $legacyScriptPath = Get-LegacyScriptPath
+    $legacyLauncherPath = Get-LegacyTaskLauncherPath
     $logPath = Get-DefaultLogPath
     $ok = $true
 
     Write-Host "卸载会删除本脚本管理的计划任务、隐藏启动器和本机安装脚本。"
     Write-Host "本机脚本：$scriptPath"
     Write-Host "隐藏启动器：$launcherPath"
+    Write-Host "旧本机脚本：$legacyScriptPath"
+    Write-Host "旧隐藏启动器：$legacyLauncherPath"
     Remove-ScheduledReporter
     if (-not (Remove-SelfReportPathIfExists -Label "隐藏启动器" -Path $launcherPath)) { $ok = $false }
     if (-not (Remove-SelfReportPathIfExists -Label "本机脚本" -Path $scriptPath)) { $ok = $false }
+    if ($legacyLauncherPath -ne $launcherPath) {
+        if (-not (Remove-SelfReportPathIfExists -Label "旧隐藏启动器" -Path $legacyLauncherPath)) { $ok = $false }
+    }
+    if ($legacyScriptPath -ne $scriptPath) {
+        if (-not (Remove-SelfReportPathIfExists -Label "旧本机脚本" -Path $legacyScriptPath)) { $ok = $false }
+    }
 
     if ($RemoveData) {
         if (-not (Remove-SelfReportPathIfExists -Label "配置文件" -Path $script:ConfigPath)) { $ok = $false }

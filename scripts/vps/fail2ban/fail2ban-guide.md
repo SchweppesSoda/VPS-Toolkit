@@ -110,7 +110,7 @@ curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scri
 /etc/fail2ban/jail.d/99-local-hardening.conf
 ```
 
-脚本推荐值如下，不确定就一路回车，最后确认写入：
+脚本默认模式会自动检测当前 SSH 客户端 IP、SSH 服务端端口和日志 backend，显示摘要后只要求最后确认写入：
 
 ```ini
 [DEFAULT]
@@ -122,8 +122,8 @@ maxretry = 3
 
 [sshd]
 enabled = true
-port    = 2222
-# 脚本会自动检测当前 SSH 端口
+port    = <auto-detected SSH port>
+# 检测失败时回退为 22
 filter  = sshd
 # 脚本会自动检测 /var/log/auth.log、/var/log/secure，
 # 如果都没有，则自动改用 systemd backend

@@ -20,6 +20,59 @@ function Test-CommandLineSwitchPresent {
     return [regex]::IsMatch($CommandLine, $pattern)
 }
 
+function Get-CommandLineFileArgument {
+    param([string]$CommandLine)
+    if (-not $CommandLine) { return "" }
+    if ($CommandLine -match '(?i)(^|\s)-File\s+"([^"]+)"') {
+        return $matches[2]
+    }
+    if ($CommandLine -match '(?i)(^|\s)-File\s+(\S+)') {
+        return $matches[2].Trim('"')
+    }
+    return ""
+}
+
+function Get-CommandLineSwitchArgument {
+    param(
+        [string]$CommandLine,
+        [string]$SwitchName
+    )
+    if (-not $CommandLine -or -not $SwitchName) { return "" }
+    $escaped = [regex]::Escape($SwitchName)
+    $quoted = [regex]::Match($CommandLine, '(?i)(^|\s)-' + $escaped + '\s+"([^"]*)"')
+    if ($quoted.Success) {
+        return $quoted.Groups[2].Value
+    }
+    $plain = [regex]::Match($CommandLine, '(?i)(^|\s)-' + $escaped + '\s+(\S+)')
+    if ($plain.Success) {
+        return $plain.Groups[2].Value.Trim('"')
+    }
+    return ""
+}
+
+function Ensure-DefaultSelfReportScriptInstalled {
+    $dest = Get-DefaultScriptPath
+    if (Test-Path -LiteralPath $dest) { return $dest }
+
+    $dir = Split-Path -Parent $dest
+    if ($dir -and -not (Test-Path -LiteralPath $dir)) {
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    }
+
+    if ($PSCommandPath -and (Test-Path -LiteralPath $PSCommandPath)) {
+        Copy-Item -LiteralPath $PSCommandPath -Destination $dest -Force
+        return $dest
+    }
+
+    $legacy = Get-LegacyScriptPath
+    if ($legacy -and (Test-Path -LiteralPath $legacy)) {
+        Copy-Item -LiteralPath $legacy -Destination $dest -Force
+        return $dest
+    }
+
+    throw "找不到默认安装脚本：$dest。请先运行 -InstallTask 或 -UpgradeSelf。"
+}
+
 function Get-ScheduledReporterTaskArgumentList {
     param([string]$ScriptPath)
     $taskArgList = @(
@@ -97,6 +150,9 @@ function Get-ScheduledReporterNotifyState {
         Installed = [bool]$Task
         LauncherPath = ""
         LauncherExists = $false
+        ScriptPath = ""
+        ScriptPathExists = $false
+        ScriptPathIsLegacy = $false
         ActualNotify = $null
         HasNotify = $false
         HasNoNotify = $false
@@ -114,13 +170,26 @@ function Get-ScheduledReporterNotifyState {
         $launcherCommand = Get-ScheduledReporterLauncherCommand -LauncherPath $launcher
         if ($launcherCommand) {
             $commandTexts.Add($launcherCommand)
+            $scriptPath = Get-CommandLineFileArgument -CommandLine $launcherCommand
+            if ($scriptPath -and -not $state.ScriptPath) {
+                $state.ScriptPath = $scriptPath
+            }
         }
     }
     foreach ($action in $Task.Actions) {
         $args = [string]$action.Arguments
         if ($args -match '(?i)(powershell(\.exe)?|pwsh(\.exe)?|-File\s+)') {
             $commandTexts.Add($args)
+            $scriptPath = Get-CommandLineFileArgument -CommandLine $args
+            if ($scriptPath -and -not $state.ScriptPath) {
+                $state.ScriptPath = $scriptPath
+            }
         }
+    }
+
+    if ($state.ScriptPath) {
+        $state.ScriptPathExists = Test-Path -LiteralPath $state.ScriptPath
+        $state.ScriptPathIsLegacy = Test-LegacySelfReportScriptPath -Path $state.ScriptPath
     }
 
     if ($commandTexts.Count -gt 0) {
@@ -141,12 +210,34 @@ function Get-ScheduledReporterNotifyState {
 function Update-ScheduledReporterLauncherForExistingTask {
     $task = Get-ScheduledTask -TaskName $script:TaskName -ErrorAction SilentlyContinue
     if (-not $task) { return $false }
-    $launcher = Get-ScheduledReporterLauncherPath -Task $task
-    if (-not $launcher) {
-        Install-ScheduledReporter
-        return $true
+    $scriptPath = Ensure-DefaultSelfReportScriptInstalled
+    $commandTexts = New-Object System.Collections.Generic.List[string]
+    $oldLauncher = Get-ScheduledReporterLauncherPath -Task $task
+    if ($oldLauncher) {
+        $oldLauncherCommand = Get-ScheduledReporterLauncherCommand -LauncherPath $oldLauncher
+        if ($oldLauncherCommand) {
+            $commandTexts.Add($oldLauncherCommand)
+        }
     }
-    Write-ScheduledReporterTaskLauncher -LauncherPath $launcher -ScriptPath (Get-DefaultScriptPath) | Out-Null
+    foreach ($action in $task.Actions) {
+        $args = [string]$action.Arguments
+        if ($args) {
+            $commandTexts.Add($args)
+        }
+    }
+    foreach ($commandText in $commandTexts) {
+        $existingConfig = Get-CommandLineSwitchArgument -CommandLine $commandText -SwitchName "ConfigPath"
+        if ($existingConfig) { $script:ConfigPath = $existingConfig }
+        $existingLog = Get-CommandLineSwitchArgument -CommandLine $commandText -SwitchName "LogPath"
+        if ($existingLog) { $script:LogPath = $existingLog }
+    }
+    if (-not $script:LogPath) {
+        $script:LogPath = Get-DefaultLogPath
+    }
+    $launcher = Get-DefaultTaskLauncherPath
+    Write-ScheduledReporterTaskLauncher -LauncherPath $launcher -ScriptPath $scriptPath | Out-Null
+    $action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument ("//B //Nologo " + (Quote-TaskArg $launcher))
+    Set-ScheduledTask -TaskName $script:TaskName -Action $action | Out-Null
     return $true
 }
 
@@ -171,7 +262,7 @@ function Upgrade-SelfFromDownload {
     if ($dir -and -not (Test-Path -LiteralPath $dir)) {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
     }
-    $tmp = Join-Path $dir (".po0-self-report.{0}.tmp" -f $PID)
+    $tmp = Join-Path $dir (".po0-outbound-ip-report.{0}.tmp" -f $PID)
     try {
         Invoke-WebRequest -UseBasicParsing -Uri $DownloadUrl -OutFile $tmp -TimeoutSec 120
         Test-DownloadedScript -Path $tmp
@@ -194,6 +285,13 @@ function Upgrade-SelfFromDownload {
             $newChangelog | ForEach-Object { Write-Host $_ }
         } else {
             Write-Host "更新内容：新脚本未提供更新说明。"
+        }
+        try {
+            if (Update-ScheduledReporterLauncherForExistingTask) {
+                Write-Host "已刷新计划任务隐藏启动器和脚本目标：$dest"
+            }
+        } catch {
+            Write-Host "刷新计划任务隐藏启动器失败：$($_.Exception.Message)" -ForegroundColor Yellow
         }
         if ($ReopenMenu) {
             Read-Host "更新完成。按回车打开新版菜单" | Out-Null

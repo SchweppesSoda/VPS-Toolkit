@@ -28,12 +28,12 @@ param(
 $ErrorActionPreference = "Stop"
 $ReleaseDownloadBaseUrl = $(if ($env:PO0_RELEASE_DOWNLOAD_BASE_URL) { $env:PO0_RELEASE_DOWNLOAD_BASE_URL } else { "https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download" })
 $DownloadUrl = $(if ($env:PO0_SELF_REPORT_PS_DOWNLOAD_URL) { $env:PO0_SELF_REPORT_PS_DOWNLOAD_URL } else { "$ReleaseDownloadBaseUrl/po0-outbound-ip-report.ps1" })
-$ScriptName = "po0-self-report"
-$ScriptVersion = "2026.06.28+build.2"
-$ScriptReleaseDate = "2026-06-28"
+$ScriptName = "po0-outbound-ip-report"
+$ScriptVersion = "2026.07.01+build.1"
+$ScriptReleaseDate = "2026-07-01"
 # CHANGELOG_BEGIN
-# - Windows Self-report 成功摘要优先显示 LAN Worker 返回的具体 PO0 目标名。
-# - 连接旧 LAN Worker 时，目标摘要简化为“PO0 目标：N 个”。
+# - Windows 默认安装脚本名改为 po0-outbound-ip-report.ps1，计划任务和隐藏启动器会迁移到新路径。
+# - -Version / -ScheduleStatus 会显示计划任务实际脚本目标，并提示旧 po0-self-report.ps1 任务漂移。
 # CHANGELOG_END
 $PanelValueColumn = 24
 $MenuRightColumn = 46

@@ -83,6 +83,96 @@ function Test-ManifestCoverage {
     }
 }
 
+function Test-RawReferences {
+    Write-Host "Checking PO0 raw URL references"
+    $scanRoots = @(
+        (Join-Path $RepoRoot "scripts/po0"),
+        (Join-Path $RepoRoot "README.md"),
+        (Join-Path $RepoRoot "README.en.md"),
+        (Join-Path $RepoRoot "AGENTS.md")
+    )
+    $allowed = @(
+        "scripts/po0/nftables/clients/egern/PO0-SSH-IP-Report.yaml",
+        "scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js",
+        "scripts/po0/relay/egern/PO0-SSH-IP-Report.yaml",
+        "scripts/po0/relay/egern/po0-ssh-ip-report.js",
+        "scripts/po0/nftables/tools/build-iplist-package.sh",
+        "scripts/po0/nftables/tools/build-iplist-package.ps1",
+        "scripts/po0/proxy-services/vless-raw-enc-argosbx-enhancer.sh"
+    )
+    $unexpected = New-Object System.Collections.Generic.List[string]
+    $files = New-Object System.Collections.Generic.List[System.IO.FileInfo]
+    foreach ($root in $scanRoots) {
+        if (Test-Path -LiteralPath $root -PathType Container) {
+            Get-ChildItem -LiteralPath $root -Recurse -File | ForEach-Object { $files.Add($_) }
+        } elseif (Test-Path -LiteralPath $root -PathType Leaf) {
+            $files.Add((Get-Item -LiteralPath $root))
+        }
+    }
+    foreach ($file in $files) {
+        $lineNumber = 0
+        foreach ($line in [System.IO.File]::ReadLines($file.FullName)) {
+            $lineNumber++
+            if ($line -notlike "*raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0*") {
+                continue
+            }
+            $isAllowed = $false
+            foreach ($path in $allowed) {
+                if ($line -like "*$path*") {
+                    $isAllowed = $true
+                    break
+                }
+            }
+            if (-not $isAllowed) {
+                $unexpected.Add("${file}:${lineNumber}: $line")
+            }
+        }
+    }
+    if ($unexpected.Count -gt 0) {
+        $unexpected | ForEach-Object { Write-Error $_ }
+        throw "Unexpected PO0 raw URL reference found."
+    }
+}
+
+function Test-EgernCompatibilitySync {
+    Write-Host "Checking Egern legacy compatibility copy"
+    foreach ($name in @("PO0-SSH-IP-Report.yaml", "po0-ssh-ip-report.js")) {
+        $canonical = Join-Path $RepoRoot "scripts/po0/nftables/clients/egern/$name"
+        $legacy = Join-Path $RepoRoot "scripts/po0/relay/egern/$name"
+        if (-not (Test-Path -LiteralPath $canonical)) {
+            throw "Canonical Egern file missing: $canonical"
+        }
+        if (-not (Test-Path -LiteralPath $legacy)) {
+            throw "Legacy Egern compatibility file missing: $legacy"
+        }
+        $canonicalText = [System.IO.File]::ReadAllText($canonical).Replace("`r`n", "`n").Replace("`r", "`n")
+        $legacyText = [System.IO.File]::ReadAllText($legacy).Replace("`r`n", "`n").Replace("`r", "`n")
+        if ($canonicalText -ne $legacyText) {
+            throw "Legacy Egern compatibility file differs from canonical after LF normalization: $name"
+        }
+    }
+}
+
+function Test-WindowsCanonicalPath {
+    $asset = Join-Path $OutputDir "po0-outbound-ip-report.ps1"
+    Write-Host "Checking Windows canonical install path"
+    $raw = Get-Content -LiteralPath $asset -Raw -Encoding UTF8
+    if ($raw -notmatch 'po0-outbound-ip-report\.ps1') {
+        throw "Windows self-report asset does not mention canonical po0-outbound-ip-report.ps1 path."
+    }
+    $defaultScript = [regex]::Match($raw, '(?ms)^function Get-DefaultScriptPath \{.*?^}')
+    $defaultLauncher = [regex]::Match($raw, '(?ms)^function Get-DefaultTaskLauncherPath \{.*?^}')
+    if (-not $defaultScript.Success -or $defaultScript.Value -notmatch 'po0-outbound-ip-report\.ps1' -or $defaultScript.Value -match 'po0-self-report\.ps1') {
+        throw "Windows self-report default script path is not canonical."
+    }
+    if (-not $defaultLauncher.Success -or $defaultLauncher.Value -notmatch 'po0-outbound-ip-report-task\.vbs' -or $defaultLauncher.Value -match 'po0-self-report-task\.vbs') {
+        throw "Windows self-report default launcher path is not canonical."
+    }
+}
+
+Test-RawReferences
+Test-EgernCompatibilitySync
+
 Test-ManifestCoverage `
     -Name "manager" `
     -ManifestPath (Join-Path $RepoRoot "tools/po0/manifests/manager.txt") `
@@ -110,6 +200,7 @@ Test-ManifestCoverage `
     -Filter "*.ps1"
 
 & (Join-Path $PSScriptRoot "build-po0-assets.ps1") -OutputDir $OutputDir
+Test-WindowsCanonicalPath
 
 function Get-BashCommand {
     $bash = Get-Command bash -ErrorAction SilentlyContinue

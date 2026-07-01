@@ -4,11 +4,11 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_SELF_REPORT_MACOS_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report-macos.sh}"
 SCRIPT_NAME="po0-self-report-macos"
-SCRIPT_VERSION="2026.06.28+build.2"
-SCRIPT_RELEASE_DATE="2026-06-28"
+SCRIPT_VERSION="2026.07.01+build.1"
+SCRIPT_RELEASE_DATE="2026-07-01"
 # CHANGELOG_BEGIN
-# - Self-report 成功摘要和成功通知优先显示 LAN Worker 返回的具体 PO0 目标名。
-# - 连接旧 LAN Worker 时，目标摘要简化为“PO0 目标：N 个”。
+# - macOS root 安装时明确显示 launchd plist，避免把 LaunchDaemon 误写成 LaunchAgent。
+# - --help 明确列出 self-report 配置文件优先级，包括 XDG_CONFIG_HOME 和当前目录兜底。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24

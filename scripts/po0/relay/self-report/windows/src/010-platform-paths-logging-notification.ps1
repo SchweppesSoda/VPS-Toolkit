@@ -26,11 +26,25 @@ function Get-DefaultLogPath {
 }
 
 function Get-DefaultScriptPath {
-    return (Join-Path (Get-DefaultDataDir) "po0-self-report.ps1")
+    return (Join-Path (Get-DefaultDataDir) "po0-outbound-ip-report.ps1")
 }
 
 function Get-DefaultTaskLauncherPath {
+    return (Join-Path (Get-DefaultDataDir) "po0-outbound-ip-report-task.vbs")
+}
+
+function Get-LegacyScriptPath {
+    return (Join-Path (Get-DefaultDataDir) "po0-self-report.ps1")
+}
+
+function Get-LegacyTaskLauncherPath {
     return (Join-Path (Get-DefaultDataDir) "po0-self-report-task.vbs")
+}
+
+function Test-LegacySelfReportScriptPath {
+    param([string]$Path)
+    if (-not $Path) { return $false }
+    return ([System.IO.Path]::GetFileName($Path) -ieq "po0-self-report.ps1")
 }
 
 $script:ConfigPath = $ConfigPath

@@ -28,7 +28,7 @@
 - 系统存在 `/etc/ssh/sshd_config`。
 - 系统可找到 `sshd`，优先使用 `command -v sshd`，其次尝试 `/usr/sbin/sshd`。
 
-如果缺少 `nft` 或找不到可操作的 nftables input hook 链，脚本不会直接中断，而是展示风险并要求用户确认是否继续只修改 sshd。
+如果缺少 `nft`，脚本不会直接中断，而是展示风险并要求用户确认是否继续只修改 sshd。如果系统已安装 `nft` 但找不到现有 input hook 链，脚本会在确认后创建受管 `table inet setup_ssh_key_only` / `chain input`，而不是退回到 sshd-only。
 
 ## 端口选择策略
 

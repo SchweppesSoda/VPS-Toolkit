@@ -69,7 +69,7 @@ sudo /usr/local/sbin/vless-raw-enc-argosbx-enhancer
 
 ## 发布渠道
 
-PO0 nftables 五个可执行脚本的新安装、自更新和 LAN Worker manager 更新镜像默认使用 GitHub Release asset。旧 manager、LAN Worker 和 self-report raw URLs are disabled，不再作为兼容入口。Egern 模块、外部 ipdb/iplist 数据源和其它 PO0/VPS 工具若未纳入 Release，仍以各自 README 为准。
+PO0 nftables 五个可执行脚本的新安装、自更新和 LAN Worker manager 更新镜像默认使用 GitHub Release asset。五个 asset 由 `tools/po0/manifests/` 按 manifest 从 manager、LAN Worker、Linux/macOS/Windows self-report 五个源码树生成。旧 manager、LAN Worker 和 self-report raw URLs are disabled，不再作为兼容入口。Egern canonical raw path、Egern legacy compatibility path、离线 iplist 构建器、外部 ipdb/iplist 数据源和其它 PO0/VPS 工具若未纳入 Release，仍以各自 README 为准。
 
 ## 安全说明
 

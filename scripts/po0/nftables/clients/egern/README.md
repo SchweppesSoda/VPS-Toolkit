@@ -40,7 +40,7 @@ https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nft
 
 ## 本机设备 ID
 
-Egern 配置会通过 iCloud 同步，模块环境变量不适合直接写每台设备不同的 `source_id`。模块支持在本机 `ctx.storage` 保存设备 ID，并在上报时展开 `SSH_REPORT_TARGETS` 里的 `{device}`。
+Egern 配置会通过 iCloud 同步，模块环境变量不适合直接写每台设备不同的 `source-id`。模块支持在本机 `ctx.storage` 保存设备 ID，并在上报时展开 `SSH_REPORT_TARGETS` 里的 `{device}`。
 
 推荐设置方式不依赖浏览器 HTTP，也不需要 MITM：
 
@@ -63,10 +63,10 @@ http://po0-egern.local/clear-device
 
 ## 多 PO0
 
-多个 PO0 不要重复导入模块。只导入一份，然后填写 `SSH_REPORT_TARGETS`。可以一行一个目标，也可以用逗号或分号分隔。`source_id` 和 `identity` 支持 `{device}` 占位符：
+多个 PO0 不要重复导入模块。只导入一份，然后填写 `SSH_REPORT_TARGETS`。可以一行一个目标，也可以用逗号或分号分隔。第一列是 `source-id`，会映射到脚本里的 `SSH_REPORT_SOURCE`；`source-id` 和 `identity` 支持 `{device}` 占位符：
 
 ```text
-source_id|host|port|user|script|token|identity|ttl
+source-id|host|port|user|script|token|identity|ttl
 ```
 
 示例：
@@ -84,7 +84,7 @@ source_id|host|port|user|script|token|identity|ttl
 
 如果当前设备 ID 是 `<device-id>`，上面的配置会上报为 `<device-id>-sg`、`<device-id>-us`。未设置设备 ID 时，`{device}` 会回退为 `egern`。
 
-多设备必须使用不同 `source_id`，推荐保留 `{device}` 占位符或为每台设备手动设置独立 source-id。共用同一个 source-id 会共享 TTL 续期和 12 条有效 CIDR 裁剪；蜂窝 `/24` 与 Wi-Fi/未知网络 `/32` 都各算 1 条，共享同一个上限。`identity` 只用于备注和审计，不参与分组。
+多设备必须使用不同 `source-id`，推荐保留 `{device}` 占位符或为每台设备手动设置独立 source-id。共用同一个 source-id 会共享 TTL 续期和 12 条有效 CIDR 裁剪；蜂窝 `/24` 与 Wi-Fi/未知网络 `/32` 都各算 1 条，共享同一个上限。`identity` 只用于备注和审计，不参与分组。
 
 填写 `SSH_REPORT_TARGETS` 后，单目标字段 `PO0_HOST`、`SSH_REPORT_SOURCE`、`SSH_REPORT_TOKEN` 可以留空。多个 PO0 建议共用同一把 Egern 专用上报私钥，并在 PO0 端安装 scope=`egern` 的受限 key。
 

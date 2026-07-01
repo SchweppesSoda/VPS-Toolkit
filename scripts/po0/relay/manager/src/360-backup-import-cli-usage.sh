@@ -117,12 +117,13 @@ print_cli_usage() {
     printf '%s\n' \
         "用法: nftables-relay-manager.sh [命令]" \
         "" \
-        "PO0 主控部署（PO0 不依赖 HTTPS 拉取，推荐本地上传后运行）:" \
+        "PO0 主控部署（Release asset 下载到 PO0 后运行；首次部署也可 scp 上传同一 asset）:" \
         "  curl -fsSL ${MANAGER_DOWNLOAD_URL} -o ${MANAGER_INSTALL_PATH}" \
         "  chmod +x ${MANAGER_INSTALL_PATH} && bash ${MANAGER_INSTALL_PATH}" \
         "" \
-        "LAN Worker / 客户端快速启动（在 LAN Worker/客户端上执行，不在 PO0 上执行）:" \
-        "  bash ${MANAGER_INSTALL_PATH} --show-client-deploy-commands tokens" \
+        "LAN Worker / 客户端快速启动（先在 PO0 上生成命令，再到 LAN Worker/客户端执行）:" \
+        "  bash ${MANAGER_INSTALL_PATH} --show-client-deploy-commands" \
+        "  bash ${MANAGER_INSTALL_PATH} --worker-token-bundle" \
         "  bash ${MANAGER_INSTALL_PATH} --show-client-deploy-commands lan-resource" \
         "  bash ${MANAGER_INSTALL_PATH} --show-client-deploy-commands lan-ddns" \
         "  bash ${MANAGER_INSTALL_PATH} --show-client-deploy-commands self-server" \

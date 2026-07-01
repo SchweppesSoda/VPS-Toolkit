@@ -25,7 +25,7 @@
 | 让内网机器领取 iplist/ipdb 资源任务 | “LAN Worker 资源任务” |
 | 让 PO0 从 LAN Worker 一键拉取更新 manager | “PO0 manager HTTP 更新镜像” |
 | 让访问设备自上报当前出口 IPv4 | “LAN Worker Self-report” |
-| 配置 Egern 当前出口 IPv4 SSH 上报 | “Egern 当前出口 IP 上报”，以及 [`clients/egern/README.md`](./clients/egern/README.md) |
+| 配置 Egern 当前出口 IPv4 SSH 上报 | “Egern 当前出口 IP 上报”，以及 [`nftables/clients/egern/README.md`](../nftables/clients/egern/README.md) |
 | 配置 Cloudflare Access / WebAuth 放行 | “LAN Worker WebAuth” |
 | 构建或导入离线 IP 数据 | “IP 数据源” |
 | 清理旧文件或检查兼容性 | “兼容与清理” |
@@ -40,7 +40,7 @@ PO0 nftables 五个可执行脚本的新安装和自更新默认使用 GitHub Re
 - `https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report-macos.sh`
 - `https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.ps1`
 
-旧 manager、LAN Worker 和 self-report raw URLs are disabled，不再作为兼容入口。Egern YAML/JS、外部 ipdb/iplist 数据源和未纳入本阶段的通用 VPS 工具 raw URL 仍是白名单。
+旧 manager、LAN Worker 和 self-report raw URLs are disabled，不再作为兼容入口。Egern canonical raw path、Egern legacy compatibility path、离线 iplist 构建器、外部 ipdb/iplist 数据源和未纳入本阶段的通用 VPS 工具 raw URL 仍是白名单。
 
 如需测试或回滚下载源，可临时设置 `PO0_MANAGER_DOWNLOAD_URL`、`PO0_LAN_CLIENT_DOWNLOAD_URL`、`PO0_SELF_REPORT_DOWNLOAD_URL`、`PO0_SELF_REPORT_MACOS_DOWNLOAD_URL`、`PO0_SELF_REPORT_PS_DOWNLOAD_URL`；这些覆盖值不会写入配置文件。
 
@@ -76,7 +76,7 @@ LAN Worker 命令在内网 Worker 机器上执行，不在 PO0 上执行。PO0 m
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-lan-client.sh | bash
 ```
 
-SSH 认证按向导选择：系统默认 SSH 配置/agent、已有私钥路径，或粘贴专用私钥。粘贴的私钥会保存到本机配置目录并设置 600 权限。`额外 SSH 参数` 是传给 `ssh` 的选项，例如 `-J jump-host` 或 `-o StrictHostKeyChecking=accept-new`，不是私钥短语；带短语的私钥需要 `ssh-agent`。菜单里的 `DDNS 解析上报 -> DDNS 目标 / 上报计划` 管理 DDNS 目标和本机上报间隔；`PO0 目标`、`SSH 私钥 / 参数`、`目标 Token`、`Self-report TTL / WebAuth TTL` 分开管理目标、SSH、Token 和自上报/WebAuth TTL；`资源统计 / PO0 创建计划` 只读显示 PO0 端资源任务创建 cron，Worker 本机只安装轮询器领取 pending 任务。
+SSH 认证按向导选择：系统默认 SSH 配置/agent、已有私钥路径，或粘贴专用私钥。粘贴的私钥会保存到本机配置目录并设置 600 权限。`额外 SSH 参数` 是传给 `ssh` 的选项，例如 `-J jump-host` 或 `-o StrictHostKeyChecking=accept-new`，不是私钥短语；带短语的私钥需要 `ssh-agent`。菜单里的 `DDNS 解析上报 -> DDNS 目标 / 上报计划` 管理 DDNS 目标和本机上报间隔；`PO0 目标`、`SSH 私钥 / 参数`、`目标 Token`、`Self-report / WebAuth TTL` 分开管理目标、SSH、Token 和自上报/WebAuth TTL；`PO0 资源更新计划` 只读显示 PO0 端资源任务创建 cron，Worker 本机只安装轮询器领取 pending 任务。
 
 初始化后常用本地命令：
 
@@ -221,7 +221,7 @@ po0-self-report --changelog
 
 Windows PowerShell Self-report client：
 
-首次交互式运行默认进入菜单，推荐显式加 `-Menu`。菜单里的 `1) 配置并保存上报参数` 只写本地配置文件，不安装计划任务；`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本并写入计划任务；`6) Windows 通知 / 静默模式` 会保存通知偏好，并在计划任务已安装时重写隐藏 launcher；`9) 从 GitHub 更新脚本` 会更新本机 `po0-self-report.ps1` 并重新打开新版菜单；`10) 卸载本客户端` 会删除本脚本管理的计划任务、隐藏 launcher 和本机安装脚本，配置文件与日志默认保留，也可在确认后一起删除。
+首次交互式运行默认进入菜单，推荐显式加 `-Menu`。菜单里的 `1) 配置并保存上报参数` 只写本地配置文件，不安装计划任务；`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本并写入计划任务；`6) Windows 通知 / 静默模式` 会保存通知偏好，并在计划任务已安装时重写隐藏 launcher；`9) 从 GitHub 更新脚本` 会更新本机 `po0-outbound-ip-report.ps1` 并重新打开新版菜单；`10) 卸载本客户端` 会删除本脚本管理的计划任务、隐藏 launcher 和本机安装脚本，配置文件与日志默认保留，也可在确认后一起删除。
 
 ```powershell
 $script = "$env:TEMP\po0-outbound-ip-report.ps1"
@@ -229,7 +229,7 @@ Invoke-WebRequest -UseBasicParsing 'https://github.com/SchweppesSoda/VPS-Toolkit
 powershell -ExecutionPolicy Bypass -File $script -Menu
 ```
 
-非交互保存配置，不安装计划任务；普通用户默认配置和脚本路径在 `%LOCALAPPDATA%\PO0`，管理员运行时会改用 `%ProgramData%\PO0\po0-self-report.ps1`，不要混用两个权限环境：
+非交互保存配置，不安装计划任务；普通用户默认配置和脚本路径在 `%LOCALAPPDATA%\PO0`，管理员运行时会改用 `%ProgramData%\PO0\po0-outbound-ip-report.ps1`，不要混用两个权限环境：
 
 ```powershell
 $script = "$env:TEMP\po0-outbound-ip-report.ps1"
@@ -244,19 +244,19 @@ powershell -ExecutionPolicy Bypass -File $script -WorkerUrl "https://<SELF_REPOR
 打开交互菜单：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-self-report.ps1" -Menu
+powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-outbound-ip-report.ps1" -Menu
 ```
 
 立即按已保存配置上报一次：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-self-report.ps1" -RunOnce
+powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-outbound-ip-report.ps1" -RunOnce
 ```
 
 保存配置并安装 / 更新计划任务：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-self-report.ps1" -InstallTask -IntervalSeconds 3600
+powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-outbound-ip-report.ps1" -InstallTask -IntervalSeconds 3600
 ```
 
 管理员安装时才把 `$env:LOCALAPPDATA` 改为 `$env:ProgramData`。
@@ -264,25 +264,25 @@ powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-self-report.
 查看计划任务状态和最近日志摘要：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-self-report.ps1" -ScheduleStatus
+powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-outbound-ip-report.ps1" -ScheduleStatus
 ```
 
 从 GitHub Release asset 更新本机脚本：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-self-report.ps1" -UpgradeSelf
+powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-outbound-ip-report.ps1" -UpgradeSelf
 ```
 
 查看当前脚本版本：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-self-report.ps1" -Version
+powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-outbound-ip-report.ps1" -Version
 ```
 
 查看当前版本更新内容：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-self-report.ps1" -Changelog
+powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-outbound-ip-report.ps1" -Changelog
 ```
 
 Windows 非交互安装 / 更新计划任务时，默认每 `3600` 秒上报一次且静默只写日志；安装时会保存本地配置。`-SourceId` 和 `-Identity` 推荐填设备名，`-Secret` 只填纯 token，不要带 `secret:` 或中文冒号前缀；如需自动上报后弹 Windows 通知，额外加 `-Notify`；要显式恢复静默可用 `-NoNotify` 或菜单“Windows 通知 / 静默模式”切换：
@@ -316,7 +316,7 @@ https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nft
 bash /root/nftables-relay-manager.sh --show-client-deploy-commands
 ```
 
-这个命令会输出资源 Worker、DDNS resolver Worker、Self-report server/client、WebAuth Worker、Egern 模块 URL 和对应 token 示例。
+不带 topic 时，这个命令只输出可用 topic 索引。按需指定 `lan-resource`、`lan-ddns`、`self-server`、`self-client`、`webauth` 或 `egern` 才会输出对应部署命令和 token 示例。
 
 LAN Worker 向导使用的机器可读 token bundle：
 
@@ -457,7 +457,7 @@ office-sg|office.example.com|sg-po0.example.com|22|root|/root/nftables-relay-man
 po0-lan-client --run --ddns-targets 'home-sg|home.example.com|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|;home-us|home.example.com|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|'
 ```
 
-首次部署推荐运行 `po0-lan-client --wizard`。长期维护可进入 `po0-lan-client --menu`，在 `DDNS 解析上报 -> DDNS 目标 / 上报计划` 里查看或编辑 DDNS 目标、安装/更新 DDNS 本机上报计划，并查看 PO0 DDNS TTL 设置位置；也可以分别在 `PO0 目标`、`SSH 私钥 / 参数`、`目标 Token`、`Self-report TTL / WebAuth TTL` 里查看、编辑、删除、启停 PO0 目标，并管理目标 SSH 私钥、SSH 参数、Token 和自上报/WebAuth TTL；底层仍保存到本机配置文件，旧配置继续兼容。
+首次部署推荐运行 `po0-lan-client --wizard`。长期维护可进入 `po0-lan-client --menu`，在 `DDNS 解析上报 -> DDNS 目标 / 上报计划` 里查看或编辑 DDNS 目标、安装/更新 DDNS 本机上报计划，并查看 PO0 DDNS TTL 设置位置；也可以分别在 `PO0 目标`、`SSH 私钥 / 参数`、`目标 Token`、`Self-report / WebAuth TTL` 里查看、编辑、删除、启停 PO0 目标，并管理目标 SSH 私钥、SSH 参数、Token 和自上报/WebAuth TTL；底层仍保存到本机配置文件，旧配置继续兼容。
 
 PO0 不做本地 DDNS 解析。`--refresh-ddns` 只会把已经由 LAN Worker/路由器上报、且仍在 TTL 内的结果重建/应用；它不会延长原上报 TTL：
 
@@ -537,7 +537,7 @@ curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download
 po0-lan-client --install-self-report-https --self-report-https-domain <SELF_REPORT_DOMAIN> --po0-host <PO0_HOST> --po0-script /root/nftables-relay-manager.sh --self-report-source self-report --client-ip-token <CLIENT_REPORT_TOKEN> --self-report-secret <SELF_REPORT_SECRET>
 ```
 
-Self-report / WebAuth 放行 TTL 默认均为 `43200` 秒（12 小时），由 LAN Worker 上报 PO0 时传入；可以在启动接收端时加 `--self-report-ttl <秒数>` / `--webauth-ttl <秒数>`，也可以在 LAN Worker 菜单 `PO0 目标、SSH、Token 与 TTL -> Self-report TTL / WebAuth TTL` 里修改目标覆盖值。访问设备客户端只决定“多久上报一次”，不决定 TTL。Self-report / WebAuth TTL 会被限制在 `60-604800` 秒内。升级旧安装时，本机 `settings.env` 里恰好等于旧默认 `3600` 或 `21600` 的默认 TTL 会在脚本加载时迁移到新默认；目标行里显式写的 TTL 不自动改写。
+Self-report / WebAuth 放行 TTL 默认均为 `43200` 秒（12 小时），由 LAN Worker 上报 PO0 时传入；可以在启动接收端时加 `--self-report-ttl <秒数>` / `--webauth-ttl <秒数>`，也可以在 LAN Worker 菜单 `PO0 目标、SSH、Token 与 TTL -> Self-report / WebAuth TTL` 里修改目标覆盖值。访问设备客户端只决定“多久上报一次”，不决定 TTL。Self-report / WebAuth TTL 会被限制在 `60-604800` 秒内。升级旧安装时，本机 `settings.env` 里恰好等于旧默认 `3600` 或 `21600` 的默认 TTL 会在脚本加载时迁移到新默认；目标行里显式写的 TTL 不自动改写。
 
 多个 PO0 用“设备自上报目标”合并到同一个 LAN Worker：
 
@@ -715,9 +715,9 @@ po0-self-report --changelog
 
 ### Windows PowerShell Self-report client
 
-Windows 默认按普通用户安装和运行，路径在 `%LOCALAPPDATA%\PO0`。只有用管理员 PowerShell 安装时才会改用 `%ProgramData%\PO0\po0-self-report.ps1`；管理员路径可以作为兜底检查，但日常不要混用两个权限环境。
+Windows 默认按普通用户安装和运行，路径在 `%LOCALAPPDATA%\PO0\po0-outbound-ip-report.ps1`。只有用管理员 PowerShell 安装时才会改用 `%ProgramData%\PO0\po0-outbound-ip-report.ps1`；管理员路径可以作为兜底检查，但日常不要混用两个权限环境。
 
-交互式运行默认进入菜单，推荐显式加 `-Menu`。菜单里的 `1) 配置并保存上报参数` 只写本地配置文件，不安装计划任务；`2) 立即上报一次` 会读取参数或已保存配置；`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本并写入计划任务；`4) 暂停 / 恢复定时上报` 只影响自动计划任务，手动立即上报仍可用；`6) Windows 通知 / 静默模式` 会保存通知偏好，并在计划任务已安装时重写隐藏 launcher；`9) 从 GitHub 更新脚本` 会更新本机 `po0-self-report.ps1` 并重新打开新版菜单；`10) 卸载本客户端` 会删除本脚本管理的计划任务、隐藏 launcher 和本机安装脚本，配置文件与日志默认保留，可选择一起删除。
+交互式运行默认进入菜单，推荐显式加 `-Menu`。菜单里的 `1) 配置并保存上报参数` 只写本地配置文件，不安装计划任务；`2) 立即上报一次` 会读取参数或已保存配置；`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本并写入计划任务；`4) 暂停 / 恢复定时上报` 只影响自动计划任务，手动立即上报仍可用；`6) Windows 通知 / 静默模式` 会保存通知偏好，并在计划任务已安装时重写隐藏 launcher；`9) 从 GitHub 更新脚本` 会更新本机 `po0-outbound-ip-report.ps1` 并重新打开新版菜单；`10) 卸载本客户端` 会删除本脚本管理的计划任务、隐藏 launcher 和本机安装脚本，配置文件与日志默认保留，可选择一起删除。
 
 首次运行时先下载到临时文件，再打开菜单：
 
@@ -743,7 +743,7 @@ Invoke-WebRequest -UseBasicParsing 'https://github.com/SchweppesSoda/VPS-Toolkit
 powershell -ExecutionPolicy Bypass -File $script -WorkerUrl "https://<SELF_REPORT_DOMAIN>/report" -SourceId $env:COMPUTERNAME -Identity $env:COMPUTERNAME -Secret "<SELF_REPORT_SECRET>" -RunOnce
 ```
 
-非交互安装 / 更新计划任务，默认每 `3600` 秒上报一次。安装 / 更新计划任务时建议从 `$env:TEMP` 下载脚本再运行，让脚本覆盖安装到普通用户默认路径 `%LOCALAPPDATA%\PO0\po0-self-report.ps1`。管理员 PowerShell 安装时会改用 `%ProgramData%\PO0\po0-self-report.ps1`。安装时会保存配置；计划任务后续只引用配置文件，不再把 token 展开写入计划任务参数。计划任务通过隐藏 launcher 启动 PowerShell，不弹出 CMD/PowerShell 窗口；默认静默只写日志，不弹 Windows 通知。如需自动上报成功或失败后弹 Windows 通知，安装计划任务时额外加 `-Notify`，或在菜单“Windows 通知 / 静默模式”里启用通知：
+非交互安装 / 更新计划任务，默认每 `3600` 秒上报一次。安装 / 更新计划任务时建议从 `$env:TEMP` 下载脚本再运行，让脚本覆盖安装到普通用户默认路径 `%LOCALAPPDATA%\PO0\po0-outbound-ip-report.ps1`。管理员 PowerShell 安装时会改用 `%ProgramData%\PO0\po0-outbound-ip-report.ps1`。安装时会保存配置；计划任务后续只引用配置文件，不再把 token 展开写入计划任务参数。计划任务通过隐藏 launcher 启动 PowerShell，不弹出 CMD/PowerShell 窗口；默认静默只写日志，不弹 Windows 通知。如需自动上报成功或失败后弹 Windows 通知，安装计划任务时额外加 `-Notify`，或在菜单“Windows 通知 / 静默模式”里启用通知：
 
 ```powershell
 $script = "$env:TEMP\po0-outbound-ip-report.ps1"
@@ -754,7 +754,7 @@ powershell -ExecutionPolicy Bypass -File $script -WorkerUrl "https://<SELF_REPOR
 显式恢复静默并刷新已安装计划任务：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-self-report.ps1" -NoNotify -InstallTask -IntervalSeconds 3600
+powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-outbound-ip-report.ps1" -NoNotify -InstallTask -IntervalSeconds 3600
 ```
 
 `<SELF_REPORT_SECRET>` 只替换为 secret 本身，例如 `daf80...ce94`；不要写成 `secret:daf80...` 或 `secret：daf80...`。
@@ -764,27 +764,27 @@ powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-self-report.
 打开交互菜单：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-self-report.ps1" -Menu
+powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-outbound-ip-report.ps1" -Menu
 ```
 
 立即按已保存配置上报一次：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-self-report.ps1" -RunOnce
+powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-outbound-ip-report.ps1" -RunOnce
 ```
 
 保存配置并安装 / 更新计划任务：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-self-report.ps1" -InstallTask -IntervalSeconds 3600
+powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-outbound-ip-report.ps1" -InstallTask -IntervalSeconds 3600
 ```
 
 管理员安装时才把 `$env:LOCALAPPDATA` 改为 `$env:ProgramData`。
 
-查看计划任务状态和最近日志摘要；状态页会同时显示配置里的通知偏好和已安装计划任务实际是否带 `-Notify`，不一致时提示通知状态漂移：
+查看计划任务状态和最近日志摘要；状态页会同时显示配置里的通知偏好、已安装计划任务实际是否带 `-Notify`、实际 `-File` 脚本目标，不一致时提示通知状态或旧路径漂移：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-self-report.ps1" -ScheduleStatus
+powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-outbound-ip-report.ps1" -ScheduleStatus
 ```
 
 也可以直接看 Windows 计划任务：
@@ -796,11 +796,11 @@ Get-ScheduledTaskInfo -TaskName "PO0 Self Report to LAN Worker"
 暂停或恢复本脚本管理的定时上报；暂停只影响自动计划任务，不影响手动立即上报：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-self-report.ps1" -PauseSchedule
+powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-outbound-ip-report.ps1" -PauseSchedule
 ```
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-self-report.ps1" -ResumeSchedule
+powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-outbound-ip-report.ps1" -ResumeSchedule
 ```
 
 查看最近日志：
@@ -816,19 +816,19 @@ Get-Content -Tail 40 -LiteralPath $log
 从 GitHub Release asset 更新本机脚本：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-self-report.ps1" -UpgradeSelf
+powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-outbound-ip-report.ps1" -UpgradeSelf
 ```
 
 查看当前脚本版本：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-self-report.ps1" -Version
+powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-outbound-ip-report.ps1" -Version
 ```
 
 查看当前版本更新内容：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-self-report.ps1" -Changelog
+powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-outbound-ip-report.ps1" -Changelog
 ```
 
 ### Self-report client 共同说明
@@ -867,7 +867,7 @@ bash /root/nftables-relay-manager.sh --show-report-key-denials 80
 
 模块提供：
 
-- `schedule`：默认每 10 分钟上报。
+- `schedule`：每 10 分钟轻量检查一次；实际 SSH 自动上报周期由 `AUTO_REPORT_INTERVAL_SECONDS` 控制，默认 `3600` 秒。
 - `network`：网络变化时上报。
 - `generic`：手动立即上报。
 - `widget`：查看最近成功 IP、时间、TTL、失败原因、网络类型、PO0 host。
@@ -875,7 +875,7 @@ bash /root/nftables-relay-manager.sh --show-report-key-denials 80
 Egern 可以向多个 PO0 上报同一个当前出口 IPv4。模块环境变量 `SSH_REPORT_TARGETS` 可以一行一个目标，也可以用逗号或分号分隔多个目标：
 
 ```text
-source|host|port|user|script|token|identity|ttl
+source-id|host|port|user|script|token|identity|ttl
 ```
 
 示例：
@@ -887,7 +887,7 @@ iphone-us|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_U
 
 如果 Egern 输入框会把换行折叠成空格，建议直接用逗号连接多个目标。
 
-不填 `SSH_REPORT_TARGETS` 时，模块按单目标 `PO0_HOST`、`SSH_REPORT_SOURCE`、`SSH_REPORT_TOKEN` 运行。旧 Egern Client IP 模块不再保留兼容。
+不填 `SSH_REPORT_TARGETS` 时，模块按单目标 `PO0_HOST`、`SSH_REPORT_SOURCE`、`SSH_REPORT_TOKEN` 运行；目标行第一列 `source-id` 会映射到 `SSH_REPORT_SOURCE`。旧 Egern Client IP 模块不再保留兼容；`scripts/po0/relay/egern/` 仅保留旧 raw URL 兼容路径，新安装使用 `scripts/po0/nftables/clients/egern/`。
 
 不要为两个 PO0 重复导入两份 Egern 模块。正确做法是只导入一份模块，把两个 PO0 生成的目标行合并到同一个 `SSH_REPORT_TARGETS`，这样只查一次当前出口 IPv4，Widget 也能显示同一轮上报里每个 PO0 的成功/失败。
 
@@ -980,7 +980,7 @@ bash /root/nftables-relay-manager.sh --automation-mode regular
 - 地区白名单 CIDR：来自 `metowolf/iplist` 的 `docs/cncity.md` 和 `data/cncity/*.txt`，用于 nftables 实际放行地区网段。
 - IPDB 归属查询：默认下载 `nmgliangwei/qqwry.ipdb`，用于学习记录、阻挡记录、Client IP/WebAuth/DDNS 记录的当时归属快照。
 
-iplist 离线包可在本地构建，再到 PO0 主控菜单 `来源、客户端与资源 -> 源 IP 白名单 -> 导入 / 刷新 iplist 离线包` 导入。
+iplist 离线包可在本地构建，再到 PO0 主控菜单 `来源、客户端与资源 -> 11) 源 IP 白名单 -> 19) 导入 / 刷新 iplist 离线包` 导入。
 
 Bash 版：
 

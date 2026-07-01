@@ -518,7 +518,7 @@ do_show_ssh_report_token() {
     printf '  PO0_SCRIPT=%s\n' "${MANAGER_INSTALL_PATH}"
     echo ""
     echo "Multiple PO0: import one Egern module and merge all target rows into SSH_REPORT_TARGETS."
-    printf '  SSH_REPORT_TARGETS row: source_id|host|port|user|script|token|identity|ttl\n'
+    printf '  SSH_REPORT_TARGETS row: source-id|host|port|user|script|token|identity|ttl\n'
     printf '    egern-po0|<PO0_HOST>|22|root|%s|%s|egern|43200\n' "${MANAGER_INSTALL_PATH}" "${token}"
 }
 

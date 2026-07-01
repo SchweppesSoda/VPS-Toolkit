@@ -6,6 +6,12 @@
 
 ## po0-nftables-relay-manager
 
+### 2026.07.01+build.1
+
+- 修正 CLI 帮助里的 PO0 主控部署说明，避免把 Release asset 下载命令描述成本地上传。
+- 移除不存在的 `--show-client-deploy-commands tokens` 示例，改为索引 topic 和 `--worker-token-bundle`。
+- Egern 部署命令输出统一使用 `source-id|host|port|user|script|token|identity|ttl`。
+
 ### 2026.06.28+build.2
 
 - 跟随 PO0 Release asset 批次对齐到 build.2；本脚本无行为变化。
@@ -205,6 +211,10 @@
 
 ## po0-self-report（Linux/OpenWrt）
 
+### 2026.07.01+build.1
+
+- `--help` 明确列出 self-report 配置文件优先级，包括 `XDG_CONFIG_HOME` 和当前目录兜底。
+
 ### 2026.06.28+build.2
 
 - 上报成功摘要优先显示 LAN Worker 返回的具体 PO0 目标名。
@@ -314,6 +324,11 @@
 
 ## po0-self-report（macOS）
 
+### 2026.07.01+build.1
+
+- root 安装时明确显示 launchd plist，避免把 LaunchDaemon 误写成 LaunchAgent。
+- `--help` 明确列出 self-report 配置文件优先级，包括 `XDG_CONFIG_HOME` 和当前目录兜底。
+
 ### 2026.06.28+build.2
 
 - 上报成功摘要和成功通知优先显示 LAN Worker 返回的具体 PO0 目标名。
@@ -356,6 +371,11 @@
 - 支持 `--save-config --menu` 首次保存默认配置后打开菜单，并提供 `--install-launchd` 别名。
 
 ## po0-self-report（Windows PowerShell）
+
+### 2026.07.01+build.1
+
+- Windows 默认安装脚本名改为 `po0-outbound-ip-report.ps1`，计划任务和隐藏启动器会迁移到新路径。
+- `-Version` / `-ScheduleStatus` 会显示计划任务实际脚本目标，并提示旧 `po0-self-report.ps1` 任务漂移。
 
 ### 2026.06.28+build.2
 

@@ -120,12 +120,14 @@ ssh root@<PO0_HOST> 'chmod +x /root/po0-debian-reinstall.sh && bash /root/po0-de
 
 - `scripts/po0/`：PO0 或类似中转机的重装、中转、防火墙、资源任务和代理服务增强。
 - `scripts/vps/`：通用 VPS 工具，每个工具目录维护自己的 README。
-- `tools/`：离线构建和检查工具；PO0 Release asset 由 `tools/po0/` 按 `scripts/po0/relay/manager/src/ and scripts/po0/relay/lan-worker/src/` 模块化源码生成。
+- `tools/`：离线构建和检查工具；PO0 Release asset 由 `tools/po0/` 按 manifest 从 manager、LAN Worker、Linux/macOS/Windows self-report 五个模块化源码树生成。
 - Web 工具：源码和 GitHub Pages 发布已迁出到 [`SchweppesSoda/vps-toolkit-web`](https://github.com/SchweppesSoda/vps-toolkit-web)。
 
 ## 发布渠道
 
-PO0 nftables 的五个可执行脚本通过 GitHub Release assets 发布：`nftables-relay-manager.sh`、`po0-lan-client.sh`、`po0-outbound-ip-report.sh`、`po0-outbound-ip-report-macos.sh`、`po0-outbound-ip-report.ps1`。旧 manager、LAN Worker 和 self-report raw URLs are disabled，不再作为兼容入口；Egern 模块、外部 ipdb/iplist 数据源和暂未迁移的通用 VPS 工具仍按各自文档保留 raw URL。
+PO0 nftables 的五个可执行脚本通过 GitHub Release assets 发布：`nftables-relay-manager.sh`、`po0-lan-client.sh`、`po0-outbound-ip-report.sh`、`po0-outbound-ip-report-macos.sh`、`po0-outbound-ip-report.ps1`。构建顺序和来源以 `tools/po0/manifests/` 为准，覆盖 manager、LAN Worker、Linux/macOS/Windows self-report 五个源码树。
+
+旧 manager、LAN Worker 和 self-report raw URLs are disabled，不再作为兼容入口；Egern canonical raw path、Egern legacy compatibility path、离线 iplist 构建器、外部 ipdb/iplist 数据源和暂未迁移的通用 VPS 工具仍按各自文档保留 raw URL。
 
 ## 公开网站
 
