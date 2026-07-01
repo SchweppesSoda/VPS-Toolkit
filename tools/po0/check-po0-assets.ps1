@@ -10,9 +10,9 @@ if (-not $OutputDir) {
 }
 
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.07.01+build.5" }
+$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.07.01+build.6" }
 $ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-07-01" }
-$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.07.01.5" }
+$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.07.01.6" }
 
 function ConvertTo-RepoRelativePath {
     param([string]$Path)
@@ -315,6 +315,9 @@ function Test-UnixSsidGuard {
     }
     if ($raw -notmatch '(?is)(ssid.{0,160}(continue|continued|fail|failed|failure|error|unavailable|读取失败|继续上报)|(continue|continued|fail|failed|failure|error|unavailable|读取失败|继续上报).{0,160}ssid)') {
         throw "$Platform asset does not state that SSID read failure continues reporting."
+    }
+    if ($raw -match 'local -a items=|read -r -a items') {
+        throw "$Platform asset must not parse SSID lists with Bash arrays; macOS Bash 3.2 + set -u treats empty arrays as unbound."
     }
     $fn = [regex]::Match($raw, '(?ms)^report_once\(\) \{.*?^}')
     if (-not $fn.Success) {

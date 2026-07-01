@@ -1,11 +1,9 @@
 normalize_wifi_ssid_skip_list() {
-    local raw="$1" item out="" old_ifs
-    local -a items=()
-    old_ifs="${IFS}"
-    IFS=';'
-    read -r -a items <<< "${raw}"
-    IFS="${old_ifs}"
-    for item in "${items[@]}"; do
+    local raw="$1" rest item out=""
+    rest="${raw};"
+    while [[ -n "${rest}" ]]; do
+        item="${rest%%;*}"
+        rest="${rest#*;}"
         item="$(trim "${item}")"
         [[ -n "${item}" ]] || continue
         if [[ -n "${out}" ]]; then
@@ -154,15 +152,13 @@ current_wifi_ssid_label() {
 }
 
 wifi_ssid_in_skip_list() {
-    local ssid="$1" list="${2:-${SKIP_WIFI_SSIDS:-}}" item old_ifs
-    local -a items=()
+    local ssid="$1" list="${2:-${SKIP_WIFI_SSIDS:-}}" rest item
     list="$(normalize_wifi_ssid_skip_list "${list}")"
     [[ -n "${ssid}" && -n "${list}" ]] || return 1
-    old_ifs="${IFS}"
-    IFS=';'
-    read -r -a items <<< "${list}"
-    IFS="${old_ifs}"
-    for item in "${items[@]}"; do
+    rest="${list};"
+    while [[ -n "${rest}" ]]; do
+        item="${rest%%;*}"
+        rest="${rest#*;}"
         item="$(trim "${item}")"
         [[ -n "${item}" ]] || continue
         [[ "${item}" == "${ssid}" ]] && return 0

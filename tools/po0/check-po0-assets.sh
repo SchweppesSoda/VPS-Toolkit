@@ -3,9 +3,9 @@ set -euo pipefail
 
 repo_root="$(cd "$(git rev-parse --show-toplevel)" && pwd -P)"
 asset_dir="${1:-${repo_root}/.tmp/po0-check-assets}"
-expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.07.01+build.5}"
+expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.07.01+build.6}"
 expected_po0_release_date="${PO0_EXPECTED_RELEASE_DATE:-2026-07-01}"
-expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.07.01.5}"
+expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.07.01.6}"
 
 manifest_entries() {
     local manifest="$1"
@@ -248,6 +248,10 @@ check_unix_ssid_guard() {
         printf '%s asset does not state that SSID read failure continues reporting.\n' "${platform}" >&2
         exit 1
     }
+    if grep -Eq 'local -a items=|read -r -a items' "${asset}"; then
+        printf '%s asset must not parse SSID lists with Bash arrays; macOS Bash 3.2 + set -u treats empty arrays as unbound.\n' "${platform}" >&2
+        exit 1
+    fi
     guard_line="$(
         awk '
             /^report_once\(\)/ {in_fn=1}

@@ -31,11 +31,10 @@ $ErrorActionPreference = "Stop"
 $ReleaseDownloadBaseUrl = $(if ($env:PO0_RELEASE_DOWNLOAD_BASE_URL) { $env:PO0_RELEASE_DOWNLOAD_BASE_URL } else { "https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download" })
 $DownloadUrl = $(if ($env:PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL) { $env:PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL } elseif ($env:PO0_SELF_REPORT_PS_DOWNLOAD_URL) { $env:PO0_SELF_REPORT_PS_DOWNLOAD_URL } else { "$ReleaseDownloadBaseUrl/po0-outbound-ip-report.ps1" })
 $ScriptName = "po0-outbound-ip-report"
-$ScriptVersion = "2026.07.01+build.5"
+$ScriptVersion = "2026.07.01+build.6"
 $ScriptReleaseDate = "2026-07-01"
 # CHANGELOG_BEGIN
-# - 新增 SSID 本地跳过上报配置：命中本机当前 SSID 时只在客户端本地记录跳过摘要，不上传 SSID，也不改变 LAN Worker / PO0 协议。
-# - SSID 读取失败会继续正常上报；手动上报命中 SSID 跳过规则时会询问是否强制继续。
+# - 跟随 PO0 Release asset 批次对齐到 build.6；Windows 客户端无行为变化。
 # CHANGELOG_END
 $PanelValueColumn = 24
 $MenuRightColumn = 46

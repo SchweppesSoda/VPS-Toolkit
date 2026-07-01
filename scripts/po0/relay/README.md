@@ -92,7 +92,7 @@ po0-lan-client --probe
 po0-lan-client --version
 ```
 
-PO0 nftables 子系统内带 `SCRIPT_VERSION`、`--version` / `--changelog` 或自更新提示的可独立部署脚本（PO0 manager、LAN Worker client、PO0 Outbound IP Report clients）统一使用 `YYYY.MM.DD+build.N` 混合版本格式。正式 PO0 Release asset 的脚本内部版本必须与 release tag 尾号一致：`po0-vYYYY.MM.DD.N` 对应 `YYYY.MM.DD+build.N`，例如 `po0-v2026.07.01.5` 对应 `2026.07.01+build.5`。完整历史写在 [`CHANGELOG.md`](CHANGELOG.md)。
+PO0 nftables 子系统内带 `SCRIPT_VERSION`、`--version` / `--changelog` 或自更新提示的可独立部署脚本（PO0 manager、LAN Worker client、PO0 Outbound IP Report clients）统一使用 `YYYY.MM.DD+build.N` 混合版本格式。正式 PO0 Release asset 的脚本内部版本必须与 release tag 尾号一致：`po0-vYYYY.MM.DD.N` 对应 `YYYY.MM.DD+build.N`，例如 `po0-v2026.07.01.6` 对应 `2026.07.01+build.6`。完整历史写在 [`CHANGELOG.md`](CHANGELOG.md)。
 
 更新 LAN Worker 上已安装的 client：
 

@@ -3,10 +3,11 @@ SKIP_WIFI_SSIDS=""
 FORCE_REPORT="${FORCE_REPORT-}"
 
 normalize_wifi_ssid_skip_list() {
-    local value="$1" item out=""
-    local -a items=()
-    IFS=';' read -r -a items <<< "${value}"
-    for item in "${items[@]}"; do
+    local value="$1" rest item out=""
+    rest="${value};"
+    while [[ -n "${rest}" ]]; do
+        item="${rest%%;*}"
+        rest="${rest#*;}"
         item="$(trim "${item}")"
         [[ -n "${item}" ]] || continue
         if [[ -n "${out}" ]]; then
@@ -265,11 +266,13 @@ current_wifi_ssid() {
 
 wifi_ssid_in_skip_list() {
     local ssid="$1" item
-    local -a items=()
+    local rest
     ssid="$(trim "${ssid}")"
     [[ -n "${ssid}" ]] || return 1
-    IFS=';' read -r -a items <<< "${SKIP_WIFI_SSIDS:-}"
-    for item in "${items[@]}"; do
+    rest="${SKIP_WIFI_SSIDS:-};"
+    while [[ -n "${rest}" ]]; do
+        item="${rest%%;*}"
+        rest="${rest#*;}"
         item="$(trim "${item}")"
         [[ -n "${item}" ]] || continue
         [[ "${ssid}" == "${item}" ]] && return 0
