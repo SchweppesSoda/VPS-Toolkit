@@ -3,9 +3,9 @@ set -euo pipefail
 
 repo_root="$(cd "$(git rev-parse --show-toplevel)" && pwd -P)"
 asset_dir="${1:-${repo_root}/.tmp/po0-check-assets}"
-expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.07.02+build.2}"
+expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.07.02+build.3}"
 expected_po0_release_date="${PO0_EXPECTED_RELEASE_DATE:-2026-07-02}"
-expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.07.02.2}"
+expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.07.02.3}"
 
 manifest_entries() {
     local manifest="$1"
@@ -334,6 +334,14 @@ check_macos_wifi_ssid_diagnostic() {
         printf 'macOS asset lacks --diagnose-wifi-ssid permission diagnostic CLI.\n' >&2
         exit 1
     }
+    grep -Fq -- '--open-location-services' "${asset}" || {
+        printf 'macOS asset lacks --open-location-services settings shortcut CLI.\n' >&2
+        exit 1
+    }
+    grep -Fq -- '--request-location-permission' "${asset}" || {
+        printf 'macOS asset lacks --request-location-permission authorization prompt CLI.\n' >&2
+        exit 1
+    }
     grep -Fq 'show_current_wifi_ssid_once()' "${asset}" || {
         printf 'macOS asset lacks explicit current Wi-Fi SSID diagnostic function.\n' >&2
         exit 1
@@ -342,7 +350,15 @@ check_macos_wifi_ssid_diagnostic() {
         printf 'macOS asset lacks Wi-Fi SSID permission diagnostic helper.\n' >&2
         exit 1
     }
-    grep -Fq 'Wi-Fi SSID 权限诊断' "${asset}" && grep -Fq '请选择操作 [0-11]' "${asset}" && grep -Fq '9) show_wifi_ssid_permission_help; pause_before_return ;;' "${asset}" || {
+    grep -Fq 'show_wifi_ssid_permission_help_interactive()' "${asset}" || {
+        printf 'macOS asset lacks interactive Wi-Fi SSID permission menu helper.\n' >&2
+        exit 1
+    }
+    grep -Fq 'request_macos_location_permission()' "${asset}" && grep -Fq 'run_macos_location_permission_request_osascript()' "${asset}" || {
+        printf 'macOS asset lacks Location Services authorization request helper.\n' >&2
+        exit 1
+    }
+    grep -Fq 'Wi-Fi SSID 权限诊断' "${asset}" && grep -Fq '请选择操作 [0-11]' "${asset}" && grep -Fq '9) show_wifi_ssid_permission_help_interactive; pause_before_return ;;' "${asset}" || {
         printf 'macOS asset lacks Wi-Fi SSID diagnostic menu/range/case wiring.\n' >&2
         exit 1
     }
@@ -358,6 +374,18 @@ check_macos_wifi_ssid_diagnostic() {
         printf 'macOS asset must record privacy-hidden Wi-Fi SSID state.\n' >&2
         exit 1
     }
+    grep -Fq 'open "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices"' "${asset}" || {
+        printf 'macOS asset must print an exact Location Services open command.\n' >&2
+        exit 1
+    }
+    grep -Fq 'CoreLocation' "${asset}" && grep -Fq 'requestWhenInUseAuthorization' "${asset}" || {
+        printf 'macOS asset must include a CoreLocation permission request path.\n' >&2
+        exit 1
+    }
+    if grep -Fq '如果看到 redacted' "${asset}"; then
+        printf 'macOS asset must not ask users to look for raw redacted after classifying it as privacy-hidden.\n' >&2
+        exit 1
+    fi
     grep -Eq '定位服务|隐私权限' "${asset}" || {
         printf 'macOS asset lacks Location Services/privacy diagnostic guidance.\n' >&2
         exit 1
@@ -378,7 +406,7 @@ check_macos_wifi_ssid_diagnostic() {
         printf 'macOS asset lacks wdutil Wi-Fi SSID fallback.\n' >&2
         exit 1
     }
-    for fn in accepted_wifi_ssid_value print_wifi_ssid_permission_guidance show_wifi_ssid_permission_help; do
+    for fn in accepted_wifi_ssid_value print_wifi_ssid_permission_guidance show_wifi_ssid_permission_help show_wifi_ssid_permission_help_interactive open_macos_location_services_settings; do
         body="$(
             awk -v fn="${fn}" '
                 $0 == fn "() {" {in_fn=1}
@@ -389,6 +417,20 @@ check_macos_wifi_ssid_diagnostic() {
         [[ -n "${body}" ]] || { printf 'macOS asset lacks %s body.\n' "${fn}" >&2; exit 1; }
         if printf '%s\n' "${body}" | grep -Eq '^[[:space:]]*(sudo|tccutil|sqlite3|osascript)[[:space:]]'; then
             printf 'macOS Wi-Fi SSID diagnostic must not run sudo/tccutil/sqlite3/osascript auto-grant commands in %s.\n' "${fn}" >&2
+            exit 1
+        fi
+    done
+    for fn in request_macos_location_permission run_macos_location_permission_request_osascript; do
+        body="$(
+            awk -v fn="${fn}" '
+                $0 == fn "() {" {in_fn=1}
+                in_fn {print}
+                in_fn && /^}/ {exit}
+            ' "${asset}"
+        )"
+        [[ -n "${body}" ]] || { printf 'macOS asset lacks %s body.\n' "${fn}" >&2; exit 1; }
+        if printf '%s\n' "${body}" | grep -Eq '^[[:space:]]*(sudo|tccutil|sqlite3)[[:space:]]'; then
+            printf 'macOS Wi-Fi SSID permission request must not run sudo/tccutil/sqlite3 commands in %s.\n' "${fn}" >&2
             exit 1
         fi
     done

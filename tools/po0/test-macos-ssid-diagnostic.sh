@@ -100,6 +100,48 @@ printf '%s\n' "${output}" | grep -Fq "不会自动获取或修改系统权限" |
 printf '%s\n' "${output}" | grep -Fq "no auto-grant" || fail "permission help did not include ASCII no-auto-grant marker"
 printf '%s\n' "${output}" | grep -Fq "Location Services" || fail "permission help did not include ASCII Location Services marker"
 printf '%s\n' "${output}" | grep -Fq "定位服务" || fail "permission help did not mention Location Services"
+printf '%s\n' "${output}" | grep -Fq "po0-outbound-ip-report --request-location-permission" || fail "permission help did not print permission request command"
+printf '%s\n' "${output}" | grep -Fq 'open "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices"' || fail "permission help did not print Location Services open command"
+printf '%s\n' "${output}" | grep -Fq "如果列表里没有 Terminal/iTerm" || fail "permission help did not explain missing Terminal/iTerm entry"
+if printf '%s\n' "${output}" | grep -Fq "如果看到 redacted"; then
+    fail "permission help should not expose raw redacted wording after classifying it as privacy-hidden"
+fi
+
+cat > "${mock_bin}/open" <<MOCK
+#!/usr/bin/env bash
+printf '%s\n' "\$*" > "${tmp_root}/open.args"
+MOCK
+chmod +x "${mock_bin}/open"
+if ! output="$(open_macos_location_services_settings 2>&1)"; then
+    fail "opening Location Services settings failed: ${output}"
+fi
+printf '%s\n' "${output}" | grep -Fq "已请求打开 macOS 定位服务设置" || fail "open helper did not report Location Services settings launch"
+[[ "$(cat "${tmp_root}/open.args")" == "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices" ]] || fail "open helper used unexpected settings URL: $(cat "${tmp_root}/open.args")"
+rm -f "${mock_bin}/open"
+
+cat > "${mock_bin}/osascript" <<MOCK
+#!/usr/bin/env bash
+cat > "${tmp_root}/osascript.stdin"
+printf '%s\n' "requested"
+MOCK
+chmod +x "${mock_bin}/osascript"
+if ! output="$(request_macos_location_permission 2>&1)"; then
+    fail "requesting Location Services permission failed: ${output}"
+fi
+grep -Fq "CoreLocation" "${tmp_root}/osascript.stdin" || fail "permission request did not load CoreLocation"
+grep -Fq "requestWhenInUseAuthorization" "${tmp_root}/osascript.stdin" || fail "permission request did not ask for when-in-use authorization"
+printf '%s\n' "${output}" | grep -Fq "已尝试触发 macOS 定位权限请求" || fail "permission request did not report prompt attempt"
+printf '%s\n' "${output}" | grep -Fq "Terminal/iTerm" || fail "permission request did not tell user which terminal app to allow"
+
+rm -f "${tmp_root}/osascript.stdin"
+prompt_yes_no() {
+    return 0
+}
+if ! output="$(show_wifi_ssid_permission_help_interactive 2>&1)"; then
+    fail "interactive permission help failed: ${output}"
+fi
+[[ -s "${tmp_root}/osascript.stdin" ]] || fail "interactive menu help did not request Location Services permission"
+rm -f "${mock_bin}/osascript"
 
 write_mock_networksetup "none"
 rm -f "${mock_bin}/wdutil"

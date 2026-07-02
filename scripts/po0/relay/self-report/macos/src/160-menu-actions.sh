@@ -151,7 +151,7 @@ menu_loop() {
                 pause_before_return
                 ;;
             8) show_current_config; pause_before_return ;;
-            9) show_wifi_ssid_permission_help; pause_before_return ;;
+            9) show_wifi_ssid_permission_help_interactive; pause_before_return ;;
             10) upgrade_self_from_download --reopen-menu || pause_before_return ;;
             11)
                 uninstall_self_report_interactive

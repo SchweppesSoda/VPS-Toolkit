@@ -10,9 +10,9 @@ if (-not $OutputDir) {
 }
 
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.07.02+build.2" }
+$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.07.02+build.3" }
 $ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-07-02" }
-$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.07.02.2" }
+$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.07.02.3" }
 
 function ConvertTo-RepoRelativePath {
     param([string]$Path)
@@ -397,13 +397,25 @@ function Test-MacOsWifiSsidDiagnostic {
     if ($raw -notmatch '--diagnose-wifi-ssid') {
         throw "macOS asset lacks --diagnose-wifi-ssid permission diagnostic CLI."
     }
+    if ($raw -notmatch '--open-location-services') {
+        throw "macOS asset lacks --open-location-services settings shortcut CLI."
+    }
+    if ($raw -notmatch '--request-location-permission') {
+        throw "macOS asset lacks --request-location-permission authorization prompt CLI."
+    }
     if ($raw -notmatch 'show_current_wifi_ssid_once\(\)') {
         throw "macOS asset lacks explicit current Wi-Fi SSID diagnostic function."
     }
     if ($raw -notmatch 'show_wifi_ssid_permission_help\(\)') {
         throw "macOS asset lacks Wi-Fi SSID permission diagnostic helper."
     }
-    if ($raw -notmatch '\[0-11\]' -or $raw -notmatch '9\) show_wifi_ssid_permission_help; pause_before_return ;;') {
+    if ($raw -notmatch 'show_wifi_ssid_permission_help_interactive\(\)') {
+        throw "macOS asset lacks interactive Wi-Fi SSID permission menu helper."
+    }
+    if ($raw -notmatch 'request_macos_location_permission\(\)' -or $raw -notmatch 'run_macos_location_permission_request_osascript\(\)') {
+        throw "macOS asset lacks Location Services authorization request helper."
+    }
+    if ($raw -notmatch '\[0-11\]' -or $raw -notmatch '9\) show_wifi_ssid_permission_help_interactive; pause_before_return ;;') {
         throw "macOS asset lacks Wi-Fi SSID diagnostic menu/range/case wiring."
     }
     if ($raw -notmatch 'accepted_wifi_ssid_value\(\)') {
@@ -414,6 +426,15 @@ function Test-MacOsWifiSsidDiagnostic {
     }
     if ($raw -notmatch 'WIFI_SSID_LAST_ERROR="privacy"') {
         throw "macOS asset must record privacy-hidden Wi-Fi SSID state."
+    }
+    if ($raw -notmatch 'open "x-apple\.systempreferences:com\.apple\.preference\.security\?Privacy_LocationServices"') {
+        throw "macOS asset must print an exact Location Services open command."
+    }
+    if ($raw -notmatch 'CoreLocation' -or $raw -notmatch 'requestWhenInUseAuthorization') {
+        throw "macOS asset must include a CoreLocation permission request path."
+    }
+    if ($raw -match '如果看到 redacted') {
+        throw "macOS asset must not ask users to look for raw redacted after classifying it as privacy-hidden."
     }
     if ($raw -notmatch 'Location Services') {
         throw "macOS asset lacks Location Services/privacy diagnostic guidance."
@@ -427,7 +448,7 @@ function Test-MacOsWifiSsidDiagnostic {
     if ($raw -notmatch 'wdutil_wifi_ssid\(\)') {
         throw "macOS asset lacks wdutil Wi-Fi SSID fallback."
     }
-    foreach ($fnName in @("accepted_wifi_ssid_value", "print_wifi_ssid_permission_guidance", "show_wifi_ssid_permission_help")) {
+    foreach ($fnName in @("accepted_wifi_ssid_value", "print_wifi_ssid_permission_guidance", "show_wifi_ssid_permission_help", "show_wifi_ssid_permission_help_interactive", "open_macos_location_services_settings")) {
         $pattern = "(?ms)^" + [regex]::Escape($fnName) + "\(\) \{.*?^}"
         $fn = [regex]::Match($raw, $pattern)
         if (-not $fn.Success) {
@@ -435,6 +456,16 @@ function Test-MacOsWifiSsidDiagnostic {
         }
         if ($fn.Value -match '(?m)^\s*(sudo|tccutil|sqlite3|osascript)\s') {
             throw "macOS Wi-Fi SSID diagnostic must not run sudo/tccutil/sqlite3/osascript auto-grant commands in $fnName."
+        }
+    }
+    foreach ($fnName in @("request_macos_location_permission", "run_macos_location_permission_request_osascript")) {
+        $pattern = "(?ms)^" + [regex]::Escape($fnName) + "\(\) \{.*?^}"
+        $fn = [regex]::Match($raw, $pattern)
+        if (-not $fn.Success) {
+            throw "macOS asset lacks $fnName body."
+        }
+        if ($fn.Value -match '(?m)^\s*(sudo|tccutil|sqlite3)\s') {
+            throw "macOS Wi-Fi SSID permission request must not run sudo/tccutil/sqlite3 commands in $fnName."
         }
     }
 }

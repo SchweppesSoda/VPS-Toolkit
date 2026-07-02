@@ -79,11 +79,85 @@ capture_wifi_ssid_probe() {
     return 1
 }
 
+macos_location_services_settings_url() {
+    printf '%s\n' "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices"
+}
+
+macos_location_services_settings_command() {
+    printf '%s\n' 'open "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices"'
+}
+
+open_macos_location_services_settings() {
+    local url
+    url="$(macos_location_services_settings_url)"
+    if command -v open >/dev/null 2>&1; then
+        if open "${url}"; then
+            printf '已请求打开 macOS 定位服务设置。\n'
+            return 0
+        fi
+        printf '打开 macOS 定位服务设置失败，请手动执行：%s\n' "$(macos_location_services_settings_command)" >&2
+        return 1
+    fi
+    printf '未找到 macOS open 命令，请手动执行：%s\n' "$(macos_location_services_settings_command)" >&2
+    return 1
+}
+
+run_macos_location_permission_request_osascript() {
+    command -v osascript >/dev/null 2>&1 || return 127
+    osascript <<'APPLESCRIPT'
+use framework "CoreLocation"
+use framework "Foundation"
+use scripting additions
+
+property locationManager : missing value
+
+on run
+    if ((current application's CLLocationManager's locationServicesEnabled()) as boolean) is false then
+        error "macOS Location Services is disabled."
+    end if
+    set locationManager to current application's CLLocationManager's alloc()'s init()
+    locationManager's requestWhenInUseAuthorization()
+    locationManager's startUpdatingLocation()
+    set deadline to current application's NSDate's dateWithTimeIntervalSinceNow:8
+    repeat while ((deadline's timeIntervalSinceNow()) as real) > 0
+        current application's NSRunLoop's currentRunLoop()'s runUntilDate:(current application's NSDate's dateWithTimeIntervalSinceNow:0.2)
+    end repeat
+    locationManager's stopUpdatingLocation()
+    return "requested"
+end run
+APPLESCRIPT
+}
+
+request_macos_location_permission() {
+    local output rc
+    printf '将尝试触发当前终端 App 的 macOS 定位权限请求。\n'
+    printf '如果系统弹窗出现，请允许 Terminal/iTerm 或当前运行脚本的终端 App 访问位置。\n'
+    printf '本操作不会自动授予权限，不会运行 sudo，不会调用 tccutil，不会写入 TCC 数据库。\n'
+    rc=0
+    output="$(run_macos_location_permission_request_osascript 2>&1)" || rc=$?
+    if [[ "${rc}" == "0" ]]; then
+        printf '已尝试触发 macOS 定位权限请求。\n'
+        printf '请打开定位服务设置确认 Terminal/iTerm 是否已经出现在列表中：%s\n' "$(macos_location_services_settings_command)"
+        printf '授权后请重新运行 --show-wifi-ssid 验证 SSID 是否可读。\n'
+        return 0
+    fi
+    if [[ "${rc}" == "127" ]]; then
+        printf '未找到 osascript，无法触发 macOS CoreLocation 授权请求。\n' >&2
+    else
+        printf 'CoreLocation 授权请求未完成：%s\n' "${output:-osascript 返回失败。}" >&2
+    fi
+    printf '请确认 macOS 定位服务已开启，然后重试 --request-location-permission；也可手动执行：%s\n' "$(macos_location_services_settings_command)" >&2
+    return 1
+}
+
 print_wifi_ssid_permission_guidance() {
     printf '%s\n' \
         "权限说明：macOS 可能把 Wi-Fi SSID/BSSID 作为定位相关信息保护。" \
-        "Location Services：如果系统隐藏 SSID，请在 macOS 定位服务里授权当前终端或运行环境。" \
-        "如果看到 redacted，请在 系统设置 > 隐私与安全性 > 定位服务 中允许当前终端或运行环境访问位置。" \
+        "Location Services：当前状态显示“macOS 隐私权限隐藏”时，通常是系统把 redacted/<redacted> 占位符返回给网络命令；本脚本已将其归类为读取失败，不会当作真实 SSID。" \
+        "触发授权弹窗：po0-outbound-ip-report --request-location-permission" \
+        "打开定位服务设置：$(macos_location_services_settings_command)" \
+        "在 系统设置 > 隐私与安全性 > 定位服务 中允许实际运行脚本的 Terminal/iTerm 或终端 App 访问位置。" \
+        "如果列表里没有 Terminal/iTerm，请先从对应终端运行 --request-location-permission；macOS 仍不列出时，脚本不能静默把 App 加进系统隐私权限列表。" \
         "launchd 后台任务和手动 Terminal/iTerm 可能是不同授权主体；授权后请重新运行 --show-wifi-ssid 验证。" \
         "no auto-grant：本脚本只做诊断和提示，不会自动授予 macOS 隐私权限。" \
         "本脚本不会自动获取或修改系统权限，不会写入 TCC 数据库，不会使用 sudo 缓存凭据。" \
@@ -288,6 +362,16 @@ show_wifi_ssid_permission_help() {
         printf '当前 Wi-Fi SSID：%s\n\n' "$(wifi_ssid_read_failure_label)"
     fi
     print_wifi_ssid_permission_guidance
+}
+
+show_wifi_ssid_permission_help_interactive() {
+    show_wifi_ssid_permission_help
+    printf '\n'
+    if prompt_yes_no "是否现在尝试触发 macOS 定位权限请求" "y"; then
+        request_macos_location_permission
+    else
+        printf '已跳过定位权限请求。\n'
+    fi
 }
 
 wifi_ssid_in_skip_list() {
