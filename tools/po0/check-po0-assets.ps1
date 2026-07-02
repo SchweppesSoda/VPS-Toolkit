@@ -10,9 +10,9 @@ if (-not $OutputDir) {
 }
 
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.07.02+build.6" }
+$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.07.02+build.7" }
 $ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-07-02" }
-$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.07.02.6" }
+$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.07.02.7" }
 
 function ConvertTo-RepoRelativePath {
     param([string]$Path)
@@ -442,14 +442,29 @@ function Test-MacOsWifiSsidDiagnostic {
     if ($raw -notmatch 'CoreWLAN' -or $raw -notmatch 'macos_location_helper_wifi_ssid\(\)') {
         throw "macOS asset must let the Location Permission Helper read Wi-Fi SSID in-process."
     }
+    if ($raw -match 'on run argv') {
+        throw "macOS helper AppleScript must not depend on AppleScript applet argv coercion."
+    }
+    if ($raw -notmatch 'path to resource "po0-location-helper-output\.path"') {
+        throw "macOS helper AppleScript should read output path from bundled resource."
+    }
+    if ($raw -notmatch 'macos_location_helper_request_file\(\)' -or $raw -notmatch 'write_macos_location_helper_request_file\(\)') {
+        throw "macOS helper IPC must use managed request file helpers."
+    }
+    if ($raw -match 'open -W -n "\$\{app_dir\}" --args') {
+        throw "macOS helper launcher must not pass output path through open --args."
+    }
     if ($raw -match 'as (boolean|integer|real)') {
         throw "macOS helper AppleScript must not coerce AppleScriptObjC values with as boolean/integer/real."
     }
     if ($raw -match 'write theText to fileRef as') {
         throw "macOS helper AppleScript must not write output with AppleEvent utf8 class coercion."
     }
-    if ($raw -notmatch 'writeToFile:outputPath') {
-        throw "macOS helper AppleScript should write output through NSString writeToFile."
+    if ($raw -match 'writeToFile:outputPath') {
+        throw "macOS helper AppleScript must not write output through AppleScriptObjC NSError bridging."
+    }
+    if ($raw -notmatch '/usr/bin/printf %s') {
+        throw "macOS helper AppleScript should write output through shell printf."
     }
     if ($raw -notmatch 'repeat 40 times') {
         throw "macOS helper AppleScript should wait without NSDate numeric coercion."

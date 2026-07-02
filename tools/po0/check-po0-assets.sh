@@ -3,9 +3,9 @@ set -euo pipefail
 
 repo_root="$(cd "$(git rev-parse --show-toplevel)" && pwd -P)"
 asset_dir="${1:-${repo_root}/.tmp/po0-check-assets}"
-expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.07.02+build.6}"
+expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.07.02+build.7}"
 expected_po0_release_date="${PO0_EXPECTED_RELEASE_DATE:-2026-07-02}"
-expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.07.02.6}"
+expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.07.02.7}"
 
 manifest_entries() {
     local manifest="$1"
@@ -394,6 +394,22 @@ check_macos_wifi_ssid_diagnostic() {
         printf 'macOS asset must let the Location Permission Helper read Wi-Fi SSID in-process.\n' >&2
         exit 1
     }
+    if grep -Fq 'on run argv' "${asset}"; then
+        printf 'macOS helper AppleScript must not depend on AppleScript applet argv coercion.\n' >&2
+        exit 1
+    fi
+    grep -Fq 'path to resource "po0-location-helper-output.path"' "${asset}" || {
+        printf 'macOS helper AppleScript should read output path from bundled resource.\n' >&2
+        exit 1
+    }
+    grep -Fq 'macos_location_helper_request_file()' "${asset}" && grep -Fq 'write_macos_location_helper_request_file()' "${asset}" || {
+        printf 'macOS helper IPC must use managed request file helpers.\n' >&2
+        exit 1
+    }
+    if grep -Fq 'open -W -n "${app_dir}" --args' "${asset}"; then
+        printf 'macOS helper launcher must not pass output path through open --args.\n' >&2
+        exit 1
+    fi
     if grep -Eq 'as (boolean|integer|real)' "${asset}"; then
         printf 'macOS helper AppleScript must not coerce AppleScriptObjC values with as boolean/integer/real.\n' >&2
         exit 1
@@ -402,8 +418,12 @@ check_macos_wifi_ssid_diagnostic() {
         printf 'macOS helper AppleScript must not write output with AppleEvent utf8 class coercion.\n' >&2
         exit 1
     fi
-    grep -Fq 'writeToFile:outputPath' "${asset}" || {
-        printf 'macOS helper AppleScript should write output through NSString writeToFile.\n' >&2
+    if grep -Fq 'writeToFile:outputPath' "${asset}"; then
+        printf 'macOS helper AppleScript must not write output through AppleScriptObjC NSError bridging.\n' >&2
+        exit 1
+    fi
+    grep -Fq '/usr/bin/printf %s' "${asset}" || {
+        printf 'macOS helper AppleScript should write output through shell printf.\n' >&2
         exit 1
     }
     grep -Fq 'repeat 40 times' "${asset}" || {

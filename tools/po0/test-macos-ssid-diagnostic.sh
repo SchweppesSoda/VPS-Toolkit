@@ -151,8 +151,17 @@ chmod +x "${mock_bin}/osacompile"
 cat > "${mock_bin}/open" <<MOCK
 #!/usr/bin/env bash
 printf '%s\n' "\$*" > "${tmp_root}/helper-open.args"
-out_path="\${@: -1}"
-[[ -f "\${out_path}" ]] || exit 3
+app_path=""
+for arg in "\$@"; do
+    case "\${arg}" in
+        *"PO0 Location Permission Helper.app") app_path="\${arg}" ;;
+    esac
+done
+[[ -n "\${app_path}" ]] || exit 2
+request_path="\${app_path}/Contents/Resources/po0-location-helper-output.path"
+[[ -f "\${request_path}" ]] || exit 3
+out_path="\$(cat "\${request_path}")"
+[[ -n "\${out_path}" ]] || exit 4
 printf '%s\n' "status=requested" "ssid=CafeNet" > "\${out_path}"
 MOCK
 chmod +x "${mock_bin}/open"
@@ -171,15 +180,25 @@ grep -Fq "PO0HelperSchemaVersion" "${helper_app}/Contents/Info.plist" || fail "h
 grep -Fq "CoreLocation" "${helper_app}/Contents/script.applescript" || fail "helper app did not load CoreLocation"
 grep -Fq "CoreWLAN" "${helper_app}/Contents/script.applescript" || fail "helper app did not load CoreWLAN"
 grep -Fq "requestWhenInUseAuthorization" "${helper_app}/Contents/script.applescript" || fail "helper app did not ask for when-in-use authorization"
+if grep -Fq 'on run argv' "${helper_app}/Contents/script.applescript"; then
+    fail "helper app must not depend on AppleScript applet argv coercion"
+fi
+grep -Fq 'path to resource "po0-location-helper-output.path"' "${helper_app}/Contents/script.applescript" || fail "helper app should read output path from bundled resource"
 if grep -Eq 'as (boolean|integer|real)' "${helper_app}/Contents/script.applescript"; then
     fail "helper app must not coerce AppleScriptObjC values with as boolean/integer/real"
 fi
 if grep -Fq 'write theText to fileRef as' "${helper_app}/Contents/script.applescript"; then
     fail "helper app must not write output with AppleEvent utf8 class coercion"
 fi
-grep -Fq 'writeToFile:outputPath' "${helper_app}/Contents/script.applescript" || fail "helper app should write output through NSString writeToFile"
+if grep -Fq 'writeToFile:outputPath' "${helper_app}/Contents/script.applescript"; then
+    fail "helper app must not write output through AppleScriptObjC NSError bridging"
+fi
+grep -Fq '/usr/bin/printf %s' "${helper_app}/Contents/script.applescript" || fail "helper app should write output through shell printf"
 grep -Fq 'repeat 40 times' "${helper_app}/Contents/script.applescript" || fail "helper app should wait without NSDate numeric coercion"
 grep -Fq "PO0 Location Permission Helper.app" "${tmp_root}/helper-open.args" || fail "permission request did not open helper app"
+if grep -Fq -- '--args' "${tmp_root}/helper-open.args"; then
+    fail "permission request must not pass output path through open --args"
+fi
 printf '%s\n' "${output}" | grep -Fq "已尝试触发 macOS 定位权限请求" || fail "permission request did not report prompt attempt"
 printf '%s\n' "${output}" | grep -Fq "PO0 Location Permission Helper" || fail "permission request did not tell user which helper app to allow"
 
@@ -217,8 +236,17 @@ fi
 cat > "${mock_bin}/open" <<MOCK
 #!/usr/bin/env bash
 printf '%s\n' "\$*" > "${tmp_root}/helper-open.args"
-out_path="\${@: -1}"
-[[ -f "\${out_path}" ]] || exit 3
+app_path=""
+for arg in "\$@"; do
+    case "\${arg}" in
+        *"PO0 Location Permission Helper.app") app_path="\${arg}" ;;
+    esac
+done
+[[ -n "\${app_path}" ]] || exit 2
+request_path="\${app_path}/Contents/Resources/po0-location-helper-output.path"
+[[ -f "\${request_path}" ]] || exit 3
+out_path="\$(cat "\${request_path}")"
+[[ -n "\${out_path}" ]] || exit 4
 printf '%s\n' "status=requested" "ssid=redacted" > "\${out_path}"
 MOCK
 chmod +x "${mock_bin}/open"
@@ -232,8 +260,17 @@ fi
 cat > "${mock_bin}/open" <<MOCK
 #!/usr/bin/env bash
 printf '%s\n' "\$*" > "${tmp_root}/helper-open.args"
-out_path="\${@: -1}"
-[[ -f "\${out_path}" ]] || exit 3
+app_path=""
+for arg in "\$@"; do
+    case "\${arg}" in
+        *"PO0 Location Permission Helper.app") app_path="\${arg}" ;;
+    esac
+done
+[[ -n "\${app_path}" ]] || exit 2
+request_path="\${app_path}/Contents/Resources/po0-location-helper-output.path"
+[[ -f "\${request_path}" ]] || exit 3
+out_path="\$(cat "\${request_path}")"
+[[ -n "\${out_path}" ]] || exit 4
 printf '%s\n' "status=requested" "ssid=CafeNet" > "\${out_path}"
 MOCK
 chmod +x "${mock_bin}/open"

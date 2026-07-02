@@ -151,7 +151,7 @@ validate_macos_location_permission_helper_app_path() {
 }
 
 macos_location_permission_helper_schema_version() {
-    printf '2026.07.02.6\n'
+    printf '2026.07.02.7\n'
 }
 
 write_macos_location_permission_helper_source() {
@@ -164,16 +164,24 @@ use scripting additions
 
 property locationManager : missing value
 
+on readOutputPath()
+    try
+        set requestFile to path to resource "po0-location-helper-output.path"
+        set requestText to read requestFile
+        return paragraph 1 of requestText
+    on error
+        return ""
+    end try
+end readOutputPath
+
 on writeText(theText, outputPath)
     try
-        set outputString to current application's NSString's stringWithString:theText
-        outputString's writeToFile:outputPath atomically:true encoding:(current application's NSUTF8StringEncoding) |error|:(missing value)
+        if outputPath is not "" then do shell script "/usr/bin/printf %s " & quoted form of theText & " > " & quoted form of outputPath
     end try
 end writeText
 
-on run argv
-    set outputPath to ""
-    if (count of argv) > 0 then set outputPath to item 1 of argv
+on run
+    set outputPath to my readOutputPath()
     set ssidValue to ""
     set statusValue to "requested"
     try
@@ -181,7 +189,7 @@ on run argv
         locationManager's requestWhenInUseAuthorization()
         locationManager's startUpdatingLocation()
         repeat 40 times
-            current application's NSRunLoop's currentRunLoop()'s runUntilDate:(current application's NSDate's dateWithTimeIntervalSinceNow:0.2)
+            delay 0.2
         end repeat
         try
             set wifiClient to current application's CWWiFiClient's sharedWiFiClient()
@@ -274,6 +282,26 @@ create_macos_location_helper_output_file() {
     }
     chmod 600 "${output_file}" 2>/dev/null || true
     printf '%s\n' "${output_file}"
+}
+
+macos_location_helper_request_file() {
+    local app_dir="$1"
+    printf '%s\n' "${app_dir}/Contents/Resources/po0-location-helper-output.path"
+}
+
+write_macos_location_helper_request_file() {
+    local app_dir="$1" output_file="$2" request_file
+    request_file="$(macos_location_helper_request_file "${app_dir}")"
+    mkdir -p "${request_file%/*}" || return 1
+    printf '%s\n' "${output_file}" > "${request_file}" || return 1
+    chmod 600 "${request_file}" 2>/dev/null || true
+}
+
+cleanup_macos_location_helper_request_file() {
+    local app_dir="$1" request_file
+    [[ -n "${app_dir}" ]] || return 0
+    request_file="$(macos_location_helper_request_file "${app_dir}")"
+    rm -f "${request_file}" 2>/dev/null || true
 }
 
 cleanup_macos_location_helper_output_file() {
@@ -373,8 +401,13 @@ macos_location_helper_wifi_ssid() {
     [[ -d "${app_dir}" ]] || return 1
     command -v open >/dev/null 2>&1 || return 1
     output_file="$(create_macos_location_helper_output_file)" || return 1
+    write_macos_location_helper_request_file "${app_dir}" "${output_file}" || {
+        cleanup_macos_location_helper_output_file "${output_file}"
+        return 1
+    }
     rc=0
-    open -W -n "${app_dir}" --args "${output_file}" >/dev/null 2>&1 || rc=$?
+    open -W -n "${app_dir}" >/dev/null 2>&1 || rc=$?
+    cleanup_macos_location_helper_request_file "${app_dir}"
     if [[ "${rc}" != "0" ]]; then
         cleanup_macos_location_helper_output_file "${output_file}"
         return "${rc}"
@@ -410,8 +443,13 @@ request_macos_location_permission() {
         return 1
     fi
     output_file="$(create_macos_location_helper_output_file)" || return 1
+    write_macos_location_helper_request_file "${app_dir}" "${output_file}" || {
+        cleanup_macos_location_helper_output_file "${output_file}"
+        return 1
+    }
     rc=0
-    open -W -n "${app_dir}" --args "${output_file}" >/dev/null 2>&1 || rc=$?
+    open -W -n "${app_dir}" >/dev/null 2>&1 || rc=$?
+    cleanup_macos_location_helper_request_file "${app_dir}"
     output="$(cat "${output_file}" 2>/dev/null || true)"
     cleanup_macos_location_helper_output_file "${output_file}"
     if [[ "${rc}" == "0" ]]; then
