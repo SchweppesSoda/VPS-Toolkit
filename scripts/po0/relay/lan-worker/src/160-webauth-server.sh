@@ -60,16 +60,42 @@ run_webauth_server() {
     export PO0_WEBAUTH_TARGETS="${targets}"
     printf 'WebAuth server listening on %s:%s; PO0 has no HTTP listener.\n' "${listen_host}" "${listen_port}"
     "${py}" - "${listen_host}" "${listen_port}" <<'PY'
+import concurrent.futures
+import errno
 import http.server
 import os
 import re
 import shlex
+import shutil
 import socketserver
 import subprocess
 import sys
 import time
 
 listen_host, listen_port = sys.argv[1], int(sys.argv[2])
+SSH_BIN = shutil.which("ssh") or "ssh"
+DISCONNECT_ERRNOS = {errno.EPIPE}
+if hasattr(errno, "ECONNRESET"):
+    DISCONNECT_ERRNOS.add(errno.ECONNRESET)
+
+def send_text(handler, status, body, content_type="text/plain; charset=utf-8"):
+    if isinstance(body, str):
+        body = body.encode("utf-8")
+    try:
+        handler.send_response(status)
+        if content_type:
+            handler.send_header("Content-Type", content_type)
+        handler.end_headers()
+        handler.wfile.write(body)
+        return True
+    except (BrokenPipeError, ConnectionResetError) as exc:
+        print(f"[WARN] client disconnected before response was written: {exc}", file=sys.stderr)
+        return False
+    except OSError as exc:
+        if getattr(exc, "errno", None) in DISCONNECT_ERRNOS or getattr(exc, "winerror", None) in (10053, 10054):
+            print(f"[WARN] client disconnected before response was written: {exc}", file=sys.stderr)
+            return False
+        raise
 
 def is_public_ipv4(ip):
     m = re.match(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$", ip or "")
@@ -294,29 +320,45 @@ def report_target(target, ip, identity, note):
         shlex.quote(target['token']),
         shlex.quote(note or "lan-webauth"),
     ])
-    cmd = ["ssh", "-p", target['port']]
+    cmd = [SSH_BIN, "-p", target['port']]
     cmd.extend(sanitized_extra_args(target.get('extra', ''), f"WebAuth {target['user']}@{target['host']}:{target['port']}"))
     cmd.extend([f"{target['user']}@{target['host']}", remote])
     return subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
 
+def report_one(target, ip, identity, note):
+    label = f"{target['source']}@{target['host']}"
+    try:
+        result = report_target(target, ip, identity, note)
+    except subprocess.TimeoutExpired as exc:
+        return label, False, f"timeout after {exc.timeout}s"
+    except Exception as exc:
+        return label, False, str(exc)
+    if result.returncode == 0:
+        return label, True, ""
+    return label, False, str(result.stderr or result.stdout or result.returncode).strip()
+
 def report_all(ip, identity, note):
     ok = []
     failed = []
-    for target in TARGETS:
-        result = report_target(target, ip, identity, note)
-        label = f"{target['source']}@{target['host']}"
-        if result.returncode == 0:
-            ok.append(label)
-        else:
-            failed.append(f"{label}: {result.stderr or result.stdout or result.returncode}")
+    max_workers = min(len(TARGETS), 8)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(report_one, target, ip, identity, note) for target in TARGETS]
+        for future in futures:
+            try:
+                label, success, detail = future.result()
+            except Exception as exc:
+                failed.append(f"unknown-target: {exc}")
+                continue
+            if success:
+                ok.append(label)
+            else:
+                failed.append(f"{label}: {detail}")
     return ok, failed
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path.startswith("/health"):
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b"OK\n")
+            send_text(self, 200, b"OK\n")
             return
         ip = self.headers.get("CF-Connecting-IP") or self.headers.get("X-Real-IP") or ""
         if not ip and self.headers.get("X-Forwarded-For"):
@@ -330,23 +372,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             or "unknown"
         )
         if not is_public_ipv4(ip):
-            self.send_response(400)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.end_headers()
-            self.wfile.write(f"invalid public ipv4: {ip}\n".encode())
+            send_text(self, 400, f"invalid public ipv4: {ip}\n")
             return
         try:
             ok, failed = report_all(ip, identity, "cf-access")
         except Exception as exc:
-            self.send_response(502)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.end_headers()
-            self.wfile.write(f"report failed: {exc}\n".encode())
+            send_text(self, 502, f"report failed: {exc}\n")
             return
         if failed:
-            self.send_response(502)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.end_headers()
             body = [
                 "PO0 WebAuth partial/failed",
                 f"ip: {ip}",
@@ -356,11 +389,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "failed: " + "; ".join(failed),
                 "",
             ]
-            self.wfile.write(("\n".join(body)).encode())
+            send_text(self, 502, "\n".join(body))
         else:
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.end_headers()
             body = [
                 "PO0 WebAuth OK",
                 f"ip: {ip}",
@@ -368,7 +398,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "updated: " + ", ".join(ok),
                 "",
             ]
-            self.wfile.write(("\n".join(body)).encode())
+            send_text(self, 200, "\n".join(body))
 
     def log_message(self, fmt, *args):
         sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))

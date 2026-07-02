@@ -5,10 +5,11 @@ PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.c
 DOWNLOAD_URL="${PO0_LAN_CLIENT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-lan-client.sh}"
 MANAGER_DOWNLOAD_URL="${PO0_MANAGER_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/nftables-relay-manager.sh}"
 SCRIPT_NAME="po0-lan-worker-client"
-SCRIPT_VERSION="2026.07.02+build.1"
+SCRIPT_VERSION="2026.07.02+build.2"
 SCRIPT_RELEASE_DATE="2026-07-02"
 # CHANGELOG_BEGIN
-# - 跟随 PO0 Release asset 批次对齐到 build.1；LAN Worker /report 协议保持兼容，本脚本无行为变化。
+# - Self-report / WebAuth 多 PO0 目标上报改为并发 SSH，避免慢目标耗时串行累加导致访问设备 HTTP 超时。
+# - LAN Worker HTTP 响应写入遇到客户端已断开时只记录简短警告，不再输出 BrokenPipe traceback。
 # CHANGELOG_END
 DEFAULT_PO0_SCRIPT="/root/nftables-relay-manager.sh"
 PO0_HOST="${PO0_HOST:-}"

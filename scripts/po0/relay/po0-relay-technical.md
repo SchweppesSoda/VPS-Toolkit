@@ -837,6 +837,8 @@ SSID 跳过是访问设备客户端本地 guard，不属于 LAN Worker 或 PO0 �
 
 Self-report / WebAuth 放行 TTL 默认均为 `43200` 秒（12 小时），由 LAN Worker 上报 PO0 时传入；客户端只控制上报频率，不控制 TTL。TTL 可以通过 `po0-lan-client --self-report-ttl <秒数>` / `--webauth-ttl <秒数>`、bootstrap 向导，或 LAN Worker 菜单 `Self-report / WebAuth TTL` 修改。Self-report / WebAuth TTL 会被限制在 `60-604800` 秒内；WebAuth 由 LAN Worker 传入 expires-at，PO0 端也会把过远的 expires-at 截到 7 天内。旧安装的本机 `settings.env` 如果仍保存旧默认 `3600` 或 `21600`，脚本加载时会迁移到新默认；各 PO0 目标行中显式写入的 TTL 不自动改写。
 
+LAN Worker 的 Self-report `/report` 和 WebAuth HTTP server 会把同一轮多个 PO0 目标并发提交到 SSH worker pool，默认最多同时处理 8 个目标。响应仍保持原有语义：全部 PO0 目标成功才返回 2xx；任一目标失败、被 wrapper 拒绝或 30 秒 SSH 超时则返回 502，并保留目标级错误明细。HTTP 客户端如果先超时断开，server 只记录简短断连警告，不把 BrokenPipe traceback 打进 journal。
+
 `--bootstrap` 会先 probe，再写入本机目标配置；如果要求安装本机 Worker 轮询器，管道运行时会自动落盘到固定路径。`--install-cron N` 是兼容参数，会把 DDNS 和资源任务两个计划都设为 `N` 分钟；不带 `N` 时，默认 DDNS 每 `3600` 秒上报、资源任务每 `1440` 分钟检查一次。推荐用 `--ddns-interval-seconds 3600` 显式设置 DDNS 上报间隔。Worker 默认调用 PO0 上的 `/root/nftables-relay-manager.sh`，也可以通过 `--po0-script` 覆盖。首次部署推荐 `--wizard`，高级维护菜单仍可管理本机 Worker 的 PO0 目标：查看、添加、编辑、删除、启用/停用，执行 DDNS 解析上报和资源任务轮询领取，并只读查看 PO0 端资源任务创建计划。一个配置文件可以放多台 PO0/VPS。
 
 向导自动取 token 使用 PO0 端机器可读接口：
@@ -1243,7 +1245,7 @@ SSH 当前来源临时 /32：已实现
 DDNS 来源菜单和刷新应用：已实现
 DDNS 外部解析上报：已实现
 Egern SSH report 当前出口 IPv4 上报：已实现，支持单 PO0 和多 PO0
-LAN Worker WebAuth 上报：已实现，HTTP 入口只跑在 LAN Worker
+LAN Worker WebAuth 上报：已实现，HTTP 入口只跑在 LAN Worker，多 PO0 目标并发 SSH 上报
 attack mode 自动来源冻结：已实现
 兼容检查与 legacy 清理入口：已实现
 源白名单 block 日志、清理和 summary：已实现

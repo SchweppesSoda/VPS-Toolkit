@@ -17,16 +17,42 @@ run_self_report_server() {
     export PO0_SELF_REPORT_TARGETS="${targets}" SELF_REPORT_SECRET
     printf 'Self-report server listening on %s:%s; device -> LAN Worker -> SSH -> PO0.\n' "${listen_host}" "${listen_port}"
     "${py}" - "${listen_host}" "${listen_port}" <<'PY'
+import concurrent.futures
+import errno
 import http.server
 import os
 import re
 import shlex
+import shutil
 import socketserver
 import subprocess
 import sys
 import urllib.parse
 
 listen_host, listen_port = sys.argv[1], int(sys.argv[2])
+SSH_BIN = shutil.which("ssh") or "ssh"
+DISCONNECT_ERRNOS = {errno.EPIPE}
+if hasattr(errno, "ECONNRESET"):
+    DISCONNECT_ERRNOS.add(errno.ECONNRESET)
+
+def send_text(handler, status, body, content_type="text/plain; charset=utf-8"):
+    if isinstance(body, str):
+        body = body.encode("utf-8")
+    try:
+        handler.send_response(status)
+        if content_type:
+            handler.send_header("Content-Type", content_type)
+        handler.end_headers()
+        handler.wfile.write(body)
+        return True
+    except (BrokenPipeError, ConnectionResetError) as exc:
+        print(f"[WARN] client disconnected before response was written: {exc}", file=sys.stderr)
+        return False
+    except OSError as exc:
+        if getattr(exc, "errno", None) in DISCONNECT_ERRNOS or getattr(exc, "winerror", None) in (10053, 10054):
+            print(f"[WARN] client disconnected before response was written: {exc}", file=sys.stderr)
+            return False
+        raise
 
 def is_public_ipv4(ip):
     m = re.match(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$", ip or "")
@@ -278,6 +304,11 @@ TARGETS = parse_targets(os.environ.get('PO0_SELF_REPORT_TARGETS', ''))
 if not TARGETS:
     raise SystemExit('missing PO0_SELF_REPORT_TARGETS')
 
+def target_label(target, source_override):
+    port = target.get('port') or '22'
+    port_suffix = "" if port == "22" else f":{port}"
+    return f"{safe_report_token(source_override or target['source'], 'self-report')}@{target['host']}{port_suffix}"
+
 def report_target(target, ip, identity, source_override):
     source = safe_report_token(source_override or target['source'], "self-report")
     identity = safe_report_token(identity or "self-report", source)
@@ -292,23 +323,39 @@ def report_target(target, ip, identity, source_override):
         shlex.quote(identity or "self-report"),
         shlex.quote(ttl),
     ])
-    cmd = ["ssh", "-p", target['port']]
+    cmd = [SSH_BIN, "-p", target['port']]
     cmd.extend(sanitized_extra_args(target.get('extra', ''), f"Self-report {target['user']}@{target['host']}:{target['port']}"))
     cmd.extend([f"{target['user']}@{target['host']}", remote])
     return subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
 
+def report_one(target, ip, identity, source_override):
+    label = target_label(target, source_override)
+    try:
+        result = report_target(target, ip, identity, source_override)
+    except subprocess.TimeoutExpired as exc:
+        return label, False, f"timeout after {exc.timeout}s"
+    except Exception as exc:
+        return label, False, str(exc)
+    if result.returncode == 0:
+        return label, True, ""
+    return label, False, str(result.stderr or result.stdout or result.returncode).strip()
+
 def report_all(ip, identity, source_override):
     ok = []
     failed = []
-    for target in TARGETS:
-        result = report_target(target, ip, identity, source_override)
-        port = target.get('port') or '22'
-        port_suffix = "" if port == "22" else f":{port}"
-        label = f"{safe_report_token(source_override or target['source'], 'self-report')}@{target['host']}{port_suffix}"
-        if result.returncode == 0:
-            ok.append(label)
-        else:
-            failed.append(f"{label}: {result.stderr or result.stdout or result.returncode}")
+    max_workers = min(len(TARGETS), 8)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(report_one, target, ip, identity, source_override) for target in TARGETS]
+        for future in futures:
+            try:
+                label, success, detail = future.result()
+            except Exception as exc:
+                failed.append(f"unknown-target: {exc}")
+                continue
+            if success:
+                ok.append(label)
+            else:
+                failed.append(f"{label}: {detail}")
     return ok, failed
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -321,14 +368,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def handle_report(self):
         path, params = parse_request(self)
         if path in ("/health", "/health/"):
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b"OK\n")
+            send_text(self, 200, b"OK\n")
             return
         if path not in ("/report", "/report/"):
-            self.send_response(404)
-            self.end_headers()
-            self.wfile.write(b"not found\n")
+            send_text(self, 404, b"not found\n")
             return
 
         secret = os.environ.get("SELF_REPORT_SECRET", "")
@@ -338,9 +381,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             bearer(self.headers.get("Authorization")),
         ])
         if secret and supplied != secret:
-            self.send_response(401)
-            self.end_headers()
-            self.wfile.write(b"unauthorized\n")
+            send_text(self, 401, b"unauthorized\n")
             return
 
         ip = first([
@@ -361,25 +402,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
         ])
 
         if not is_public_ipv4(ip):
-            self.send_response(400)
-            self.end_headers()
-            self.wfile.write(f"invalid public ipv4: {ip}\n".encode())
+            send_text(self, 400, f"invalid public ipv4: {ip}\n")
             return
         try:
             ok, failed = report_all(ip, identity, source_override)
         except Exception as exc:
-            self.send_response(502)
-            self.end_headers()
-            self.wfile.write(f"report failed: {exc}\n".encode())
+            send_text(self, 502, f"report failed: {exc}\n")
             return
         if failed:
-            self.send_response(502)
-            self.end_headers()
-            self.wfile.write((f"partial/failed {len(ok)}/{len(TARGETS)} OK; " + "; ".join(failed) + "\n").encode())
+            send_text(self, 502, f"partial/failed {len(ok)}/{len(TARGETS)} OK; " + "; ".join(failed) + "\n")
         else:
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write((f"OK {ip}; targets={len(ok)}; target_names={','.join(ok)}\n").encode())
+            send_text(self, 200, f"OK {ip}; targets={len(ok)}; target_names={','.join(ok)}\n")
 
     def log_message(self, fmt, *args):
         sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))

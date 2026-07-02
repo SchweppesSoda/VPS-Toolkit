@@ -4,11 +4,10 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_OUTBOUND_IP_REPORT_MACOS_DOWNLOAD_URL:-${PO0_SELF_REPORT_MACOS_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report-macos.sh}}"
 SCRIPT_NAME="po0-outbound-ip-report"
-SCRIPT_VERSION="2026.07.02+build.1"
+SCRIPT_VERSION="2026.07.02+build.2"
 SCRIPT_RELEASE_DATE="2026-07-02"
 # CHANGELOG_BEGIN
-# - 当前 Wi-Fi SSID 探测会把 redacted / <redacted> 视为 macOS 隐私权限隐藏并 fail-open 继续上报，不再误当真实 SSID。
-# - 新增 --diagnose-wifi-ssid 和菜单诊断入口，提示到系统设置授权定位服务；脚本不会自动获取或修改系统权限。
+# - 跟随 PO0 Release asset 批次对齐到 build.2；macOS 客户端无行为变化。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24

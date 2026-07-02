@@ -539,6 +539,8 @@ po0-lan-client --install-self-report-https --self-report-https-domain <SELF_REPO
 
 Self-report / WebAuth 放行 TTL 默认均为 `43200` 秒（12 小时），由 LAN Worker 上报 PO0 时传入；可以在启动接收端时加 `--self-report-ttl <秒数>` / `--webauth-ttl <秒数>`，也可以在 LAN Worker 菜单 `PO0 目标、SSH、Token 与 TTL -> Self-report / WebAuth TTL` 里修改目标覆盖值。访问设备客户端只决定“多久上报一次”，不决定 TTL。Self-report / WebAuth TTL 会被限制在 `60-604800` 秒内。升级旧安装时，本机 `settings.env` 里恰好等于旧默认 `3600` 或 `21600` 的默认 TTL 会在脚本加载时迁移到新默认；目标行里显式写的 TTL 不自动改写。
 
+同一轮 Self-report / WebAuth 上报如果配置了多个 PO0 目标，LAN Worker 会并发 SSH 到各目标；全部目标成功才返回成功，任一目标失败或超时会返回 502，并在正文保留各目标明细。这样慢 PO0 不会把多个目标耗时串行累加到访问设备的 HTTP 超时窗口里。
+
 多个 PO0 用“设备自上报目标”合并到同一个 LAN Worker：
 
 ```text
@@ -940,6 +942,8 @@ po0-lan-client --webauth-server --listen 127.0.0.1:8787 --po0-host <PO0_HOST> --
 ```bash
 po0-lan-client --webauth-server --listen 127.0.0.1:8787 --webauth-targets 'cf-access|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|43200|;cf-access|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|43200|'
 ```
+
+多目标 WebAuth 与 Self-report 一样并发上报 PO0；返回成功代表所有目标已更新，502 代表至少一个目标失败。
 
 PO0 接收的仍是 SSH 命令：
 
