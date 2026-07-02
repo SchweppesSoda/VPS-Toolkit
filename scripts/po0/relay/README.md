@@ -649,7 +649,7 @@ po0-outbound-ip-report --changelog
 
 macOS 使用专用 Bash 脚本和用户级 launchd LaunchAgent，不复用 Linux/OpenWrt cron 脚本。`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本，并写入 `~/Library/LaunchAgents/fr.schweppes.po0-outbound-ip-report.plist`；`6) 通知 / 静默模式` 可切换自动上报完成 / 失败后的 macOS 通知。
 
-菜单 `9) Wi-Fi SSID 权限诊断` 会显示当前 SSID 读取状态，并可直接触发一次当前终端 App 的 macOS 定位权限请求。
+菜单 `9) Wi-Fi SSID 权限诊断` 会显示当前 SSID 读取状态，并可创建 / 打开 `PO0 Location Permission Helper.app` 触发 macOS 定位权限请求。
 
 macOS 系统自带 Bash 通常是 3.2，客户端会保持 Bash 3.2 兼容，不要求额外安装新版 Bash。`2026.07.01+build.6` 修复过 SSID 跳过列表在 Bash 3.2 + `set -u` 下可能出现的 `items[@]: unbound variable`；如果看到这类报错，先从 GitHub Release 更新到 build.6 或更新版本。
 
@@ -659,13 +659,13 @@ macOS 系统自带 Bash 通常是 3.2，客户端会保持 Bash 3.2 兼容，不
 po0-outbound-ip-report --show-wifi-ssid
 ```
 
-如果结果显示“读取失败或被 macOS 隐私权限隐藏（fail-open）”，说明底层网络命令可能返回了 `redacted` / `<redacted>` 隐私占位符，当前终端或 launchd 运行环境没有拿到系统允许的定位相关信息访问权；客户端会按 fail-open 继续正常上报，不会把占位符当成真实 SSID。查看授权说明：
+如果结果显示“读取失败或被 macOS 隐私权限隐藏（fail-open）”，说明底层网络命令可能返回了 `redacted` / `<redacted>` 隐私占位符，当前运行环境或 PO0 Helper 没有拿到系统允许的定位相关信息访问权；客户端会按 fail-open 继续正常上报，不会把占位符当成真实 SSID。查看授权说明：
 
 ```bash
 po0-outbound-ip-report --diagnose-wifi-ssid
 ```
 
-如果 Terminal/iTerm 不在定位服务列表里，先从实际运行脚本的终端 App 执行一次授权请求，让 macOS 弹出定位权限确认：
+如果 Terminal/iTerm 不在定位服务列表里，运行一次授权请求。脚本会生成带稳定 bundle id、定位用途声明和可选 ad-hoc 签名的 `PO0 Location Permission Helper.app`，并用 `open` 打开它；macOS 弹窗出现时请选择允许 Helper 访问位置：
 
 ```bash
 po0-outbound-ip-report --request-location-permission
@@ -677,7 +677,7 @@ po0-outbound-ip-report --request-location-permission
 po0-outbound-ip-report --open-location-services
 ```
 
-如果 系统设置 > 隐私与安全性 > 定位服务 的列表里仍没有 Terminal/iTerm，说明 macOS 没有把这次 CoreLocation 请求归属到该终端 App；脚本不会写 TCC 数据库，也不会用 `sudo` / `tccutil` 伪造授权，只会继续 fail-open 上报。
+授权后 Helper 会在本机通过 CoreWLAN 读取当前 Wi-Fi SSID，作为 `--show-wifi-ssid` 和 SSID 跳过 guard 的 fallback。脚本不会写 TCC 数据库，也不会用 `sudo` / `tccutil` 伪造授权；如果 Helper 被拒绝、未出现弹窗或无法读取 SSID，客户端只会继续 fail-open 上报。
 
 首次保存默认配置并打开菜单：
 
@@ -871,7 +871,7 @@ powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-outbound-ip-
 
 三个客户端默认拒绝 `http://`；只有本地调试或临时旧环境才显式使用 `--allow-http` / `-AllowHttp`。Linux/OpenWrt/macOS 默认配置文件 root 为 `/etc/po0-outbound-ip-report/settings.env`，普通用户为 `~/.config/po0-outbound-ip-report/settings.env`；Windows 默认配置文件普通用户为 `%LOCALAPPDATA%\PO0\outbound-ip-report.json`，管理员为 `%ProgramData%\PO0\outbound-ip-report.json`。优先级为 CLI > `PO0_OUTBOUND_IP_REPORT_*` > legacy `PO0_SELF_REPORT_*` / `SELF_REPORT_*` > 已保存配置 > 默认值；旧 `po0-self-report` 配置只作 fallback，保存时写入新路径。配置文件会明文保存 self-report secret，请只放在可信设备上。
 
-三个客户端支持按当前 Wi-Fi SSID 在本地跳过上报。Linux/OpenWrt 和 macOS 使用 `--skip-wifi-ssid SSID`（可重复）、`--skip-wifi-ssids "SSID1;SSID2"`、`--clear-skip-wifi-ssids` 和 `--force-report`，也可用 `PO0_OUTBOUND_IP_REPORT_SKIP_WIFI_SSIDS`；macOS 还可用 `--show-wifi-ssid` 直接检查当前读取结果，用 `--diagnose-wifi-ssid` 查看 macOS 定位服务 / 隐私权限诊断，用 `--request-location-permission` 尝试触发当前终端 App 的定位权限弹窗，或用 `--open-location-services` 打开定位服务设置页。Windows 使用 `-SkipWifiSsids "SSID1;SSID2"`、`-ForceReport` 和同名环境变量；保存配置后会写入本机配置文件。SSID 列表用英文分号 `;` 分隔，匹配时只做去首尾空白后的精确匹配，不做通配、正则或子串匹配。命中时客户端只在本机日志 / 状态摘要里记录“因 SSID 跳过”，不会把 SSID、跳过原因或任何新字段上传到 LAN Worker，也不改变 LAN Worker `/report` 或 PO0 上报协议。读取当前 SSID 失败时按安全兼容原则继续正常上报。macOS 底层命令返回 `redacted` / `<redacted>` 时会按“读取失败或被 macOS 隐私权限隐藏（fail-open）”显示并提示用户到系统设置授权定位服务；脚本不会自动获取或修改系统权限，不会使用 `sudo`、`tccutil` 或写入 TCC 数据库。手动运行命中跳过规则时会先询问是否强制继续；定时任务命中时直接本地跳过并写日志。
+三个客户端支持按当前 Wi-Fi SSID 在本地跳过上报。Linux/OpenWrt 和 macOS 使用 `--skip-wifi-ssid SSID`（可重复）、`--skip-wifi-ssids "SSID1;SSID2"`、`--clear-skip-wifi-ssids` 和 `--force-report`，也可用 `PO0_OUTBOUND_IP_REPORT_SKIP_WIFI_SSIDS`；macOS 还可用 `--show-wifi-ssid` 直接检查当前读取结果，用 `--diagnose-wifi-ssid` 查看 macOS 定位服务 / 隐私权限诊断，用 `--request-location-permission` 创建并打开 `PO0 Location Permission Helper.app` 触发定位权限弹窗并让 Helper 在本机读取 SSID，或用 `--open-location-services` 打开定位服务设置页。Windows 使用 `-SkipWifiSsids "SSID1;SSID2"`、`-ForceReport` 和同名环境变量；保存配置后会写入本机配置文件。SSID 列表用英文分号 `;` 分隔，匹配时只做去首尾空白后的精确匹配，不做通配、正则或子串匹配。命中时客户端只在本机日志 / 状态摘要里记录“因 SSID 跳过”，不会把 SSID、跳过原因或任何新字段上传到 LAN Worker，也不改变 LAN Worker `/report` 或 PO0 上报协议。读取当前 SSID 失败时按安全兼容原则继续正常上报。macOS 底层命令返回 `redacted` / `<redacted>` 时会按“读取失败或被 macOS 隐私权限隐藏（fail-open）”显示并提示用户授权 PO0 Helper；脚本不会自动获取或修改系统权限，不会使用 `sudo`、`tccutil` 或写入 TCC 数据库。手动运行命中跳过规则时会先询问是否强制继续；定时任务命中时直接本地跳过并写日志。
 
 更新脚本、从旧 `po0-self-report*` 路径自愈启动，或安装 / 更新定时上报时，客户端会清理脚本自己能确定的默认旧名残留：Linux/OpenWrt/macOS 会迁移默认旧配置、旧 `/tmp/po0-self-report.log`、旧 IP 探测 state，并移除默认旧命令；macOS 还会迁移 legacy launchd / cron；Windows 会迁移默认旧 `self-report.json`、旧日志、旧 state、旧计划任务、旧 `po0-self-report.ps1` 和旧 VBS launcher。显式传入的自定义 `--config` / `-ConfigPath`、`--install-path`、`-LogPath` 等路径不会被当成默认残留误删。
 

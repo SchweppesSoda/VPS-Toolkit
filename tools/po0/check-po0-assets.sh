@@ -3,9 +3,9 @@ set -euo pipefail
 
 repo_root="$(cd "$(git rev-parse --show-toplevel)" && pwd -P)"
 asset_dir="${1:-${repo_root}/.tmp/po0-check-assets}"
-expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.07.02+build.3}"
+expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.07.02+build.4}"
 expected_po0_release_date="${PO0_EXPECTED_RELEASE_DATE:-2026-07-02}"
-expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.07.02.3}"
+expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.07.02.4}"
 
 manifest_entries() {
     local manifest="$1"
@@ -354,7 +354,7 @@ check_macos_wifi_ssid_diagnostic() {
         printf 'macOS asset lacks interactive Wi-Fi SSID permission menu helper.\n' >&2
         exit 1
     }
-    grep -Fq 'request_macos_location_permission()' "${asset}" && grep -Fq 'run_macos_location_permission_request_osascript()' "${asset}" || {
+    grep -Fq 'request_macos_location_permission()' "${asset}" && grep -Fq 'ensure_macos_location_permission_helper_app()' "${asset}" && grep -Fq 'macos_location_helper_wifi_ssid()' "${asset}" || {
         printf 'macOS asset lacks Location Services authorization request helper.\n' >&2
         exit 1
     }
@@ -382,6 +382,34 @@ check_macos_wifi_ssid_diagnostic() {
         printf 'macOS asset must include a CoreLocation permission request path.\n' >&2
         exit 1
     }
+    grep -Fq 'CoreWLAN' "${asset}" && grep -Fq 'macos_location_helper_wifi_ssid()' "${asset}" || {
+        printf 'macOS asset must let the Location Permission Helper read Wi-Fi SSID in-process.\n' >&2
+        exit 1
+    }
+    grep -Fq 'PO0 Location Permission Helper.app' "${asset}" && grep -Fq 'osacompile' "${asset}" || {
+        printf 'macOS asset must build and open a stable Location Permission Helper app.\n' >&2
+        exit 1
+    }
+    grep -Fq 'CFBundleIdentifier' "${asset}" && grep -Fq 'CFBundleExecutable' "${asset}" && grep -Fq 'CFBundlePackageType' "${asset}" && grep -Fq 'PO0HelperSchemaVersion' "${asset}" && grep -Fq 'NSLocationUsageDescription' "${asset}" && grep -Fq 'NSLocationWhenInUseUsageDescription' "${asset}" || {
+        printf 'macOS helper app must include stable bundle identity, launch keys, and location usage descriptions.\n' >&2
+        exit 1
+    }
+    grep -Fq 'macos_location_permission_helper_app_is_current()' "${asset}" || {
+        printf 'macOS helper app generation must be idempotent for current helper schema.\n' >&2
+        exit 1
+    }
+    grep -Fq 'create_macos_location_helper_output_file()' "${asset}" && grep -Fq 'cleanup_macos_location_helper_output_file()' "${asset}" || {
+        printf 'macOS helper output path must use managed temp file helpers.\n' >&2
+        exit 1
+    }
+    grep -Fq 'codesign --force --deep --sign -' "${asset}" || {
+        printf 'macOS helper app should be ad-hoc signed when codesign is available.\n' >&2
+        exit 1
+    }
+    if grep -Fq 'run_macos_location_permission_request_osascript()' "${asset}"; then
+        printf 'macOS asset must not keep the old bare osascript Location Services request helper.\n' >&2
+        exit 1
+    fi
     if grep -Fq '如果看到 redacted' "${asset}"; then
         printf 'macOS asset must not ask users to look for raw redacted after classifying it as privacy-hidden.\n' >&2
         exit 1
@@ -420,7 +448,7 @@ check_macos_wifi_ssid_diagnostic() {
             exit 1
         fi
     done
-    for fn in request_macos_location_permission run_macos_location_permission_request_osascript; do
+    for fn in request_macos_location_permission ensure_macos_location_permission_helper_app macos_location_helper_wifi_ssid; do
         body="$(
             awk -v fn="${fn}" '
                 $0 == fn "() {" {in_fn=1}

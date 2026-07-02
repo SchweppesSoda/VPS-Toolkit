@@ -10,9 +10,9 @@ if (-not $OutputDir) {
 }
 
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.07.02+build.3" }
+$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.07.02+build.4" }
 $ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-07-02" }
-$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.07.02.3" }
+$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.07.02.4" }
 
 function ConvertTo-RepoRelativePath {
     param([string]$Path)
@@ -412,7 +412,7 @@ function Test-MacOsWifiSsidDiagnostic {
     if ($raw -notmatch 'show_wifi_ssid_permission_help_interactive\(\)') {
         throw "macOS asset lacks interactive Wi-Fi SSID permission menu helper."
     }
-    if ($raw -notmatch 'request_macos_location_permission\(\)' -or $raw -notmatch 'run_macos_location_permission_request_osascript\(\)') {
+    if ($raw -notmatch 'request_macos_location_permission\(\)' -or $raw -notmatch 'ensure_macos_location_permission_helper_app\(\)' -or $raw -notmatch 'macos_location_helper_wifi_ssid\(\)') {
         throw "macOS asset lacks Location Services authorization request helper."
     }
     if ($raw -notmatch '\[0-11\]' -or $raw -notmatch '9\) show_wifi_ssid_permission_help_interactive; pause_before_return ;;') {
@@ -432,6 +432,27 @@ function Test-MacOsWifiSsidDiagnostic {
     }
     if ($raw -notmatch 'CoreLocation' -or $raw -notmatch 'requestWhenInUseAuthorization') {
         throw "macOS asset must include a CoreLocation permission request path."
+    }
+    if ($raw -notmatch 'CoreWLAN' -or $raw -notmatch 'macos_location_helper_wifi_ssid\(\)') {
+        throw "macOS asset must let the Location Permission Helper read Wi-Fi SSID in-process."
+    }
+    if ($raw -notmatch 'PO0 Location Permission Helper\.app' -or $raw -notmatch 'osacompile') {
+        throw "macOS asset must build and open a stable Location Permission Helper app."
+    }
+    if ($raw -notmatch 'CFBundleIdentifier' -or $raw -notmatch 'CFBundleExecutable' -or $raw -notmatch 'CFBundlePackageType' -or $raw -notmatch 'PO0HelperSchemaVersion' -or $raw -notmatch 'NSLocationUsageDescription' -or $raw -notmatch 'NSLocationWhenInUseUsageDescription') {
+        throw "macOS helper app must include stable bundle identity, launch keys, and location usage descriptions."
+    }
+    if ($raw -notmatch 'macos_location_permission_helper_app_is_current\(\)') {
+        throw "macOS helper app generation must be idempotent for current helper schema."
+    }
+    if ($raw -notmatch 'create_macos_location_helper_output_file\(\)' -or $raw -notmatch 'cleanup_macos_location_helper_output_file\(\)') {
+        throw "macOS helper output path must use managed temp file helpers."
+    }
+    if ($raw -notmatch 'codesign --force --deep --sign -') {
+        throw "macOS helper app should be ad-hoc signed when codesign is available."
+    }
+    if ($raw -match 'run_macos_location_permission_request_osascript\(\)') {
+        throw "macOS asset must not keep the old bare osascript Location Services request helper."
     }
     if ($raw -match '如果看到 redacted') {
         throw "macOS asset must not ask users to look for raw redacted after classifying it as privacy-hidden."
@@ -458,7 +479,7 @@ function Test-MacOsWifiSsidDiagnostic {
             throw "macOS Wi-Fi SSID diagnostic must not run sudo/tccutil/sqlite3/osascript auto-grant commands in $fnName."
         }
     }
-    foreach ($fnName in @("request_macos_location_permission", "run_macos_location_permission_request_osascript")) {
+    foreach ($fnName in @("request_macos_location_permission", "ensure_macos_location_permission_helper_app", "macos_location_helper_wifi_ssid")) {
         $pattern = "(?ms)^" + [regex]::Escape($fnName) + "\(\) \{.*?^}"
         $fn = [regex]::Match($raw, $pattern)
         if (-not $fn.Success) {

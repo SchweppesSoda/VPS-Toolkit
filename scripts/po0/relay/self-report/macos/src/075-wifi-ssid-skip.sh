@@ -102,16 +102,54 @@ open_macos_location_services_settings() {
     return 1
 }
 
-run_macos_location_permission_request_osascript() {
-    command -v osascript >/dev/null 2>&1 || return 127
-    osascript <<'APPLESCRIPT'
+macos_location_permission_helper_root() {
+    if [[ -n "${PO0_OUTBOUND_IP_REPORT_MACOS_HELPER_DIR:-}" ]]; then
+        printf '%s\n' "${PO0_OUTBOUND_IP_REPORT_MACOS_HELPER_DIR}"
+    else
+        [[ -n "${HOME:-}" ]] || return 1
+        printf '%s\n' "${HOME}/Library/Application Support/PO0"
+    fi
+}
+
+macos_location_permission_helper_app_path() {
+    local root
+    root="$(macos_location_permission_helper_root)" || return 1
+    printf '%s\n' "${root}/PO0 Location Permission Helper.app"
+}
+
+macos_location_permission_helper_schema_version() {
+    printf '2026.07.02.4\n'
+}
+
+write_macos_location_permission_helper_source() {
+    local script_file="$1"
+    cat > "${script_file}" <<'APPLESCRIPT'
 use framework "CoreLocation"
+use framework "CoreWLAN"
 use framework "Foundation"
 use scripting additions
 
 property locationManager : missing value
 
-on run
+on writeText(theText, outputPath)
+    set fileRef to missing value
+    try
+        set fileRef to open for access (POSIX file outputPath) with write permission
+        set eof of fileRef to 0
+        write theText to fileRef as «class utf8»
+        close access fileRef
+    on error
+        try
+            if fileRef is not missing value then close access fileRef
+        end try
+    end try
+end writeText
+
+on run argv
+    set outputPath to ""
+    if (count of argv) > 0 then set outputPath to item 1 of argv
+    set ssidValue to ""
+    set statusValue to "requested"
     if ((current application's CLLocationManager's locationServicesEnabled()) as boolean) is false then
         error "macOS Location Services is disabled."
     end if
@@ -122,30 +160,195 @@ on run
     repeat while ((deadline's timeIntervalSinceNow()) as real) > 0
         current application's NSRunLoop's currentRunLoop()'s runUntilDate:(current application's NSDate's dateWithTimeIntervalSinceNow:0.2)
     end repeat
+    try
+        set statusObject to current application's CLLocationManager's authorizationStatus()
+        set statusValue to (statusObject as integer) as text
+    end try
+    try
+        set wifiClient to current application's CWWiFiClient's sharedWiFiClient()
+        set wifiInterface to wifiClient's interface()
+        if wifiInterface is not missing value then
+            set ssidObject to wifiInterface's ssid()
+            if ssidObject is not missing value then set ssidValue to ssidObject as text
+        end if
+    end try
     locationManager's stopUpdatingLocation()
-    return "requested"
+    if outputPath is not "" then my writeText("status=" & statusValue & linefeed & "ssid=" & ssidValue & linefeed, outputPath)
+    return statusValue
 end run
 APPLESCRIPT
 }
 
+write_macos_location_permission_helper_plist() {
+    local plist="$1" schema_version
+    schema_version="$(macos_location_permission_helper_schema_version)"
+    cat > "${plist}" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>fr.schweppes.po0.location-permission-helper</string>
+    <key>CFBundleExecutable</key>
+    <string>applet</string>
+    <key>CFBundleName</key>
+    <string>PO0 Location Permission Helper</string>
+    <key>CFBundleDisplayName</key>
+    <string>PO0 Location Permission Helper</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleVersion</key>
+    <string>${schema_version}</string>
+    <key>PO0HelperSchemaVersion</key>
+    <string>${schema_version}</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>PO0 uses location permission only so macOS allows this helper to read the current Wi-Fi SSID for local skip rules.</string>
+    <key>NSLocationUsageDescription</key>
+    <string>PO0 uses location permission only so macOS allows this helper to read the current Wi-Fi SSID for local skip rules.</string>
+    <key>LSUIElement</key>
+    <true/>
+</dict>
+</plist>
+PLIST
+}
+
+macos_location_permission_helper_app_is_current() {
+    local app_dir="$1" plist schema_version
+    plist="${app_dir}/Contents/Info.plist"
+    schema_version="$(macos_location_permission_helper_schema_version)"
+    [[ -d "${app_dir}" && -f "${plist}" ]] || return 1
+    [[ -x "${app_dir}/Contents/MacOS/applet" ]] || return 1
+    grep -Fq 'fr.schweppes.po0.location-permission-helper' "${plist}" || return 1
+    grep -Fq 'CFBundleExecutable' "${plist}" || return 1
+    grep -Fq 'CFBundlePackageType' "${plist}" || return 1
+    grep -Fq 'NSLocationUsageDescription' "${plist}" || return 1
+    grep -Fq 'NSLocationWhenInUseUsageDescription' "${plist}" || return 1
+    grep -Fq 'PO0HelperSchemaVersion' "${plist}" || return 1
+    grep -Fq "<string>${schema_version}</string>" "${plist}" || return 1
+}
+
+create_macos_location_helper_output_file() {
+    local output_dir output_file
+    output_dir="$(mktemp -d "${TMPDIR:-/tmp}/po0-location-helper.XXXXXX")" || return 1
+    chmod 700 "${output_dir}" 2>/dev/null || true
+    output_file="${output_dir}/output.env"
+    : > "${output_file}" || {
+        rmdir "${output_dir}" 2>/dev/null || true
+        return 1
+    }
+    chmod 600 "${output_file}" 2>/dev/null || true
+    printf '%s\n' "${output_file}"
+}
+
+cleanup_macos_location_helper_output_file() {
+    local output_file="$1" output_dir
+    [[ -n "${output_file}" ]] || return 0
+    output_dir="${output_file%/*}"
+    case "${output_dir}" in
+        */po0-location-helper.*)
+            rm -f "${output_file}" 2>/dev/null || true
+            rmdir "${output_dir}" 2>/dev/null || true
+            ;;
+        *)
+            rm -f "${output_file}" 2>/dev/null || true
+            ;;
+    esac
+}
+
+ensure_macos_location_permission_helper_app() {
+    local app_dir root script_file plist rc
+    command -v osacompile >/dev/null 2>&1 || return 127
+    root="$(macos_location_permission_helper_root)" || return 1
+    app_dir="$(macos_location_permission_helper_app_path)" || return 1
+    case "${app_dir}" in
+        *"/PO0 Location Permission Helper.app") ;;
+        *) return 1 ;;
+    esac
+    if macos_location_permission_helper_app_is_current "${app_dir}"; then
+        printf '%s\n' "${app_dir}"
+        return 0
+    fi
+    mkdir -p "${root}" || return 1
+    script_file="${root}/po0-location-permission-helper.applescript"
+    write_macos_location_permission_helper_source "${script_file}" || return 1
+    rm -rf "${app_dir}" 2>/dev/null || true
+    rc=0
+    osacompile -o "${app_dir}" "${script_file}" >/dev/null 2>&1 || rc=$?
+    rm -f "${script_file}" 2>/dev/null || true
+    [[ "${rc}" == "0" ]] || return "${rc}"
+    plist="${app_dir}/Contents/Info.plist"
+    [[ -d "${app_dir}/Contents" ]] || mkdir -p "${app_dir}/Contents" || return 1
+    write_macos_location_permission_helper_plist "${plist}" || return 1
+    if command -v codesign >/dev/null 2>&1; then
+        codesign --force --deep --sign - "${app_dir}" >/dev/null 2>&1 || true
+    fi
+    printf '%s\n' "${app_dir}"
+}
+
+macos_location_helper_wifi_ssid() {
+    local app_dir output_file output ssid rc line
+    app_dir="$(macos_location_permission_helper_app_path)" || return 1
+    [[ -d "${app_dir}" ]] || return 1
+    command -v open >/dev/null 2>&1 || return 1
+    output_file="$(create_macos_location_helper_output_file)" || return 1
+    rc=0
+    open -W -n "${app_dir}" --args "${output_file}" >/dev/null 2>&1 || rc=$?
+    if [[ "${rc}" != "0" ]]; then
+        cleanup_macos_location_helper_output_file "${output_file}"
+        return "${rc}"
+    fi
+    output="$(cat "${output_file}" 2>/dev/null || true)"
+    cleanup_macos_location_helper_output_file "${output_file}"
+    ssid=""
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        case "${line}" in
+            ssid=*)
+                ssid="${line#ssid=}"
+                break
+                ;;
+        esac
+    done <<< "${output}"
+    accepted_wifi_ssid_value "${ssid}"
+}
+
 request_macos_location_permission() {
-    local output rc
-    printf '将尝试触发当前终端 App 的 macOS 定位权限请求。\n'
-    printf '如果系统弹窗出现，请允许 Terminal/iTerm 或当前运行脚本的终端 App 访问位置。\n'
+    local app_dir output_file output rc ssid accepted_ssid line
+    printf '将创建并打开 PO0 Location Permission Helper 来触发 macOS 定位权限请求。\n'
+    printf '如果系统弹窗出现，请允许 PO0 Location Permission Helper 访问位置。\n'
     printf '本操作不会自动授予权限，不会运行 sudo，不会调用 tccutil，不会写入 TCC 数据库。\n'
     rc=0
-    output="$(run_macos_location_permission_request_osascript 2>&1)" || rc=$?
+    app_dir="$(ensure_macos_location_permission_helper_app 2>&1)" || rc=$?
+    if [[ "${rc}" != "0" ]]; then
+        if [[ "${rc}" == "127" ]]; then
+            printf '未找到 osacompile，无法生成 macOS 定位权限 Helper App。\n' >&2
+        else
+            printf '生成 macOS 定位权限 Helper App 失败：%s\n' "${app_dir:-osacompile 返回失败。}" >&2
+        fi
+        printf '请确认系统包含 /usr/bin/osacompile，然后重试 --request-location-permission；也可手动执行：%s\n' "$(macos_location_services_settings_command)" >&2
+        return 1
+    fi
+    output_file="$(create_macos_location_helper_output_file)" || return 1
+    rc=0
+    open -W -n "${app_dir}" --args "${output_file}" >/dev/null 2>&1 || rc=$?
+    output="$(cat "${output_file}" 2>/dev/null || true)"
+    cleanup_macos_location_helper_output_file "${output_file}"
     if [[ "${rc}" == "0" ]]; then
         printf '已尝试触发 macOS 定位权限请求。\n'
-        printf '请打开定位服务设置确认 Terminal/iTerm 是否已经出现在列表中：%s\n' "$(macos_location_services_settings_command)"
+        ssid=""
+        while IFS= read -r line || [[ -n "${line}" ]]; do
+            case "${line}" in
+                ssid=*) ssid="${line#ssid=}" ;;
+            esac
+        done <<< "${output}"
+        accepted_ssid="$(accepted_wifi_ssid_value "${ssid}" 2>/dev/null || true)"
+        if [[ -n "${accepted_ssid}" ]]; then
+            printf 'Helper 当前读取到的 Wi-Fi SSID：%s\n' "${accepted_ssid}"
+        fi
+        printf '请打开定位服务设置确认 PO0 Location Permission Helper 是否已经出现在列表中：%s\n' "$(macos_location_services_settings_command)"
         printf '授权后请重新运行 --show-wifi-ssid 验证 SSID 是否可读。\n'
         return 0
     fi
-    if [[ "${rc}" == "127" ]]; then
-        printf '未找到 osascript，无法触发 macOS CoreLocation 授权请求。\n' >&2
-    else
-        printf 'CoreLocation 授权请求未完成：%s\n' "${output:-osascript 返回失败。}" >&2
-    fi
+    printf '打开 PO0 Location Permission Helper 未完成：%s\n' "${output:-open 返回失败。}" >&2
     printf '请确认 macOS 定位服务已开启，然后重试 --request-location-permission；也可手动执行：%s\n' "$(macos_location_services_settings_command)" >&2
     return 1
 }
@@ -154,11 +357,12 @@ print_wifi_ssid_permission_guidance() {
     printf '%s\n' \
         "权限说明：macOS 可能把 Wi-Fi SSID/BSSID 作为定位相关信息保护。" \
         "Location Services：当前状态显示“macOS 隐私权限隐藏”时，通常是系统把 redacted/<redacted> 占位符返回给网络命令；本脚本已将其归类为读取失败，不会当作真实 SSID。" \
-        "触发授权弹窗：po0-outbound-ip-report --request-location-permission" \
+        "触发授权弹窗：po0-outbound-ip-report --request-location-permission（会创建并打开 PO0 Location Permission Helper）" \
         "打开定位服务设置：$(macos_location_services_settings_command)" \
-        "在 系统设置 > 隐私与安全性 > 定位服务 中允许实际运行脚本的 Terminal/iTerm 或终端 App 访问位置。" \
-        "如果列表里没有 Terminal/iTerm，请先从对应终端运行 --request-location-permission；macOS 仍不列出时，脚本不能静默把 App 加进系统隐私权限列表。" \
-        "launchd 后台任务和手动 Terminal/iTerm 可能是不同授权主体；授权后请重新运行 --show-wifi-ssid 验证。" \
+        "在 系统设置 > 隐私与安全性 > 定位服务 中允许 PO0 Location Permission Helper 访问位置。" \
+        "如果列表里没有 Terminal/iTerm，这是正常限制；macOS 26+ 更可靠的授权主体是带用途声明的 Helper App。" \
+        "授权后 Helper 会在本机读取 Wi-Fi SSID；shell、LAN Worker 和 PO0 协议不会接收 SSID。" \
+        "launchd 后台任务和手动 Terminal/iTerm 可能是不同运行环境；授权后请重新运行 --show-wifi-ssid 验证。" \
         "no auto-grant：本脚本只做诊断和提示，不会自动授予 macOS 隐私权限。" \
         "本脚本不会自动获取或修改系统权限，不会写入 TCC 数据库，不会使用 sudo 缓存凭据。" \
         "读取不到 SSID 时仍会 fail-open 继续正常上报。"
@@ -332,6 +536,10 @@ current_wifi_ssid() {
         return 0
     fi
     if capture_wifi_ssid_probe wdutil_wifi_ssid; then
+        printf '%s\n' "${WIFI_SSID_PROBE_VALUE}"
+        return 0
+    fi
+    if capture_wifi_ssid_probe macos_location_helper_wifi_ssid; then
         printf '%s\n' "${WIFI_SSID_PROBE_VALUE}"
         return 0
     fi

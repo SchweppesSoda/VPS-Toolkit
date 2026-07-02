@@ -22,7 +22,7 @@ usage() {
         "  --show-wifi-ssid      显示当前 Wi-Fi SSID 探测结果后退出。" \
         "  --diagnose-wifi-ssid  显示当前 Wi-Fi SSID 探测结果和 macOS 定位权限诊断后退出。" \
         "  --open-location-services 打开 macOS 定位服务设置后退出；只做跳转，不修改系统权限。" \
-        "  --request-location-permission 尝试触发当前终端 App 的 macOS 定位权限弹窗后退出。" \
+        "  --request-location-permission 创建并打开 PO0 Location Permission Helper，尝试触发 macOS 定位权限弹窗后退出。" \
         "  --upgrade-self        从 GitHub Release 下载并更新本机脚本；菜单内更新会自动重开新版菜单。" \
         "  --config PATH         本地配置文件；优先级：--config / PO0_OUTBOUND_IP_REPORT_CONFIG / PO0_SELF_REPORT_CONFIG 或 SELF_REPORT_CONFIG / root 的 /etc/po0-outbound-ip-report/settings.env / XDG_CONFIG_HOME / ~/.config / ./po0-outbound-ip-report.env；旧 po0-self-report 配置仅作 fallback。" \
         "  --save-config         保存当前参数到本地配置文件；可与 --menu 组合为首次保存后打开菜单。" \

@@ -6,6 +6,10 @@
 
 ## po0-nftables-relay-manager
 
+### 2026.07.02+build.4
+
+- 跟随 PO0 Release asset 批次对齐到 `po0-v2026.07.02.4`；本脚本无行为变化。
+
 ### 2026.07.02+build.3
 
 - 跟随 PO0 Release asset 批次对齐到 `po0-v2026.07.02.3`；本脚本无行为变化。
@@ -145,6 +149,10 @@
 - 状态面板和资源任务创建计划摘要增加彩色状态提示。
 
 ## po0-lan-worker-client
+
+### 2026.07.02+build.4
+
+- 跟随 PO0 Release asset 批次对齐到 `po0-v2026.07.02.4`；LAN Worker 客户端无行为变化。
 
 ### 2026.07.02+build.3
 
@@ -293,6 +301,10 @@
 - 状态页 / Widget 优先复用 IP9、163、126、myip.ipip 等 IP 查询接口返回的归属地 / 运营商信息，拿不到时才额外查询。
 
 ## po0-outbound-ip-report（Linux/OpenWrt）
+
+### 2026.07.02+build.4
+
+- 跟随 PO0 Release asset 批次对齐到 `po0-v2026.07.02.4`；Linux/OpenWrt 客户端无行为变化。
 
 ### 2026.07.02+build.3
 
@@ -448,10 +460,15 @@
 
 ## po0-outbound-ip-report（macOS）
 
+### 2026.07.02+build.4
+
+- `--request-location-permission` 改为创建并打开 `PO0 Location Permission Helper.app`，由带稳定 `CFBundleIdentifier`、定位用途声明和可选 ad-hoc 签名的 Helper 触发 macOS 定位权限请求；不再依赖裸 `osascript` 或 Terminal/iTerm 出现在定位服务列表里。
+- Helper 授权后会在本机通过 CoreWLAN 读取当前 Wi-Fi SSID，并作为 `--show-wifi-ssid` / SSID 跳过 guard 的 fallback；SSID 仍不上传到 LAN Worker 或 PO0，读取失败继续 fail-open。
+
 ### 2026.07.02+build.3
 
 - Wi-Fi SSID 权限诊断统一把 `redacted` / `<redacted>` 归类为 macOS 隐私权限隐藏，不再让用户在状态和诊断说明之间看到两套口径。
-- `--diagnose-wifi-ssid` 会输出可执行的定位服务设置入口；新增 `--request-location-permission` 尝试触发当前终端 App 的定位权限弹窗，并集成到菜单 `9) Wi-Fi SSID 权限诊断`；保留 `--open-location-services` 系统设置跳转；不自动授予权限、不写 TCC、不使用 `sudo` / `tccutil`。
+- `--diagnose-wifi-ssid` 会输出可执行的定位服务设置入口；当时新增的 `--request-location-permission` 会尝试触发运行环境的定位权限弹窗，并集成到菜单 `9) Wi-Fi SSID 权限诊断`；保留 `--open-location-services` 系统设置跳转；不自动授予权限、不写 TCC、不使用 `sudo` / `tccutil`。
 
 ### 2026.07.02+build.2
 
@@ -540,6 +557,10 @@
 - 支持 `--save-config --menu` 首次保存默认配置后打开菜单，并提供 `--install-launchd` 别名。
 
 ## po0-outbound-ip-report（Windows PowerShell）
+
+### 2026.07.02+build.4
+
+- 跟随 PO0 Release asset 批次对齐到 `po0-v2026.07.02.4`；Windows 客户端无行为变化。
 
 ### 2026.07.02+build.3
 

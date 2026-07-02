@@ -58,6 +58,7 @@ SKIP_WIFI_SSIDS=""
 FORCE_REPORT="0"
 WIFI_SKIP_LAST_SSID=""
 WIFI_SSID_LAST_ERROR=""
+PO0_OUTBOUND_IP_REPORT_MACOS_HELPER_DIR="${tmp_root}/helper-root"
 
 write_mock_networksetup "redacted"
 rm -f "${mock_bin}/wdutil"
@@ -119,29 +120,95 @@ printf '%s\n' "${output}" | grep -Fq "已请求打开 macOS 定位服务设置" 
 [[ "$(cat "${tmp_root}/open.args")" == "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices" ]] || fail "open helper used unexpected settings URL: $(cat "${tmp_root}/open.args")"
 rm -f "${mock_bin}/open"
 
-cat > "${mock_bin}/osascript" <<MOCK
+cat > "${mock_bin}/osacompile" <<'MOCK'
 #!/usr/bin/env bash
-cat > "${tmp_root}/osascript.stdin"
-printf '%s\n' "requested"
+out=""
+source_file=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -o)
+            out="$2"
+            shift 2
+            ;;
+        *)
+            source_file="$1"
+            shift
+            ;;
+    esac
+done
+[[ -n "${out}" && -n "${source_file}" ]] || exit 2
+mkdir -p "${out}/Contents/MacOS"
+printf '#!/usr/bin/env bash\n' > "${out}/Contents/MacOS/applet"
+chmod +x "${out}/Contents/MacOS/applet"
+cp "${source_file}" "${out}/Contents/script.applescript"
+cat > "${out}/Contents/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict></dict></plist>
+PLIST
 MOCK
-chmod +x "${mock_bin}/osascript"
+chmod +x "${mock_bin}/osacompile"
+cat > "${mock_bin}/open" <<MOCK
+#!/usr/bin/env bash
+printf '%s\n' "\$*" > "${tmp_root}/helper-open.args"
+out_path="\${@: -1}"
+[[ -f "\${out_path}" ]] || exit 3
+printf '%s\n' "status=requested" "ssid=CafeNet" > "\${out_path}"
+MOCK
+chmod +x "${mock_bin}/open"
 if ! output="$(request_macos_location_permission 2>&1)"; then
     fail "requesting Location Services permission failed: ${output}"
 fi
-grep -Fq "CoreLocation" "${tmp_root}/osascript.stdin" || fail "permission request did not load CoreLocation"
-grep -Fq "requestWhenInUseAuthorization" "${tmp_root}/osascript.stdin" || fail "permission request did not ask for when-in-use authorization"
+helper_app="$(macos_location_permission_helper_app_path)"
+[[ -d "${helper_app}" ]] || fail "permission request did not build helper app"
+grep -Fq "NSLocationWhenInUseUsageDescription" "${helper_app}/Contents/Info.plist" || fail "helper app Info.plist lacks location usage description"
+grep -Fq "NSLocationUsageDescription" "${helper_app}/Contents/Info.plist" || fail "helper app Info.plist lacks macOS location usage description"
+grep -Fq "CFBundleIdentifier" "${helper_app}/Contents/Info.plist" || fail "helper app Info.plist lacks stable bundle identifier"
+grep -Fq "CFBundleExecutable" "${helper_app}/Contents/Info.plist" || fail "helper app Info.plist lacks bundle executable"
+grep -Fq "CFBundlePackageType" "${helper_app}/Contents/Info.plist" || fail "helper app Info.plist lacks package type"
+grep -Fq "PO0HelperSchemaVersion" "${helper_app}/Contents/Info.plist" || fail "helper app Info.plist lacks schema version"
+[[ -x "${helper_app}/Contents/MacOS/applet" ]] || fail "helper app lacks executable applet"
+grep -Fq "CoreLocation" "${helper_app}/Contents/script.applescript" || fail "helper app did not load CoreLocation"
+grep -Fq "CoreWLAN" "${helper_app}/Contents/script.applescript" || fail "helper app did not load CoreWLAN"
+grep -Fq "requestWhenInUseAuthorization" "${helper_app}/Contents/script.applescript" || fail "helper app did not ask for when-in-use authorization"
+grep -Fq "PO0 Location Permission Helper.app" "${tmp_root}/helper-open.args" || fail "permission request did not open helper app"
 printf '%s\n' "${output}" | grep -Fq "已尝试触发 macOS 定位权限请求" || fail "permission request did not report prompt attempt"
-printf '%s\n' "${output}" | grep -Fq "Terminal/iTerm" || fail "permission request did not tell user which terminal app to allow"
+printf '%s\n' "${output}" | grep -Fq "PO0 Location Permission Helper" || fail "permission request did not tell user which helper app to allow"
 
-rm -f "${tmp_root}/osascript.stdin"
+cat > "${mock_bin}/open" <<MOCK
+#!/usr/bin/env bash
+printf '%s\n' "\$*" > "${tmp_root}/helper-open.args"
+out_path="\${@: -1}"
+[[ -f "\${out_path}" ]] || exit 3
+printf '%s\n' "status=requested" "ssid=redacted" > "\${out_path}"
+MOCK
+chmod +x "${mock_bin}/open"
+if ! output="$(request_macos_location_permission 2>&1)"; then
+    fail "requesting Location Services permission with redacted helper SSID failed: ${output}"
+fi
+if printf '%s\n' "${output}" | grep -Fq "Helper 当前读取到的 Wi-Fi SSID"; then
+    fail "permission request printed redacted helper SSID as a real SSID"
+fi
+
+cat > "${mock_bin}/open" <<MOCK
+#!/usr/bin/env bash
+printf '%s\n' "\$*" > "${tmp_root}/helper-open.args"
+out_path="\${@: -1}"
+[[ -f "\${out_path}" ]] || exit 3
+printf '%s\n' "status=requested" "ssid=CafeNet" > "\${out_path}"
+MOCK
+chmod +x "${mock_bin}/open"
+rm -f "${tmp_root}/helper-open.args"
 prompt_yes_no() {
     return 0
 }
 if ! output="$(show_wifi_ssid_permission_help_interactive 2>&1)"; then
     fail "interactive permission help failed: ${output}"
 fi
-[[ -s "${tmp_root}/osascript.stdin" ]] || fail "interactive menu help did not request Location Services permission"
-rm -f "${mock_bin}/osascript"
+[[ -s "${tmp_root}/helper-open.args" ]] || fail "interactive menu help did not request Location Services permission"
+ssid="$(macos_location_helper_wifi_ssid 2>/dev/null)" || fail "helper app SSID fallback did not return SSID"
+[[ "${ssid}" == "CafeNet" ]] || fail "unexpected helper app SSID: ${ssid}"
+rm -f "${mock_bin}/osacompile" "${mock_bin}/open"
 
 write_mock_networksetup "none"
 rm -f "${mock_bin}/wdutil"

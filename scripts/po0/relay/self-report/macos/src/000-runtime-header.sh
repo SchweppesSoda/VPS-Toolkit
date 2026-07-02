@@ -4,11 +4,11 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_OUTBOUND_IP_REPORT_MACOS_DOWNLOAD_URL:-${PO0_SELF_REPORT_MACOS_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report-macos.sh}}"
 SCRIPT_NAME="po0-outbound-ip-report"
-SCRIPT_VERSION="2026.07.02+build.3"
+SCRIPT_VERSION="2026.07.02+build.4"
 SCRIPT_RELEASE_DATE="2026-07-02"
 # CHANGELOG_BEGIN
-# - Wi-Fi SSID 权限诊断统一把 redacted/<redacted> 归类为 macOS 隐私权限隐藏，并输出可执行的定位服务设置打开命令。
-# - 新增 --request-location-permission 尝试触发当前终端 App 的定位权限弹窗，并集成到菜单 9；保留 --open-location-services 设置跳转入口；仍不自动授予权限、不写 TCC、不使用 sudo/tccutil。
+# - --request-location-permission 改为创建并打开 PO0 Location Permission Helper.app，由带稳定 bundle id 和定位用途声明的 Helper 触发 macOS 定位授权。
+# - Helper 授权后会在本机通过 CoreWLAN 读取当前 Wi-Fi SSID 并作为 fallback 返回；仍不上传 SSID、不写 TCC、不使用 sudo/tccutil。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24
