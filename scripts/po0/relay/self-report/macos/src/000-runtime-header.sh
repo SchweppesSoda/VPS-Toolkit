@@ -4,11 +4,11 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_OUTBOUND_IP_REPORT_MACOS_DOWNLOAD_URL:-${PO0_SELF_REPORT_MACOS_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report-macos.sh}}"
 SCRIPT_NAME="po0-outbound-ip-report"
-SCRIPT_VERSION="2026.07.02+build.5"
+SCRIPT_VERSION="2026.07.02+build.6"
 SCRIPT_RELEASE_DATE="2026-07-02"
 # CHANGELOG_BEGIN
-# - 新增 --delete-location-permission-helper / --remove-location-helper，并在菜单维护区加入“删除定位权限 Helper”。
-# - 删除 Helper 只移除本地 PO0 Location Permission Helper.app，不修改 macOS 定位授权 / TCC 记录；卸载客户端时会顺带清理该 Helper。
+# - 修复 PO0 Location Permission Helper 触发授权时可能出现的 AppleScript 类型转换错误 -1700。
+# - Helper 输出改用 NSString writeToFile，并提升 Helper schema，确保旧 Helper 会被重建。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24

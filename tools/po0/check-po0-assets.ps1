@@ -10,9 +10,9 @@ if (-not $OutputDir) {
 }
 
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.07.02+build.5" }
+$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.07.02+build.6" }
 $ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-07-02" }
-$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.07.02.5" }
+$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.07.02.6" }
 
 function ConvertTo-RepoRelativePath {
     param([string]$Path)
@@ -441,6 +441,18 @@ function Test-MacOsWifiSsidDiagnostic {
     }
     if ($raw -notmatch 'CoreWLAN' -or $raw -notmatch 'macos_location_helper_wifi_ssid\(\)') {
         throw "macOS asset must let the Location Permission Helper read Wi-Fi SSID in-process."
+    }
+    if ($raw -match 'as (boolean|integer|real)') {
+        throw "macOS helper AppleScript must not coerce AppleScriptObjC values with as boolean/integer/real."
+    }
+    if ($raw -match 'write theText to fileRef as') {
+        throw "macOS helper AppleScript must not write output with AppleEvent utf8 class coercion."
+    }
+    if ($raw -notmatch 'writeToFile:outputPath') {
+        throw "macOS helper AppleScript should write output through NSString writeToFile."
+    }
+    if ($raw -notmatch 'repeat 40 times') {
+        throw "macOS helper AppleScript should wait without NSDate numeric coercion."
     }
     if ($raw -notmatch 'PO0 Location Permission Helper\.app' -or $raw -notmatch 'osacompile') {
         throw "macOS asset must build and open a stable Location Permission Helper app."

@@ -151,7 +151,7 @@ validate_macos_location_permission_helper_app_path() {
 }
 
 macos_location_permission_helper_schema_version() {
-    printf '2026.07.02.4\n'
+    printf '2026.07.02.6\n'
 }
 
 write_macos_location_permission_helper_source() {
@@ -165,16 +165,9 @@ use scripting additions
 property locationManager : missing value
 
 on writeText(theText, outputPath)
-    set fileRef to missing value
     try
-        set fileRef to open for access (POSIX file outputPath) with write permission
-        set eof of fileRef to 0
-        write theText to fileRef as «class utf8»
-        close access fileRef
-    on error
-        try
-            if fileRef is not missing value then close access fileRef
-        end try
+        set outputString to current application's NSString's stringWithString:theText
+        outputString's writeToFile:outputPath atomically:true encoding:(current application's NSUTF8StringEncoding) |error|:(missing value)
     end try
 end writeText
 
@@ -183,31 +176,33 @@ on run argv
     if (count of argv) > 0 then set outputPath to item 1 of argv
     set ssidValue to ""
     set statusValue to "requested"
-    if ((current application's CLLocationManager's locationServicesEnabled()) as boolean) is false then
-        error "macOS Location Services is disabled."
-    end if
-    set locationManager to current application's CLLocationManager's alloc()'s init()
-    locationManager's requestWhenInUseAuthorization()
-    locationManager's startUpdatingLocation()
-    set deadline to current application's NSDate's dateWithTimeIntervalSinceNow:8
-    repeat while ((deadline's timeIntervalSinceNow()) as real) > 0
-        current application's NSRunLoop's currentRunLoop()'s runUntilDate:(current application's NSDate's dateWithTimeIntervalSinceNow:0.2)
-    end repeat
     try
-        set statusObject to current application's CLLocationManager's authorizationStatus()
-        set statusValue to (statusObject as integer) as text
+        set locationManager to current application's CLLocationManager's alloc()'s init()
+        locationManager's requestWhenInUseAuthorization()
+        locationManager's startUpdatingLocation()
+        repeat 40 times
+            current application's NSRunLoop's currentRunLoop()'s runUntilDate:(current application's NSDate's dateWithTimeIntervalSinceNow:0.2)
+        end repeat
+        try
+            set wifiClient to current application's CWWiFiClient's sharedWiFiClient()
+            set wifiInterface to wifiClient's interface()
+            if wifiInterface is not missing value then
+                set ssidObject to wifiInterface's ssid()
+                if ssidObject is not missing value then set ssidValue to ssidObject as text
+            end if
+        end try
+        try
+            if locationManager is not missing value then locationManager's stopUpdatingLocation()
+        end try
+        if outputPath is not "" then my writeText("status=" & statusValue & linefeed & "ssid=" & ssidValue & linefeed, outputPath)
+        return statusValue
+    on error errMsg number errNum
+        try
+            if locationManager is not missing value then locationManager's stopUpdatingLocation()
+        end try
+        if outputPath is not "" then my writeText("status=error" & linefeed & "error=" & errNum & linefeed, outputPath)
+        return "error"
     end try
-    try
-        set wifiClient to current application's CWWiFiClient's sharedWiFiClient()
-        set wifiInterface to wifiClient's interface()
-        if wifiInterface is not missing value then
-            set ssidObject to wifiInterface's ssid()
-            if ssidObject is not missing value then set ssidValue to ssidObject as text
-        end if
-    end try
-    locationManager's stopUpdatingLocation()
-    if outputPath is not "" then my writeText("status=" & statusValue & linefeed & "ssid=" & ssidValue & linefeed, outputPath)
-    return statusValue
 end run
 APPLESCRIPT
 }
@@ -399,7 +394,7 @@ macos_location_helper_wifi_ssid() {
 }
 
 request_macos_location_permission() {
-    local app_dir output_file output rc ssid accepted_ssid line
+    local app_dir output_file output rc ssid accepted_ssid helper_error line
     printf '将创建并打开 PO0 Location Permission Helper 来触发 macOS 定位权限请求。\n'
     printf '如果系统弹窗出现，请允许 PO0 Location Permission Helper 访问位置。\n'
     printf '本操作不会自动授予权限，不会运行 sudo，不会调用 tccutil，不会写入 TCC 数据库。\n'
@@ -422,11 +417,17 @@ request_macos_location_permission() {
     if [[ "${rc}" == "0" ]]; then
         printf '已尝试触发 macOS 定位权限请求。\n'
         ssid=""
+        helper_error=""
         while IFS= read -r line || [[ -n "${line}" ]]; do
             case "${line}" in
                 ssid=*) ssid="${line#ssid=}" ;;
+                error=*) helper_error="${line#error=}" ;;
             esac
         done <<< "${output}"
+        if [[ -n "${helper_error}" ]]; then
+            printf 'Helper 返回错误：%s\n' "${helper_error}" >&2
+            return 1
+        fi
         accepted_ssid="$(accepted_wifi_ssid_value "${ssid}" 2>/dev/null || true)"
         if [[ -n "${accepted_ssid}" ]]; then
             printf 'Helper 当前读取到的 Wi-Fi SSID：%s\n' "${accepted_ssid}"

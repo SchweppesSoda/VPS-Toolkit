@@ -171,6 +171,14 @@ grep -Fq "PO0HelperSchemaVersion" "${helper_app}/Contents/Info.plist" || fail "h
 grep -Fq "CoreLocation" "${helper_app}/Contents/script.applescript" || fail "helper app did not load CoreLocation"
 grep -Fq "CoreWLAN" "${helper_app}/Contents/script.applescript" || fail "helper app did not load CoreWLAN"
 grep -Fq "requestWhenInUseAuthorization" "${helper_app}/Contents/script.applescript" || fail "helper app did not ask for when-in-use authorization"
+if grep -Eq 'as (boolean|integer|real)' "${helper_app}/Contents/script.applescript"; then
+    fail "helper app must not coerce AppleScriptObjC values with as boolean/integer/real"
+fi
+if grep -Fq 'write theText to fileRef as' "${helper_app}/Contents/script.applescript"; then
+    fail "helper app must not write output with AppleEvent utf8 class coercion"
+fi
+grep -Fq 'writeToFile:outputPath' "${helper_app}/Contents/script.applescript" || fail "helper app should write output through NSString writeToFile"
+grep -Fq 'repeat 40 times' "${helper_app}/Contents/script.applescript" || fail "helper app should wait without NSDate numeric coercion"
 grep -Fq "PO0 Location Permission Helper.app" "${tmp_root}/helper-open.args" || fail "permission request did not open helper app"
 printf '%s\n' "${output}" | grep -Fq "已尝试触发 macOS 定位权限请求" || fail "permission request did not report prompt attempt"
 printf '%s\n' "${output}" | grep -Fq "PO0 Location Permission Helper" || fail "permission request did not tell user which helper app to allow"

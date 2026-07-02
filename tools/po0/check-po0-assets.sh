@@ -3,9 +3,9 @@ set -euo pipefail
 
 repo_root="$(cd "$(git rev-parse --show-toplevel)" && pwd -P)"
 asset_dir="${1:-${repo_root}/.tmp/po0-check-assets}"
-expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.07.02+build.5}"
+expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.07.02+build.6}"
 expected_po0_release_date="${PO0_EXPECTED_RELEASE_DATE:-2026-07-02}"
-expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.07.02.5}"
+expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.07.02.6}"
 
 manifest_entries() {
     local manifest="$1"
@@ -392,6 +392,22 @@ check_macos_wifi_ssid_diagnostic() {
     }
     grep -Fq 'CoreWLAN' "${asset}" && grep -Fq 'macos_location_helper_wifi_ssid()' "${asset}" || {
         printf 'macOS asset must let the Location Permission Helper read Wi-Fi SSID in-process.\n' >&2
+        exit 1
+    }
+    if grep -Eq 'as (boolean|integer|real)' "${asset}"; then
+        printf 'macOS helper AppleScript must not coerce AppleScriptObjC values with as boolean/integer/real.\n' >&2
+        exit 1
+    fi
+    if grep -Fq 'write theText to fileRef as' "${asset}"; then
+        printf 'macOS helper AppleScript must not write output with AppleEvent utf8 class coercion.\n' >&2
+        exit 1
+    fi
+    grep -Fq 'writeToFile:outputPath' "${asset}" || {
+        printf 'macOS helper AppleScript should write output through NSString writeToFile.\n' >&2
+        exit 1
+    }
+    grep -Fq 'repeat 40 times' "${asset}" || {
+        printf 'macOS helper AppleScript should wait without NSDate numeric coercion.\n' >&2
         exit 1
     }
     grep -Fq 'PO0 Location Permission Helper.app' "${asset}" && grep -Fq 'osacompile' "${asset}" || {
