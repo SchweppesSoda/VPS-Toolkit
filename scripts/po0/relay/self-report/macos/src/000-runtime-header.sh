@@ -4,11 +4,11 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_OUTBOUND_IP_REPORT_MACOS_DOWNLOAD_URL:-${PO0_SELF_REPORT_MACOS_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report-macos.sh}}"
 SCRIPT_NAME="po0-outbound-ip-report"
-SCRIPT_VERSION="2026.07.02+build.4"
+SCRIPT_VERSION="2026.07.02+build.5"
 SCRIPT_RELEASE_DATE="2026-07-02"
 # CHANGELOG_BEGIN
-# - --request-location-permission 改为创建并打开 PO0 Location Permission Helper.app，由带稳定 bundle id 和定位用途声明的 Helper 触发 macOS 定位授权。
-# - Helper 授权后会在本机通过 CoreWLAN 读取当前 Wi-Fi SSID 并作为 fallback 返回；仍不上传 SSID、不写 TCC、不使用 sudo/tccutil。
+# - 新增 --delete-location-permission-helper / --remove-location-helper，并在菜单维护区加入“删除定位权限 Helper”。
+# - 删除 Helper 只移除本地 PO0 Location Permission Helper.app，不修改 macOS 定位授权 / TCC 记录；卸载客户端时会顺带清理该 Helper。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24
@@ -50,6 +50,7 @@ SHOW_WIFI_SSID=""
 SHOW_WIFI_SSID_DIAGNOSTIC=""
 OPEN_LOCATION_SERVICES_SETTINGS=""
 REQUEST_LOCATION_PERMISSION=""
+REMOVE_LOCATION_HELPER=""
 UPGRADE_SELF=""
 SAVE_CONFIG=""
 PAUSE_SCHEDULE=""

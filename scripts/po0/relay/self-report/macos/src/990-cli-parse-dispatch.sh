@@ -23,6 +23,7 @@ usage() {
         "  --diagnose-wifi-ssid  显示当前 Wi-Fi SSID 探测结果和 macOS 定位权限诊断后退出。" \
         "  --open-location-services 打开 macOS 定位服务设置后退出；只做跳转，不修改系统权限。" \
         "  --request-location-permission 创建并打开 PO0 Location Permission Helper，尝试触发 macOS 定位权限弹窗后退出。" \
+        "  --delete-location-permission-helper 删除 PO0 Location Permission Helper.app；不修改 macOS 定位授权记录。" \
         "  --upgrade-self        从 GitHub Release 下载并更新本机脚本；菜单内更新会自动重开新版菜单。" \
         "  --config PATH         本地配置文件；优先级：--config / PO0_OUTBOUND_IP_REPORT_CONFIG / PO0_SELF_REPORT_CONFIG 或 SELF_REPORT_CONFIG / root 的 /etc/po0-outbound-ip-report/settings.env / XDG_CONFIG_HOME / ~/.config / ./po0-outbound-ip-report.env；旧 po0-self-report 配置仅作 fallback。" \
         "  --save-config         保存当前参数到本地配置文件；可与 --menu 组合为首次保存后打开菜单。" \
@@ -87,6 +88,10 @@ parse_args() {
                 ;;
             --request-location-permission|--request-location-services|--setup-location-services)
                 REQUEST_LOCATION_PERMISSION="1"
+                shift
+                ;;
+            --delete-location-permission-helper|--remove-location-permission-helper|--remove-location-helper)
+                REMOVE_LOCATION_HELPER="1"
                 shift
                 ;;
             --upgrade-self)
@@ -243,7 +248,7 @@ apply_env_overrides
 apply_device_defaults
 parse_args "$@"
 normalize_legacy_default_install_path
-if [[ "${SHOW_VERSION}" != "1" && "${SHOW_CHANGELOG}" != "1" && "${SHOW_WIFI_SSID}" != "1" && "${SHOW_WIFI_SSID_DIAGNOSTIC}" != "1" && "${OPEN_LOCATION_SERVICES_SETTINGS}" != "1" && "${REQUEST_LOCATION_PERMISSION}" != "1" && "${UPGRADE_SELF}" != "1" ]]; then
+if [[ "${SHOW_VERSION}" != "1" && "${SHOW_CHANGELOG}" != "1" && "${SHOW_WIFI_SSID}" != "1" && "${SHOW_WIFI_SSID_DIAGNOSTIC}" != "1" && "${OPEN_LOCATION_SERVICES_SETTINGS}" != "1" && "${REQUEST_LOCATION_PERMISSION}" != "1" && "${REMOVE_LOCATION_HELPER}" != "1" && "${UPGRADE_SELF}" != "1" ]]; then
     apply_interval_seconds_override || exit 1
 fi
 apply_device_defaults
@@ -266,6 +271,8 @@ elif [[ "${OPEN_LOCATION_SERVICES_SETTINGS}" == "1" ]]; then
     open_macos_location_services_settings
 elif [[ "${REQUEST_LOCATION_PERMISSION}" == "1" ]]; then
     request_macos_location_permission
+elif [[ "${REMOVE_LOCATION_HELPER}" == "1" ]]; then
+    remove_macos_location_permission_helper_app
 elif [[ "${UPGRADE_SELF}" == "1" ]]; then
     upgrade_self_from_download
 elif [[ "${SAVE_CONFIG}" == "1" && "${SHOW_MENU}" == "1" ]]; then

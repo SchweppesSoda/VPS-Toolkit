@@ -3,9 +3,9 @@ set -euo pipefail
 
 repo_root="$(cd "$(git rev-parse --show-toplevel)" && pwd -P)"
 asset_dir="${1:-${repo_root}/.tmp/po0-check-assets}"
-expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.07.02+build.4}"
+expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.07.02+build.5}"
 expected_po0_release_date="${PO0_EXPECTED_RELEASE_DATE:-2026-07-02}"
-expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.07.02.4}"
+expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.07.02.5}"
 
 manifest_entries() {
     local manifest="$1"
@@ -342,6 +342,10 @@ check_macos_wifi_ssid_diagnostic() {
         printf 'macOS asset lacks --request-location-permission authorization prompt CLI.\n' >&2
         exit 1
     }
+    grep -Fq -- '--delete-location-permission-helper' "${asset}" && grep -Fq -- '--remove-location-helper' "${asset}" || {
+        printf 'macOS asset lacks Location Permission Helper deletion CLI.\n' >&2
+        exit 1
+    }
     grep -Fq 'show_current_wifi_ssid_once()' "${asset}" || {
         printf 'macOS asset lacks explicit current Wi-Fi SSID diagnostic function.\n' >&2
         exit 1
@@ -358,8 +362,12 @@ check_macos_wifi_ssid_diagnostic() {
         printf 'macOS asset lacks Location Services authorization request helper.\n' >&2
         exit 1
     }
-    grep -Fq 'Wi-Fi SSID 权限诊断' "${asset}" && grep -Fq '请选择操作 [0-11]' "${asset}" && grep -Fq '9) show_wifi_ssid_permission_help_interactive; pause_before_return ;;' "${asset}" || {
+    grep -Fq 'Wi-Fi SSID 权限诊断' "${asset}" && grep -Fq '请选择操作 [0-12]' "${asset}" && grep -Fq '9) show_wifi_ssid_permission_help_interactive; pause_before_return ;;' "${asset}" && grep -Fq '11) remove_macos_location_permission_helper_app_interactive; pause_before_return ;;' "${asset}" || {
         printf 'macOS asset lacks Wi-Fi SSID diagnostic menu/range/case wiring.\n' >&2
+        exit 1
+    }
+    grep -Fq 'remove_macos_location_permission_helper_app()' "${asset}" && grep -Fq 'remove_macos_location_permission_helper_app_interactive()' "${asset}" || {
+        printf 'macOS asset lacks Location Permission Helper removal helpers.\n' >&2
         exit 1
     }
     grep -Fq 'accepted_wifi_ssid_value()' "${asset}" || {
@@ -396,6 +404,10 @@ check_macos_wifi_ssid_diagnostic() {
     }
     grep -Fq 'macos_location_permission_helper_app_is_current()' "${asset}" || {
         printf 'macOS helper app generation must be idempotent for current helper schema.\n' >&2
+        exit 1
+    }
+    grep -Fq 'macos_location_permission_helper_app_has_po0_identity()' "${asset}" && grep -Fq 'validate_macos_location_permission_helper_app_path()' "${asset}" || {
+        printf 'macOS helper app deletion must validate path and PO0 helper identity before recursive removal.\n' >&2
         exit 1
     }
     grep -Fq 'create_macos_location_helper_output_file()' "${asset}" && grep -Fq 'cleanup_macos_location_helper_output_file()' "${asset}" || {
@@ -448,7 +460,7 @@ check_macos_wifi_ssid_diagnostic() {
             exit 1
         fi
     done
-    for fn in request_macos_location_permission ensure_macos_location_permission_helper_app macos_location_helper_wifi_ssid; do
+    for fn in request_macos_location_permission ensure_macos_location_permission_helper_app macos_location_helper_wifi_ssid remove_macos_location_permission_helper_app remove_macos_location_permission_helper_app_interactive; do
         body="$(
             awk -v fn="${fn}" '
                 $0 == fn "() {" {in_fn=1}
@@ -462,6 +474,29 @@ check_macos_wifi_ssid_diagnostic() {
             exit 1
         fi
     done
+    body="$(
+        awk '
+            $0 == "remove_macos_location_permission_helper_app() {" {in_fn=1}
+            in_fn {print}
+            in_fn && /^}/ {exit}
+        ' "${asset}"
+    )"
+    printf '%s\n' "${body}" | grep -Fq 'validate_macos_location_permission_helper_app_path "${app_dir}"' || {
+        printf 'macOS helper removal must validate the computed helper path.\n' >&2
+        exit 1
+    }
+    printf '%s\n' "${body}" | grep -Fq 'macos_location_permission_helper_app_has_po0_identity "${app_dir}"' || {
+        printf 'macOS helper removal must verify PO0 helper bundle identity.\n' >&2
+        exit 1
+    }
+    printf '%s\n' "${body}" | grep -Fq 'rm -rf -- "${app_dir}"' || {
+        printf 'macOS helper removal must recursively remove only the validated helper app path.\n' >&2
+        exit 1
+    }
+    if printf '%s\n' "${body}" | grep -Eq 'rm -rf[^\r\n]*(root|HOME|PO0_OUTBOUND_IP_REPORT_MACOS_HELPER_DIR|app_dir%|[*])'; then
+        printf 'macOS helper removal must not recursively delete helper root, HOME, parent directories, or globs.\n' >&2
+        exit 1
+    fi
 }
 
 check_windows_ssid_guard() {

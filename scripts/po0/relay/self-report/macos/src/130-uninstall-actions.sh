@@ -30,7 +30,7 @@ uninstall_self_report_interactive() {
     log_path="$(self_report_log_path)"
     legacy_log="$(legacy_self_report_log_path)"
     legacy_config="$(legacy_config_file)"
-    echo "卸载会删除本脚本管理的定时上报和本机安装脚本。"
+    echo "卸载会删除本脚本管理的定时上报、本机安装脚本和 PO0 Location Permission Helper。"
     echo "本机安装脚本：${install_path}"
     echo "旧兼容命令：${legacy_path}"
     echo "配置文件和日志默认保留，后续可选择是否一起删除。"
@@ -39,6 +39,7 @@ uninstall_self_report_interactive() {
         return 2
     fi
     remove_cron_for_uninstall || errors=1
+    remove_macos_location_permission_helper_app || errors=1
     remove_file_if_exists "本机脚本" "${install_path}" || errors=1
     if [[ "${legacy_path}" != "${install_path}" ]]; then
         remove_file_if_exists "旧兼容命令" "${legacy_path}" || errors=1

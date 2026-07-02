@@ -129,11 +129,12 @@ menu_loop() {
         print_menu_section "查看"
         print_menu_pair 8 "显示当前配置" 9 "Wi-Fi SSID 权限诊断"
         print_menu_section "维护"
-        print_menu_pair 10 "从 GitHub 更新脚本" 11 "卸载本客户端"
+        print_menu_pair 10 "从 GitHub 更新脚本" 11 "删除定位权限 Helper"
+        print_menu_item 12 "卸载本客户端"
         print_menu_section "退出"
         print_menu_item 0 "退出"
         print_menu_footer
-        choice="$(read_prompt "请选择操作 [0-11]: ")" || return 0
+        choice="$(read_prompt "请选择操作 [0-12]: ")" || return 0
         choice="$(trim "${choice}")"
         case "${choice}" in
             1) configure_interactive; pause_before_return ;;
@@ -153,7 +154,8 @@ menu_loop() {
             8) show_current_config; pause_before_return ;;
             9) show_wifi_ssid_permission_help_interactive; pause_before_return ;;
             10) upgrade_self_from_download --reopen-menu || pause_before_return ;;
-            11)
+            11) remove_macos_location_permission_helper_app_interactive; pause_before_return ;;
+            12)
                 uninstall_self_report_interactive
                 rc=$?
                 pause_before_return

@@ -10,9 +10,9 @@ if (-not $OutputDir) {
 }
 
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.07.02+build.4" }
+$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.07.02+build.5" }
 $ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-07-02" }
-$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.07.02.4" }
+$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.07.02.5" }
 
 function ConvertTo-RepoRelativePath {
     param([string]$Path)
@@ -403,6 +403,9 @@ function Test-MacOsWifiSsidDiagnostic {
     if ($raw -notmatch '--request-location-permission') {
         throw "macOS asset lacks --request-location-permission authorization prompt CLI."
     }
+    if ($raw -notmatch '--delete-location-permission-helper' -or $raw -notmatch '--remove-location-helper') {
+        throw "macOS asset lacks Location Permission Helper deletion CLI."
+    }
     if ($raw -notmatch 'show_current_wifi_ssid_once\(\)') {
         throw "macOS asset lacks explicit current Wi-Fi SSID diagnostic function."
     }
@@ -415,8 +418,11 @@ function Test-MacOsWifiSsidDiagnostic {
     if ($raw -notmatch 'request_macos_location_permission\(\)' -or $raw -notmatch 'ensure_macos_location_permission_helper_app\(\)' -or $raw -notmatch 'macos_location_helper_wifi_ssid\(\)') {
         throw "macOS asset lacks Location Services authorization request helper."
     }
-    if ($raw -notmatch '\[0-11\]' -or $raw -notmatch '9\) show_wifi_ssid_permission_help_interactive; pause_before_return ;;') {
+    if ($raw -notmatch '\[0-12\]' -or $raw -notmatch '9\) show_wifi_ssid_permission_help_interactive; pause_before_return ;;' -or $raw -notmatch '11\) remove_macos_location_permission_helper_app_interactive; pause_before_return ;;') {
         throw "macOS asset lacks Wi-Fi SSID diagnostic menu/range/case wiring."
+    }
+    if ($raw -notmatch 'remove_macos_location_permission_helper_app\(\)' -or $raw -notmatch 'remove_macos_location_permission_helper_app_interactive\(\)') {
+        throw "macOS asset lacks Location Permission Helper removal helpers."
     }
     if ($raw -notmatch 'accepted_wifi_ssid_value\(\)') {
         throw "macOS asset lacks centralized Wi-Fi SSID value filter."
@@ -444,6 +450,9 @@ function Test-MacOsWifiSsidDiagnostic {
     }
     if ($raw -notmatch 'macos_location_permission_helper_app_is_current\(\)') {
         throw "macOS helper app generation must be idempotent for current helper schema."
+    }
+    if ($raw -notmatch 'macos_location_permission_helper_app_has_po0_identity\(\)' -or $raw -notmatch 'validate_macos_location_permission_helper_app_path\(\)') {
+        throw "macOS helper app deletion must validate path and PO0 helper identity before recursive removal."
     }
     if ($raw -notmatch 'create_macos_location_helper_output_file\(\)' -or $raw -notmatch 'cleanup_macos_location_helper_output_file\(\)') {
         throw "macOS helper output path must use managed temp file helpers."
@@ -479,7 +488,7 @@ function Test-MacOsWifiSsidDiagnostic {
             throw "macOS Wi-Fi SSID diagnostic must not run sudo/tccutil/sqlite3/osascript auto-grant commands in $fnName."
         }
     }
-    foreach ($fnName in @("request_macos_location_permission", "ensure_macos_location_permission_helper_app", "macos_location_helper_wifi_ssid")) {
+    foreach ($fnName in @("request_macos_location_permission", "ensure_macos_location_permission_helper_app", "macos_location_helper_wifi_ssid", "remove_macos_location_permission_helper_app", "remove_macos_location_permission_helper_app_interactive")) {
         $pattern = "(?ms)^" + [regex]::Escape($fnName) + "\(\) \{.*?^}"
         $fn = [regex]::Match($raw, $pattern)
         if (-not $fn.Success) {
@@ -488,6 +497,22 @@ function Test-MacOsWifiSsidDiagnostic {
         if ($fn.Value -match '(?m)^\s*(sudo|tccutil|sqlite3)\s') {
             throw "macOS Wi-Fi SSID permission request must not run sudo/tccutil/sqlite3 commands in $fnName."
         }
+    }
+    $removeFn = [regex]::Match($raw, '(?ms)^remove_macos_location_permission_helper_app\(\) \{.*?^}')
+    if (-not $removeFn.Success) {
+        throw "macOS asset lacks remove_macos_location_permission_helper_app body."
+    }
+    if ($removeFn.Value -notmatch [regex]::Escape('validate_macos_location_permission_helper_app_path "${app_dir}"')) {
+        throw "macOS helper removal must validate the computed helper path."
+    }
+    if ($removeFn.Value -notmatch [regex]::Escape('macos_location_permission_helper_app_has_po0_identity "${app_dir}"')) {
+        throw "macOS helper removal must verify PO0 helper bundle identity."
+    }
+    if ($removeFn.Value -notmatch [regex]::Escape('rm -rf -- "${app_dir}"')) {
+        throw "macOS helper removal must recursively remove only the validated helper app path."
+    }
+    if ($removeFn.Value -match 'rm -rf[^\r\n]*(root|HOME|PO0_OUTBOUND_IP_REPORT_MACOS_HELPER_DIR|app_dir%|\*)') {
+        throw "macOS helper removal must not recursively delete helper root, HOME, parent directories, or globs."
     }
 }
 

@@ -117,6 +117,39 @@ macos_location_permission_helper_app_path() {
     printf '%s\n' "${root}/PO0 Location Permission Helper.app"
 }
 
+validate_macos_location_permission_helper_app_path() {
+    local app_dir="$1" root physical logical
+    [[ -n "${app_dir}" ]] || return 1
+    case "${app_dir}" in
+        /*) ;;
+        *) return 1 ;;
+    esac
+    case "${app_dir}" in
+        *$'\n'*|*"/../"*|*"/./"*|*"/..") return 1 ;;
+    esac
+    case "${app_dir}" in
+        *"/PO0 Location Permission Helper.app") ;;
+        *) return 1 ;;
+    esac
+    root="${app_dir%/PO0 Location Permission Helper.app}"
+    [[ -n "${root}" && "${root}" != "${app_dir}" ]] || return 1
+    case "${root}" in
+        "/"|"/Applications"|"/Library"|"/System"|"/usr"|"/bin"|"/sbin"|"/private"|"/tmp"|"/var"|"/Users")
+            return 1
+            ;;
+    esac
+    if [[ -n "${HOME:-}" && "${root}" == "${HOME}" ]]; then
+        return 1
+    fi
+    if [[ -e "${root}" ]]; then
+        [[ ! -L "${root}" ]] || return 1
+        physical="$(cd -P "${root}" 2>/dev/null && pwd -P)" || return 1
+        logical="$(cd "${root}" 2>/dev/null && pwd)" || return 1
+        [[ "${physical}" == "${logical}" ]] || return 1
+    fi
+    return 0
+}
+
 macos_location_permission_helper_schema_version() {
     printf '2026.07.02.4\n'
 }
@@ -227,6 +260,14 @@ macos_location_permission_helper_app_is_current() {
     grep -Fq "<string>${schema_version}</string>" "${plist}" || return 1
 }
 
+macos_location_permission_helper_app_has_po0_identity() {
+    local app_dir="$1" plist
+    plist="${app_dir}/Contents/Info.plist"
+    [[ -d "${app_dir}" && ! -L "${app_dir}" && -f "${plist}" ]] || return 1
+    grep -Fq 'fr.schweppes.po0.location-permission-helper' "${plist}" || return 1
+    grep -Fq 'PO0HelperSchemaVersion' "${plist}" || return 1
+}
+
 create_macos_location_helper_output_file() {
     local output_dir output_file
     output_dir="$(mktemp -d "${TMPDIR:-/tmp}/po0-location-helper.XXXXXX")" || return 1
@@ -260,10 +301,7 @@ ensure_macos_location_permission_helper_app() {
     command -v osacompile >/dev/null 2>&1 || return 127
     root="$(macos_location_permission_helper_root)" || return 1
     app_dir="$(macos_location_permission_helper_app_path)" || return 1
-    case "${app_dir}" in
-        *"/PO0 Location Permission Helper.app") ;;
-        *) return 1 ;;
-    esac
+    validate_macos_location_permission_helper_app_path "${app_dir}" || return 1
     if macos_location_permission_helper_app_is_current "${app_dir}"; then
         printf '%s\n' "${app_dir}"
         return 0
@@ -271,7 +309,14 @@ ensure_macos_location_permission_helper_app() {
     mkdir -p "${root}" || return 1
     script_file="${root}/po0-location-permission-helper.applescript"
     write_macos_location_permission_helper_source "${script_file}" || return 1
-    rm -rf "${app_dir}" 2>/dev/null || true
+    if [[ -e "${app_dir}" || -L "${app_dir}" ]]; then
+        macos_location_permission_helper_app_has_po0_identity "${app_dir}" || {
+            rm -f "${script_file}" 2>/dev/null || true
+            printf '拒绝替换不符合 PO0 Helper 身份的路径：%s\n' "${app_dir}" >&2
+            return 1
+        }
+    fi
+    rm -rf -- "${app_dir}" 2>/dev/null || true
     rc=0
     osacompile -o "${app_dir}" "${script_file}" >/dev/null 2>&1 || rc=$?
     rm -f "${script_file}" 2>/dev/null || true
@@ -283,6 +328,48 @@ ensure_macos_location_permission_helper_app() {
         codesign --force --deep --sign - "${app_dir}" >/dev/null 2>&1 || true
     fi
     printf '%s\n' "${app_dir}"
+}
+
+remove_macos_location_permission_helper_app() {
+    local app_dir
+    app_dir="$(macos_location_permission_helper_app_path)" || {
+        printf '无法确定 PO0 Location Permission Helper 路径。\n' >&2
+        return 1
+    }
+    validate_macos_location_permission_helper_app_path "${app_dir}" || {
+        printf '拒绝删除不符合预期的 Helper 路径：%s\n' "${app_dir}" >&2
+        return 1
+    }
+    if [[ -e "${app_dir}" || -L "${app_dir}" ]]; then
+        macos_location_permission_helper_app_has_po0_identity "${app_dir}" || {
+            printf '拒绝删除不符合 PO0 Helper 身份的路径：%s\n' "${app_dir}" >&2
+            return 1
+        }
+        if rm -rf -- "${app_dir}"; then
+            printf '已删除 PO0 Location Permission Helper：%s\n' "${app_dir}"
+        else
+            printf '删除 PO0 Location Permission Helper 失败：%s\n' "${app_dir}" >&2
+            return 1
+        fi
+    else
+        printf 'PO0 Location Permission Helper 不存在：%s\n' "${app_dir}"
+    fi
+    printf '注意：删除 Helper 只移除本地 app 文件，不会修改 macOS 定位授权记录；如需撤销授权，请到系统设置 > 隐私与安全性 > 定位服务 中处理。\n'
+}
+
+remove_macos_location_permission_helper_app_interactive() {
+    local app_dir
+    app_dir="$(macos_location_permission_helper_app_path)" || {
+        printf '无法确定 PO0 Location Permission Helper 路径。\n' >&2
+        return 1
+    }
+    printf '将删除 PO0 Location Permission Helper：%s\n' "${app_dir}"
+    printf '此操作不会修改 macOS 定位授权记录，也不会写入 TCC 数据库。\n'
+    if ! prompt_yes_no "确认删除 PO0 Location Permission Helper" "n"; then
+        printf '已取消。\n'
+        return 2
+    fi
+    remove_macos_location_permission_helper_app
 }
 
 macos_location_helper_wifi_ssid() {

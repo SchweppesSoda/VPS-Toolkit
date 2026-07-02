@@ -175,6 +175,37 @@ grep -Fq "PO0 Location Permission Helper.app" "${tmp_root}/helper-open.args" || 
 printf '%s\n' "${output}" | grep -Fq "已尝试触发 macOS 定位权限请求" || fail "permission request did not report prompt attempt"
 printf '%s\n' "${output}" | grep -Fq "PO0 Location Permission Helper" || fail "permission request did not tell user which helper app to allow"
 
+printf 'keep\n' > "${PO0_OUTBOUND_IP_REPORT_MACOS_HELPER_DIR}/keep.txt"
+printf 'outside\n' > "${tmp_root}/outside-keep.txt"
+if ! output="$(remove_macos_location_permission_helper_app 2>&1)"; then
+    fail "removing Location Permission Helper failed: ${output}"
+fi
+[[ ! -e "${helper_app}" ]] || fail "Location Permission Helper app still exists after removal"
+[[ -f "${PO0_OUTBOUND_IP_REPORT_MACOS_HELPER_DIR}/keep.txt" ]] || fail "helper removal deleted unrelated helper-root file"
+[[ -f "${tmp_root}/outside-keep.txt" ]] || fail "helper removal deleted unrelated outside file"
+printf '%s\n' "${output}" | grep -Fq "已删除 PO0 Location Permission Helper" || fail "helper removal did not report deletion"
+printf '%s\n' "${output}" | grep -Fq "不会修改 macOS 定位授权记录" || fail "helper removal did not explain TCC permissions are untouched"
+if ! output="$(remove_macos_location_permission_helper_app 2>&1)"; then
+    fail "removing missing Location Permission Helper should be idempotent: ${output}"
+fi
+printf '%s\n' "${output}" | grep -Fq "不存在" || fail "helper removal did not report missing helper"
+
+mkdir -p "${helper_app}/Contents"
+cat > "${helper_app}/Contents/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>example.other.helper</string></dict></plist>
+PLIST
+if output="$(remove_macos_location_permission_helper_app 2>&1)"; then
+    fail "helper removal deleted a bundle without the PO0 helper identity: ${output}"
+fi
+[[ -d "${helper_app}" ]] || fail "helper removal removed wrong-identity bundle"
+rm -rf "${helper_app}"
+
+if ! output="$(request_macos_location_permission 2>&1)"; then
+    fail "requesting Location Services permission after helper removal failed: ${output}"
+fi
+[[ -d "${helper_app}" ]] || fail "permission request did not rebuild helper app after removal"
+
 cat > "${mock_bin}/open" <<MOCK
 #!/usr/bin/env bash
 printf '%s\n' "\$*" > "${tmp_root}/helper-open.args"
