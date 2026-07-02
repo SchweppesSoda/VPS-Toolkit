@@ -6,6 +6,10 @@
 
 ## po0-nftables-relay-manager
 
+### 2026.07.02+build.9
+
+- 跟随 PO0 Release asset 批次对齐到 `po0-v2026.07.02.9`；本脚本无行为变化。
+
 ### 2026.07.02+build.8
 
 - 跟随 PO0 Release asset 批次对齐到 `po0-v2026.07.02.8`；本脚本无行为变化。
@@ -165,6 +169,10 @@
 - 状态面板和资源任务创建计划摘要增加彩色状态提示。
 
 ## po0-lan-worker-client
+
+### 2026.07.02+build.9
+
+- 跟随 PO0 Release asset 批次对齐到 `po0-v2026.07.02.9`；LAN Worker 客户端无行为变化。
 
 ### 2026.07.02+build.8
 
@@ -333,6 +341,10 @@
 - 状态页 / Widget 优先复用 IP9、163、126、myip.ipip 等 IP 查询接口返回的归属地 / 运营商信息，拿不到时才额外查询。
 
 ## po0-outbound-ip-report（Linux/OpenWrt）
+
+### 2026.07.02+build.9
+
+- 跟随 PO0 Release asset 批次对齐到 `po0-v2026.07.02.9`；Linux/OpenWrt 客户端无行为变化。
 
 ### 2026.07.02+build.8
 
@@ -508,6 +520,11 @@
 
 ## po0-outbound-ip-report（macOS）
 
+### 2026.07.02+build.9
+
+- 进一步优化 Wi-Fi SSID 读取速度：系统命令返回 `redacted` / `<redacted>` 后直接转 `PO0 Location Permission Helper.app`，不再继续尝试较慢的非 Helper fallback。
+- Helper 区分授权请求和普通探测；`--request-location-permission` 保留较长等待预算，普通 SSID 探测使用更短等待预算以减少菜单和状态页卡顿。
+
 ### 2026.07.02+build.8
 
 - 优化 `PO0 Location Permission Helper.app` 的读取速度：已授权时在等待循环里每 0.2 秒读取一次 SSID，读到后立即返回，不再固定等完整授权兜底时间。
@@ -625,6 +642,10 @@
 - 支持 `--save-config --menu` 首次保存默认配置后打开菜单，并提供 `--install-launchd` 别名。
 
 ## po0-outbound-ip-report（Windows PowerShell）
+
+### 2026.07.02+build.9
+
+- 跟随 PO0 Release asset 批次对齐到 `po0-v2026.07.02.9`；Windows 客户端无行为变化。
 
 ### 2026.07.02+build.8
 

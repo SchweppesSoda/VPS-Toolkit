@@ -4,11 +4,11 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_OUTBOUND_IP_REPORT_MACOS_DOWNLOAD_URL:-${PO0_SELF_REPORT_MACOS_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report-macos.sh}}"
 SCRIPT_NAME="po0-outbound-ip-report"
-SCRIPT_VERSION="2026.07.02+build.8"
+SCRIPT_VERSION="2026.07.02+build.9"
 SCRIPT_RELEASE_DATE="2026-07-02"
 # CHANGELOG_BEGIN
-# - 优化 PO0 Location Permission Helper 读取速度：已授权时读到 SSID 立即返回，不再固定等待完整授权兜底时间。
-# - Helper schema 提升，确保旧 Helper 会重建并启用快速读取逻辑。
+# - 进一步优化 Wi-Fi SSID 读取速度：系统命令返回 redacted 时直接转 Helper，不再继续跑慢 fallback。
+# - Helper 区分授权请求和普通探测；普通探测使用更短等待预算，授权请求保留较长兜底。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24

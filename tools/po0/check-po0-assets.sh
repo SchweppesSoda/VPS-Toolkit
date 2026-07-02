@@ -3,9 +3,9 @@ set -euo pipefail
 
 repo_root="$(cd "$(git rev-parse --show-toplevel)" && pwd -P)"
 asset_dir="${1:-${repo_root}/.tmp/po0-check-assets}"
-expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.07.02+build.8}"
+expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.07.02+build.9}"
 expected_po0_release_date="${PO0_EXPECTED_RELEASE_DATE:-2026-07-02}"
-expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.07.02.8}"
+expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.07.02.9}"
 
 manifest_entries() {
     local manifest="$1"
@@ -394,12 +394,20 @@ check_macos_wifi_ssid_diagnostic() {
         printf 'macOS asset must let the Location Permission Helper read Wi-Fi SSID in-process.\n' >&2
         exit 1
     }
+    grep -Fq 'try_macos_location_helper_after_privacy()' "${asset}" || {
+        printf 'macOS asset should short-circuit privacy-hidden SSID probes to the Location Permission Helper.\n' >&2
+        exit 1
+    }
     if grep -Fq 'on run argv' "${asset}"; then
         printf 'macOS helper AppleScript must not depend on AppleScript applet argv coercion.\n' >&2
         exit 1
     fi
     grep -Fq 'path to resource "po0-location-helper-output.path"' "${asset}" || {
         printf 'macOS helper AppleScript should read output path from bundled resource.\n' >&2
+        exit 1
+    }
+    grep -Fq 'path to resource "po0-location-helper-mode.txt"' "${asset}" || {
+        printf 'macOS helper AppleScript should read request mode from bundled resource.\n' >&2
         exit 1
     }
     grep -Fq 'macos_location_helper_request_file()' "${asset}" && grep -Fq 'write_macos_location_helper_request_file()' "${asset}" || {
@@ -426,11 +434,11 @@ check_macos_wifi_ssid_diagnostic() {
         printf 'macOS helper AppleScript should write output through shell printf.\n' >&2
         exit 1
     }
-    grep -Fq 'repeat 40 times' "${asset}" || {
-        printf 'macOS helper AppleScript should wait without NSDate numeric coercion.\n' >&2
+    grep -Fq 'pollWifiSsid(40)' "${asset}" && grep -Fq 'pollWifiSsid(10)' "${asset}" || {
+        printf 'macOS helper AppleScript should use separate request/probe wait budgets.\n' >&2
         exit 1
     }
-    grep -Fq 'on currentWifiSsid()' "${asset}" && grep -Fq 'set ssidValue to my currentWifiSsid()' "${asset}" && grep -Fq 'exit repeat' "${asset}" || {
+    grep -Fq 'on currentWifiSsid()' "${asset}" && grep -Fq 'set foundSsid to my currentWifiSsid()' "${asset}" && grep -Fq 'exit repeat' "${asset}" || {
         printf 'macOS helper AppleScript should poll CoreWLAN and exit the wait loop as soon as SSID is available.\n' >&2
         exit 1
     }

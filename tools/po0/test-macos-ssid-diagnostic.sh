@@ -61,11 +61,19 @@ WIFI_SSID_LAST_ERROR=""
 PO0_OUTBOUND_IP_REPORT_MACOS_HELPER_DIR="${tmp_root}/helper-root"
 
 write_mock_networksetup "redacted"
-rm -f "${mock_bin}/wdutil"
+cat > "${mock_bin}/wdutil" <<MOCK
+#!/usr/bin/env bash
+printf '%s\n' called > "${tmp_root}/wdutil.called"
+printf '%s\n' 'Wi-Fi:'
+printf '%s\n' '    SSID: CafeNet'
+MOCK
+chmod +x "${mock_bin}/wdutil"
 if current_wifi_ssid >"${tmp_root}/ssid.out" 2>/dev/null; then
     fail "networksetup redacted output must not be accepted as SSID: $(cat "${tmp_root}/ssid.out")"
 fi
 [[ "${WIFI_SSID_LAST_ERROR:-}" == "privacy" ]] || fail "networksetup redacted did not set privacy error"
+[[ ! -e "${tmp_root}/wdutil.called" ]] || fail "privacy-hidden networksetup result should skip slower non-helper fallbacks"
+rm -f "${mock_bin}/wdutil" "${tmp_root}/wdutil.called"
 
 write_mock_networksetup "<redacted>"
 if current_wifi_ssid >"${tmp_root}/ssid.out" 2>/dev/null; then
@@ -160,6 +168,11 @@ done
 [[ -n "\${app_path}" ]] || exit 2
 request_path="\${app_path}/Contents/Resources/po0-location-helper-output.path"
 [[ -f "\${request_path}" ]] || exit 3
+mode_path="\${app_path}/Contents/Resources/po0-location-helper-mode.txt"
+[[ -f "\${mode_path}" ]] || exit 5
+mode="\$(cat "\${mode_path}")"
+printf '%s\n' "\${mode}" >> "${tmp_root}/helper-open-modes"
+case "\${mode}" in request|probe) ;; *) exit 6 ;; esac
 out_path="\$(cat "\${request_path}")"
 [[ -n "\${out_path}" ]] || exit 4
 printf '%s\n' "status=requested" "ssid=CafeNet" > "\${out_path}"
@@ -184,6 +197,7 @@ if grep -Fq 'on run argv' "${helper_app}/Contents/script.applescript"; then
     fail "helper app must not depend on AppleScript applet argv coercion"
 fi
 grep -Fq 'path to resource "po0-location-helper-output.path"' "${helper_app}/Contents/script.applescript" || fail "helper app should read output path from bundled resource"
+grep -Fq 'path to resource "po0-location-helper-mode.txt"' "${helper_app}/Contents/script.applescript" || fail "helper app should read request mode from bundled resource"
 if grep -Eq 'as (boolean|integer|real)' "${helper_app}/Contents/script.applescript"; then
     fail "helper app must not coerce AppleScriptObjC values with as boolean/integer/real"
 fi
@@ -194,14 +208,16 @@ if grep -Fq 'writeToFile:outputPath' "${helper_app}/Contents/script.applescript"
     fail "helper app must not write output through AppleScriptObjC NSError bridging"
 fi
 grep -Fq '/usr/bin/printf %s' "${helper_app}/Contents/script.applescript" || fail "helper app should write output through shell printf"
-grep -Fq 'repeat 40 times' "${helper_app}/Contents/script.applescript" || fail "helper app should wait without NSDate numeric coercion"
+grep -Fq 'pollWifiSsid(40)' "${helper_app}/Contents/script.applescript" || fail "helper app should keep a longer wait for permission requests"
+grep -Fq 'pollWifiSsid(10)' "${helper_app}/Contents/script.applescript" || fail "helper app should use a shorter wait for normal probes"
 grep -Fq 'on currentWifiSsid()' "${helper_app}/Contents/script.applescript" || fail "helper app should centralize CoreWLAN SSID reads"
-grep -Fq 'set ssidValue to my currentWifiSsid()' "${helper_app}/Contents/script.applescript" || fail "helper app should poll SSID during the wait loop"
+grep -Fq 'set foundSsid to my currentWifiSsid()' "${helper_app}/Contents/script.applescript" || fail "helper app should poll SSID during the wait loop"
 grep -Fq 'exit repeat' "${helper_app}/Contents/script.applescript" || fail "helper app should exit the wait loop as soon as SSID is available"
 grep -Fq "PO0 Location Permission Helper.app" "${tmp_root}/helper-open.args" || fail "permission request did not open helper app"
 if grep -Fq -- '--args' "${tmp_root}/helper-open.args"; then
     fail "permission request must not pass output path through open --args"
 fi
+grep -Fxq "request" "${tmp_root}/helper-open-modes" || fail "permission request did not launch helper in request mode"
 printf '%s\n' "${output}" | grep -Fq "已尝试触发 macOS 定位权限请求" || fail "permission request did not report prompt attempt"
 printf '%s\n' "${output}" | grep -Fq "PO0 Location Permission Helper" || fail "permission request did not tell user which helper app to allow"
 
@@ -248,6 +264,11 @@ done
 [[ -n "\${app_path}" ]] || exit 2
 request_path="\${app_path}/Contents/Resources/po0-location-helper-output.path"
 [[ -f "\${request_path}" ]] || exit 3
+mode_path="\${app_path}/Contents/Resources/po0-location-helper-mode.txt"
+[[ -f "\${mode_path}" ]] || exit 5
+mode="\$(cat "\${mode_path}")"
+printf '%s\n' "\${mode}" >> "${tmp_root}/helper-open-modes"
+case "\${mode}" in request|probe) ;; *) exit 6 ;; esac
 out_path="\$(cat "\${request_path}")"
 [[ -n "\${out_path}" ]] || exit 4
 printf '%s\n' "status=requested" "ssid=redacted" > "\${out_path}"
@@ -272,6 +293,11 @@ done
 [[ -n "\${app_path}" ]] || exit 2
 request_path="\${app_path}/Contents/Resources/po0-location-helper-output.path"
 [[ -f "\${request_path}" ]] || exit 3
+mode_path="\${app_path}/Contents/Resources/po0-location-helper-mode.txt"
+[[ -f "\${mode_path}" ]] || exit 5
+mode="\$(cat "\${mode_path}")"
+printf '%s\n' "\${mode}" >> "${tmp_root}/helper-open-modes"
+case "\${mode}" in request|probe) ;; *) exit 6 ;; esac
 out_path="\$(cat "\${request_path}")"
 [[ -n "\${out_path}" ]] || exit 4
 printf '%s\n' "status=requested" "ssid=CafeNet" > "\${out_path}"
@@ -287,6 +313,7 @@ fi
 [[ -s "${tmp_root}/helper-open.args" ]] || fail "interactive menu help did not request Location Services permission"
 ssid="$(macos_location_helper_wifi_ssid 2>/dev/null)" || fail "helper app SSID fallback did not return SSID"
 [[ "${ssid}" == "CafeNet" ]] || fail "unexpected helper app SSID: ${ssid}"
+[[ "$(tail -n 1 "${tmp_root}/helper-open-modes")" == "probe" ]] || fail "helper SSID fallback did not launch helper in probe mode"
 rm -f "${mock_bin}/osacompile" "${mock_bin}/open"
 
 write_mock_networksetup "none"

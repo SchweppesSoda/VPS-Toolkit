@@ -151,7 +151,7 @@ validate_macos_location_permission_helper_app_path() {
 }
 
 macos_location_permission_helper_schema_version() {
-    printf '2026.07.02.8\n'
+    printf '2026.07.02.9\n'
 }
 
 write_macos_location_permission_helper_source() {
@@ -174,6 +174,16 @@ on readOutputPath()
     end try
 end readOutputPath
 
+on readRequestMode()
+    try
+        set modeFile to path to resource "po0-location-helper-mode.txt"
+        set modeText to read modeFile
+        return paragraph 1 of modeText
+    on error
+        return "probe"
+    end try
+end readRequestMode
+
 on writeText(theText, outputPath)
     try
         if outputPath is not "" then do shell script "/usr/bin/printf %s " & quoted form of theText & " > " & quoted form of outputPath
@@ -192,19 +202,30 @@ on currentWifiSsid()
     return ""
 end currentWifiSsid
 
+on pollWifiSsid(maxLoops)
+    set foundSsid to ""
+    repeat maxLoops times
+        set foundSsid to my currentWifiSsid()
+        if foundSsid is not "" then exit repeat
+        delay 0.2
+    end repeat
+    return foundSsid
+end pollWifiSsid
+
 on run
     set outputPath to my readOutputPath()
+    set requestMode to my readRequestMode()
     set ssidValue to ""
     set statusValue to "requested"
     try
         set locationManager to current application's CLLocationManager's alloc()'s init()
         locationManager's requestWhenInUseAuthorization()
         locationManager's startUpdatingLocation()
-        repeat 40 times
-            set ssidValue to my currentWifiSsid()
-            if ssidValue is not "" then exit repeat
-            delay 0.2
-        end repeat
+        if requestMode is "request" then
+            set ssidValue to my pollWifiSsid(40)
+        else
+            set ssidValue to my pollWifiSsid(10)
+        end if
         try
             if locationManager is not missing value then locationManager's stopUpdatingLocation()
         end try
@@ -295,19 +316,33 @@ macos_location_helper_request_file() {
     printf '%s\n' "${app_dir}/Contents/Resources/po0-location-helper-output.path"
 }
 
+macos_location_helper_mode_file() {
+    local app_dir="$1"
+    printf '%s\n' "${app_dir}/Contents/Resources/po0-location-helper-mode.txt"
+}
+
 write_macos_location_helper_request_file() {
-    local app_dir="$1" output_file="$2" request_file
+    local app_dir="$1" output_file="$2" mode="${3:-probe}" request_file mode_file
     request_file="$(macos_location_helper_request_file "${app_dir}")"
+    mode_file="$(macos_location_helper_mode_file "${app_dir}")"
     mkdir -p "${request_file%/*}" || return 1
     printf '%s\n' "${output_file}" > "${request_file}" || return 1
+    case "${mode}" in
+        request|probe) ;;
+        *) mode="probe" ;;
+    esac
+    printf '%s\n' "${mode}" > "${mode_file}" || return 1
     chmod 600 "${request_file}" 2>/dev/null || true
+    chmod 600 "${mode_file}" 2>/dev/null || true
 }
 
 cleanup_macos_location_helper_request_file() {
-    local app_dir="$1" request_file
+    local app_dir="$1" request_file mode_file
     [[ -n "${app_dir}" ]] || return 0
     request_file="$(macos_location_helper_request_file "${app_dir}")"
+    mode_file="$(macos_location_helper_mode_file "${app_dir}")"
     rm -f "${request_file}" 2>/dev/null || true
+    rm -f "${mode_file}" 2>/dev/null || true
 }
 
 cleanup_macos_location_helper_output_file() {
@@ -407,7 +442,7 @@ macos_location_helper_wifi_ssid() {
     [[ -d "${app_dir}" ]] || return 1
     command -v open >/dev/null 2>&1 || return 1
     output_file="$(create_macos_location_helper_output_file)" || return 1
-    write_macos_location_helper_request_file "${app_dir}" "${output_file}" || {
+    write_macos_location_helper_request_file "${app_dir}" "${output_file}" "probe" || {
         cleanup_macos_location_helper_output_file "${output_file}"
         return 1
     }
@@ -449,7 +484,7 @@ request_macos_location_permission() {
         return 1
     fi
     output_file="$(create_macos_location_helper_output_file)" || return 1
-    write_macos_location_helper_request_file "${app_dir}" "${output_file}" || {
+    write_macos_location_helper_request_file "${app_dir}" "${output_file}" "request" || {
         cleanup_macos_location_helper_output_file "${output_file}"
         return 1
     }
@@ -640,6 +675,16 @@ wdutil_wifi_ssid() {
     accepted_wifi_ssid_value "${ssid}"
 }
 
+try_macos_location_helper_after_privacy() {
+    [[ "${WIFI_SSID_LAST_ERROR:-}" == "privacy" ]] || return 1
+    if capture_wifi_ssid_probe macos_location_helper_wifi_ssid; then
+        printf '%s\n' "${WIFI_SSID_PROBE_VALUE}"
+        return 0
+    fi
+    WIFI_SSID_LAST_ERROR="privacy"
+    return 1
+}
+
 current_wifi_ssid() {
     local device
     WIFI_SSID_LAST_ERROR=""
@@ -650,26 +695,50 @@ current_wifi_ssid() {
             printf '%s\n' "${WIFI_SSID_PROBE_VALUE}"
             return 0
         fi
+        if [[ "${WIFI_SSID_LAST_ERROR:-}" == "privacy" ]]; then
+            try_macos_location_helper_after_privacy
+            return $?
+        fi
         if capture_wifi_ssid_probe ipconfig_wifi_ssid "${device}"; then
             printf '%s\n' "${WIFI_SSID_PROBE_VALUE}"
             return 0
+        fi
+        if [[ "${WIFI_SSID_LAST_ERROR:-}" == "privacy" ]]; then
+            try_macos_location_helper_after_privacy
+            return $?
         fi
     fi
     if capture_wifi_ssid_probe networksetup_any_wifi_ssid; then
         printf '%s\n' "${WIFI_SSID_PROBE_VALUE}"
         return 0
     fi
+    if [[ "${WIFI_SSID_LAST_ERROR:-}" == "privacy" ]]; then
+        try_macos_location_helper_after_privacy
+        return $?
+    fi
     if capture_wifi_ssid_probe networksetup_common_wifi_ssid; then
         printf '%s\n' "${WIFI_SSID_PROBE_VALUE}"
         return 0
+    fi
+    if [[ "${WIFI_SSID_LAST_ERROR:-}" == "privacy" ]]; then
+        try_macos_location_helper_after_privacy
+        return $?
     fi
     if capture_wifi_ssid_probe airport_wifi_ssid; then
         printf '%s\n' "${WIFI_SSID_PROBE_VALUE}"
         return 0
     fi
+    if [[ "${WIFI_SSID_LAST_ERROR:-}" == "privacy" ]]; then
+        try_macos_location_helper_after_privacy
+        return $?
+    fi
     if capture_wifi_ssid_probe wdutil_wifi_ssid; then
         printf '%s\n' "${WIFI_SSID_PROBE_VALUE}"
         return 0
+    fi
+    if [[ "${WIFI_SSID_LAST_ERROR:-}" == "privacy" ]]; then
+        try_macos_location_helper_after_privacy
+        return $?
     fi
     if capture_wifi_ssid_probe macos_location_helper_wifi_ssid; then
         printf '%s\n' "${WIFI_SSID_PROBE_VALUE}"

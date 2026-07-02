@@ -10,9 +10,9 @@ if (-not $OutputDir) {
 }
 
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.07.02+build.8" }
+$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.07.02+build.9" }
 $ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-07-02" }
-$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.07.02.8" }
+$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.07.02.9" }
 
 function ConvertTo-RepoRelativePath {
     param([string]$Path)
@@ -442,11 +442,17 @@ function Test-MacOsWifiSsidDiagnostic {
     if ($raw -notmatch 'CoreWLAN' -or $raw -notmatch 'macos_location_helper_wifi_ssid\(\)') {
         throw "macOS asset must let the Location Permission Helper read Wi-Fi SSID in-process."
     }
+    if ($raw -notmatch 'try_macos_location_helper_after_privacy\(\)') {
+        throw "macOS asset should short-circuit privacy-hidden SSID probes to the Location Permission Helper."
+    }
     if ($raw -match 'on run argv') {
         throw "macOS helper AppleScript must not depend on AppleScript applet argv coercion."
     }
     if ($raw -notmatch 'path to resource "po0-location-helper-output\.path"') {
         throw "macOS helper AppleScript should read output path from bundled resource."
+    }
+    if ($raw -notmatch 'path to resource "po0-location-helper-mode\.txt"') {
+        throw "macOS helper AppleScript should read request mode from bundled resource."
     }
     if ($raw -notmatch 'macos_location_helper_request_file\(\)' -or $raw -notmatch 'write_macos_location_helper_request_file\(\)') {
         throw "macOS helper IPC must use managed request file helpers."
@@ -466,10 +472,10 @@ function Test-MacOsWifiSsidDiagnostic {
     if ($raw -notmatch '/usr/bin/printf %s') {
         throw "macOS helper AppleScript should write output through shell printf."
     }
-    if ($raw -notmatch 'repeat 40 times') {
-        throw "macOS helper AppleScript should wait without NSDate numeric coercion."
+    if ($raw -notmatch 'pollWifiSsid\(40\)' -or $raw -notmatch 'pollWifiSsid\(10\)') {
+        throw "macOS helper AppleScript should use separate request/probe wait budgets."
     }
-    if ($raw -notmatch 'on currentWifiSsid\(\)' -or $raw -notmatch 'set ssidValue to my currentWifiSsid\(\)' -or $raw -notmatch 'exit repeat') {
+    if ($raw -notmatch 'on currentWifiSsid\(\)' -or $raw -notmatch 'set foundSsid to my currentWifiSsid\(\)' -or $raw -notmatch 'exit repeat') {
         throw "macOS helper AppleScript should poll CoreWLAN and exit the wait loop as soon as SSID is available."
     }
     if ($raw -notmatch 'PO0 Location Permission Helper\.app' -or $raw -notmatch 'osacompile') {
