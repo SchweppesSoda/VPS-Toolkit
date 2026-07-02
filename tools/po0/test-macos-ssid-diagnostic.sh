@@ -28,6 +28,7 @@ write_mock_wdutil() {
     local ssid="$1"
     cat > "${mock_bin}/wdutil" <<MOCK
 #!/usr/bin/env bash
+printf '%s\n' called >> "${tmp_root}/wdutil.called"
 printf '%s\n' 'Wi-Fi:'
 printf '%s\n' '    SSID: ${ssid}'
 MOCK
@@ -38,6 +39,7 @@ write_mock_networksetup() {
     local ssid="$1"
     cat > "${mock_bin}/networksetup" <<MOCK
 #!/usr/bin/env bash
+printf '%s\n' "\${1:-}" >> "${tmp_root}/networksetup.called"
 case "\${1:-}" in
     -listallhardwareports)
         printf '%s\n' 'Hardware Port: Wi-Fi'
@@ -318,12 +320,18 @@ rm -f "${mock_bin}/osacompile" "${mock_bin}/open"
 
 write_mock_networksetup "none"
 rm -f "${mock_bin}/wdutil"
-ssid="$(current_wifi_ssid 2>/dev/null)" || fail "networksetup real SSID named none was rejected"
-[[ "${ssid}" == "none" ]] || fail "unexpected networksetup SSID: ${ssid}"
+rm -f "${tmp_root}/networksetup.called"
+if current_wifi_ssid >"${tmp_root}/ssid.out" 2>/dev/null; then
+    fail "helper-only SSID probe must not accept networksetup output: $(cat "${tmp_root}/ssid.out")"
+fi
+[[ ! -e "${tmp_root}/networksetup.called" ]] || fail "helper-only SSID probe called networksetup"
 rm -f "${mock_bin}/networksetup"
 
 write_mock_wdutil "CafeNet"
-ssid="$(current_wifi_ssid 2>/dev/null)" || fail "real wdutil SSID was not accepted"
-[[ "${ssid}" == "CafeNet" ]] || fail "unexpected SSID: ${ssid}"
+rm -f "${tmp_root}/wdutil.called"
+if current_wifi_ssid >"${tmp_root}/ssid.out" 2>/dev/null; then
+    fail "helper-only SSID probe must not accept wdutil output: $(cat "${tmp_root}/ssid.out")"
+fi
+[[ ! -e "${tmp_root}/wdutil.called" ]] || fail "helper-only SSID probe called wdutil"
 
 printf 'macOS SSID diagnostic tests passed.\n'

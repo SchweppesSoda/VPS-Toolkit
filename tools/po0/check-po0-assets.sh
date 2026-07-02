@@ -3,9 +3,9 @@ set -euo pipefail
 
 repo_root="$(cd "$(git rev-parse --show-toplevel)" && pwd -P)"
 asset_dir="${1:-${repo_root}/.tmp/po0-check-assets}"
-expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.07.02+build.9}"
+expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.07.02+build.10}"
 expected_po0_release_date="${PO0_EXPECTED_RELEASE_DATE:-2026-07-02}"
-expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.07.02.9}"
+expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.07.02.10}"
 
 manifest_entries() {
     local manifest="$1"
@@ -394,10 +394,10 @@ check_macos_wifi_ssid_diagnostic() {
         printf 'macOS asset must let the Location Permission Helper read Wi-Fi SSID in-process.\n' >&2
         exit 1
     }
-    grep -Fq 'try_macos_location_helper_after_privacy()' "${asset}" || {
-        printf 'macOS asset should short-circuit privacy-hidden SSID probes to the Location Permission Helper.\n' >&2
+    if grep -Eq 'networksetup_wifi_ssid\(\)|networksetup_any_wifi_ssid\(\)|networksetup_common_wifi_ssid\(\)|ipconfig_wifi_ssid\(\)|airport_wifi_ssid\(\)|wdutil_wifi_ssid\(\)' "${asset}"; then
+        printf 'macOS asset must not keep shell command Wi-Fi SSID fallback functions; use Helper-only probing.\n' >&2
         exit 1
-    }
+    fi
     if grep -Fq 'on run argv' "${asset}"; then
         printf 'macOS helper AppleScript must not depend on AppleScript applet argv coercion.\n' >&2
         exit 1
@@ -486,14 +486,21 @@ check_macos_wifi_ssid_diagnostic() {
         printf 'macOS asset must include an ASCII no-auto-grant marker for Windows parser-safe checks.\n' >&2
         exit 1
     }
-    grep -Fq 'networksetup_any_wifi_ssid()' "${asset}" || {
-        printf 'macOS asset lacks networksetup fallback across hardware devices.\n' >&2
+    body="$(
+        awk '
+            $0 == "current_wifi_ssid() {" {in_fn=1}
+            in_fn {print}
+            in_fn && /^}/ {exit}
+        ' "${asset}"
+    )"
+    printf '%s\n' "${body}" | grep -Fq 'capture_wifi_ssid_probe macos_location_helper_wifi_ssid' || {
+        printf 'macOS current_wifi_ssid must use the Location Permission Helper as its only probe.\n' >&2
         exit 1
     }
-    grep -Fq 'wdutil_wifi_ssid()' "${asset}" || {
-        printf 'macOS asset lacks wdutil Wi-Fi SSID fallback.\n' >&2
+    if printf '%s\n' "${body}" | grep -Eq 'networksetup|ipconfig|airport|wdutil'; then
+        printf 'macOS current_wifi_ssid must not call shell command Wi-Fi SSID fallbacks.\n' >&2
         exit 1
-    }
+    fi
     for fn in accepted_wifi_ssid_value print_wifi_ssid_permission_guidance show_wifi_ssid_permission_help show_wifi_ssid_permission_help_interactive open_macos_location_services_settings; do
         body="$(
             awk -v fn="${fn}" '

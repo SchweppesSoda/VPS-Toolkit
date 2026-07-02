@@ -151,7 +151,7 @@ validate_macos_location_permission_helper_app_path() {
 }
 
 macos_location_permission_helper_schema_version() {
-    printf '2026.07.02.9\n'
+    printf '2026.07.02.10\n'
 }
 
 write_macos_location_permission_helper_source() {
@@ -535,215 +535,14 @@ print_wifi_ssid_permission_guidance() {
         "读取不到 SSID 时仍会 fail-open 继续正常上报。"
 }
 
-wifi_hardware_device() {
-    command -v networksetup >/dev/null 2>&1 || return 1
-    networksetup -listallhardwareports 2>/dev/null | awk '
-        /^Hardware Port: / {
-            port=$0
-            sub(/^Hardware Port: /, "", port)
-            wifi=(port == "Wi-Fi" || port == "AirPort")
-            next
-        }
-        wifi && /^Device: / {
-            sub(/^Device: /, "")
-            print
-            exit
-        }
-    '
-}
-
-networksetup_all_devices() {
-    command -v networksetup >/dev/null 2>&1 || return 1
-    networksetup -listallhardwareports 2>/dev/null | awk '
-        /^Device:[[:space:]]*/ {
-            sub(/^Device:[[:space:]]*/, "")
-            if ($0 != "") {
-                print
-            }
-        }
-    '
-}
-
-networksetup_wifi_ssid() {
-    local device="$1" output ssid
-    [[ -n "${device}" ]] || return 1
-    command -v networksetup >/dev/null 2>&1 || return 1
-    output="$(networksetup -getairportnetwork "${device}" 2>/dev/null || true)"
-    output="${output%$'\r'}"
-    case "${output}" in
-        *"not associated"*|*"Not associated"*|*"not a Wi-Fi interface"*|*"not a Wi-Fi device"*|*"not an AirPort interface"*|"")
-            return 1
-            ;;
-    esac
-    [[ "${output}" == *:* ]] || return 1
-    ssid="${output#*:}"
-    accepted_wifi_ssid_value "${ssid}"
-}
-
-networksetup_any_wifi_ssid() {
-    local device ssid seen=";" rc
-    while IFS= read -r device || [[ -n "${device}" ]]; do
-        device="$(trim "${device}")"
-        [[ -n "${device}" ]] || continue
-        case "${seen}" in
-            *";${device};"*) continue ;;
-        esac
-        seen="${seen}${device};"
-        rc=0
-        ssid="$(networksetup_wifi_ssid "${device}" 2>/dev/null)" || rc=$?
-        if [[ "${rc}" == "0" && -n "${ssid}" ]]; then
-            printf '%s\n' "${ssid}"
-            return 0
-        fi
-        [[ "${rc}" == "2" ]] && return 2
-    done < <(networksetup_all_devices)
-    return 1
-}
-
-networksetup_common_wifi_ssid() {
-    local device ssid rc
-    for device in en0 en1 en2; do
-        rc=0
-        ssid="$(networksetup_wifi_ssid "${device}" 2>/dev/null)" || rc=$?
-        if [[ "${rc}" == "0" && -n "${ssid}" ]]; then
-            printf '%s\n' "${ssid}"
-            return 0
-        fi
-        [[ "${rc}" == "2" ]] && return 2
-    done
-    return 1
-}
-
-ipconfig_wifi_ssid() {
-    local device="$1" ssid
-    [[ -n "${device}" ]] || return 1
-    command -v ipconfig >/dev/null 2>&1 || return 1
-    ssid="$(ipconfig getsummary "${device}" 2>/dev/null | awk '
-        /^[[:space:]]*SSID[[:space:]]*:/ {
-            line=$0
-            sub(/^[^:]*:[[:space:]]*/, "", line)
-            print line
-            exit
-        }
-    ')"
-    accepted_wifi_ssid_value "${ssid}"
-}
-
-airport_command_path() {
-    if command -v airport >/dev/null 2>&1; then
-        command -v airport
-        return 0
-    fi
-    if [[ -x "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport" ]]; then
-        printf '%s\n' "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport"
-        return 0
-    fi
-    return 1
-}
-
-airport_wifi_ssid() {
-    local airport ssid
-    airport="$(airport_command_path 2>/dev/null || true)"
-    [[ -n "${airport}" ]] || return 1
-    ssid="$("${airport}" -I 2>/dev/null | awk '
-        /^[[:space:]]*SSID[[:space:]]*:/ {
-            line=$0
-            sub(/^[^:]*:[[:space:]]*/, "", line)
-            print line
-            exit
-        }
-    ')"
-    accepted_wifi_ssid_value "${ssid}"
-}
-
-wdutil_wifi_ssid() {
-    local ssid
-    command -v wdutil >/dev/null 2>&1 || return 1
-    ssid="$(wdutil info 2>/dev/null | awk '
-        /^[[:space:]]*SSID[[:space:]]*:/ {
-            line=$0
-            sub(/^[^:]*:[[:space:]]*/, "", line)
-            print line
-            exit
-        }
-    ')"
-    case "$(to_lower "$(trim "${ssid}")")" in
-        none)
-            return 1
-            ;;
-    esac
-    accepted_wifi_ssid_value "${ssid}"
-}
-
-try_macos_location_helper_after_privacy() {
-    [[ "${WIFI_SSID_LAST_ERROR:-}" == "privacy" ]] || return 1
-    if capture_wifi_ssid_probe macos_location_helper_wifi_ssid; then
-        printf '%s\n' "${WIFI_SSID_PROBE_VALUE}"
-        return 0
-    fi
-    WIFI_SSID_LAST_ERROR="privacy"
-    return 1
-}
-
 current_wifi_ssid() {
-    local device
     WIFI_SSID_LAST_ERROR=""
     WIFI_SSID_PROBE_VALUE=""
-    device="$(wifi_hardware_device 2>/dev/null || true)"
-    if [[ -n "${device}" ]]; then
-        if capture_wifi_ssid_probe networksetup_wifi_ssid "${device}"; then
-            printf '%s\n' "${WIFI_SSID_PROBE_VALUE}"
-            return 0
-        fi
-        if [[ "${WIFI_SSID_LAST_ERROR:-}" == "privacy" ]]; then
-            try_macos_location_helper_after_privacy
-            return $?
-        fi
-        if capture_wifi_ssid_probe ipconfig_wifi_ssid "${device}"; then
-            printf '%s\n' "${WIFI_SSID_PROBE_VALUE}"
-            return 0
-        fi
-        if [[ "${WIFI_SSID_LAST_ERROR:-}" == "privacy" ]]; then
-            try_macos_location_helper_after_privacy
-            return $?
-        fi
-    fi
-    if capture_wifi_ssid_probe networksetup_any_wifi_ssid; then
-        printf '%s\n' "${WIFI_SSID_PROBE_VALUE}"
-        return 0
-    fi
-    if [[ "${WIFI_SSID_LAST_ERROR:-}" == "privacy" ]]; then
-        try_macos_location_helper_after_privacy
-        return $?
-    fi
-    if capture_wifi_ssid_probe networksetup_common_wifi_ssid; then
-        printf '%s\n' "${WIFI_SSID_PROBE_VALUE}"
-        return 0
-    fi
-    if [[ "${WIFI_SSID_LAST_ERROR:-}" == "privacy" ]]; then
-        try_macos_location_helper_after_privacy
-        return $?
-    fi
-    if capture_wifi_ssid_probe airport_wifi_ssid; then
-        printf '%s\n' "${WIFI_SSID_PROBE_VALUE}"
-        return 0
-    fi
-    if [[ "${WIFI_SSID_LAST_ERROR:-}" == "privacy" ]]; then
-        try_macos_location_helper_after_privacy
-        return $?
-    fi
-    if capture_wifi_ssid_probe wdutil_wifi_ssid; then
-        printf '%s\n' "${WIFI_SSID_PROBE_VALUE}"
-        return 0
-    fi
-    if [[ "${WIFI_SSID_LAST_ERROR:-}" == "privacy" ]]; then
-        try_macos_location_helper_after_privacy
-        return $?
-    fi
     if capture_wifi_ssid_probe macos_location_helper_wifi_ssid; then
         printf '%s\n' "${WIFI_SSID_PROBE_VALUE}"
         return 0
     fi
+    [[ -n "${WIFI_SSID_LAST_ERROR:-}" ]] || WIFI_SSID_LAST_ERROR="privacy"
     return 1
 }
 

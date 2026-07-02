@@ -10,9 +10,9 @@ if (-not $OutputDir) {
 }
 
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.07.02+build.9" }
+$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.07.02+build.10" }
 $ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-07-02" }
-$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.07.02.9" }
+$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.07.02.10" }
 
 function ConvertTo-RepoRelativePath {
     param([string]$Path)
@@ -442,8 +442,8 @@ function Test-MacOsWifiSsidDiagnostic {
     if ($raw -notmatch 'CoreWLAN' -or $raw -notmatch 'macos_location_helper_wifi_ssid\(\)') {
         throw "macOS asset must let the Location Permission Helper read Wi-Fi SSID in-process."
     }
-    if ($raw -notmatch 'try_macos_location_helper_after_privacy\(\)') {
-        throw "macOS asset should short-circuit privacy-hidden SSID probes to the Location Permission Helper."
+    if ($raw -match 'networksetup_wifi_ssid\(\)|networksetup_any_wifi_ssid\(\)|networksetup_common_wifi_ssid\(\)|ipconfig_wifi_ssid\(\)|airport_wifi_ssid\(\)|wdutil_wifi_ssid\(\)') {
+        throw "macOS asset must not keep shell command Wi-Fi SSID fallback functions; use Helper-only probing."
     }
     if ($raw -match 'on run argv') {
         throw "macOS helper AppleScript must not depend on AppleScript applet argv coercion."
@@ -508,11 +508,15 @@ function Test-MacOsWifiSsidDiagnostic {
     if ($raw -notmatch 'no auto-grant' -or $raw -notmatch 'sudo' -or $raw -notmatch 'TCC') {
         throw "macOS asset must state that it does not auto-grant system permissions."
     }
-    if ($raw -notmatch 'networksetup_any_wifi_ssid\(\)') {
-        throw "macOS asset lacks networksetup fallback across hardware devices."
+    $currentWifi = [regex]::Match($raw, '(?ms)^current_wifi_ssid\(\) \{.*?^}')
+    if (-not $currentWifi.Success) {
+        throw "macOS asset lacks current_wifi_ssid body."
     }
-    if ($raw -notmatch 'wdutil_wifi_ssid\(\)') {
-        throw "macOS asset lacks wdutil Wi-Fi SSID fallback."
+    if ($currentWifi.Value -notmatch 'capture_wifi_ssid_probe macos_location_helper_wifi_ssid') {
+        throw "macOS current_wifi_ssid must use the Location Permission Helper as its only probe."
+    }
+    if ($currentWifi.Value -match 'networksetup|ipconfig|airport|wdutil') {
+        throw "macOS current_wifi_ssid must not call shell command Wi-Fi SSID fallbacks."
     }
     foreach ($fnName in @("accepted_wifi_ssid_value", "print_wifi_ssid_permission_guidance", "show_wifi_ssid_permission_help", "show_wifi_ssid_permission_help_interactive", "open_macos_location_services_settings")) {
         $pattern = "(?ms)^" + [regex]::Escape($fnName) + "\(\) \{.*?^}"
