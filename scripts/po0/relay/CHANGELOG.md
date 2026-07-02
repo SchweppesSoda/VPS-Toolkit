@@ -6,6 +6,10 @@
 
 ## po0-nftables-relay-manager
 
+### 2026.07.02+build.8
+
+- 跟随 PO0 Release asset 批次对齐到 `po0-v2026.07.02.8`；本脚本无行为变化。
+
 ### 2026.07.02+build.7
 
 - 跟随 PO0 Release asset 批次对齐到 `po0-v2026.07.02.7`；本脚本无行为变化。
@@ -161,6 +165,10 @@
 - 状态面板和资源任务创建计划摘要增加彩色状态提示。
 
 ## po0-lan-worker-client
+
+### 2026.07.02+build.8
+
+- 跟随 PO0 Release asset 批次对齐到 `po0-v2026.07.02.8`；LAN Worker 客户端无行为变化。
 
 ### 2026.07.02+build.7
 
@@ -325,6 +333,10 @@
 - 状态页 / Widget 优先复用 IP9、163、126、myip.ipip 等 IP 查询接口返回的归属地 / 运营商信息，拿不到时才额外查询。
 
 ## po0-outbound-ip-report（Linux/OpenWrt）
+
+### 2026.07.02+build.8
+
+- 跟随 PO0 Release asset 批次对齐到 `po0-v2026.07.02.8`；Linux/OpenWrt 客户端无行为变化。
 
 ### 2026.07.02+build.7
 
@@ -496,6 +508,11 @@
 
 ## po0-outbound-ip-report（macOS）
 
+### 2026.07.02+build.8
+
+- 优化 `PO0 Location Permission Helper.app` 的读取速度：已授权时在等待循环里每 0.2 秒读取一次 SSID，读到后立即返回，不再固定等完整授权兜底时间。
+- Helper schema 提升后会重建旧 Helper；首次授权或重建仍可能较慢，后续已授权读取应明显更快。
+
 ### 2026.07.02+build.7
 
 - 修复 `PO0 Location Permission Helper.app` 仍可能通过 `open` 参数传递触发 AppleScript applet 参数类型转换错误 `-1700` 的路径。
@@ -608,6 +625,10 @@
 - 支持 `--save-config --menu` 首次保存默认配置后打开菜单，并提供 `--install-launchd` 别名。
 
 ## po0-outbound-ip-report（Windows PowerShell）
+
+### 2026.07.02+build.8
+
+- 跟随 PO0 Release asset 批次对齐到 `po0-v2026.07.02.8`；Windows 客户端无行为变化。
 
 ### 2026.07.02+build.7
 

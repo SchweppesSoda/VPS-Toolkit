@@ -10,9 +10,9 @@ if (-not $OutputDir) {
 }
 
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.07.02+build.7" }
+$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.07.02+build.8" }
 $ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-07-02" }
-$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.07.02.7" }
+$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.07.02.8" }
 
 function ConvertTo-RepoRelativePath {
     param([string]$Path)
@@ -468,6 +468,9 @@ function Test-MacOsWifiSsidDiagnostic {
     }
     if ($raw -notmatch 'repeat 40 times') {
         throw "macOS helper AppleScript should wait without NSDate numeric coercion."
+    }
+    if ($raw -notmatch 'on currentWifiSsid\(\)' -or $raw -notmatch 'set ssidValue to my currentWifiSsid\(\)' -or $raw -notmatch 'exit repeat') {
+        throw "macOS helper AppleScript should poll CoreWLAN and exit the wait loop as soon as SSID is available."
     }
     if ($raw -notmatch 'PO0 Location Permission Helper\.app' -or $raw -notmatch 'osacompile') {
         throw "macOS asset must build and open a stable Location Permission Helper app."

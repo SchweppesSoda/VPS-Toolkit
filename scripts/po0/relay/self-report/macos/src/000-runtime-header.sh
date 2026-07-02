@@ -4,11 +4,11 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_OUTBOUND_IP_REPORT_MACOS_DOWNLOAD_URL:-${PO0_SELF_REPORT_MACOS_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report-macos.sh}}"
 SCRIPT_NAME="po0-outbound-ip-report"
-SCRIPT_VERSION="2026.07.02+build.7"
+SCRIPT_VERSION="2026.07.02+build.8"
 SCRIPT_RELEASE_DATE="2026-07-02"
 # CHANGELOG_BEGIN
-# - 修复 PO0 Location Permission Helper 继续报 AppleScript 类型转换错误 -1700 的路径。
-# - Helper 不再依赖 open 参数传递，改用 bundle Resources 请求文件传递输出路径，并提升 Helper schema。
+# - 优化 PO0 Location Permission Helper 读取速度：已授权时读到 SSID 立即返回，不再固定等待完整授权兜底时间。
+# - Helper schema 提升，确保旧 Helper 会重建并启用快速读取逻辑。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24

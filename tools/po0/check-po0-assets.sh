@@ -3,9 +3,9 @@ set -euo pipefail
 
 repo_root="$(cd "$(git rev-parse --show-toplevel)" && pwd -P)"
 asset_dir="${1:-${repo_root}/.tmp/po0-check-assets}"
-expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.07.02+build.7}"
+expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.07.02+build.8}"
 expected_po0_release_date="${PO0_EXPECTED_RELEASE_DATE:-2026-07-02}"
-expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.07.02.7}"
+expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.07.02.8}"
 
 manifest_entries() {
     local manifest="$1"
@@ -428,6 +428,10 @@ check_macos_wifi_ssid_diagnostic() {
     }
     grep -Fq 'repeat 40 times' "${asset}" || {
         printf 'macOS helper AppleScript should wait without NSDate numeric coercion.\n' >&2
+        exit 1
+    }
+    grep -Fq 'on currentWifiSsid()' "${asset}" && grep -Fq 'set ssidValue to my currentWifiSsid()' "${asset}" && grep -Fq 'exit repeat' "${asset}" || {
+        printf 'macOS helper AppleScript should poll CoreWLAN and exit the wait loop as soon as SSID is available.\n' >&2
         exit 1
     }
     grep -Fq 'PO0 Location Permission Helper.app' "${asset}" && grep -Fq 'osacompile' "${asset}" || {

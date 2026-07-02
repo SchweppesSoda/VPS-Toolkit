@@ -151,7 +151,7 @@ validate_macos_location_permission_helper_app_path() {
 }
 
 macos_location_permission_helper_schema_version() {
-    printf '2026.07.02.7\n'
+    printf '2026.07.02.8\n'
 }
 
 write_macos_location_permission_helper_source() {
@@ -180,6 +180,18 @@ on writeText(theText, outputPath)
     end try
 end writeText
 
+on currentWifiSsid()
+    try
+        set wifiClient to current application's CWWiFiClient's sharedWiFiClient()
+        set wifiInterface to wifiClient's interface()
+        if wifiInterface is not missing value then
+            set ssidObject to wifiInterface's ssid()
+            if ssidObject is not missing value then return ssidObject as text
+        end if
+    end try
+    return ""
+end currentWifiSsid
+
 on run
     set outputPath to my readOutputPath()
     set ssidValue to ""
@@ -189,16 +201,10 @@ on run
         locationManager's requestWhenInUseAuthorization()
         locationManager's startUpdatingLocation()
         repeat 40 times
+            set ssidValue to my currentWifiSsid()
+            if ssidValue is not "" then exit repeat
             delay 0.2
         end repeat
-        try
-            set wifiClient to current application's CWWiFiClient's sharedWiFiClient()
-            set wifiInterface to wifiClient's interface()
-            if wifiInterface is not missing value then
-                set ssidObject to wifiInterface's ssid()
-                if ssidObject is not missing value then set ssidValue to ssidObject as text
-            end if
-        end try
         try
             if locationManager is not missing value then locationManager's stopUpdatingLocation()
         end try

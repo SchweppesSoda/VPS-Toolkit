@@ -195,6 +195,9 @@ if grep -Fq 'writeToFile:outputPath' "${helper_app}/Contents/script.applescript"
 fi
 grep -Fq '/usr/bin/printf %s' "${helper_app}/Contents/script.applescript" || fail "helper app should write output through shell printf"
 grep -Fq 'repeat 40 times' "${helper_app}/Contents/script.applescript" || fail "helper app should wait without NSDate numeric coercion"
+grep -Fq 'on currentWifiSsid()' "${helper_app}/Contents/script.applescript" || fail "helper app should centralize CoreWLAN SSID reads"
+grep -Fq 'set ssidValue to my currentWifiSsid()' "${helper_app}/Contents/script.applescript" || fail "helper app should poll SSID during the wait loop"
+grep -Fq 'exit repeat' "${helper_app}/Contents/script.applescript" || fail "helper app should exit the wait loop as soon as SSID is available"
 grep -Fq "PO0 Location Permission Helper.app" "${tmp_root}/helper-open.args" || fail "permission request did not open helper app"
 if grep -Fq -- '--args' "${tmp_root}/helper-open.args"; then
     fail "permission request must not pass output path through open --args"
