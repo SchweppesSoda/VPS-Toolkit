@@ -73,7 +73,7 @@ install_launchd() {
             return 1
         }
     fi
-    echo "已安装 PO0 Outbound IP Report launchd 计划：每 ${interval_seconds} 秒上报一次。"
+    echo "已安装 Outbound IP Report launchd 计划：每 ${interval_seconds} 秒上报一次。"
     echo "macOS 定时任务配置文件：${plist}"
     echo "脚本路径：${script}"
     echo "配置文件：${CONFIG_FILE}"
@@ -120,7 +120,7 @@ install_cron_backend() {
         return 1
     }
     rm -f "${tmp}" 2>/dev/null || true
-    echo "已安装 PO0 Outbound IP Report cron：每 $(cron_minutes_to_seconds "${CRON_MINUTES}") 秒上报一次。"
+    echo "已安装 Outbound IP Report cron：每 $(cron_minutes_to_seconds "${CRON_MINUTES}") 秒上报一次。"
     echo "脚本路径：${script}"
     echo "配置文件：${CONFIG_FILE}"
     echo "通知模式：$(notify_status_label)"
@@ -191,7 +191,7 @@ remove_cron() {
         remove_launchd || errors=1
         did=1
     fi
-    if launchd_supported && [[ -f "$(legacy_launchd_plist_path)" ]]; then
+    if launchd_supported && legacy_launchd_plist_exists; then
         remove_legacy_launchd_if_exists || errors=1
         did=1
     fi

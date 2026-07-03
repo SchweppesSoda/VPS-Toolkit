@@ -3,9 +3,9 @@ set -euo pipefail
 
 repo_root="$(cd "$(git rev-parse --show-toplevel)" && pwd -P)"
 asset_dir="${1:-${repo_root}/.tmp/po0-check-assets}"
-expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.07.03+build.1}"
+expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.07.03+build.2}"
 expected_po0_release_date="${PO0_EXPECTED_RELEASE_DATE:-2026-07-03}"
-expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.07.03.1}"
+expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.07.03.2}"
 
 manifest_entries() {
     local manifest="$1"
@@ -158,7 +158,7 @@ check_windows_canonical_path() {
         printf 'Windows self-report default script path is not canonical.\n' >&2
         exit 1
     fi
-    if [[ "${default_launcher}" != *"po0-outbound-ip-report-task.vbs"* || "${default_launcher}" == *"po0-self-report-task.vbs"* ]]; then
+    if [[ "${default_launcher}" != *"outbound-ip-report-task.vbs"* || "${default_launcher}" == *"po0-outbound-ip-report-task.vbs"* || "${default_launcher}" == *"po0-self-report-task.vbs"* ]]; then
         printf 'Windows self-report default launcher path is not canonical.\n' >&2
         exit 1
     fi
@@ -177,7 +177,7 @@ check_windows_canonical_path() {
         printf 'Windows self-report IP check state path is not canonical.\n' >&2
         exit 1
     fi
-    grep -q '^\$script:TaskName = "PO0 Outbound IP Report to LAN Worker"' "${asset}" || {
+    grep -q '^\$script:TaskName = "Outbound IP Report"' "${asset}" || {
         printf 'Windows self-report task name is not canonical.\n' >&2
         exit 1
     }
@@ -226,7 +226,7 @@ check_unix_outbound_ip_report_canonical_path() {
         printf '%s IP check state path is not canonical.\n' "${platform}" >&2
         exit 1
     fi
-    grep -q 'PO0_OUTBOUND_IP_REPORT_BEGIN' "${asset}" || {
+    grep -q 'OUTBOUND_IP_REPORT_BEGIN' "${asset}" || {
         printf '%s cron marker is not canonical.\n' "${platform}" >&2
         exit 1
     }
@@ -247,7 +247,7 @@ check_unix_outbound_ip_report_canonical_path() {
 check_macos_launchd_canonical_path() {
     local asset="${asset_dir}/po0-outbound-ip-report-macos.sh" label
     label="$(awk '/^launchd_label\(\)/{flag=1} flag{print; if ($0 ~ /^}/) exit}' "${asset}")"
-    if [[ "${label}" != *"fr.schweppes.po0-outbound-ip-report"* || "${label}" == *"fr.schweppes.po0-self-report"* ]]; then
+    if [[ "${label}" != *"outbound-ip-report"* || "${label}" == *"fr.schweppes.po0-outbound-ip-report"* || "${label}" == *"fr.schweppes.po0-self-report"* ]]; then
         printf 'macOS launchd label is not canonical.\n' >&2
         exit 1
     fi
@@ -255,8 +255,8 @@ check_macos_launchd_canonical_path() {
 
 check_legacy_name_allowlist() {
     local asset line_no line start end context
-    local pattern='po0-self-report|PO0_SELF_REPORT|SELF_REPORT_|PO0 Self Report|Self-report 已完成|Self-report 未完成|self-report\.json|po0-self-report\.log|fr\.schweppes\.po0-self-report|PO0_SELF_REPORT_BEGIN|PO0_SELF_REPORT_END'
-    local allowed='legacy|compat|fallback|alias|migrat|cleanup|old|Test-DownloadedScript|defaultScript\.Value|defaultLauncher\.Value|defaultLog\.Value|旧|兼容|迁移|回退|别名|历史|Get-Legacy|legacy_|LegacyTaskName|旧版|校验失败|grep -q|Self-report 已完成|Self-report 未完成|PO0_SELF_REPORT|SELF_REPORT_'
+    local pattern='po0-self-report|PO0_SELF_REPORT|SELF_REPORT_|PO0 Self Report|PO0 Outbound IP Report to LAN Worker|Self-report 已完成|Self-report 未完成|self-report\.json|po0-self-report\.log|fr\.schweppes\.po0-self-report|fr\.schweppes\.po0-outbound-ip-report|PO0_SELF_REPORT_BEGIN|PO0_SELF_REPORT_END|PO0_OUTBOUND_IP_REPORT_BEGIN|PO0_OUTBOUND_IP_REPORT_END'
+    local allowed='legacy|compat|fallback|alias|migrat|cleanup|old|previous|PreviousTaskName|PreviousTaskLauncherPath|write_cron_without_managed_block|Test-DownloadedScript|defaultScript\.Value|defaultLauncher\.Value|defaultLog\.Value|旧|兼容|迁移|回退|别名|历史|Get-Legacy|legacy_|LegacyTaskName|旧版|校验失败|grep -q|Self-report 已完成|Self-report 未完成|PO0_SELF_REPORT|SELF_REPORT_'
     for asset in "${asset_dir}/po0-outbound-ip-report.sh" "${asset_dir}/po0-outbound-ip-report-macos.sh" "${asset_dir}/po0-outbound-ip-report.ps1"; do
         while IFS=: read -r line_no line; do
             [[ -n "${line_no}" ]] || continue

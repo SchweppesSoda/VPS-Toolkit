@@ -604,7 +604,7 @@ po0-outbound-ip-report --install-cron
 查看本脚本管理的 cron 计划：
 
 ```bash
-crontab -l | sed -n '/# PO0_OUTBOUND_IP_REPORT_BEGIN/,/# PO0_OUTBOUND_IP_REPORT_END/p'
+crontab -l | sed -n '/# OUTBOUND_IP_REPORT_BEGIN/,/# OUTBOUND_IP_REPORT_END/p'
 ```
 
 也可以用脚本内置状态入口：
@@ -647,7 +647,7 @@ po0-outbound-ip-report --changelog
 
 ### macOS PO0 Outbound IP Report client
 
-macOS 使用专用 Bash 脚本和用户级 launchd LaunchAgent，不复用 Linux/OpenWrt cron 脚本。`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本，并写入 `~/Library/LaunchAgents/fr.schweppes.po0-outbound-ip-report.plist`；`6) 通知 / 静默模式` 可切换自动上报完成 / 失败后的 macOS 通知。
+macOS 使用专用 Bash 脚本和用户级 launchd LaunchAgent，不复用 Linux/OpenWrt cron 脚本。`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本，并写入 `~/Library/LaunchAgents/outbound-ip-report.plist`；`6) 通知 / 静默模式` 可切换自动上报完成 / 失败后的 macOS 通知。
 
 菜单 `9) Wi-Fi SSID 权限诊断` 会显示当前 SSID 读取状态，并可创建 / 打开 `PO0 Location Permission Helper.app` 触发 macOS 定位权限请求；菜单 `11) 删除定位权限 Helper` 只删除本地 Helper app，不修改 macOS 定位授权记录。`12) 卸载本客户端` 会删除本脚本管理的定时上报、本机安装脚本和 Helper app。
 
@@ -736,7 +736,7 @@ po0-outbound-ip-report --schedule-status
 查看 launchd 状态：
 
 ```bash
-launchctl print gui/$(id -u)/fr.schweppes.po0-outbound-ip-report
+launchctl print gui/$(id -u)/outbound-ip-report
 ```
 
 更新、查看版本或查看当前更新内容：
@@ -832,7 +832,7 @@ powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-outbound-ip-
 也可以直接看 Windows 计划任务：
 
 ```powershell
-Get-ScheduledTaskInfo -TaskName "PO0 Outbound IP Report to LAN Worker"
+Get-ScheduledTaskInfo -TaskName "Outbound IP Report"
 ```
 
 暂停或恢复本脚本管理的定时上报；暂停只影响自动计划任务，不影响手动立即上报：

@@ -215,12 +215,18 @@ function Get-ScheduledReporterTaskRecord {
         if ($task) {
             return [pscustomobject]@{ Task = $task; Name = $script:TaskName; IsLegacy = $false }
         }
-        $legacyTask = Get-ScheduledTask -TaskName $script:LegacyTaskName -ErrorAction SilentlyContinue
-        if ($legacyTask) {
-            return [pscustomobject]@{ Task = $legacyTask; Name = $script:LegacyTaskName; IsLegacy = $true }
+        foreach ($legacyName in $script:LegacyTaskNames) {
+            $legacyTask = Get-ScheduledTask -TaskName $legacyName -ErrorAction SilentlyContinue
+            if ($legacyTask) {
+                return [pscustomobject]@{ Task = $legacyTask; Name = $legacyName; IsLegacy = $true }
+            }
         }
     } catch {}
     return [pscustomobject]@{ Task = $null; Name = ""; IsLegacy = $false }
+}
+
+function Format-LegacyScheduledReporterTaskNames {
+    return ($script:LegacyTaskNames -join ", ")
 }
 
 function Test-ScheduledReporterTaskCurrent {
@@ -305,18 +311,28 @@ function Import-ScheduledReporterTaskSettings {
 
 function Remove-LegacyScheduledReporterTask {
     param([switch]$Quiet)
+    $ok = $true
     try {
-        $legacyTask = Get-ScheduledTask -TaskName $script:LegacyTaskName -ErrorAction SilentlyContinue
-        if (-not $legacyTask) { return $true }
-        Unregister-ScheduledTask -TaskName $script:LegacyTaskName -Confirm:$false -ErrorAction Stop
-        if (-not $Quiet) { Write-Host "已删除旧计划任务：$script:LegacyTaskName" }
-        return $true
+        foreach ($legacyName in $script:LegacyTaskNames) {
+            $legacyTask = Get-ScheduledTask -TaskName $legacyName -ErrorAction SilentlyContinue
+            if (-not $legacyTask) { continue }
+            try {
+                Unregister-ScheduledTask -TaskName $legacyName -Confirm:$false -ErrorAction Stop
+                if (-not $Quiet) { Write-Host "已删除旧计划任务：$legacyName" }
+            } catch {
+                try {
+                    Disable-ScheduledTask -TaskName $legacyName -ErrorAction SilentlyContinue | Out-Null
+                } catch {}
+                if (-not $Quiet) {
+                    Write-Host "删除旧计划任务失败，已尝试禁用旧任务以避免双重上报：$legacyName：$($_.Exception.Message)" -ForegroundColor Yellow
+                }
+                $ok = $false
+            }
+        }
+        return $ok
     } catch {
-        try {
-            Disable-ScheduledTask -TaskName $script:LegacyTaskName -ErrorAction SilentlyContinue | Out-Null
-        } catch {}
         if (-not $Quiet) {
-            Write-Host "删除旧计划任务失败，已尝试禁用旧任务以避免双重上报：$script:LegacyTaskName：$($_.Exception.Message)" -ForegroundColor Yellow
+            Write-Host "删除旧计划任务失败：$($_.Exception.Message)" -ForegroundColor Yellow
         }
         return $false
     }
@@ -339,7 +355,7 @@ function Update-ScheduledReporterLauncherForExistingTask {
     Write-ScheduledReporterTaskLauncher -LauncherPath $launcher -ScriptPath $scriptPath | Out-Null
     $action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument ("//B //Nologo " + (Quote-TaskArg $launcher))
     if ($record.IsLegacy) {
-        $description = "探测当前 Windows 公网出口 IPv4，并上报到 LAN Worker。"
+        $description = "Report outbound IPv4."
         $registerParams = @{
             TaskName = $script:TaskName
             Action = $action
@@ -356,7 +372,7 @@ function Update-ScheduledReporterLauncherForExistingTask {
             Enable-ScheduledTask -TaskName $script:TaskName | Out-Null
         }
         if (-not (Remove-LegacyScheduledReporterTask)) {
-            throw "旧计划任务删除失败，已尝试禁用旧任务；请检查计划任务：$script:LegacyTaskName"
+            throw "旧计划任务删除失败，已尝试禁用旧任务；请检查计划任务：$(Format-LegacyScheduledReporterTaskNames)"
         }
         return "migrated"
     } else {
@@ -479,16 +495,22 @@ function Cleanup-LegacySelfReportArtifacts {
 
     $legacyTaskStillExists = $false
     try {
-        $legacyTask = Get-ScheduledTask -TaskName $script:LegacyTaskName -ErrorAction SilentlyContinue
         $newTask = Get-ScheduledTask -TaskName $script:TaskName -ErrorAction SilentlyContinue
-        if ($legacyTask -and $newTask) {
+        if ($newTask) {
             if (-not (Remove-LegacyScheduledReporterTask -Quiet:$Quiet)) { $ok = $false }
         }
-        $legacyTaskStillExists = [bool](Get-ScheduledTask -TaskName $script:LegacyTaskName -ErrorAction SilentlyContinue)
+        foreach ($legacyName in $script:LegacyTaskNames) {
+            if (Get-ScheduledTask -TaskName $legacyName -ErrorAction SilentlyContinue) {
+                $legacyTaskStillExists = $true
+                break
+            }
+        }
     } catch {}
 
     if (-not $legacyTaskStillExists) {
-        if (-not (Remove-DefaultLegacyPath -Label "计划任务启动文件" -Path (Get-LegacyTaskLauncherPath) -CanonicalPath (Get-DefaultTaskLauncherPath) -Quiet:$Quiet)) { $ok = $false }
+        foreach ($legacyLauncherPath in (Get-LegacyTaskLauncherPaths)) {
+            if (-not (Remove-DefaultLegacyPath -Label "计划任务启动文件" -Path $legacyLauncherPath -CanonicalPath (Get-DefaultTaskLauncherPath) -Quiet:$Quiet)) { $ok = $false }
+        }
         if (-not (Remove-DefaultLegacyPath -Label "本机脚本" -Path (Get-LegacyScriptPath) -CanonicalPath (Get-DefaultScriptPath) -Quiet:$Quiet)) { $ok = $false }
     } elseif (-not $Quiet) {
         Write-Host "旧计划任务仍存在，暂不删除旧脚本/启动器，避免破坏仍在使用的任务。" -ForegroundColor Yellow
@@ -556,8 +578,8 @@ function Test-DownloadedScript {
         throw "更新文件校验失败：下载脚本默认安装路径不是 po0-outbound-ip-report.ps1。"
     }
     $defaultLauncher = [regex]::Match($raw, '(?ms)^function Get-DefaultTaskLauncherPath \{.*?^}')
-    if (-not $defaultLauncher.Success -or $defaultLauncher.Value -notmatch 'po0-outbound-ip-report-task\.vbs' -or $defaultLauncher.Value -match 'po0-self-report-task\.vbs') {
-        throw "更新文件校验失败：下载脚本默认计划任务启动文件不是 po0-outbound-ip-report-task.vbs。"
+    if (-not $defaultLauncher.Success -or $defaultLauncher.Value -notmatch 'outbound-ip-report-task\.vbs' -or $defaultLauncher.Value -match 'po0-(outbound-ip-report|self-report)-task\.vbs') {
+        throw "更新文件校验失败：下载脚本默认计划任务启动文件不是 outbound-ip-report-task.vbs。"
     }
     $defaultConfig = [regex]::Match($raw, '(?ms)^function Get-DefaultConfigPath \{.*?^}')
     if (-not $defaultConfig.Success -or $defaultConfig.Value -notmatch 'outbound-ip-report\.json' -or $defaultConfig.Value -match 'self-report\.json') {
@@ -567,8 +589,8 @@ function Test-DownloadedScript {
     if (-not $defaultLog.Success -or $defaultLog.Value -notmatch 'po0-outbound-ip-report\.log' -or $defaultLog.Value -match 'po0-self-report\.log') {
         throw "更新文件校验失败：下载脚本默认日志文件不是 po0-outbound-ip-report.log。"
     }
-    if ($raw -notmatch '\$script:TaskName = "PO0 Outbound IP Report to LAN Worker"') {
-        throw "更新文件校验失败：下载脚本默认计划任务名不是 PO0 Outbound IP Report to LAN Worker。"
+    if ($raw -notmatch '\$script:TaskName = "Outbound IP Report"') {
+        throw "更新文件校验失败：下载脚本默认计划任务名不是 Outbound IP Report。"
     }
     $tokens = $null
     $errors = $null
@@ -662,7 +684,7 @@ function Install-ScheduledReporter {
     Write-ScheduledReporterTaskLauncher -LauncherPath $launcher -ScriptPath $dest | Out-Null
     $action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument ("//B //Nologo " + (Quote-TaskArg $launcher))
     $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes $script:Minutes) -RepetitionDuration (New-TimeSpan -Days 3650)
-    $description = "探测当前 Windows 公网出口 IPv4，并上报到 LAN Worker。"
+    $description = "Report outbound IPv4."
     $registerParams = @{
         TaskName = $script:TaskName
         Action = $action
@@ -680,7 +702,7 @@ function Install-ScheduledReporter {
     }
     if ($existingRecord.IsLegacy) {
         if (-not (Remove-LegacyScheduledReporterTask)) {
-            throw "旧计划任务删除失败，已尝试禁用旧任务；请检查计划任务：$script:LegacyTaskName"
+            throw "旧计划任务删除失败，已尝试禁用旧任务；请检查计划任务：$(Format-LegacyScheduledReporterTaskNames)"
         }
     }
     Cleanup-LegacySelfReportArtifacts | Out-Null

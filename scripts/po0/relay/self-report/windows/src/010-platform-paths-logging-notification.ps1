@@ -38,6 +38,10 @@ function Get-DefaultScriptPath {
 }
 
 function Get-DefaultTaskLauncherPath {
+    return (Join-Path (Get-DefaultDataDir) "outbound-ip-report-task.vbs")
+}
+
+function Get-PreviousTaskLauncherPath {
     return (Join-Path (Get-DefaultDataDir) "po0-outbound-ip-report-task.vbs")
 }
 
@@ -47,6 +51,11 @@ function Get-LegacyScriptPath {
 
 function Get-LegacyTaskLauncherPath {
     return (Join-Path (Get-DefaultDataDir) "po0-self-report-task.vbs")
+}
+
+function Get-LegacyTaskLauncherPaths {
+    $paths = @((Get-PreviousTaskLauncherPath), (Get-LegacyTaskLauncherPath))
+    return @($paths | Select-Object -Unique)
 }
 
 function Test-LegacySelfReportScriptPath {

@@ -38,7 +38,9 @@ read_cron_status_snapshot() {
     fi
     while IFS= read -r line || [[ -n "${line}" ]]; do
         case "${line}" in
-            "# PO0_OUTBOUND_IP_REPORT_BEGIN"*) in_block=1; found=1; legacy_block=0; continue ;;
+            "# OUTBOUND_IP_REPORT_BEGIN"*) in_block=1; found=1; legacy_block=0; continue ;;
+            "# OUTBOUND_IP_REPORT_END"*) in_block=0; continue ;;
+            "# PO0_OUTBOUND_IP_REPORT_BEGIN"*) in_block=1; found=1; legacy_block=1; continue ;;
             "# PO0_OUTBOUND_IP_REPORT_END"*) in_block=0; continue ;;
             "# PO0_SELF_REPORT_BEGIN"*) in_block=1; found=1; legacy_block=1; continue ;;
             "# PO0_SELF_REPORT_END"*) in_block=0; continue ;;

@@ -47,7 +47,9 @@ read_cron_status_snapshot() {
     fi
     while IFS= read -r line || [[ -n "${line}" ]]; do
         case "${line}" in
-            "# PO0_OUTBOUND_IP_REPORT_BEGIN"*) in_block=1; found=1; legacy_block=0; continue ;;
+            "# OUTBOUND_IP_REPORT_BEGIN"*) in_block=1; found=1; legacy_block=0; continue ;;
+            "# OUTBOUND_IP_REPORT_END"*) in_block=0; continue ;;
+            "# PO0_OUTBOUND_IP_REPORT_BEGIN"*) in_block=1; found=1; legacy_block=1; continue ;;
             "# PO0_OUTBOUND_IP_REPORT_END"*) in_block=0; continue ;;
             "# PO0_SELF_REPORT_BEGIN"*) in_block=1; found=1; legacy_block=1; continue ;;
             "# PO0_SELF_REPORT_END"*) in_block=0; continue ;;
@@ -75,7 +77,7 @@ read_cron_status_snapshot() {
     done < <(crontab -l 2>/dev/null || true)
 
     if [[ "${found}" != "1" ]]; then
-        if launchd_supported && { [[ -f "$(launchd_plist_path)" ]] || [[ -f "$(legacy_launchd_plist_path)" ]]; }; then
+        if launchd_supported && { [[ -f "$(launchd_plist_path)" ]] || legacy_launchd_plist_exists; }; then
             read_launchd_status_snapshot
             return 0
         fi
@@ -175,7 +177,7 @@ macos_launchd_refresh_current() {
     launchd_supported || return 1
     plist="$(launchd_plist_path)"
     [[ -f "${plist}" ]] || return 1
-    [[ ! -f "$(legacy_launchd_plist_path)" ]] || return 1
+    ! legacy_launchd_plist_exists || return 1
     if command -v crontab >/dev/null 2>&1 && cron_managed_block_exists; then
         return 1
     fi
@@ -195,7 +197,7 @@ macos_launchd_refresh_current() {
 
 macos_schedule_refresh_current() {
     local script="$1"
-    if launchd_supported && [[ -f "$(launchd_plist_path)" ]]; then
+    if launchd_supported && { [[ -f "$(launchd_plist_path)" ]] || legacy_launchd_plist_exists; }; then
         macos_launchd_refresh_current "${script}"
         return $?
     fi
@@ -237,7 +239,7 @@ set_schedule_paused() {
     local value="$1" had_schedule=0 previous_paused="${SCHEDULE_PAUSED}"
     if cron_managed_block_exists; then
         had_schedule=1
-    elif launchd_supported && { [[ -f "$(launchd_plist_path)" ]] || [[ -f "$(legacy_launchd_plist_path)" ]]; }; then
+    elif launchd_supported && { [[ -f "$(launchd_plist_path)" ]] || legacy_launchd_plist_exists; }; then
         had_schedule=1
     fi
     SCHEDULE_PAUSED="${value}"
@@ -277,7 +279,7 @@ set_notify_enabled() {
     local value="$1" had_schedule=0 previous_notify="${NOTIFY}"
     if cron_managed_block_exists; then
         had_schedule=1
-    elif launchd_supported && { [[ -f "$(launchd_plist_path)" ]] || [[ -f "$(legacy_launchd_plist_path)" ]]; }; then
+    elif launchd_supported && { [[ -f "$(launchd_plist_path)" ]] || legacy_launchd_plist_exists; }; then
         had_schedule=1
     fi
     NOTIFY="${value}"

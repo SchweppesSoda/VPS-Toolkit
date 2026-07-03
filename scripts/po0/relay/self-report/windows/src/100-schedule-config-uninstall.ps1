@@ -243,7 +243,7 @@ function Remove-ScheduledReporter {
         Write-Host "已删除计划任务：$($record.Name)"
         if (-not $record.IsLegacy) {
             if (-not (Remove-LegacyScheduledReporterTask)) {
-                throw "旧计划任务删除失败，已尝试禁用旧任务；请检查计划任务：$script:LegacyTaskName"
+                throw "旧计划任务删除失败，已尝试禁用旧任务；请检查计划任务：$(Format-LegacyScheduledReporterTaskNames)"
             }
         }
         Write-SelfReportCompleted "已删除本脚本管理的计划任务。"

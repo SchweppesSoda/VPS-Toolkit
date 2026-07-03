@@ -709,7 +709,7 @@ po0-outbound-ip-report --install-cron
 Linux/OpenWrt 查看本脚本管理的 cron 计划：
 
 ```bash
-crontab -l | sed -n '/# PO0_OUTBOUND_IP_REPORT_BEGIN/,/# PO0_OUTBOUND_IP_REPORT_END/p'
+crontab -l | sed -n '/# OUTBOUND_IP_REPORT_BEGIN/,/# OUTBOUND_IP_REPORT_END/p'
 ```
 
 Linux/OpenWrt 查看脚本内置定时状态：
@@ -725,7 +725,7 @@ po0-outbound-ip-report --pause-schedule
 po0-outbound-ip-report --resume-schedule
 ```
 
-macOS 客户端使用专用 Release asset，优先安装 launchd 定时任务；普通用户写 `~/Library/LaunchAgents/fr.schweppes.po0-outbound-ip-report.plist`，root 写 `/Library/LaunchDaemons/fr.schweppes.po0-outbound-ip-report.plist` 并使用 `system` launchd domain，launchd 不可用但存在 `crontab` 时回退到 cron。首次保存默认配置并打开菜单：
+macOS 客户端使用专用 Release asset，优先安装 launchd 定时任务；普通用户写 `~/Library/LaunchAgents/outbound-ip-report.plist`，root 写 `/Library/LaunchDaemons/outbound-ip-report.plist` 并使用 `system` launchd domain，launchd 不可用但存在 `crontab` 时回退到 cron。首次保存默认配置并打开菜单：
 
 ```bash
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report-macos.sh | bash -s -- --save-config --menu
@@ -796,7 +796,7 @@ $client=Join-Path $env:LOCALAPPDATA 'PO0\po0-outbound-ip-report.ps1'; powershell
 ```
 
 ```powershell
-Get-ScheduledTaskInfo -TaskName "PO0 Outbound IP Report to LAN Worker"
+Get-ScheduledTaskInfo -TaskName "Outbound IP Report"
 ```
 
 Windows PowerShell 暂停 / 恢复本脚本管理的定时上报：
@@ -831,7 +831,7 @@ $client=Join-Path $env:LOCALAPPDATA 'PO0\po0-outbound-ip-report.ps1'; powershell
 
 SSID 跳过是访问设备客户端本地 guard，不属于 LAN Worker 或 PO0 协议。Linux/OpenWrt/macOS 的 CLI 使用 `--skip-wifi-ssid`、`--skip-wifi-ssids`、`--clear-skip-wifi-ssids` 和 `--force-report`，macOS 额外提供 `--show-wifi-ssid` 用于直接诊断当前读取结果，提供 `--diagnose-wifi-ssid` 输出 macOS 定位服务 / 隐私权限说明，提供 `--request-location-permission` 生成并打开 `PO0 Location Permission Helper.app`，由带稳定 `CFBundleIdentifier`、`CFBundleExecutable`、`CFBundlePackageType`、定位用途声明和可选 ad-hoc 签名的 Helper 触发 CoreLocation 授权请求，并在授权后通过 CoreWLAN 在本机读取当前 Wi-Fi SSID；提供 `--delete-location-permission-helper` / `--remove-location-helper` 删除本地 Helper app，但不修改 macOS 定位授权 / TCC 记录；同时提供 `--open-location-services` 调用系统 `open "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices"` 跳转到定位服务设置。Windows 使用 `-SkipWifiSsids` 和 `-ForceReport`，canonical 环境变量使用 `PO0_OUTBOUND_IP_REPORT_SKIP_WIFI_SSIDS`；保存配置时 Linux/OpenWrt/macOS 写入 `SKIP_WIFI_SSIDS`，Windows 写入 `SkipWifiSsids`。列表用英文分号 `;` 分隔，解析时 trim 每一项并丢弃空项，匹配当前 SSID 时只做精确字符串比较，不支持通配符、正则、大小写折叠或子串命中。命中后客户端在调用公网 IPv4 探测和 HTTP `/report` 前结束本次自动上报，只写本地跳过状态和日志摘要；不会向 LAN Worker 上传 SSID、命中项、跳过原因或任何新 query/header，因此 LAN Worker `/report`、`--client-ip-report` 和 PO0 `entries.tsv` 数据模型都不变。读取当前 SSID 失败、设备没有 Wi-Fi、平台命令不可用或权限不足时，客户端继续正常上报，避免因为本地探测能力缺失导致动态白名单过期。macOS 底层命令返回 `redacted` / `<redacted>` 时视为系统隐私权限隐藏，状态显示为读取失败并 fail-open；脚本提示用户授权 PO0 Helper，不再依赖 Terminal/iTerm 出现在定位服务列表里，也不会自动授予权限、不运行 `sudo`、不调用 `tccutil` 改写权限、不写 TCC 数据库。交互式手动运行命中跳过规则时先询问是否强制继续；定时任务 / launchd / Task Scheduler 命中时不阻塞、不询问，只写跳过摘要。macOS 默认 Bash 是 3.2，且客户端全局使用 `set -u`，空 Bash 数组展开会触发 `items[@]: unbound variable`；Linux/macOS SSID 列表解析必须用字符串循环或其它 Bash 3.2 安全写法，不要用 `local -a items` / `read -r -a items`。release gate 会检查 PO0 Outbound IP Report Bash asset，防止这类数组解析重新出现；macOS asset 还必须保留 `--show-wifi-ssid` / `--diagnose-wifi-ssid` / `--request-location-permission` / `--delete-location-permission-helper` / `--open-location-services` 诊断入口、`redacted` 占位符过滤、Helper app 生成 / 删除、CoreLocation 授权请求、CoreWLAN Helper SSID fallback、定位服务打开命令、权限说明，以及 `networksetup` / `airport` / `wdutil` fallback。
 
-命名迁移只处理脚本可确定的默认 legacy 路径，不做全盘扫描。Linux/OpenWrt/macOS 更新、自愈或安装定时上报时会迁移默认旧配置、旧 `/tmp/po0-self-report.log`、旧 IP 探测 state，并移除默认旧 `po0-self-report` 命令；cron/launchd 会从旧 marker / label 迁到 `PO0_OUTBOUND_IP_REPORT_*` / `fr.schweppes.po0-outbound-ip-report`，macOS 安装 launchd 前会先清旧 cron，清理失败则不加载新 launchd，避免双重上报。Windows 更新、自愈或安装计划任务时会迁移默认旧配置、日志、state 和旧计划任务；新任务注册成功后才删除旧任务，删除失败时先禁用旧任务并报错。显式 `--config` / `-ConfigPath`、`--install-path`、`-LogPath` 等自定义路径按用户自定义处理，不在自动 legacy 清理中删除。
+命名迁移只处理脚本可确定的默认 legacy 路径，不做全盘扫描。Linux/OpenWrt/macOS 更新、自愈或安装定时上报时会迁移默认旧配置、旧 `/tmp/po0-self-report.log`、旧 IP 探测 state，并移除默认旧 `po0-self-report` 命令；cron/launchd 会从旧 `PO0_OUTBOUND_IP_REPORT_*` / `PO0_SELF_REPORT_*` marker 和 `fr.schweppes.po0-outbound-ip-report` / `fr.schweppes.po0-self-report` label 迁到 `OUTBOUND_IP_REPORT_*` / `outbound-ip-report`，macOS 安装 launchd 前会先清旧 cron，清理失败则不加载新 launchd，避免双重上报。Windows 更新、自愈或安装计划任务时会迁移默认旧配置、日志、state、旧 `PO0 Outbound IP Report to LAN Worker` / `PO0 Self Report to LAN Worker` 计划任务和旧计划任务启动文件；新任务注册成功后才删除旧任务，删除失败时先禁用旧任务并报错。显式 `--config` / `-ConfigPath`、`--install-path`、`-LogPath` 等自定义路径按用户自定义处理，不在自动 legacy 清理中删除。
 
 访问设备客户端的用户可见结果行统一为 `PO0 Outbound IP Report 已完成：...` 或 `PO0 Outbound IP Report 未完成：...`。一次性上报只有在本机探测到公网 IPv4、LAN Worker HTTP 返回 2xx，且 LAN Worker 已成功代报 PO0 后才打印完成；否则保留底层错误并返回非零状态。LAN Worker 成功返回 `OK <ip>; targets=<N>; target_names=<目标列表>` 时，三个客户端都会把目标列表汇总到完成结果和定时上报状态摘要；连接旧 LAN Worker 只有 `targets=<N>` 时退回显示 `PO0 目标：N 个`。Linux/OpenWrt 和 macOS 定时任务的每次运行输出重定向到 `/tmp/po0-outbound-ip-report.log`，其中也包含同样的结果行。macOS 默认静默；显式启用通知后，成功/失败通知只是附加 UI 提示，通知失败不能影响上报结果。Windows 计划任务不会依赖一闪而过的控制台窗口；`-InstallTask` 会把 `-LogPath` 写入任务参数，管理员安装默认日志为 `%ProgramData%\PO0\po0-outbound-ip-report.log`，普通用户安装默认日志为 `%LOCALAPPDATA%\PO0\po0-outbound-ip-report.log`，运行时会记录可执行到的上报过程、LAN Worker 返回体和完成/未完成结果；参数、配置或探测阶段的早期失败只记录错误路径。Windows 的通知实际行为由计划任务/VBS launcher 是否带 `-Notify` 决定；菜单“查看定时上报状态”会解析 launcher，展示配置通知状态、任务实际通知状态和实际 `-File` 脚本目标，不一致时提示通知或旧路径漂移，同时展示计划任务上次运行结果和最近结果摘要，原始日志路径 / tail 命令仍保留用于排查细节。
 

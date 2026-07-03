@@ -31,14 +31,16 @@ $ErrorActionPreference = "Stop"
 $ReleaseDownloadBaseUrl = $(if ($env:PO0_RELEASE_DOWNLOAD_BASE_URL) { $env:PO0_RELEASE_DOWNLOAD_BASE_URL } else { "https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download" })
 $DownloadUrl = $(if ($env:PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL) { $env:PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL } elseif ($env:PO0_SELF_REPORT_PS_DOWNLOAD_URL) { $env:PO0_SELF_REPORT_PS_DOWNLOAD_URL } else { "$ReleaseDownloadBaseUrl/po0-outbound-ip-report.ps1" })
 $ScriptName = "po0-outbound-ip-report"
-$ScriptVersion = "2026.07.03+build.1"
+$ScriptVersion = "2026.07.03+build.2"
 $ScriptReleaseDate = "2026-07-03"
 # CHANGELOG_BEGIN
-# - 自更新后先检测计划任务是否已指向标准脚本路径；没有漂移时不再重复刷新计划任务启动文件。
-# - 菜单和状态页清理标准路径状态、定时任务状态等用户可见文案，减少工程表达。
+# - 新安装的计划任务名改为 Outbound IP Report，计划任务描述改为简短英文。
+# - 新安装的计划任务启动文件改为 outbound-ip-report-task.vbs，保留旧 PO0 任务名和旧启动文件识别并在更新时迁移。
 # CHANGELOG_END
 $PanelValueColumn = 24
 $MenuRightColumn = 46
 $MaxMinutes = 10080
-$script:TaskName = "PO0 Outbound IP Report to LAN Worker"
+$script:TaskName = "Outbound IP Report"
+$script:PreviousTaskName = "PO0 Outbound IP Report to LAN Worker"
 $script:LegacyTaskName = "PO0 Self Report to LAN Worker"
+$script:LegacyTaskNames = @($script:PreviousTaskName, $script:LegacyTaskName)

@@ -242,7 +242,7 @@ install_self() {
 
 refresh_schedule_after_script_update() {
     local dest="$1"
-    if cron_managed_block_exists || { launchd_supported && { [[ -f "$(launchd_plist_path)" ]] || [[ -f "$(legacy_launchd_plist_path)" ]]; }; }; then
+    if cron_managed_block_exists || { launchd_supported && { [[ -f "$(launchd_plist_path)" ]] || legacy_launchd_plist_exists; }; }; then
         if macos_schedule_refresh_current "${dest}"; then
             printf '定时上报已指向标准脚本路径，未刷新：%s\n' "${dest}"
         elif run_updated_script "${dest}" --install-launchd >/dev/null 2>&1; then

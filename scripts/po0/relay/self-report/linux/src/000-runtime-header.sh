@@ -4,11 +4,11 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_OUTBOUND_IP_REPORT_DOWNLOAD_URL:-${PO0_SELF_REPORT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report.sh}}"
 SCRIPT_NAME="po0-outbound-ip-report"
-SCRIPT_VERSION="2026.07.03+build.1"
+SCRIPT_VERSION="2026.07.03+build.2"
 SCRIPT_RELEASE_DATE="2026-07-03"
 # CHANGELOG_BEGIN
-# - 自更新后先检测 cron 是否已指向标准脚本路径；没有漂移时不再重复刷新定时任务。
-# - 菜单和状态页清理标准路径状态、定时任务状态等用户可见文案，减少工程表达。
+# - 新安装的 cron 托管标记改为 OUTBOUND_IP_REPORT_BEGIN / END，保留旧 PO0 标记识别并在更新时迁移。
+# - 定时上报安装输出使用更简洁的 Outbound IP Report 名称。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24

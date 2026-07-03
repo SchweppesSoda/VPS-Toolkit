@@ -78,6 +78,9 @@ run_linux_cases() {
         return "${RUN_UPDATED_STATUS:-0}"
     }
 
+    [[ "$(cron_begin_marker)" == "# OUTBOUND_IP_REPORT_BEGIN ${CONFIG_FILE}" ]] || fail "linux cron begin marker should be simple"
+    [[ "$(cron_end_marker)" == "# OUTBOUND_IP_REPORT_END ${CONFIG_FILE}" ]] || fail "linux cron end marker should be simple"
+
     run_cmd="bash $(sh_quote "${dest}") --config $(sh_quote "${CONFIG_FILE}") >$(sh_quote "$(self_report_log_path)") 2>&1"
     job="$(build_cron_job "${CRON_MINUTES}" "${run_cmd}")"
     {
@@ -153,6 +156,10 @@ run_macos_cases() {
     dest="${tmp_root}/po0-outbound-ip-report-macos.sh"
     plist="$(launchd_plist_path)"
     call_log="${tmp_root}/run-updated.log"
+
+    [[ "$(launchd_label)" == "outbound-ip-report" ]] || fail "macOS launchd label should be simple"
+    [[ "$(cron_begin_marker)" == "# OUTBOUND_IP_REPORT_BEGIN ${CONFIG_FILE}" ]] || fail "macOS cron begin marker should be simple"
+    [[ "$(cron_end_marker)" == "# OUTBOUND_IP_REPORT_END ${CONFIG_FILE}" ]] || fail "macOS cron end marker should be simple"
 
     self_report_log_path() {
         printf '%s\n' "${LOG_FILE}"

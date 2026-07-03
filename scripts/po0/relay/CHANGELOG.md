@@ -6,6 +6,10 @@
 
 ## po0-nftables-relay-manager
 
+### 2026.07.03+build.2
+
+- 跟随 PO0 发布批次对齐到 `po0-v2026.07.03.2`；本脚本无行为变化。
+
 ### 2026.07.03+build.1
 
 - 跟随 PO0 发布批次对齐到 `po0-v2026.07.03.1`；本脚本无行为变化。
@@ -177,6 +181,10 @@
 - 状态面板和资源任务创建计划摘要增加彩色状态提示。
 
 ## po0-lan-worker-client
+
+### 2026.07.03+build.2
+
+- 跟随 PO0 发布批次对齐到 `po0-v2026.07.03.2`；LAN Worker 客户端无行为变化。
 
 ### 2026.07.03+build.1
 
@@ -357,6 +365,11 @@
 - 状态页 / Widget 优先复用 IP9、163、126、myip.ipip 等 IP 查询接口返回的归属地 / 运营商信息，拿不到时才额外查询。
 
 ## po0-outbound-ip-report（Linux/OpenWrt）
+
+### 2026.07.03+build.2
+
+- 新安装的 cron 托管标记改为 `OUTBOUND_IP_REPORT_BEGIN` / `OUTBOUND_IP_REPORT_END`；旧 `PO0_OUTBOUND_IP_REPORT_*` 和 `PO0_SELF_REPORT_*` 标记继续识别并在更新时迁移。
+- 定时上报安装输出使用更简洁的 `Outbound IP Report` 名称。
 
 ### 2026.07.03+build.1
 
@@ -545,6 +558,11 @@
 
 ## po0-outbound-ip-report（macOS）
 
+### 2026.07.03+build.2
+
+- 新安装的 launchd label 改为 `outbound-ip-report`；旧 `fr.schweppes.po0-outbound-ip-report` / `fr.schweppes.po0-self-report` 继续识别并在更新时迁移。
+- cron fallback 托管标记改为 `OUTBOUND_IP_REPORT_BEGIN` / `OUTBOUND_IP_REPORT_END`，定时安装输出使用更简洁的 `Outbound IP Report` 名称。
+
 ### 2026.07.03+build.1
 
 - 自更新后先检测 launchd / cron 是否已指向标准脚本路径；没有漂移时不再重复刷新定时任务。
@@ -677,6 +695,11 @@
 - 支持 `--save-config --menu` 首次保存默认配置后打开菜单，并提供 `--install-launchd` 别名。
 
 ## po0-outbound-ip-report（Windows PowerShell）
+
+### 2026.07.03+build.2
+
+- 新安装的 Windows 计划任务名改为 `Outbound IP Report`，计划任务描述改为 `Report outbound IPv4.`。
+- 新安装的计划任务启动文件改为 `outbound-ip-report-task.vbs`；旧 `PO0 Outbound IP Report to LAN Worker` / `PO0 Self Report to LAN Worker` 计划任务和旧启动文件继续识别并在更新时迁移。
 
 ### 2026.07.03+build.1
 

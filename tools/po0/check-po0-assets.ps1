@@ -10,9 +10,9 @@ if (-not $OutputDir) {
 }
 
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.07.03+build.1" }
+$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.07.03+build.2" }
 $ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-07-03" }
-$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.07.03.1" }
+$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.07.03.2" }
 
 function ConvertTo-RepoRelativePath {
     param([string]$Path)
@@ -224,7 +224,7 @@ function Test-WindowsCanonicalPath {
     if (-not $defaultScript.Success -or $defaultScript.Value -notmatch 'po0-outbound-ip-report\.ps1' -or $defaultScript.Value -match 'po0-self-report\.ps1') {
         throw "Windows self-report default script path is not canonical."
     }
-    if (-not $defaultLauncher.Success -or $defaultLauncher.Value -notmatch 'po0-outbound-ip-report-task\.vbs' -or $defaultLauncher.Value -match 'po0-self-report-task\.vbs') {
+    if (-not $defaultLauncher.Success -or $defaultLauncher.Value -notmatch 'outbound-ip-report-task\.vbs' -or $defaultLauncher.Value -match 'po0-(outbound-ip-report|self-report)-task\.vbs') {
         throw "Windows self-report default launcher path is not canonical."
     }
     $defaultConfig = [regex]::Match($raw, '(?ms)^function Get-DefaultConfigPath \{.*?^}')
@@ -239,7 +239,7 @@ function Test-WindowsCanonicalPath {
     if (-not $defaultState.Success -or $defaultState.Value -notmatch 'outbound-ip-report-ip-check-index\.txt' -or $defaultState.Value -match 'self-report-ip-check-index\.txt') {
         throw "Windows self-report IP check state path is not canonical."
     }
-    if ($raw -notmatch '\$script:TaskName = "PO0 Outbound IP Report to LAN Worker"') {
+    if ($raw -notmatch '\$script:TaskName = "Outbound IP Report"') {
         throw "Windows self-report task name is not canonical."
     }
     if ($raw -notmatch 'PO0_OUTBOUND_IP_REPORT_CONFIG') {
@@ -283,7 +283,7 @@ function Test-UnixOutboundIpReportCanonicalPath {
     if (-not $state.Success -or $state.Value -notmatch 'po0-outbound-ip-report' -or $state.Value -match 'po0-self-report') {
         throw "$Platform IP check state path is not canonical."
     }
-    if ($raw -notmatch 'PO0_OUTBOUND_IP_REPORT_BEGIN') {
+    if ($raw -notmatch 'OUTBOUND_IP_REPORT_BEGIN') {
         throw "$Platform cron marker is not canonical."
     }
     if ($raw -notmatch 'PO0_OUTBOUND_IP_REPORT_CONFIG') {
@@ -301,7 +301,7 @@ function Test-MacOsLaunchdCanonicalPath {
     $path = Join-Path $OutputDir "po0-outbound-ip-report-macos.sh"
     $raw = Get-Content -LiteralPath $path -Raw -Encoding UTF8
     $label = [regex]::Match($raw, '(?ms)^launchd_label\(\) \{.*?^}')
-    if (-not $label.Success -or $label.Value -notmatch 'fr\.schweppes\.po0-outbound-ip-report' -or $label.Value -match 'fr\.schweppes\.po0-self-report') {
+    if (-not $label.Success -or $label.Value -notmatch 'outbound-ip-report' -or $label.Value -match 'fr\.schweppes\.po0-(outbound-ip-report|self-report)') {
         throw "macOS launchd label is not canonical."
     }
 }
@@ -312,8 +312,8 @@ function Test-LegacyNameAllowlist {
         "po0-outbound-ip-report-macos.sh",
         "po0-outbound-ip-report.ps1"
     )
-    $legacyPattern = 'po0-self-report|PO0_SELF_REPORT|SELF_REPORT_|PO0 Self Report|Self-report 已完成|Self-report 未完成|self-report\.json|po0-self-report\.log|fr\.schweppes\.po0-self-report|PO0_SELF_REPORT_BEGIN|PO0_SELF_REPORT_END'
-    $allowedContext = '(?i:legacy|compat|fallback|alias|migrat|cleanup|old|Test-DownloadedScript|defaultScript\.Value|defaultLauncher\.Value|defaultLog\.Value)|旧|兼容|迁移|回退|别名|历史|Get-Legacy|legacy_|LegacyTaskName|旧版|校验失败|grep -q|Self-report 已完成|Self-report 未完成|PO0_SELF_REPORT|SELF_REPORT_'
+    $legacyPattern = 'po0-self-report|PO0_SELF_REPORT|SELF_REPORT_|PO0 Self Report|PO0 Outbound IP Report to LAN Worker|Self-report 已完成|Self-report 未完成|self-report\.json|po0-self-report\.log|fr\.schweppes\.po0-self-report|fr\.schweppes\.po0-outbound-ip-report|PO0_SELF_REPORT_BEGIN|PO0_SELF_REPORT_END|PO0_OUTBOUND_IP_REPORT_BEGIN|PO0_OUTBOUND_IP_REPORT_END'
+    $allowedContext = '(?i:legacy|compat|fallback|alias|migrat|cleanup|old|previous|PreviousTaskName|PreviousTaskLauncherPath|write_cron_without_managed_block|Test-DownloadedScript|defaultScript\.Value|defaultLauncher\.Value|defaultLog\.Value)|旧|兼容|迁移|回退|别名|历史|Get-Legacy|legacy_|LegacyTaskName|旧版|校验失败|grep -q|Self-report 已完成|Self-report 未完成|PO0_SELF_REPORT|SELF_REPORT_'
     foreach ($asset in $assets) {
         $path = Join-Path $OutputDir $asset
         $lines = Get-Content -LiteralPath $path -Encoding UTF8

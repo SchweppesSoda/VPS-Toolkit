@@ -3,11 +3,16 @@ is_macos() {
 }
 
 launchd_label() {
+    printf '%s\n' "outbound-ip-report"
+}
+
+legacy_launchd_labels() {
     printf '%s\n' "fr.schweppes.po0-outbound-ip-report"
+    printf '%s\n' "fr.schweppes.po0-self-report"
 }
 
 legacy_launchd_label() {
-    printf '%s\n' "fr.schweppes.po0-self-report"
+    legacy_launchd_labels | tail -n 1
 }
 
 launchd_supported() {
@@ -29,14 +34,41 @@ launchd_plist_path() {
     fi
 }
 
-legacy_launchd_plist_path() {
+launchd_plist_path_for_label() {
     local label
-    label="$(legacy_launchd_label)"
+    label="$1"
     if [[ "${EUID:-$(id -u 2>/dev/null || printf 1)}" -eq 0 ]]; then
         printf '/Library/LaunchDaemons/%s.plist\n' "${label}"
     else
         printf '%s/Library/LaunchAgents/%s.plist\n' "${HOME}" "${label}"
     fi
+}
+
+legacy_launchd_plist_paths() {
+    local label
+    legacy_launchd_labels | while IFS= read -r label; do
+        launchd_plist_path_for_label "${label}"
+    done
+}
+
+legacy_launchd_plist_path() {
+    local path first=""
+    while IFS= read -r path; do
+        [[ -n "${first}" ]] || first="${path}"
+        if [[ -f "${path}" ]]; then
+            printf '%s\n' "${path}"
+            return 0
+        fi
+    done < <(legacy_launchd_plist_paths)
+    printf '%s\n' "${first}"
+}
+
+legacy_launchd_plist_exists() {
+    local path
+    while IFS= read -r path; do
+        [[ -f "${path}" ]] && return 0
+    done < <(legacy_launchd_plist_paths)
+    return 1
 }
 
 launchd_domain() {
@@ -106,17 +138,19 @@ launchd_unload() {
 }
 
 remove_legacy_launchd_if_exists() {
-    local plist domain label
+    local plist domain label ok=0
     launchd_supported || return 0
-    plist="$(legacy_launchd_plist_path)"
-    label="$(legacy_launchd_label)"
     domain="$(launchd_domain)"
-    launchctl bootout "${domain}" "${plist}" >/dev/null 2>&1 || launchctl unload "${plist}" >/dev/null 2>&1 || true
-    launchctl disable "${domain}/${label}" >/dev/null 2>&1 || true
-    if [[ -f "${plist}" ]]; then
-        rm -f "${plist}" || return 1
-        echo "已删除旧 launchd 计划：${plist}"
-    fi
+    while IFS= read -r label; do
+        plist="$(launchd_plist_path_for_label "${label}")"
+        launchctl bootout "${domain}" "${plist}" >/dev/null 2>&1 || launchctl unload "${plist}" >/dev/null 2>&1 || true
+        launchctl disable "${domain}/${label}" >/dev/null 2>&1 || true
+        if [[ -f "${plist}" ]]; then
+            rm -f "${plist}" || ok=1
+            echo "已删除旧 launchd 计划：${plist}"
+        fi
+    done < <(legacy_launchd_labels)
+    return "${ok}"
 }
 
 launchd_load() {
@@ -168,7 +202,7 @@ read_launchd_status_snapshot() {
     launchd_supported || return 1
     plist="$(launchd_plist_path)"
     config_paused="$(schedule_paused && printf '1' || printf '0')"
-    if [[ ! -f "${plist}" && -f "$(legacy_launchd_plist_path)" ]]; then
+    if [[ ! -f "${plist}" && legacy_launchd_plist_exists ]]; then
         plist="$(legacy_launchd_plist_path)"
         legacy=1
     fi
