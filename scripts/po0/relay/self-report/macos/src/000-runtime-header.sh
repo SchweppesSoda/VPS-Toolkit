@@ -4,11 +4,10 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_OUTBOUND_IP_REPORT_MACOS_DOWNLOAD_URL:-${PO0_SELF_REPORT_MACOS_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report-macos.sh}}"
 SCRIPT_NAME="po0-outbound-ip-report"
-SCRIPT_VERSION="2026.07.03+build.2"
+SCRIPT_VERSION="2026.07.03+build.3"
 SCRIPT_RELEASE_DATE="2026-07-03"
 # CHANGELOG_BEGIN
-# - 新安装的 launchd label 改为 outbound-ip-report，保留旧 PO0 label 识别并在更新时迁移。
-# - cron fallback 托管标记改为 OUTBOUND_IP_REPORT_BEGIN / END，定时安装输出使用更简洁的名称。
+# - 跟随 PO0 发布批次对齐到 build.3；macOS 客户端无行为变化。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24

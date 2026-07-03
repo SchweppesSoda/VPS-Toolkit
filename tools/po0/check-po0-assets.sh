@@ -3,9 +3,9 @@ set -euo pipefail
 
 repo_root="$(cd "$(git rev-parse --show-toplevel)" && pwd -P)"
 asset_dir="${1:-${repo_root}/.tmp/po0-check-assets}"
-expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.07.03+build.2}"
+expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.07.03+build.3}"
 expected_po0_release_date="${PO0_EXPECTED_RELEASE_DATE:-2026-07-03}"
-expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.07.03.2}"
+expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.07.03.3}"
 
 manifest_entries() {
     local manifest="$1"
@@ -158,7 +158,7 @@ check_windows_canonical_path() {
         printf 'Windows self-report default script path is not canonical.\n' >&2
         exit 1
     fi
-    if [[ "${default_launcher}" != *"outbound-ip-report-task.vbs"* || "${default_launcher}" == *"po0-outbound-ip-report-task.vbs"* || "${default_launcher}" == *"po0-self-report-task.vbs"* ]]; then
+    if [[ "${default_launcher}" != *"po0-outbound-ip-report-task.vbs"* || "${default_launcher}" == *"po0-self-report-task.vbs"* ]]; then
         printf 'Windows self-report default launcher path is not canonical.\n' >&2
         exit 1
     fi

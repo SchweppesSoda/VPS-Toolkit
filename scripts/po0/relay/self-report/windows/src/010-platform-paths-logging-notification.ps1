@@ -38,7 +38,7 @@ function Get-DefaultScriptPath {
 }
 
 function Get-DefaultTaskLauncherPath {
-    return (Join-Path (Get-DefaultDataDir) "outbound-ip-report-task.vbs")
+    return (Join-Path (Get-DefaultDataDir) "po0-outbound-ip-report-task.vbs")
 }
 
 function Get-PreviousTaskLauncherPath {

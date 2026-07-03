@@ -33,8 +33,8 @@ $launcherPath = Get-DefaultTaskLauncherPath
 if ($script:TaskName -ne "Outbound IP Report") {
     Fail "task name should be simple"
 }
-if ((Split-Path -Leaf $launcherPath) -ne "outbound-ip-report-task.vbs") {
-    Fail "task launcher name should be simple"
+if ((Split-Path -Leaf $launcherPath) -ne "po0-outbound-ip-report-task.vbs") {
+    Fail "task launcher name should remain old for self-update compatibility"
 }
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $scriptPath) | Out-Null
 Set-Content -LiteralPath $scriptPath -Encoding UTF8 -Value "# test script"

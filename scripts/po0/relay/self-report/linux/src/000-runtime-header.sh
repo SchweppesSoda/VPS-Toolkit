@@ -4,11 +4,10 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_OUTBOUND_IP_REPORT_DOWNLOAD_URL:-${PO0_SELF_REPORT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report.sh}}"
 SCRIPT_NAME="po0-outbound-ip-report"
-SCRIPT_VERSION="2026.07.03+build.2"
+SCRIPT_VERSION="2026.07.03+build.3"
 SCRIPT_RELEASE_DATE="2026-07-03"
 # CHANGELOG_BEGIN
-# - 新安装的 cron 托管标记改为 OUTBOUND_IP_REPORT_BEGIN / END，保留旧 PO0 标记识别并在更新时迁移。
-# - 定时上报安装输出使用更简洁的 Outbound IP Report 名称。
+# - 跟随 PO0 发布批次对齐到 build.3；Linux/OpenWrt 客户端无行为变化。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24

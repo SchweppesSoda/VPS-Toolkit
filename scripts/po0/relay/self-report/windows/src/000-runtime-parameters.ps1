@@ -31,11 +31,11 @@ $ErrorActionPreference = "Stop"
 $ReleaseDownloadBaseUrl = $(if ($env:PO0_RELEASE_DOWNLOAD_BASE_URL) { $env:PO0_RELEASE_DOWNLOAD_BASE_URL } else { "https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download" })
 $DownloadUrl = $(if ($env:PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL) { $env:PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL } elseif ($env:PO0_SELF_REPORT_PS_DOWNLOAD_URL) { $env:PO0_SELF_REPORT_PS_DOWNLOAD_URL } else { "$ReleaseDownloadBaseUrl/po0-outbound-ip-report.ps1" })
 $ScriptName = "po0-outbound-ip-report"
-$ScriptVersion = "2026.07.03+build.2"
+$ScriptVersion = "2026.07.03+build.3"
 $ScriptReleaseDate = "2026-07-03"
 # CHANGELOG_BEGIN
-# - 新安装的计划任务名改为 Outbound IP Report，计划任务描述改为简短英文。
-# - 新安装的计划任务启动文件改为 outbound-ip-report-task.vbs，保留旧 PO0 任务名和旧启动文件识别并在更新时迁移。
+# - Windows 计划任务名保持 Outbound IP Report，计划任务描述保持简短英文。
+# - 默认计划任务启动文件保留 po0-outbound-ip-report-task.vbs，确保旧版自更新校验可跨版本迁移。
 # CHANGELOG_END
 $PanelValueColumn = 24
 $MenuRightColumn = 46

@@ -578,8 +578,8 @@ function Test-DownloadedScript {
         throw "更新文件校验失败：下载脚本默认安装路径不是 po0-outbound-ip-report.ps1。"
     }
     $defaultLauncher = [regex]::Match($raw, '(?ms)^function Get-DefaultTaskLauncherPath \{.*?^}')
-    if (-not $defaultLauncher.Success -or $defaultLauncher.Value -notmatch 'outbound-ip-report-task\.vbs' -or $defaultLauncher.Value -match 'po0-(outbound-ip-report|self-report)-task\.vbs') {
-        throw "更新文件校验失败：下载脚本默认计划任务启动文件不是 outbound-ip-report-task.vbs。"
+    if (-not $defaultLauncher.Success -or $defaultLauncher.Value -notmatch 'po0-outbound-ip-report-task\.vbs' -or $defaultLauncher.Value -match 'po0-self-report-task\.vbs') {
+        throw "更新文件校验失败：下载脚本默认计划任务启动文件不是 po0-outbound-ip-report-task.vbs。"
     }
     $defaultConfig = [regex]::Match($raw, '(?ms)^function Get-DefaultConfigPath \{.*?^}')
     if (-not $defaultConfig.Success -or $defaultConfig.Value -notmatch 'outbound-ip-report\.json' -or $defaultConfig.Value -match 'self-report\.json') {

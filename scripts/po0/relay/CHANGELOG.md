@@ -6,6 +6,10 @@
 
 ## po0-nftables-relay-manager
 
+### 2026.07.03+build.3
+
+- 跟随 PO0 发布批次对齐到 `po0-v2026.07.03.3`；本脚本无行为变化。
+
 ### 2026.07.03+build.2
 
 - 跟随 PO0 发布批次对齐到 `po0-v2026.07.03.2`；本脚本无行为变化。
@@ -181,6 +185,10 @@
 - 状态面板和资源任务创建计划摘要增加彩色状态提示。
 
 ## po0-lan-worker-client
+
+### 2026.07.03+build.3
+
+- 跟随 PO0 发布批次对齐到 `po0-v2026.07.03.3`；LAN Worker 客户端无行为变化。
 
 ### 2026.07.03+build.2
 
@@ -365,6 +373,10 @@
 - 状态页 / Widget 优先复用 IP9、163、126、myip.ipip 等 IP 查询接口返回的归属地 / 运营商信息，拿不到时才额外查询。
 
 ## po0-outbound-ip-report（Linux/OpenWrt）
+
+### 2026.07.03+build.3
+
+- 跟随 PO0 发布批次对齐到 `po0-v2026.07.03.3`；Linux/OpenWrt 客户端无行为变化。
 
 ### 2026.07.03+build.2
 
@@ -558,6 +570,10 @@
 
 ## po0-outbound-ip-report（macOS）
 
+### 2026.07.03+build.3
+
+- 跟随 PO0 发布批次对齐到 `po0-v2026.07.03.3`；macOS 客户端无行为变化。
+
 ### 2026.07.03+build.2
 
 - 新安装的 launchd label 改为 `outbound-ip-report`；旧 `fr.schweppes.po0-outbound-ip-report` / `fr.schweppes.po0-self-report` 继续识别并在更新时迁移。
@@ -695,6 +711,11 @@
 - 支持 `--save-config --menu` 首次保存默认配置后打开菜单，并提供 `--install-launchd` 别名。
 
 ## po0-outbound-ip-report（Windows PowerShell）
+
+### 2026.07.03+build.3
+
+- Windows 计划任务名保持 `Outbound IP Report`，计划任务描述保持 `Report outbound IPv4.`。
+- 默认计划任务启动文件保留 `po0-outbound-ip-report-task.vbs`，确保旧版 `-UpgradeSelf` 下载校验能跨版本迁移。
 
 ### 2026.07.03+build.2
 
