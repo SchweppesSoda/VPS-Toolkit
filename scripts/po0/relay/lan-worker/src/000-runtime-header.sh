@@ -5,10 +5,10 @@ PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.c
 DOWNLOAD_URL="${PO0_LAN_CLIENT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-lan-client.sh}"
 MANAGER_DOWNLOAD_URL="${PO0_MANAGER_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/nftables-relay-manager.sh}"
 SCRIPT_NAME="po0-lan-worker-client"
-SCRIPT_VERSION="2026.07.03+build.3"
+SCRIPT_VERSION="2026.07.03+build.4"
 SCRIPT_RELEASE_DATE="2026-07-03"
 # CHANGELOG_BEGIN
-# - 跟随 PO0 发布批次对齐到 build.3；LAN Worker 客户端无行为变化。
+# - 跟随 PO0 发布批次对齐到 build.4；LAN Worker 客户端无行为变化。
 # CHANGELOG_END
 DEFAULT_PO0_SCRIPT="/root/nftables-relay-manager.sh"
 PO0_HOST="${PO0_HOST:-}"

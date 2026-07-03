@@ -6,6 +6,10 @@
 
 ## po0-nftables-relay-manager
 
+### 2026.07.03+build.4
+
+- 跟随 PO0 发布批次对齐到 `po0-v2026.07.03.4`；本脚本无行为变化。
+
 ### 2026.07.03+build.3
 
 - 跟随 PO0 发布批次对齐到 `po0-v2026.07.03.3`；本脚本无行为变化。
@@ -185,6 +189,10 @@
 - 状态面板和资源任务创建计划摘要增加彩色状态提示。
 
 ## po0-lan-worker-client
+
+### 2026.07.03+build.4
+
+- 跟随 PO0 发布批次对齐到 `po0-v2026.07.03.4`；LAN Worker 客户端无行为变化。
 
 ### 2026.07.03+build.3
 
@@ -373,6 +381,10 @@
 - 状态页 / Widget 优先复用 IP9、163、126、myip.ipip 等 IP 查询接口返回的归属地 / 运营商信息，拿不到时才额外查询。
 
 ## po0-outbound-ip-report（Linux/OpenWrt）
+
+### 2026.07.03+build.4
+
+- 跟随 PO0 发布批次对齐到 `po0-v2026.07.03.4`；Linux/OpenWrt 客户端无行为变化。
 
 ### 2026.07.03+build.3
 
@@ -570,6 +582,10 @@
 
 ## po0-outbound-ip-report（macOS）
 
+### 2026.07.03+build.4
+
+- 跟随 PO0 发布批次对齐到 `po0-v2026.07.03.4`；macOS 客户端无行为变化。
+
 ### 2026.07.03+build.3
 
 - 跟随 PO0 发布批次对齐到 `po0-v2026.07.03.3`；macOS 客户端无行为变化。
@@ -711,6 +727,11 @@
 - 支持 `--save-config --menu` 首次保存默认配置后打开菜单，并提供 `--install-launchd` 别名。
 
 ## po0-outbound-ip-report（Windows PowerShell）
+
+### 2026.07.03+build.4
+
+- Windows 更新脚本保留 `2026.07.03+build.1` 兼容校验标记，旧 build.1 可从 GitHub latest 跨过计划任务名迁移。
+- 默认计划任务名继续保持 `Outbound IP Report`，旧 `PO0 Outbound IP Report to LAN Worker` 只作为迁移兼容目标识别。
 
 ### 2026.07.03+build.3
 

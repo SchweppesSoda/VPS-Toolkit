@@ -31,16 +31,18 @@ $ErrorActionPreference = "Stop"
 $ReleaseDownloadBaseUrl = $(if ($env:PO0_RELEASE_DOWNLOAD_BASE_URL) { $env:PO0_RELEASE_DOWNLOAD_BASE_URL } else { "https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download" })
 $DownloadUrl = $(if ($env:PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL) { $env:PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL } elseif ($env:PO0_SELF_REPORT_PS_DOWNLOAD_URL) { $env:PO0_SELF_REPORT_PS_DOWNLOAD_URL } else { "$ReleaseDownloadBaseUrl/po0-outbound-ip-report.ps1" })
 $ScriptName = "po0-outbound-ip-report"
-$ScriptVersion = "2026.07.03+build.3"
+$ScriptVersion = "2026.07.03+build.4"
 $ScriptReleaseDate = "2026-07-03"
 # CHANGELOG_BEGIN
-# - Windows 计划任务名保持 Outbound IP Report，计划任务描述保持简短英文。
-# - 默认计划任务启动文件保留 po0-outbound-ip-report-task.vbs，确保旧版自更新校验可跨版本迁移。
+# - Windows 更新脚本保留 build.1 兼容校验标记，旧 build.1 可从 GitHub latest 跨过计划任务名迁移。
+# - 默认计划任务名继续保持 Outbound IP Report，旧计划任务名只作为迁移兼容目标识别。
 # CHANGELOG_END
 $PanelValueColumn = 24
 $MenuRightColumn = 46
 $MaxMinutes = 10080
 $script:TaskName = "Outbound IP Report"
+# Compatibility marker for 2026.07.03+build.1 UpgradeSelf validation; do not execute as an assignment:
+# $script:TaskName = "PO0 Outbound IP Report to LAN Worker"
 $script:PreviousTaskName = "PO0 Outbound IP Report to LAN Worker"
 $script:LegacyTaskName = "PO0 Self Report to LAN Worker"
 $script:LegacyTaskNames = @($script:PreviousTaskName, $script:LegacyTaskName)
