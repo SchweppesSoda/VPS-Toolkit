@@ -223,6 +223,29 @@ function Get-ScheduledReporterTaskRecord {
     return [pscustomobject]@{ Task = $null; Name = ""; IsLegacy = $false }
 }
 
+function Test-ScheduledReporterTaskCurrent {
+    param(
+        $Task,
+        [string]$ScriptPath = $(Get-DefaultScriptPath)
+    )
+    if (-not $Task) { return $false }
+    $launcher = Get-ScheduledReporterLauncherPath -Task $Task
+    if (-not (Test-SamePath $launcher (Get-DefaultTaskLauncherPath))) { return $false }
+    if (-not (Test-Path -LiteralPath $launcher)) { return $false }
+    $launcherCommand = Get-ScheduledReporterLauncherCommand -LauncherPath $launcher
+    if (-not $launcherCommand) { return $false }
+    $expectedCommand = Get-ScheduledReporterTaskCommand -ScriptPath $ScriptPath
+    if (-not [System.String]::Equals($launcherCommand, $expectedCommand, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $false
+    }
+    $notifyState = Get-ScheduledReporterNotifyState -Task $Task
+    if ($notifyState.ScriptPathIsLegacy) { return $false }
+    if (-not (Test-SamePath $notifyState.ScriptPath $ScriptPath)) { return $false }
+    if ($notifyState.IsUnknown) { return $false }
+    if ([bool]$notifyState.ActualNotify -ne [bool]$script:TaskNotify) { return $false }
+    return $true
+}
+
 function Normalize-DefaultConfigPath {
     if (-not $script:ConfigPath -or $script:ConfigPathExplicit) { return }
     try {
@@ -236,7 +259,10 @@ function Normalize-DefaultConfigPath {
 }
 
 function Import-ScheduledReporterTaskSettings {
-    param($Task)
+    param(
+        $Task,
+        [switch]$KeepNotifyPreference
+    )
     if (-not $Task) { return }
     $commandTexts = New-Object System.Collections.Generic.List[string]
     $oldLauncher = Get-ScheduledReporterLauncherPath -Task $Task
@@ -263,11 +289,13 @@ function Import-ScheduledReporterTaskSettings {
             $script:LogPath = $existingLog
             Normalize-DefaultLogPath
         }
-        if (Test-CommandLineSwitchPresent -CommandLine $commandText -SwitchName "Notify") {
-            $script:TaskNotify = $true
-        }
-        if (Test-CommandLineSwitchPresent -CommandLine $commandText -SwitchName "NoNotify") {
-            $script:TaskNotify = $false
+        if (-not $KeepNotifyPreference) {
+            if (Test-CommandLineSwitchPresent -CommandLine $commandText -SwitchName "Notify") {
+                $script:TaskNotify = $true
+            }
+            if (Test-CommandLineSwitchPresent -CommandLine $commandText -SwitchName "NoNotify") {
+                $script:TaskNotify = $false
+            }
         }
     }
     if ($Task.State -eq "Disabled") {
@@ -297,12 +325,15 @@ function Remove-LegacyScheduledReporterTask {
 function Update-ScheduledReporterLauncherForExistingTask {
     $record = Get-ScheduledReporterTaskRecord
     $task = $record.Task
-    if (-not $task) { return $false }
+    if (-not $task) { return "none" }
     $scriptPath = Ensure-DefaultSelfReportScriptInstalled
-    Import-ScheduledReporterTaskSettings -Task $task
+    Import-ScheduledReporterTaskSettings -Task $task -KeepNotifyPreference
     Cleanup-LegacySelfReportArtifacts -Quiet | Out-Null
     if (-not $script:LogPath) {
         $script:LogPath = Get-DefaultLogPath
+    }
+    if (-not $record.IsLegacy -and (Test-ScheduledReporterTaskCurrent -Task $task -ScriptPath $scriptPath)) {
+        return "current"
     }
     $launcher = Get-DefaultTaskLauncherPath
     Write-ScheduledReporterTaskLauncher -LauncherPath $launcher -ScriptPath $scriptPath | Out-Null
@@ -327,10 +358,24 @@ function Update-ScheduledReporterLauncherForExistingTask {
         if (-not (Remove-LegacyScheduledReporterTask)) {
             throw "旧计划任务删除失败，已尝试禁用旧任务；请检查计划任务：$script:LegacyTaskName"
         }
+        return "migrated"
     } else {
         Set-ScheduledTask -TaskName $script:TaskName -Action $action | Out-Null
+        return "refreshed"
     }
-    return $true
+}
+
+function Write-ScheduledReporterRefreshResult {
+    param(
+        [string]$Result,
+        [string]$ScriptPath
+    )
+    switch ($Result) {
+        "current" { Write-Host "计划任务已指向标准脚本路径，未刷新：$ScriptPath" }
+        "refreshed" { Write-Host "已刷新计划任务启动文件和脚本路径：$ScriptPath" }
+        "migrated" { Write-Host "已迁移旧计划任务并指向标准脚本路径：$ScriptPath" }
+        default {}
+    }
 }
 
 function Test-SamePath {
@@ -443,7 +488,7 @@ function Cleanup-LegacySelfReportArtifacts {
     } catch {}
 
     if (-not $legacyTaskStillExists) {
-        if (-not (Remove-DefaultLegacyPath -Label "隐藏启动器" -Path (Get-LegacyTaskLauncherPath) -CanonicalPath (Get-DefaultTaskLauncherPath) -Quiet:$Quiet)) { $ok = $false }
+        if (-not (Remove-DefaultLegacyPath -Label "计划任务启动文件" -Path (Get-LegacyTaskLauncherPath) -CanonicalPath (Get-DefaultTaskLauncherPath) -Quiet:$Quiet)) { $ok = $false }
         if (-not (Remove-DefaultLegacyPath -Label "本机脚本" -Path (Get-LegacyScriptPath) -CanonicalPath (Get-DefaultScriptPath) -Quiet:$Quiet)) { $ok = $false }
     } elseif (-not $Quiet) {
         Write-Host "旧计划任务仍存在，暂不删除旧脚本/启动器，避免破坏仍在使用的任务。" -ForegroundColor Yellow
@@ -478,19 +523,18 @@ function Invoke-LegacyPathSelfHeal {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
     }
     Copy-Item -LiteralPath $PSCommandPath -Destination $dest -Force
-    Write-Host "已迁移 Windows PO0 Outbound IP Report 客户端脚本到 canonical 路径：$dest"
+    Write-Host "已迁移 Windows PO0 Outbound IP Report 客户端脚本到标准安装路径：$dest"
 
     try {
-        if (Update-ScheduledReporterLauncherForExistingTask) {
-            Write-Host "已刷新计划任务隐藏启动器和脚本目标：$dest"
-        }
+        $refreshResult = Update-ScheduledReporterLauncherForExistingTask
+        Write-ScheduledReporterRefreshResult -Result $refreshResult -ScriptPath $dest
     } catch {
-        Write-Host "刷新计划任务隐藏启动器失败：$($_.Exception.Message)" -ForegroundColor Yellow
+        Write-Host "刷新计划任务启动文件失败：$($_.Exception.Message)" -ForegroundColor Yellow
     }
     Cleanup-LegacySelfReportArtifacts | Out-Null
 
     if ($ReopenMenu) {
-        Write-Host "正在从 canonical 路径重新打开新版菜单：$dest -Menu"
+        Write-Host "正在从标准安装路径重新打开新版菜单：$dest -Menu"
         Invoke-CanonicalSelfReportMenu -ScriptPath $dest
         exit $LASTEXITCODE
     }
@@ -505,7 +549,7 @@ function Test-DownloadedScript {
     }
     $scriptName = [regex]::Match($raw, '(?m)^\s*\$ScriptName\s*=\s*"([^"]+)"')
     if (-not $scriptName.Success -or $scriptName.Groups[1].Value -ne "po0-outbound-ip-report") {
-        throw "更新文件校验失败：下载脚本未声明 canonical 脚本名称 po0-outbound-ip-report。"
+        throw "更新文件校验失败：下载脚本未声明标准脚本名称 po0-outbound-ip-report。"
     }
     $defaultScript = [regex]::Match($raw, '(?ms)^function Get-DefaultScriptPath \{.*?^}')
     if (-not $defaultScript.Success -or $defaultScript.Value -notmatch 'po0-outbound-ip-report\.ps1' -or $defaultScript.Value -match 'po0-self-report\.ps1') {
@@ -513,7 +557,7 @@ function Test-DownloadedScript {
     }
     $defaultLauncher = [regex]::Match($raw, '(?ms)^function Get-DefaultTaskLauncherPath \{.*?^}')
     if (-not $defaultLauncher.Success -or $defaultLauncher.Value -notmatch 'po0-outbound-ip-report-task\.vbs' -or $defaultLauncher.Value -match 'po0-self-report-task\.vbs') {
-        throw "更新文件校验失败：下载脚本默认隐藏启动器不是 po0-outbound-ip-report-task.vbs。"
+        throw "更新文件校验失败：下载脚本默认计划任务启动文件不是 po0-outbound-ip-report-task.vbs。"
     }
     $defaultConfig = [regex]::Match($raw, '(?ms)^function Get-DefaultConfigPath \{.*?^}')
     if (-not $defaultConfig.Success -or $defaultConfig.Value -notmatch 'outbound-ip-report\.json' -or $defaultConfig.Value -match 'self-report\.json') {
@@ -566,11 +610,10 @@ function Upgrade-SelfFromDownload {
             Write-Host "更新内容：新脚本未提供更新说明。"
         }
         try {
-            if (Update-ScheduledReporterLauncherForExistingTask) {
-                Write-Host "已刷新计划任务隐藏启动器和脚本目标：$dest"
-            }
+            $refreshResult = Update-ScheduledReporterLauncherForExistingTask
+            Write-ScheduledReporterRefreshResult -Result $refreshResult -ScriptPath $dest
         } catch {
-            Write-Host "刷新计划任务隐藏启动器失败：$($_.Exception.Message)" -ForegroundColor Yellow
+            Write-Host "刷新计划任务启动文件失败：$($_.Exception.Message)" -ForegroundColor Yellow
         }
         Cleanup-LegacySelfReportArtifacts | Out-Null
         if ($ReopenMenu) {
@@ -643,7 +686,7 @@ function Install-ScheduledReporter {
     Cleanup-LegacySelfReportArtifacts | Out-Null
     Write-Host ("已安装计划任务：{0}，每 {1} 秒执行一次。" -f $script:TaskName, (Get-IntervalSeconds))
     Write-Host "脚本路径：$dest"
-    Write-Host "隐藏启动器：$launcher"
+    Write-Host "计划任务启动文件：$launcher"
     Write-Host "配置文件：$script:ConfigPath"
     Write-Host "运行日志：$script:LogPath"
     Write-Host "Windows 通知：$(Format-NotifyStatus)"

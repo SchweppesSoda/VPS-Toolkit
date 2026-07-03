@@ -32,7 +32,7 @@
 
 ## 发布渠道
 
-PO0 nftables 五个可执行脚本的新安装和自更新默认使用 GitHub Release asset：
+PO0 nftables 五个可执行脚本的新安装和自更新默认使用 GitHub Release 发布文件：
 
 - `https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/nftables-relay-manager.sh`
 - `https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-lan-client.sh`
@@ -40,13 +40,13 @@ PO0 nftables 五个可执行脚本的新安装和自更新默认使用 GitHub Re
 - `https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report-macos.sh`
 - `https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.ps1`
 
-旧 manager、LAN Worker 和 self-report raw URLs are disabled，不再作为兼容入口。Egern canonical raw path、Egern legacy compatibility path、离线 iplist 构建器、外部 ipdb/iplist 数据源和未纳入本阶段的通用 VPS 工具 raw URL 仍是白名单。
+旧 manager、LAN Worker 和 self-report raw URL 已禁用，不再作为兼容入口。Egern 标准 raw 路径、Egern 历史兼容路径、离线 iplist 构建器、外部 ipdb/iplist 数据源和未纳入本阶段的通用 VPS 工具 raw URL 仍是白名单。
 
 如需测试或回滚下载源，可临时设置 `PO0_MANAGER_DOWNLOAD_URL`、`PO0_LAN_CLIENT_DOWNLOAD_URL`、`PO0_OUTBOUND_IP_REPORT_DOWNLOAD_URL`、`PO0_OUTBOUND_IP_REPORT_MACOS_DOWNLOAD_URL`、`PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL`；旧 `PO0_SELF_REPORT_*` 下载源变量仍作为 legacy alias 接受。这些覆盖值不会写入配置文件。
 
 ## 部署命令
 
-PO0 主控脚本推荐直接从 Release asset 下载到 PO0 后运行：
+PO0 主控脚本推荐直接从 GitHub Release 发布文件下载到 PO0 后运行：
 
 ```bash
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/nftables-relay-manager.sh -o /root/nftables-relay-manager.sh
@@ -92,7 +92,7 @@ po0-lan-client --probe
 po0-lan-client --version
 ```
 
-PO0 nftables 子系统内带 `SCRIPT_VERSION`、`--version` / `--changelog` 或自更新提示的可独立部署脚本（PO0 manager、LAN Worker client、PO0 Outbound IP Report clients）统一使用 `YYYY.MM.DD+build.N` 混合版本格式。正式 PO0 Release asset 的脚本内部版本必须与 release tag 尾号一致：`po0-vYYYY.MM.DD.N` 对应 `YYYY.MM.DD+build.N`，例如 `po0-v2026.07.01.7` 对应 `2026.07.01+build.7`。完整历史写在 [`CHANGELOG.md`](CHANGELOG.md)。
+PO0 nftables 子系统内带 `SCRIPT_VERSION`、`--version` / `--changelog` 或自更新提示的可独立部署脚本（PO0 manager、LAN Worker client、PO0 Outbound IP Report clients）统一使用 `YYYY.MM.DD+build.N` 混合版本格式。正式 PO0 Release 发布文件的脚本内部版本必须与 release tag 尾号一致：`po0-vYYYY.MM.DD.N` 对应 `YYYY.MM.DD+build.N`，例如 `po0-v2026.07.01.7` 对应 `2026.07.01+build.7`。完整历史写在 [`CHANGELOG.md`](CHANGELOG.md)。
 
 更新 LAN Worker 上已安装的 client：
 
@@ -103,7 +103,7 @@ po0-lan-client --version
 
 ## PO0 manager HTTP 更新镜像
 
-这个功能用于“日常只登录 PO0，也能从 LAN Worker 拉取新版 manager”。先在 LAN Worker 上配置一次 HTTP-only 更新镜像；LAN Worker 到 GitHub Release asset 使用 HTTPS，PO0 到 LAN Worker 按显式 HTTP URL 拉取。该入口只服务固定路径 `/po0-manager-update/nftables-relay-manager.sh`，不是任意 URL 代理，也不是 PO0 HTTP 控制面。
+这个功能用于“日常只登录 PO0，也能从 LAN Worker 拉取新版 manager”。先在 LAN Worker 上配置一次 HTTP-only 更新镜像；LAN Worker 到 GitHub Release 发布文件使用 HTTPS，PO0 到 LAN Worker 按显式 HTTP URL 拉取。该入口只服务固定路径 `/po0-manager-update/nftables-relay-manager.sh`，不是任意 URL 代理，也不是 PO0 HTTP 控制面。
 
 LAN Worker 上配置镜像公网主机/IP。未写端口时默认使用 `2333`，也可以显式传入 `HOST:PORT`；Caddy 入口按端口监听，同一端口既可用域名访问，也可直接用 IP 访问：
 
@@ -221,7 +221,7 @@ po0-outbound-ip-report --changelog
 
 Windows PowerShell PO0 Outbound IP Report client：
 
-首次交互式运行默认进入菜单，推荐显式加 `-Menu`。菜单里的 `1) 配置并保存上报参数` 只写本地配置文件，不安装计划任务；`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本并写入计划任务；`6) Windows 通知 / 静默模式` 会保存通知偏好，并在计划任务已安装时重写隐藏 launcher；`9) 从 GitHub 更新脚本` 会更新本机 `po0-outbound-ip-report.ps1` 并重新打开新版菜单；`10) 卸载本客户端` 会删除本脚本管理的计划任务、隐藏 launcher 和本机安装脚本，配置文件与日志默认保留，也可在确认后一起删除。
+首次交互式运行默认进入菜单，推荐显式加 `-Menu`。菜单里的 `1) 配置并保存上报参数` 只写本地配置文件，不安装计划任务；`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本并写入计划任务；`6) Windows 通知 / 静默模式` 会保存通知偏好，并在计划任务已安装时同步计划任务启动文件；`9) 从 GitHub 更新脚本` 会更新本机 `po0-outbound-ip-report.ps1` 并重新打开新版菜单；`10) 卸载本客户端` 会删除本脚本管理的计划任务、计划任务启动文件和本机安装脚本，配置文件与日志默认保留，也可在确认后一起删除。
 
 ```powershell
 $script = "$env:TEMP\po0-outbound-ip-report.ps1"
@@ -267,7 +267,7 @@ powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-outbound-ip-
 powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-outbound-ip-report.ps1" -ScheduleStatus
 ```
 
-从 GitHub Release asset 更新本机脚本：
+从 GitHub Release 发布文件更新本机脚本：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-outbound-ip-report.ps1" -UpgradeSelf
@@ -349,7 +349,7 @@ bash /root/nftables-relay-manager.sh --backup-import /etc/nftables.d/backups/po0
 bash /root/nftables-relay-manager.sh --backup-import /etc/nftables.d/backups/po0-manager-full-backup-YYYYMMDD_HHMMSS.tar.gz --restore-all
 ```
 
-也可以分开恢复：`--restore-cron` 恢复 PO0 managed cron，并优先按备份里的 cron block 识别旧脚本路径后重写为当前 manager 路径；`--restore-systemd` 重新生成学习服务，`--restore-nftables` 恢复 `/etc/nftables.conf`/sysctl 并尝试应用 nftables，`--restore-report-keys` 恢复 PO0 受限 `authorized_keys` 条目。恢复受限 key 时不会照搬旧 forced command，而是用当前脚本路径和当前 wrapper 重新生成。
+也可以分开恢复：`--restore-cron` 恢复 PO0 管理的 cron，并优先按备份里的托管片段识别旧脚本路径后重写为当前 manager 路径；`--restore-systemd` 重新生成学习服务，`--restore-nftables` 恢复 `/etc/nftables.conf`/sysctl 并尝试应用 nftables，`--restore-report-keys` 恢复 PO0 受限 `authorized_keys` 条目。恢复受限 key 时不会照搬旧 forced command，而是用当前脚本路径和当前 wrapper 重新生成。
 
 LAN Worker 导出：
 
@@ -363,7 +363,7 @@ LAN Worker 导入默认只恢复目标配置、统计/事件、本机 `settings.
 po0-lan-client --backup-import ~/.config/po0-lan-client/backups/po0-lan-client-backup-YYYYMMDD_HHMMSS.tar.gz
 ```
 
-需要恢复运行入口时显式添加 `--restore-cron`、`--restore-systemd`、`--restore-caddy`，或直接使用 `--restore-all`；恢复 cron 时会优先按备份里的 cron block 识别旧脚本路径，并把脚本路径和配置路径重写为当前 LAN Worker 路径。LAN Worker 会把 `SELF_REPORT_SECRET`、Self-report/WebAuth 监听、TTL、HTTPS/Caddy 路径、Worker ID、资源任务超时和轮询间隔持久写入配置目录下的 `settings.env`，升级脚本后会复用已有 secret 和 TTL 设置，不会因为脚本更新而重新生成 secret；如果是旧安装还没有 `settings.env`，导出前会尽量从已安装的 Self-report/WebAuth systemd unit 回填 secret、监听地址、TTL、目标和 token。
+需要恢复运行入口时显式添加 `--restore-cron`、`--restore-systemd`、`--restore-caddy`，或直接使用 `--restore-all`；恢复 cron 时会优先按备份里的托管片段识别旧脚本路径，并把脚本路径和配置路径重写为当前 LAN Worker 路径。LAN Worker 会把 `SELF_REPORT_SECRET`、Self-report/WebAuth 监听、TTL、HTTPS/Caddy 路径、Worker ID、资源任务超时和轮询间隔持久写入配置目录下的 `settings.env`，升级脚本后会复用已有 secret 和 TTL 设置，不会因为脚本更新而重新生成 secret；如果是旧安装还没有 `settings.env`，导出前会尽量从已安装的 Self-report/WebAuth systemd unit 回填 secret、监听地址、TTL、目标和 token。
 
 Egern 的 PO0 受限 SSH 上报公钥会随 PO0 备份记录，并可通过 `--restore-report-keys` 或 `--restore-all` 恢复；Egern 设备上的私钥和 Egern app 本地配置不在 PO0/LAN Worker 管辖范围内，不会导出。DDNS、Self-report、WebAuth、Egern SSH report、resource task 等 Token 都在 PO0 或 LAN Worker 配置/状态文件内，会随默认完整备份导出和恢复。
 
@@ -581,7 +581,7 @@ curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --secret <SELF_REPORT_SECRET>
 ```
 
-非交互安装 / 更新 cron，默认和示例推荐每 `3600` 秒上报一次；`--interval-seconds N` 是 canonical 参数，旧 `--install-cron N` 的分钟写法仍兼容。安装时会保存配置并安装本机 `po0-outbound-ip-report` 命令；cron 后续只引用配置文件，不再把 token 展开写入 cron 命令行：
+非交互安装 / 更新 cron，默认和示例推荐每 `3600` 秒上报一次；`--interval-seconds N` 是标准参数，旧 `--install-cron N` 的分钟写法仍兼容。安装时会保存配置并安装本机 `po0-outbound-ip-report` 命令；cron 后续只引用配置文件，不再把 token 展开写入 cron 命令行：
 
 ```bash
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.sh | bash -s -- --worker-url https://<SELF_REPORT_DOMAIN>/report --secret <SELF_REPORT_SECRET> --interval-seconds 3600 --install-cron
@@ -757,9 +757,9 @@ po0-outbound-ip-report --changelog
 
 Windows 默认按普通用户安装和运行，路径在 `%LOCALAPPDATA%\PO0\po0-outbound-ip-report.ps1`。只有用管理员 PowerShell 安装时才会改用 `%ProgramData%\PO0\po0-outbound-ip-report.ps1`；管理员路径可以作为兜底检查，但日常不要混用两个权限环境。
 
-旧版曾把 Windows 本机脚本写到 `po0-self-report.ps1`。新版从旧路径启动时会迁移到 `po0-outbound-ip-report.ps1` 并刷新计划任务；更新或自愈完成后会把默认旧配置、旧日志、旧 IP 探测状态、旧 VBS launcher 和旧计划任务迁到新命名并删除旧默认残留。旧路径只作为兼容迁移和卸载目标，不再作为新安装入口。
+旧版曾把 Windows 本机脚本写到 `po0-self-report.ps1`。新版从旧路径启动时会迁移到 `po0-outbound-ip-report.ps1` 并刷新计划任务；更新或自愈完成后会把默认旧配置、旧日志、旧 IP 探测状态、旧计划任务启动文件和旧计划任务迁到新命名并删除旧默认残留。旧路径只作为兼容迁移和卸载目标，不再作为新安装入口。
 
-交互式运行默认进入菜单，推荐显式加 `-Menu`。菜单里的 `1) 配置并保存上报参数` 只写本地配置文件，不安装计划任务；`2) 立即上报一次` 会读取参数或已保存配置；`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本并写入计划任务；`4) 暂停 / 恢复定时上报` 只影响自动计划任务，手动立即上报仍可用；`6) Windows 通知 / 静默模式` 会保存通知偏好，并在计划任务已安装时重写隐藏 launcher；`9) 从 GitHub 更新脚本` 会更新本机 `po0-outbound-ip-report.ps1` 并重新打开新版菜单；`10) 卸载本客户端` 会删除本脚本管理的计划任务、隐藏 launcher 和本机安装脚本，配置文件与日志默认保留，可选择一起删除。
+交互式运行默认进入菜单，推荐显式加 `-Menu`。菜单里的 `1) 配置并保存上报参数` 只写本地配置文件，不安装计划任务；`2) 立即上报一次` 会读取参数或已保存配置；`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本并写入计划任务；`4) 暂停 / 恢复定时上报` 只影响自动计划任务，手动立即上报仍可用；`6) Windows 通知 / 静默模式` 会保存通知偏好，并在计划任务已安装时同步计划任务启动文件；`9) 从 GitHub 更新脚本` 会更新本机 `po0-outbound-ip-report.ps1` 并重新打开新版菜单；`10) 卸载本客户端` 会删除本脚本管理的计划任务、计划任务启动文件和本机安装脚本，配置文件与日志默认保留，可选择一起删除。
 
 首次运行时先下载到临时文件，再打开菜单：
 
@@ -785,7 +785,7 @@ Invoke-WebRequest -UseBasicParsing 'https://github.com/SchweppesSoda/VPS-Toolkit
 powershell -ExecutionPolicy Bypass -File $script -WorkerUrl "https://<SELF_REPORT_DOMAIN>/report" -SourceId $env:COMPUTERNAME -Identity $env:COMPUTERNAME -Secret "<SELF_REPORT_SECRET>" -RunOnce
 ```
 
-非交互安装 / 更新计划任务，默认每 `3600` 秒上报一次。安装 / 更新计划任务时建议从 `$env:TEMP` 下载脚本再运行，让脚本覆盖安装到普通用户默认路径 `%LOCALAPPDATA%\PO0\po0-outbound-ip-report.ps1`。管理员 PowerShell 安装时会改用 `%ProgramData%\PO0\po0-outbound-ip-report.ps1`。安装时会保存配置；计划任务后续只引用配置文件，不再把 token 展开写入计划任务参数。计划任务通过隐藏 launcher 启动 PowerShell，不弹出 CMD/PowerShell 窗口；默认静默只写日志，不弹 Windows 通知。如需自动上报成功或失败后弹 Windows 通知，安装计划任务时额外加 `-Notify`，或在菜单“Windows 通知 / 静默模式”里启用通知：
+非交互安装 / 更新计划任务，默认每 `3600` 秒上报一次。安装 / 更新计划任务时建议从 `$env:TEMP` 下载脚本再运行，让脚本覆盖安装到普通用户默认路径 `%LOCALAPPDATA%\PO0\po0-outbound-ip-report.ps1`。管理员 PowerShell 安装时会改用 `%ProgramData%\PO0\po0-outbound-ip-report.ps1`。安装时会保存配置；计划任务后续只引用配置文件，不再把 token 展开写入计划任务参数。计划任务通过启动文件调用 PowerShell，不弹出 CMD/PowerShell 窗口；默认静默只写日志，不弹 Windows 通知。如需自动上报成功或失败后弹 Windows 通知，安装计划任务时额外加 `-Notify`，或在菜单“Windows 通知 / 静默模式”里启用通知：
 
 ```powershell
 $script = "$env:TEMP\po0-outbound-ip-report.ps1"
@@ -855,7 +855,7 @@ if (-not (Test-Path -LiteralPath $log)) {
 Get-Content -Tail 40 -LiteralPath $log
 ```
 
-从 GitHub Release asset 更新本机脚本：
+从 GitHub Release 发布文件更新本机脚本：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-outbound-ip-report.ps1" -UpgradeSelf
@@ -879,9 +879,9 @@ powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PO0\po0-outbound-ip-
 
 三个客户端支持按当前 Wi-Fi SSID 在本地跳过上报。Linux/OpenWrt 和 macOS 使用 `--skip-wifi-ssid SSID`（可重复）、`--skip-wifi-ssids "SSID1;SSID2"`、`--clear-skip-wifi-ssids` 和 `--force-report`，也可用 `PO0_OUTBOUND_IP_REPORT_SKIP_WIFI_SSIDS`；macOS 还可用 `--show-wifi-ssid` 直接检查当前读取结果，用 `--diagnose-wifi-ssid` 查看 macOS 定位服务 / 隐私权限诊断，用 `--request-location-permission` 创建并打开 `PO0 Location Permission Helper.app` 触发定位权限弹窗并让 Helper 在本机读取 SSID，用 `--delete-location-permission-helper` 只删除本地 Helper app，或用 `--open-location-services` 打开定位服务设置页。Windows 使用 `-SkipWifiSsids "SSID1;SSID2"`、`-ForceReport` 和同名环境变量；保存配置后会写入本机配置文件。SSID 列表用英文分号 `;` 分隔，匹配时只做去首尾空白后的精确匹配，不做通配、正则或子串匹配。命中时客户端只在本机日志 / 状态摘要里记录“因 SSID 跳过”，不会把 SSID、跳过原因或任何新字段上传到 LAN Worker，也不改变 LAN Worker `/report` 或 PO0 上报协议。读取当前 SSID 失败时按安全兼容原则继续正常上报。macOS 底层命令返回 `redacted` / `<redacted>` 时会按“读取失败或被 macOS 隐私权限隐藏（fail-open）”显示并提示用户授权 PO0 Helper；脚本不会自动获取或修改系统权限，不会使用 `sudo`、`tccutil` 或写入 TCC 数据库。手动运行命中跳过规则时会先询问是否强制继续；定时任务命中时直接本地跳过并写日志。
 
-更新脚本、从旧 `po0-self-report*` 路径自愈启动，或安装 / 更新定时上报时，客户端会清理脚本自己能确定的默认旧名残留：Linux/OpenWrt/macOS 会迁移默认旧配置、旧 `/tmp/po0-self-report.log`、旧 IP 探测 state，并移除默认旧命令；macOS 还会迁移 legacy launchd / cron；Windows 会迁移默认旧 `self-report.json`、旧日志、旧 state、旧计划任务、旧 `po0-self-report.ps1` 和旧 VBS launcher。显式传入的自定义 `--config` / `-ConfigPath`、`--install-path`、`-LogPath` 等路径不会被当成默认残留误删。
+更新脚本、从旧 `po0-self-report*` 路径自愈启动，或安装 / 更新定时上报时，客户端会清理脚本自己能确定的默认旧名残留：Linux/OpenWrt/macOS 会迁移默认旧配置、旧 `/tmp/po0-self-report.log`、旧 IP 探测 state，并移除默认旧命令；macOS 还会迁移 legacy launchd / cron；Windows 会迁移默认旧 `self-report.json`、旧日志、旧 state、旧计划任务、旧 `po0-self-report.ps1` 和旧计划任务启动文件。显式传入的自定义 `--config` / `-ConfigPath`、`--install-path`、`-LogPath` 等路径不会被当成默认残留误删。
 
-访问设备客户端的一次性上报会以明确状态行结束：成功时显示 `PO0 Outbound IP Report 已完成：...`，并保留 LAN Worker 返回的 `OK <ip>; targets=<N>; target_names=<目标列表>`；客户端摘要优先显示具体 PO0 目标名，连接旧 LAN Worker 时退回显示 `PO0 目标：N 个`。URL 校验、公网 IPv4 探测、HTTP 请求或 LAN Worker -> PO0 上报链路失败时显示 `PO0 Outbound IP Report 未完成：...` 并以非零状态退出。Linux/OpenWrt 和 macOS 定时任务每次运行的完整输出写到 `/tmp/po0-outbound-ip-report.log`；macOS 默认不弹通知，显式启用通知后会调用系统通知中心，通知失败仍只写日志。Windows 计划任务不会弹出可见 CMD/PowerShell 窗口；安装 / 更新计划任务时会生成隐藏 launcher，并把每次运行的开始、LAN Worker 返回和完成/未完成结果写到日志，管理员安装默认在 `%ProgramData%\PO0\po0-outbound-ip-report.log`，普通用户安装默认在 `%LOCALAPPDATA%\PO0\po0-outbound-ip-report.log`；自动上报默认不弹 Windows 通知，只写日志。显式启用通知时，自动上报完成或失败会弹 Windows 通知，通知不可用时仍以日志为准；菜单里的“查看定时上报状态”只显示最近结果摘要，会从 LAN Worker 返回体汇总 PO0 目标，并给出原始日志路径 / tail 命令用于排查细节，同时会提示配置通知状态和计划任务实际通知状态是否漂移。
+访问设备客户端的一次性上报会以明确状态行结束：成功时显示 `PO0 Outbound IP Report 已完成：...`，并保留 LAN Worker 返回的 `OK <ip>; targets=<N>; target_names=<目标列表>`；客户端摘要优先显示具体 PO0 目标名，连接旧 LAN Worker 时退回显示 `PO0 目标：N 个`。URL 校验、公网 IPv4 探测、HTTP 请求或 LAN Worker -> PO0 上报链路失败时显示 `PO0 Outbound IP Report 未完成：...` 并以非零状态退出。Linux/OpenWrt 和 macOS 定时任务每次运行的完整输出写到 `/tmp/po0-outbound-ip-report.log`；macOS 默认不弹通知，显式启用通知后会调用系统通知中心，通知失败仍只写日志。Windows 计划任务不会弹出可见 CMD/PowerShell 窗口；安装 / 更新计划任务时会生成计划任务启动文件，并把每次运行的开始、LAN Worker 返回和完成/未完成结果写到日志，管理员安装默认在 `%ProgramData%\PO0\po0-outbound-ip-report.log`，普通用户安装默认在 `%LOCALAPPDATA%\PO0\po0-outbound-ip-report.log`；自动上报默认不弹 Windows 通知，只写日志。显式启用通知时，自动上报完成或失败会弹 Windows 通知，通知不可用时仍以日志为准；菜单里的“查看定时上报状态”只显示最近结果摘要，会从 LAN Worker 返回体汇总 PO0 目标，并给出原始日志路径 / tail 命令用于排查细节，同时会提示配置通知状态和计划任务实际通知状态是否漂移。
 
 PO0 Outbound IP Report client 查询公网 IPv4 会按默认列表轮询：`https://ip9.com.cn/get`、163 邮箱、Bilibili、126、腾讯新闻、爱奇艺、央视、`https://myip.ipip.net/json`。脚本会记住上次使用位置，下次从下一个接口开始；默认不再使用 `ip-api`、`ipify`、`icanhazip`、`ifconfig.co`，也不再使用 12306 grip 接口。
 

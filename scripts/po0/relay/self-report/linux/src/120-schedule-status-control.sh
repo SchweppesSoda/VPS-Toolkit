@@ -100,7 +100,7 @@ cron_state_label() {
         paused) printf '已暂停' ;;
         uninstalled) printf '未安装' ;;
         unavailable) printf '不可用（缺少 crontab）' ;;
-        invalid) printf '异常：cron block 无任务' ;;
+        invalid) printf '异常：定时任务配置不完整' ;;
         *) printf '未知' ;;
     esac
 }
@@ -122,6 +122,29 @@ cron_status_summary() {
     esac
 }
 
+linux_expected_cron_job() {
+    local script="$1" run_cmd
+    run_cmd="bash $(sh_quote "${script}") --config $(sh_quote "${CONFIG_FILE}") >$(sh_quote "$(self_report_log_path)") 2>&1"
+    build_cron_job "${CRON_MINUTES}" "${run_cmd}"
+}
+
+linux_schedule_refresh_current() {
+    local script="$1" state interval config_paused job consistency expected_job expected_paused expected_state
+    IFS='|' read -r state interval config_paused job consistency < <(read_cron_status_snapshot)
+    [[ "${state}" == "running" || "${state}" == "paused" ]] || return 1
+    [[ "${consistency}" == "ok" ]] || return 1
+    expected_job="$(linux_expected_cron_job "${script}")"
+    [[ "${job}" == "${expected_job}" ]] || return 1
+    expected_paused="$(schedule_paused && printf '1' || printf '0')"
+    [[ "${config_paused}" == "${expected_paused}" ]] || return 1
+    if schedule_paused; then
+        expected_state="paused"
+    else
+        expected_state="running"
+    fi
+    [[ "${state}" == "${expected_state}" ]] || return 1
+}
+
 show_cron_status() {
     local state interval config_paused job consistency
     IFS='|' read -r state interval config_paused job consistency < <(read_cron_status_snapshot)
@@ -136,11 +159,9 @@ show_cron_status() {
         print_panel_row "计划间隔" "已安装，未识别间隔"
     fi
     if [[ "${consistency}" == "drift" ]]; then
-        print_panel_row "一致性" "不一致，执行安装 / 更新定时上报可刷新"
+        print_panel_row "状态提示" "定时任务暂停状态与配置不一致，执行安装 / 更新定时上报可修复"
     elif [[ "${consistency}" == "legacy" ]]; then
-        print_panel_row "一致性" "旧 po0-self-report cron；执行安装 / 更新定时上报可迁移"
-    elif [[ "${state}" == "running" || "${state}" == "paused" ]]; then
-        print_panel_row "一致性" "一致"
+        print_panel_row "状态提示" "旧版定时任务仍在使用 po0-self-report，执行安装 / 更新定时上报可迁移"
     fi
     [[ -n "${job}" ]] && print_panel_row "当前命令" "${job}"
     show_recent_self_report_log

@@ -147,8 +147,10 @@ install_self() {
 refresh_schedule_after_script_update() {
     local dest="$1"
     if command -v crontab >/dev/null 2>&1 && cron_managed_block_exists; then
-        if run_updated_script "${dest}" --install-cron >/dev/null 2>&1; then
-            printf '已刷新定时上报到 canonical 命令：%s\n' "${dest}"
+        if linux_schedule_refresh_current "${dest}"; then
+            printf '定时上报已指向标准脚本路径，未刷新：%s\n' "${dest}"
+        elif run_updated_script "${dest}" --install-cron >/dev/null 2>&1; then
+            printf '已刷新定时上报到标准脚本路径：%s\n' "${dest}"
         else
             printf '警告：脚本已更新，但自动刷新 cron 失败；请运行 %s --install-cron。\n' "${dest}" >&2
         fi
@@ -164,9 +166,9 @@ invoke_legacy_path_self_heal() {
     [[ "${dest}" != "${source}" ]] || return 1
     install_self >/dev/null || return 1
     refresh_schedule_after_script_update "${dest}" || true
-    printf '已迁移 PO0 Outbound IP Report 客户端脚本到 canonical 路径：%s\n' "${dest}"
+    printf '已迁移 PO0 Outbound IP Report 客户端脚本到标准安装路径：%s\n' "${dest}"
     if [[ "${reopen_menu}" == "1" ]]; then
-        printf '正在从 canonical 路径重新打开新版菜单：%s --menu\n' "${dest}"
+        printf '正在从标准安装路径重新打开新版菜单：%s --menu\n' "${dest}"
         exec_updated_script "${dest}" --menu
     fi
     return 0

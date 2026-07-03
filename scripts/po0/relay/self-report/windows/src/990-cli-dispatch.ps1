@@ -44,8 +44,25 @@ if ($Help) {
 }
 
 if ($UpgradeSelf) {
-    Upgrade-SelfFromDownload
-    exit 0
+    try {
+        if ($Notify -and $NoNotify) {
+            throw "-Notify 与 -NoNotify 不能同时使用。"
+        }
+        Load-SavedConfig
+        if ($Notify) {
+            $script:TaskNotify = $true
+            $script:Notify = $true
+        } elseif ($NoNotify) {
+            $script:TaskNotify = $false
+            $script:Notify = $false
+        }
+        Upgrade-SelfFromDownload
+        exit 0
+    } catch {
+        Write-SelfReportIncomplete $_.Exception.Message
+        Show-WindowsSelfReportNotification -Title "PO0 Outbound IP Report 未完成" -Message $_.Exception.Message -Kind "Error"
+        exit 1
+    }
 }
 
 try {

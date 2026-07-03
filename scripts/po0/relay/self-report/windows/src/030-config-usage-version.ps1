@@ -132,7 +132,7 @@ self-report 接收服务。访问设备不直接连接 PO0。
   -LogPath PATH       计划任务运行日志路径；默认 po0-outbound-ip-report.log。
   -Notify             上报完成或失败时显示 Windows 通知；安装计划任务时显式启用。
   -NoNotify           显式关闭 Windows 通知 / 使用静默模式；不能与 -Notify 同时使用。
-                      Self-report 放行 TTL 由 LAN Worker 接收端配置，不由客户端决定。
+                      放行时长由 LAN Worker 接收端配置，不由客户端决定。
 
 默认公网 IPv4 探测顺序:
   https://ip9.com.cn/get
@@ -211,7 +211,7 @@ function Show-ScriptVersion {
                     Write-Host "计划任务脚本状态：目标不存在；请重新运行 -InstallTask。"
                 }
             } else {
-                Write-Host "计划任务脚本：无法从任务动作或隐藏启动器读取"
+                Write-Host "计划任务脚本：无法从任务动作或计划任务启动文件读取"
             }
         }
     } catch {

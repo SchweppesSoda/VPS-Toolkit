@@ -43,14 +43,14 @@ install_launchd() {
     script="$(install_self)" || { self_report_incomplete "脚本落盘失败，未安装 launchd 计划。"; return 1; }
     plist="$(launchd_plist_path)"
     dir="$(path_dirname "${plist}")"
-    mkdir -p "${dir}" || { self_report_incomplete "launchd plist 目录创建失败：${dir}"; return 1; }
+    mkdir -p "${dir}" || { self_report_incomplete "macOS 定时任务配置目录创建失败：${dir}"; return 1; }
     remove_legacy_launchd_if_exists || {
         self_report_incomplete "旧 launchd 计划删除失败，未安装新计划。"
         return 1
     }
     interval_seconds="$(cron_minutes_to_seconds "${CRON_MINUTES}")"
     write_launchd_plist "${plist}" "${script}" "${interval_seconds}" || {
-        self_report_incomplete "launchd plist 写入失败：${plist}"
+        self_report_incomplete "macOS 定时任务配置文件写入失败：${plist}"
         return 1
     }
     chmod 644 "${plist}" 2>/dev/null || true
@@ -62,7 +62,7 @@ install_launchd() {
             echo "已清理旧 cron 定时上报，避免与 launchd 双重上报。"
         else
             rm -f "${plist}" 2>/dev/null || true
-            self_report_incomplete "旧 cron 定时上报清理失败，未加载新 launchd，避免双重上报；请手动删除旧 cron block 后重试。"
+            self_report_incomplete "旧 cron 定时上报清理失败，未加载新 launchd，避免双重上报；请手动删除旧定时任务配置后重试。"
             return 1
         fi
     fi
@@ -74,7 +74,7 @@ install_launchd() {
         }
     fi
     echo "已安装 PO0 Outbound IP Report launchd 计划：每 ${interval_seconds} 秒上报一次。"
-    echo "launchd plist：${plist}"
+    echo "macOS 定时任务配置文件：${plist}"
     echo "脚本路径：${script}"
     echo "配置文件：${CONFIG_FILE}"
     echo "通知模式：$(notify_status_label)"
@@ -150,7 +150,7 @@ remove_launchd() {
     if [[ -f "${plist}" ]]; then
         launchd_unload "${plist}"
         rm -f "${plist}" || {
-            self_report_incomplete "删除 launchd plist 失败：${plist}"
+        self_report_incomplete "删除 macOS 定时任务配置文件失败：${plist}"
             return 1
         }
         echo "已删除本脚本管理的 self-report launchd 计划：${plist}"

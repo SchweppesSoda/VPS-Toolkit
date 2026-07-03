@@ -7,12 +7,12 @@
 - `scripts/po0/`：PO0 相关脚本，包括 nftables 主控、LAN Worker、Egern、自上报、重装和代理增强。
 - `scripts/vps/`：通用 VPS 工具，包括 SSH 加固、Fail2ban、3x-ui、ForwardX、REALITY finder。
 - Web 静态工具已迁出到 `SchweppesSoda/vps-toolkit-web`；本仓不再维护 `web/`，也不要从本仓根目录启用 GitHub Pages。
-- `tools/` 只放离线构建工具。`tools/po0/` 维护 PO0 Release asset 构建、manifest 和检查脚本；运行在客户端、Worker 或访问设备上的脚本应放到对应 `scripts/po0/relay/*/src/` 或明确的客户端目录。
-- PO0 Release asset 由 `tools/po0/build-po0-assets.ps1` / `.sh` 按 `tools/po0/manifests/` 生成；manifest 覆盖 manager、LAN Worker、Linux self-report、macOS self-report、Windows self-report 五个模块化源码树。
+- `tools/` 只放离线构建工具。`tools/po0/` 维护 PO0 Release 发布文件构建、manifest 和检查脚本；运行在客户端、Worker 或访问设备上的脚本应放到对应 `scripts/po0/relay/*/src/` 或明确的客户端目录。
+- PO0 Release 发布文件由 `tools/po0/build-po0-assets.ps1` / `.sh` 按 `tools/po0/manifests/` 生成；manifest 覆盖 manager、LAN Worker、Linux self-report、macOS self-report、Windows self-report 五个模块化源码树。
 
 ## PO0 职责边界
 
-- `Release asset nftables-relay-manager.sh` 运行在 PO0，负责 nftables、白名单、资源任务创建、restricted key wrapper 和资源导入。
+- Release 发布文件 `nftables-relay-manager.sh` 运行在 PO0，负责 nftables、白名单、资源任务创建、restricted key wrapper 和资源导入。
 - `po0-lan-client.sh` 的源码位于 `scripts/po0/relay/lan-worker/src/`，运行在 LAN Worker，负责轮询领取任务、DDNS、自上报接收、WebAuth 接收和本机轮询器。
 - LAN Worker 的 DDNS resolver 上报计划和资源任务领取计划必须分开；资源任务只领取 PO0 已创建的 pending 任务，不复用 DDNS TTL / 上报频率作为资源轮询逻辑。
 - Egern 模块只做当前出口 IPv4 的 SSH report，不做 DDNS。
@@ -24,19 +24,21 @@
 
 ## 发布与构建
 
-- PO0 nftables 五个可执行脚本的正式下载源是 GitHub Release asset：`nftables-relay-manager.sh`、`po0-lan-client.sh`、`po0-outbound-ip-report.sh`、`po0-outbound-ip-report-macos.sh`、`po0-outbound-ip-report.ps1`。
+- PO0 nftables 五个可执行脚本的正式下载源是 GitHub Release 发布文件：`nftables-relay-manager.sh`、`po0-lan-client.sh`、`po0-outbound-ip-report.sh`、`po0-outbound-ip-report-macos.sh`、`po0-outbound-ip-report.ps1`。
 - `Self-report` 是 LAN Worker `/report` 协议、server 功能和历史兼容名；三端访问设备客户端的默认命令、脚本文件、配置、日志、定时任务 / launchd / cron marker 统一使用 `po0-outbound-ip-report*` / `PO0 Outbound IP Report`。旧 `po0-self-report*` 只做 legacy 配置读取、旧路径自愈迁移、旧任务清理、旧 env / CLI alias 和历史说明；更新或自愈成功后应迁移并删除默认旧名残留，不再保留默认旧命令 shim。
 - 三端访问设备客户端的 SSID 跳过只允许作为本地 guard：命中时本机跳过并写日志摘要，不上传 SSID，不新增 LAN Worker `/report` 或 PO0 协议字段；SSID 列表用英文分号分隔并精确匹配；读取失败必须继续正常上报；手动运行命中时询问是否强制继续；不要为 SSID 新增 `PO0_SELF_REPORT_*` 或 `SELF_REPORT_*` legacy alias。
 - macOS 访问设备客户端必须兼容系统自带 Bash 3.2；在 `set -u` 环境下不要用空 Bash 数组解析可选列表，例如 `local -a items` / `read -r -a items` / `"${items[@]}"`，SSID 列表解析应使用 Bash 3.2 安全的字符串循环，并保留对应 release gate。
 - macOS 当前 Wi-Fi SSID 读取遇到 `redacted` / `<redacted>` 时应按系统隐私权限隐藏处理，必须 fail-open 继续上报；允许提供 `--show-wifi-ssid` / `--diagnose-wifi-ssid` / `--request-location-permission` / `--delete-location-permission-helper` / `--open-location-services` 这类本地诊断、用户授权指引、Helper App CoreLocation 授权请求、本地 Helper 删除和系统设置跳转。macOS 26+ 不要依赖 Terminal/iTerm 出现在定位服务列表里；`--request-location-permission` 应使用带稳定 bundle id、定位用途声明和可选 ad-hoc 签名的 `PO0 Location Permission Helper.app` 触发授权，并由 Helper 在本机通过 CoreWLAN 读取 SSID 后返回给脚本；删除 Helper 只移除本地 app，不能修改 macOS 定位授权 / TCC 记录；不静默授予或修改定位服务 / TCC 权限，不运行 `sudo`、不运行 `tccutil`、不保存提权凭据、不写 TCC 数据库。
 - `po0-vYYYY.MM.DD.N` tag 触发 PO0 Release；任何会成为 GitHub latest 的正式 release 必须包含完整 PO0 asset 集合和 `checksums.txt`。非 PO0 发布只能用 draft / prerelease，不能抢占 latest。
-- 创建 PO0 Release tag 前，五个 Release asset 脚本的内部版本必须统一为 `YYYY.MM.DD+build.N`，且 `N` 必须与 `po0-vYYYY.MM.DD.N` tag 尾号一致；不要让用户看到 release tag 与脚本 `--version` 输出不一致。
+- 创建 PO0 Release tag 前，五个 Release 发布文件脚本的内部版本必须统一为 `YYYY.MM.DD+build.N`，且 `N` 必须与 `po0-vYYYY.MM.DD.N` tag 尾号一致；不要让用户看到 release tag 与脚本 `--version` 输出不一致。
 - Release workflow 只由 `po0-vYYYY.MM.DD.N` tag 触发，失败后用 GitHub Actions rerun，不保留 `workflow_dispatch` 发布入口。
-- 修改 PO0 Release asset 或其生成 / 下载 / 自更新逻辑后，如果用户要求 `commit and push` 或明确希望可更新到新版，不要只 push `main`；必须在验证通过、提交并 push `main` 后，继续创建并 push 下一个 `po0-vYYYY.MM.DD.N` tag 触发 Release，并向用户说明 release 由 tag workflow 发布。
+- 修改 PO0 Release 发布文件或其生成 / 下载 / 自更新逻辑后，如果用户要求 `commit and push` 或明确希望可更新到新版，不要只 push `main`；必须在验证通过、提交并 push `main` 后，继续创建并 push 下一个 `po0-vYYYY.MM.DD.N` tag 触发 Release，并向用户说明 release 由 tag workflow 发布。
 - Release 必须按 draft 原子发布：不存在 release 时先创建 draft，上传五个脚本和 `checksums.txt`，下载回校验通过后再 publish/latest；已存在 draft 只允许补齐缺失 asset，已有 asset checksum 不一致必须失败；已发布 release 只允许校验，缺 asset 或 checksum 不一致都必须失败并打新 tag，不能修改 live/latest release。
-- 旧 manager、LAN Worker 和 self-report raw URLs are disabled，不再作为兼容入口；不要重新新增这些 raw 可执行脚本路径。Egern canonical raw path 是 `scripts/po0/nftables/clients/egern/`；`scripts/po0/relay/egern/` 只作为 legacy compatibility path 暂时保留，不能作为新安装推荐入口。
-- Egern YAML/JS、离线 iplist 构建器、外部 ipdb/iplist 数据源和未纳入本阶段的通用 VPS 脚本 raw 下载源是白名单；PO0 五个可执行脚本的新安装、自更新和 manager mirror 上游应使用 Release asset。raw URL 检查应使用精确路径白名单，不能用 `reinstall` 等宽泛子串放行。
-- 模块化后优先修改 `scripts/po0/relay/manager/src/`、`scripts/po0/relay/lan-worker/src/`、`scripts/po0/relay/self-report/` 和对应 manifest；不要手改由构建器生成的 Release staging 单文件。`tools/po0/check-po0-assets.sh` 是 CI/release authority；`tools/po0/check-po0-assets.ps1` 是 Windows 本地等价检查入口，二者都必须确认 manifest 覆盖、raw URL 策略、Egern legacy sync、Windows canonical install path、版本/tag 对齐、三端 SSID 本地跳过 guard，以及 macOS `--show-wifi-ssid` / `--diagnose-wifi-ssid` / `--request-location-permission` / `--delete-location-permission-helper` / `--open-location-services` 诊断入口、Helper App 定位授权 / CoreWLAN fallback、安全删除 Helper、无裸 `osascript` 授权 helper。
+- 旧 manager、LAN Worker 和 self-report raw URL 已禁用，不再作为兼容入口；不要重新新增这些 raw 可执行脚本路径。Egern 标准 raw 路径是 `scripts/po0/nftables/clients/egern/`；`scripts/po0/relay/egern/` 只作为历史兼容路径暂时保留，不能作为新安装推荐入口。
+- Egern YAML/JS、离线 iplist 构建器、外部 ipdb/iplist 数据源和未纳入本阶段的通用 VPS 脚本 raw 下载源是白名单；PO0 五个可执行脚本的新安装、自更新和 manager mirror 上游应使用 Release 发布文件。raw URL 检查应使用精确路径白名单，不能用 `reinstall` 等宽泛子串放行。
+- Linux/OpenWrt、macOS、Windows 三端访问设备客户端自更新后，应先检测 cron / launchd / Windows 计划任务是否已指向标准脚本路径；只有入口漂移、缺失或迁移旧任务时才刷新，不要每次自更新都无条件重写定时入口。
+- 模块化后优先修改 `scripts/po0/relay/manager/src/`、`scripts/po0/relay/lan-worker/src/`、`scripts/po0/relay/self-report/` 和对应 manifest；不要手改由构建器生成的 Release staging 单文件。`tools/po0/check-po0-assets.sh` 是 CI/release authority；`tools/po0/check-po0-assets.ps1` 是 Windows 本地等价检查入口，二者都必须确认 manifest 覆盖、raw URL 策略、Egern legacy sync、Windows 标准安装路径、版本/tag 对齐、三端 SSID 本地跳过 guard，以及 macOS `--show-wifi-ssid` / `--diagnose-wifi-ssid` / `--request-location-permission` / `--delete-location-permission-helper` / `--open-location-services` 诊断入口、Helper App 定位授权 / CoreWLAN fallback、安全删除 Helper、无裸 `osascript` 授权 helper。
+- Windows 上运行 `tools/po0/check-po0-assets.ps1` 时，Bash 子检查应优先使用 Git Bash；不要误用 Windows 自带 WSL `bash.exe` stub。Bash 入口调用 `pwsh` 检查 Windows 脚本时，要先把 Git Bash/MSYS 路径转换成 Windows 路径，避免 `/d/Users/...` 被 `pwsh` 解析成 `D:\d\Users\...`。
 - `tools/po0/build-po0-assets.ps1` 的输出目录只能位于仓库内 `.tmp/po0-*`，因为构建前会递归清空输出目录。
 - 构建器必须显式控制编码和 LF：Bash/manifest/checksum 使用 UTF-8 no BOM；含中文的 Windows PowerShell `.ps1` 使用 UTF-8 BOM，避免 Windows PowerShell 5 按系统代码页解析失败。
 
@@ -46,6 +48,7 @@
 - 不新增裸 `read -p`；优先使用脚本里已有的 prompt helper。
 - 菜单改动必须同步显示编号、分组顺序、输入范围、无效选择提示和 `case` 分支。
 - 编号可以重排，但必须按视觉顺序递增，不能为了少改 `case` 保留跳号旧编号。
+- 用户可见菜单、状态页、帮助和更新结果里避免使用工程内部表达；不要把英文标准路径、启动器、cron 托管块、配置漂移等内部术语直接暴露给用户，优先使用“标准路径 / 标准安装路径”“计划任务启动文件”“托管片段”“状态提示 / 配置提示”等中文表达。
 - 查看类和一次性动作结束后要保留返回暂停，避免输出被菜单刷新冲掉。
 - 粘贴私钥等多行输入后要注意输入缓冲，不让残留内容进入主菜单。
 
@@ -72,7 +75,7 @@
   - Web 工具文档：已迁出到 `SchweppesSoda/vps-toolkit-web`，本仓根 README 只保留外部入口链接。
 - 新增、删除、重命名任何长期维护 `.md` 时，必须同步根 `README.md` 的文档索引；如保留英文入口，也同步 `README.en.md`。
 - 修改 Web 工具 UI 时，在 `SchweppesSoda/vps-toolkit-web` 仓库内阅读对应 `docs/*_technical.md`，并按该仓库自己的 `AGENTS.md` 验证；不要在本仓新增 Web 源码或技术文档。
-- `scripts/po0/relay/` 只保留四类 PO0 relay 长期维护 Markdown：用户主文档 `README.md`、版本历史 `CHANGELOG.md`、实现主文档 `po0-relay-technical.md`、Egern legacy compatibility README。Egern canonical 专属文档维护在 `scripts/po0/nftables/clients/egern/README.md`。
+- `scripts/po0/relay/` 只保留四类 PO0 relay 长期维护 Markdown：用户主文档 `README.md`、版本历史 `CHANGELOG.md`、实现主文档 `po0-relay-technical.md`、Egern 历史兼容 README。Egern 标准路径专属文档维护在 `scripts/po0/nftables/clients/egern/README.md`。
 - nftables 用户行为、菜单、命令示例、默认值、TTL、Token、状态文件和定时任务只更新 `scripts/po0/relay/README.md`；版本历史只更新 `scripts/po0/relay/CHANGELOG.md`；实现细节、协议、wrapper、兼容规则和内部状态模型只更新 technical 文档；Egern 专属导入、设备 ID、Widget 和多 PO0 行为只更新 Egern README。
 - 不随手新增 `.md`。新增文档前先判断是否能放入现有主文档；除非是独立模块且长期维护，否则不要制造碎片文档。短命令笔记、目录清单、临时排错记录应并入现有 README 或删除。
 - 改菜单名、默认值、TTL、Token、状态文件或定时任务后，必须用 `rg` 扫旧词，避免文档与代码脱节。

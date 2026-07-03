@@ -50,7 +50,7 @@ function Invoke-InteractiveMenu {
                 "9" { Upgrade-SelfFromDownload -ReopenMenu }
                 "10" {
                     $uninstalled = $false
-                    Write-Host "卸载会删除计划任务、隐藏启动器和本机安装脚本；配置与日志默认保留。"
+                    Write-Host "卸载会删除计划任务、计划任务启动文件和本机安装脚本；配置与日志默认保留。"
                     if (Read-YesNoDefault "确认卸载 self-report 客户端" $false) {
                         $removeData = Read-YesNoDefault "是否同时删除配置文件和日志" $false
                         Uninstall-SelfReportClient -RemoveData:$removeData

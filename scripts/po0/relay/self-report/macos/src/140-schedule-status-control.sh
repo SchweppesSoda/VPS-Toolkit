@@ -119,7 +119,7 @@ cron_state_label() {
         paused) printf '已暂停' ;;
         uninstalled) printf '未安装' ;;
         unavailable) printf '不可用（缺少 crontab，且当前环境不能使用 macOS launchd）' ;;
-        invalid) printf '异常：cron block 无任务' ;;
+        invalid) printf '异常：定时任务配置不完整' ;;
         *) printf '未知' ;;
     esac
 }
@@ -132,7 +132,7 @@ cron_status_summary() {
             summary="$(cron_state_label "${state}")"
             [[ -n "${interval}" ]] && summary="${summary}，${interval}"
             [[ "${consistency}" == *"drift"* ]] && summary="${summary}（与配置暂停标记不一致）"
-            [[ "${consistency}" == *"stale-scheduled-run"* ]] && summary="${summary}（旧任务缺 --scheduled-run，需刷新）"
+            [[ "${consistency}" == *"stale-scheduled-run"* ]] && summary="${summary}（旧版定时任务缺少自动运行标记，需刷新）"
             [[ "${consistency}" == *"legacy"* ]] && summary="${summary}（旧命令，需刷新）"
             printf '%s' "${summary}"
             ;;
@@ -140,6 +140,70 @@ cron_status_summary() {
             cron_state_label "${state}"
             ;;
     esac
+}
+
+macos_expected_cron_job() {
+    local script="$1" run_cmd
+    run_cmd="bash $(sh_quote "${script}") --config $(sh_quote "${CONFIG_FILE}") --scheduled-run"
+    if notify_enabled; then
+        run_cmd="${run_cmd} --notify"
+    fi
+    run_cmd="${run_cmd} >$(sh_quote "$(self_report_log_path)") 2>&1"
+    build_cron_job "${CRON_MINUTES}" "${run_cmd}"
+}
+
+macos_cron_refresh_current() {
+    local script="$1" state interval config_paused job consistency expected_job expected_paused expected_state
+    IFS='|' read -r state interval config_paused job consistency < <(read_cron_status_snapshot)
+    [[ "${state}" == "running" || "${state}" == "paused" ]] || return 1
+    [[ "${consistency}" == "ok" ]] || return 1
+    [[ "${job}" != launchd:* ]] || return 1
+    expected_job="$(macos_expected_cron_job "${script}")"
+    [[ "${job}" == "${expected_job}" ]] || return 1
+    expected_paused="$(schedule_paused && printf '1' || printf '0')"
+    [[ "${config_paused}" == "${expected_paused}" ]] || return 1
+    if schedule_paused; then
+        expected_state="paused"
+    else
+        expected_state="running"
+    fi
+    [[ "${state}" == "${expected_state}" ]] || return 1
+}
+
+macos_launchd_refresh_current() {
+    local script="$1" plist state interval config_paused job consistency expected_paused expected_state
+    launchd_supported || return 1
+    plist="$(launchd_plist_path)"
+    [[ -f "${plist}" ]] || return 1
+    [[ ! -f "$(legacy_launchd_plist_path)" ]] || return 1
+    if command -v crontab >/dev/null 2>&1 && cron_managed_block_exists; then
+        return 1
+    fi
+    IFS='|' read -r state interval config_paused job consistency < <(read_launchd_status_snapshot)
+    [[ "${state}" == "running" || "${state}" == "paused" ]] || return 1
+    [[ "${consistency}" == "ok" ]] || return 1
+    expected_paused="$(schedule_paused && printf '1' || printf '0')"
+    [[ "${config_paused}" == "${expected_paused}" ]] || return 1
+    if schedule_paused; then
+        expected_state="paused"
+    else
+        expected_state="running"
+    fi
+    [[ "${state}" == "${expected_state}" ]] || return 1
+    launchd_plist_matches_desired "${plist}" "${script}"
+}
+
+macos_schedule_refresh_current() {
+    local script="$1"
+    if launchd_supported && [[ -f "$(launchd_plist_path)" ]]; then
+        macos_launchd_refresh_current "${script}"
+        return $?
+    fi
+    if command -v crontab >/dev/null 2>&1 && cron_managed_block_exists; then
+        macos_cron_refresh_current "${script}"
+        return $?
+    fi
+    return 1
 }
 
 show_cron_status() {
@@ -159,13 +223,11 @@ show_cron_status() {
         print_panel_row "计划间隔" "已安装，未识别间隔"
     fi
     if [[ "${consistency}" == *"stale-scheduled-run"* ]]; then
-        print_panel_row "一致性" "旧任务缺少 --scheduled-run；执行安装 / 更新定时上报可刷新"
+        print_panel_row "状态提示" "旧版定时任务缺少自动运行标记，执行安装 / 更新定时上报可刷新"
     elif [[ "${consistency}" == *"drift"* ]]; then
-        print_panel_row "一致性" "不一致，执行安装 / 更新定时上报可刷新"
+        print_panel_row "状态提示" "定时任务暂停状态与配置不一致，执行安装 / 更新定时上报可修复"
     elif [[ "${consistency}" == *"legacy"* ]]; then
-        print_panel_row "一致性" "旧 po0-self-report 定时上报；执行安装 / 更新定时上报可迁移"
-    elif [[ "${state}" == "running" || "${state}" == "paused" ]]; then
-        print_panel_row "一致性" "一致"
+        print_panel_row "状态提示" "旧版定时上报仍在使用 po0-self-report，执行安装 / 更新定时上报可迁移"
     fi
     [[ -n "${job}" ]] && print_panel_row "当前命令" "${job}"
     show_recent_self_report_log

@@ -49,9 +49,9 @@ function Show-ClientConfig {
     Write-PanelRow "配置文件" $script:ConfigPath
     Write-PanelRow "保存状态" $(if (Test-Path -LiteralPath $script:ConfigPath) { "已保存" } else { "未保存" })
     Write-PanelRow "LAN Worker URL" $(if ($script:WorkerUrl) { $script:WorkerUrl } else { "未设置" })
-    Write-PanelRow "Source ID" $script:SourceId
-    Write-PanelRow "Identity" $script:Identity
-    Write-PanelRow "Secret" (Get-MaskedSecret $script:Secret)
+    Write-PanelRow "来源 ID" $script:SourceId
+    Write-PanelRow "设备备注" $script:Identity
+    Write-PanelRow "上报密钥" (Get-MaskedSecret $script:Secret)
     Write-PanelRow "HTTP 上报" $(if ($script:AllowHttp) { "已显式允许" } else { "默认拒绝" })
     Write-PanelRow "上报间隔" ("每 {0} 秒（安装定时上报时使用）" -f (Get-IntervalSeconds))
     Write-PanelRow "跳过 Wi-Fi SSID" (Format-WifiSsidPolicyList -Ssids $script:SkipWifiSsids)
@@ -59,7 +59,7 @@ function Show-ClientConfig {
     Write-NotifyStatusRows
     Write-PanelRow "定时暂停" $(if ($script:SchedulePaused) { "已暂停" } else { "未暂停" })
     Write-PanelRow "计划任务" (Get-ScheduledReporterSummary)
-    Write-PanelRow "放行 TTL" "由 LAN Worker Self-report 目标控制，默认 43200 秒"
+    Write-PanelRow "放行时长" "由 LAN Worker 接收端控制，默认 43200 秒"
     if ($script:IpCheckUrls.Count -gt 0) {
         Write-PanelRow "IP 探测列表" ($script:IpCheckUrls -join ",")
     } else {
@@ -82,8 +82,8 @@ function Show-ClientDashboard {
     Write-PanelRow "配置文件" $script:ConfigPath
     Write-PanelRow "保存状态" $(if (Test-Path -LiteralPath $script:ConfigPath) { "已保存" } else { "未保存" })
     Write-PanelRow "LAN Worker URL" $(if ($script:WorkerUrl) { $script:WorkerUrl } else { "未设置" })
-    Write-PanelRow "Source ID" $script:SourceId
-    Write-PanelRow "Identity" $script:Identity
+    Write-PanelRow "来源 ID" $script:SourceId
+    Write-PanelRow "设备备注" $script:Identity
     Write-PanelRow "运行日志" (Get-DefaultLogPath)
     Write-PanelRow "跳过 Wi-Fi SSID" (Format-WifiSsidPolicyList -Ssids $script:SkipWifiSsids)
     Write-PanelRow "当前 Wi-Fi SSID" (Format-CurrentWifiSsidStatus)
@@ -104,8 +104,8 @@ function Set-ClientConfigInteractive {
         }
     }
     Assert-WorkerUrl
-    $script:SourceId = Read-Default "Source ID" $script:SourceId
-    $script:Identity = Read-Default "Identity" $script:Identity
+    $script:SourceId = Read-Default "来源 ID" $script:SourceId
+    $script:Identity = Read-Default "设备备注" $script:Identity
     Read-SecretSetting
     $seconds = Read-Default "客户端每几秒上报一次（60-$($script:MaxMinutes * 60)；必须是 60 的倍数）" ([string](Get-IntervalSeconds))
     $script:Minutes = Convert-IntervalSecondsToMinutes $seconds
@@ -153,7 +153,7 @@ function Show-ScheduledReporter {
         Write-PanelRow "任务状态" ([string]$task.State)
         Write-NotifyStatusRows -NotifyState $notifyState
         if ($notifyState.LauncherPath) {
-            Write-PanelRow "隐藏启动器" $notifyState.LauncherPath
+            Write-PanelRow "计划任务启动文件" $notifyState.LauncherPath
         }
         if ($notifyState.ScriptPath) {
             Write-PanelRow "计划任务脚本" $notifyState.ScriptPath
@@ -162,10 +162,10 @@ function Show-ScheduledReporter {
             } elseif (-not $notifyState.ScriptPathExists) {
                 Write-PanelRow "脚本路径状态" "目标不存在；请重新运行 -InstallTask"
             } else {
-                Write-PanelRow "脚本路径状态" "已指向 canonical 安装脚本"
+                Write-PanelRow "脚本路径状态" "已指向标准安装脚本"
             }
         } else {
-            Write-PanelRow "计划任务脚本" "无法从任务动作或隐藏启动器读取"
+            Write-PanelRow "计划任务脚本" "无法从任务动作或计划任务启动文件读取"
         }
         foreach ($trigger in $task.Triggers) {
             Write-PanelRow "触发器" ([string]$trigger)
@@ -217,10 +217,10 @@ function Set-ScheduledReporterNotify {
     try {
         $updated = Update-ScheduledReporterLauncherForExistingTask
     } catch {
-        throw "重写计划任务隐藏启动器失败：$($_.Exception.Message)"
+        throw "重写计划任务启动文件失败：$($_.Exception.Message)"
     }
-    if ($updated) {
-        Write-SelfReportCompleted "Windows 通知模式已更新为：$(Format-NotifyStatus)；已重写计划任务隐藏启动器。"
+    if ($updated -and $updated -ne "none") {
+        Write-SelfReportCompleted "Windows 通知模式已更新为：$(Format-NotifyStatus)；计划任务启动文件已同步。"
     } else {
         Write-SelfReportCompleted "Windows 通知模式已更新为：$(Format-NotifyStatus)；当前未安装计划任务。"
     }
@@ -284,16 +284,16 @@ function Uninstall-SelfReportClient {
     $legacyLogPath = Get-LegacyLogPath
     $ok = $true
 
-    Write-Host "卸载会删除本脚本管理的计划任务、隐藏启动器和本机安装脚本。"
+    Write-Host "卸载会删除本脚本管理的计划任务、计划任务启动文件和本机安装脚本。"
     Write-Host "本机脚本：$scriptPath"
-    Write-Host "隐藏启动器：$launcherPath"
+    Write-Host "计划任务启动文件：$launcherPath"
     Write-Host "旧本机脚本：$legacyScriptPath"
-    Write-Host "旧隐藏启动器：$legacyLauncherPath"
+    Write-Host "旧计划任务启动文件：$legacyLauncherPath"
     Remove-ScheduledReporter
-    if (-not (Remove-SelfReportPathIfExists -Label "隐藏启动器" -Path $launcherPath)) { $ok = $false }
+    if (-not (Remove-SelfReportPathIfExists -Label "计划任务启动文件" -Path $launcherPath)) { $ok = $false }
     if (-not (Remove-SelfReportPathIfExists -Label "本机脚本" -Path $scriptPath)) { $ok = $false }
     if ($legacyLauncherPath -ne $launcherPath) {
-        if (-not (Remove-SelfReportPathIfExists -Label "旧隐藏启动器" -Path $legacyLauncherPath)) { $ok = $false }
+        if (-not (Remove-SelfReportPathIfExists -Label "旧计划任务启动文件" -Path $legacyLauncherPath)) { $ok = $false }
     }
     if ($legacyScriptPath -ne $scriptPath) {
         if (-not (Remove-SelfReportPathIfExists -Label "旧本机脚本" -Path $legacyScriptPath)) { $ok = $false }

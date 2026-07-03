@@ -6,6 +6,10 @@
 
 ## po0-nftables-relay-manager
 
+### 2026.07.03+build.1
+
+- 跟随 PO0 发布批次对齐到 `po0-v2026.07.03.1`；本脚本无行为变化。
+
 ### 2026.07.02+build.10
 
 - 跟随 PO0 Release asset 批次对齐到 `po0-v2026.07.02.10`；本脚本无行为变化。
@@ -173,6 +177,10 @@
 - 状态面板和资源任务创建计划摘要增加彩色状态提示。
 
 ## po0-lan-worker-client
+
+### 2026.07.03+build.1
+
+- 跟随 PO0 发布批次对齐到 `po0-v2026.07.03.1`；LAN Worker 客户端无行为变化。
 
 ### 2026.07.02+build.10
 
@@ -349,6 +357,11 @@
 - 状态页 / Widget 优先复用 IP9、163、126、myip.ipip 等 IP 查询接口返回的归属地 / 运营商信息，拿不到时才额外查询。
 
 ## po0-outbound-ip-report（Linux/OpenWrt）
+
+### 2026.07.03+build.1
+
+- 自更新后先检测 cron 是否已指向标准脚本路径；没有漂移时不再重复刷新定时任务。
+- 菜单和状态页清理标准路径状态、定时任务状态等用户可见文案，减少工程表达。
 
 ### 2026.07.02+build.10
 
@@ -532,6 +545,11 @@
 
 ## po0-outbound-ip-report（macOS）
 
+### 2026.07.03+build.1
+
+- 自更新后先检测 launchd / cron 是否已指向标准脚本路径；没有漂移时不再重复刷新定时任务。
+- 菜单和状态页清理标准路径状态、定时任务状态等用户可见文案，减少工程表达。
+
 ### 2026.07.02+build.10
 
 - macOS Wi-Fi SSID 读取改为 Helper-only：不再调用 `networksetup`、`ipconfig`、`airport` 或 `wdutil` fallback，避免 shell 环境稳定返回 `redacted` 时浪费时间。
@@ -659,6 +677,11 @@
 - 支持 `--save-config --menu` 首次保存默认配置后打开菜单，并提供 `--install-launchd` 别名。
 
 ## po0-outbound-ip-report（Windows PowerShell）
+
+### 2026.07.03+build.1
+
+- 自更新后先检测计划任务是否已指向标准脚本路径；没有漂移时不再重复刷新计划任务启动文件。
+- 菜单和状态页清理标准路径状态、定时任务状态等用户可见文案，减少工程表达。
 
 ### 2026.07.02+build.10
 

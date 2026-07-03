@@ -66,7 +66,7 @@ Review scripts before running them. Root-level online examples that need root an
 
 ### PO0 nftables relay
 
-Recommended: download the manager from the GitHub Release asset, then run it on PO0.
+Recommended: download the manager from the GitHub Release file, then run it on PO0.
 
 ```bash
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/nftables-relay-manager.sh -o /root/nftables-relay-manager.sh
@@ -120,14 +120,14 @@ ssh root@<PO0_HOST> 'chmod +x /root/po0-debian-reinstall.sh && bash /root/po0-de
 
 - `scripts/po0/`: PO0 or relay-host reinstall, nftables relay, allowlists, resource jobs, and proxy-service enhancement.
 - `scripts/vps/`: general VPS tools; each tool directory owns its README.
-- `tools/`: offline build and check tooling; PO0 Release assets are built by `tools/po0/` from manifest-listed modular source trees for manager, LAN Worker, and Linux/macOS/Windows self-report.
+- `tools/`: offline build and check tooling; PO0 Release files are built by `tools/po0/` from manifest-listed modular source trees for manager, LAN Worker, and Linux/macOS/Windows self-report.
 - Web tools: source and GitHub Pages deployment moved to [`SchweppesSoda/vps-toolkit-web`](https://github.com/SchweppesSoda/vps-toolkit-web).
 
 ## Release Channels
 
-The five executable PO0 nftables scripts are published as GitHub Release assets: `nftables-relay-manager.sh`, `po0-lan-client.sh`, `po0-outbound-ip-report.sh`, `po0-outbound-ip-report-macos.sh`, and `po0-outbound-ip-report.ps1`. Build order and source ownership are defined by `tools/po0/manifests/`, covering manager, LAN Worker, and Linux/macOS/Windows self-report.
+The five executable PO0 nftables scripts are published as GitHub Release files: `nftables-relay-manager.sh`, `po0-lan-client.sh`, `po0-outbound-ip-report.sh`, `po0-outbound-ip-report-macos.sh`, and `po0-outbound-ip-report.ps1`. Build order and source ownership are defined by `tools/po0/manifests/`, covering manager, LAN Worker, and Linux/macOS/Windows self-report.
 
-Old manager, LAN Worker, and self-report raw URLs are disabled and are no longer compatibility entry points. The Egern canonical raw path, Egern legacy compatibility path, offline iplist builders, external ipdb/iplist sources, and general VPS tools that are not part of this phase may still keep their documented raw URLs.
+Raw URL entry points for the old manager, LAN Worker, and self-report scripts are intentionally disabled. The Egern standard raw path, Egern historical compatibility path, offline iplist builders, external ipdb/iplist sources, and general VPS tools that are not part of this phase may still keep their documented raw URLs.
 
 ## Public Website
 

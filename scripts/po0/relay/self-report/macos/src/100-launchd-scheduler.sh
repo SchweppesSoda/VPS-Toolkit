@@ -143,6 +143,26 @@ launchd_plist_has_scheduled_run() {
     grep -q '<string>--scheduled-run</string>' "${plist}" 2>/dev/null
 }
 
+launchd_plist_matches_desired() {
+    local plist="$1" script="$2" tmp
+    [[ -f "${plist}" ]] || return 1
+    if command -v mktemp >/dev/null 2>&1; then
+        tmp="$(mktemp "${TMPDIR:-/tmp}/po0-launchd-desired.XXXXXX")" || return 1
+    else
+        tmp="${TMPDIR:-/tmp}/po0-launchd-desired.$$"
+    fi
+    write_launchd_plist "${tmp}" "${script}" "$(cron_minutes_to_seconds "${CRON_MINUTES}")" || {
+        rm -f "${tmp}" 2>/dev/null || true
+        return 1
+    }
+    if cmp -s "${plist}" "${tmp}"; then
+        rm -f "${tmp}" 2>/dev/null || true
+        return 0
+    fi
+    rm -f "${tmp}" 2>/dev/null || true
+    return 1
+}
+
 read_launchd_status_snapshot() {
     local plist interval_seconds interval="" config_paused disabled state consistency="ok" legacy=0
     launchd_supported || return 1

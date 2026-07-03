@@ -4,11 +4,11 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_OUTBOUND_IP_REPORT_MACOS_DOWNLOAD_URL:-${PO0_SELF_REPORT_MACOS_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report-macos.sh}}"
 SCRIPT_NAME="po0-outbound-ip-report"
-SCRIPT_VERSION="2026.07.02+build.10"
-SCRIPT_RELEASE_DATE="2026-07-02"
+SCRIPT_VERSION="2026.07.03+build.1"
+SCRIPT_RELEASE_DATE="2026-07-03"
 # CHANGELOG_BEGIN
-# - macOS Wi-Fi SSID 读取改为 Helper-only；不再调用 networksetup/ipconfig/airport/wdutil fallback。
-# - 未安装或未授权 Helper 时继续 fail-open，并引导使用 --request-location-permission。
+# - 自更新后先检测 launchd / cron 是否已指向标准脚本路径；没有漂移时不再重复刷新定时任务。
+# - 菜单和状态页清理标准路径状态、定时任务状态等用户可见文案，减少工程表达。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24

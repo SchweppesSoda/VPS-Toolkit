@@ -3,7 +3,7 @@ usage() {
         "PO0 Outbound IP Report 客户端（Linux/OpenWrt）" \
         "" \
         "本脚本探测当前设备的公网出口 IPv4，并上报到 LAN Worker 的 self-report" \
-        "接收服务。访问设备不直接连接 PO0。Self-report 放行 TTL 由 LAN Worker" \
+        "接收服务。访问设备不直接连接 PO0。放行时长由 LAN Worker" \
         "接收端配置，不由客户端决定。" \
         "" \
         "用法:" \

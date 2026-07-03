@@ -3,9 +3,9 @@ set -euo pipefail
 
 repo_root="$(cd "$(git rev-parse --show-toplevel)" && pwd -P)"
 asset_dir="${1:-${repo_root}/.tmp/po0-check-assets}"
-expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.07.02+build.10}"
-expected_po0_release_date="${PO0_EXPECTED_RELEASE_DATE:-2026-07-02}"
-expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.07.02.10}"
+expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.07.03+build.1}"
+expected_po0_release_date="${PO0_EXPECTED_RELEASE_DATE:-2026-07-03}"
+expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.07.03.1}"
 
 manifest_entries() {
     local manifest="$1"
@@ -14,6 +14,15 @@ manifest_entries() {
         gsub(/^[[:space:]]+|[[:space:]]+$/, "")
         if ($0 != "" && $0 !~ /^#/) print $0
     }' "${manifest}"
+}
+
+pwsh_literal_path() {
+    local path="$1"
+    if command -v cygpath >/dev/null 2>&1; then
+        cygpath -w "${path}"
+    else
+        printf '%s\n' "${path}"
+    fi
 }
 
 check_manifest_coverage() {
@@ -555,23 +564,24 @@ check_macos_wifi_ssid_diagnostic() {
 }
 
 check_windows_ssid_guard() {
-    local asset="${asset_dir}/po0-outbound-ip-report.ps1"
-    pwsh -NoProfile -Command "
-\$raw = Get-Content -LiteralPath '${asset}' -Raw -Encoding UTF8
-if (\$raw -notmatch 'PO0_OUTBOUND_IP_REPORT_[A-Z0-9_]*SSID') { throw 'Windows asset lacks canonical SSID environment configuration.' }
-if (\$raw -notmatch '(?im)^\s*\[[^\r\n]+\]\s*\\\$[A-Za-z0-9_]*Ssid[A-Za-z0-9_]*') { throw 'Windows asset lacks SSID CLI parameter configuration.' }
-if (\$raw -notmatch '(?i)(\\\$cfg\.[A-Za-z0-9_]*Ssid[A-Za-z0-9_]*|[A-Za-z0-9_]*Ssid[A-Za-z0-9_]*\s*=)') { throw 'Windows asset lacks persisted SSID configuration.' }
-if (\$raw -notmatch '(?is)(ssid.{0,160}(skip|skipped|跳过)|(skip|skipped|跳过).{0,160}ssid)') { throw 'Windows asset lacks SSID skip result wording.' }
-if (\$raw -notmatch '(?is)(ssid.{0,160}(summary|log|摘要|日志)|(summary|log|摘要|日志).{0,160}ssid)') { throw 'Windows asset lacks SSID skip log/status summary wording.' }
-if (\$raw -notmatch '(?is)(ssid.{0,160}(continue|continued|fail|failed|failure|error|unavailable|读取失败|继续上报)|(continue|continued|fail|failed|failure|error|unavailable|读取失败|继续上报).{0,160}ssid)') { throw 'Windows asset does not state that SSID read failure continues reporting.' }
-\$fn = [regex]::Match(\$raw, '(?ms)^function Invoke-SelfReport \{.*?^}')
-if (-not \$fn.Success) { throw 'Windows Invoke-SelfReport function was not found.' }
-\$guard = [regex]::Match(\$fn.Value, '(?is)ssid.{0,160}(skip|guard|allow|match|local|跳过|匹配|本地)|(skip|guard|allow|match|local|跳过|匹配|本地).{0,160}ssid')
-\$http = [regex]::Match(\$fn.Value, 'Invoke-WebRequest')
-if (-not \$guard.Success) { throw 'Windows asset lacks an SSID guard inside Invoke-SelfReport.' }
-if (-not \$http.Success) { throw 'Windows asset HTTP submit point was not found.' }
-if (\$guard.Index -ge \$http.Index) { throw 'Windows asset SSID guard must run before HTTP report submission.' }
-"
+    local asset
+    asset="$(pwsh_literal_path "${asset_dir}/po0-outbound-ip-report.ps1")"
+    PO0_WINDOWS_ASSET="${asset}" pwsh -NoProfile -Command '
+$raw = Get-Content -LiteralPath $env:PO0_WINDOWS_ASSET -Raw -Encoding UTF8
+if ($raw -notmatch "PO0_OUTBOUND_IP_REPORT_[A-Z0-9_]*SSID") { throw "Windows asset lacks canonical SSID environment configuration." }
+if ($raw -notmatch ("(?im)^\s*\[[^\r\n]+\]\s*\" + [char]36 + "[A-Za-z0-9_]*Ssid[A-Za-z0-9_]*")) { throw "Windows asset lacks SSID CLI parameter configuration." }
+if ($raw -notmatch ("(?i)(\" + [char]36 + "cfg\.[A-Za-z0-9_]*Ssid[A-Za-z0-9_]*|[A-Za-z0-9_]*Ssid[A-Za-z0-9_]*\s*=)")) { throw "Windows asset lacks persisted SSID configuration." }
+if ($raw -notmatch "(?is)(ssid.{0,160}(skip|skipped|璺宠繃)|(skip|skipped|璺宠繃).{0,160}ssid)") { throw "Windows asset lacks SSID skip result wording." }
+if ($raw -notmatch "(?is)(ssid.{0,160}(summary|log|鎽樿|鏃ュ織)|(summary|log|鎽樿|鏃ュ織).{0,160}ssid)") { throw "Windows asset lacks SSID skip log/status summary wording." }
+if ($raw -notmatch "(?is)(ssid.{0,160}(continue|continued|fail|failed|failure|error|unavailable|璇诲彇澶辫触|缁х画涓婃姤)|(continue|continued|fail|failed|failure|error|unavailable|璇诲彇澶辫触|缁х画涓婃姤).{0,160}ssid)") { throw "Windows asset does not state that SSID read failure continues reporting." }
+$fn = [regex]::Match($raw, "(?ms)^function Invoke-SelfReport \{.*?^}")
+if (-not $fn.Success) { throw "Windows Invoke-SelfReport function was not found." }
+$guard = [regex]::Match($fn.Value, "(?is)ssid.{0,160}(skip|guard|allow|match|local|璺宠繃|鍖归厤|鏈湴)|(skip|guard|allow|match|local|璺宠繃|鍖归厤|鏈湴).{0,160}ssid")
+$http = [regex]::Match($fn.Value, "Invoke-WebRequest")
+if (-not $guard.Success) { throw "Windows asset lacks an SSID guard inside Invoke-SelfReport." }
+if (-not $http.Success) { throw "Windows asset HTTP submit point was not found." }
+if ($guard.Index -ge $http.Index) { throw "Windows asset SSID guard must run before HTTP report submission." }
+'
 }
 
 check_outbound_ip_report_ssid_guards() {
@@ -679,6 +689,7 @@ check_manifest_coverage "self-report-macos" "tools/po0/manifests/self-report-mac
 check_manifest_coverage "self-report-windows" "tools/po0/manifests/self-report-windows.txt" "scripts/po0/relay/self-report/windows/src" "*.ps1"
 
 bash "${repo_root}/tools/po0/test-macos-ssid-diagnostic.sh"
+bash "${repo_root}/tools/po0/test-self-report-refresh-policy.sh"
 bash "${repo_root}/tools/po0/build-po0-assets.sh" "${asset_dir}"
 
 for asset in nftables-relay-manager.sh po0-lan-client.sh po0-outbound-ip-report.sh po0-outbound-ip-report-macos.sh; do
@@ -687,7 +698,7 @@ for asset in nftables-relay-manager.sh po0-lan-client.sh po0-outbound-ip-report.
 done
 
 if command -v pwsh >/dev/null 2>&1; then
-    pwsh -NoProfile -Command "\$tokens=\$null; \$errors=\$null; [System.Management.Automation.Language.Parser]::ParseFile('${asset_dir}/po0-outbound-ip-report.ps1',[ref]\$tokens,[ref]\$errors) | Out-Null; if (\$errors.Count -gt 0) { \$errors | ForEach-Object { Write-Error \$_.Message }; exit 1 }"
+    PO0_WINDOWS_ASSET="$(pwsh_literal_path "${asset_dir}/po0-outbound-ip-report.ps1")" pwsh -NoProfile -Command '$tokens=$null; $errors=$null; [System.Management.Automation.Language.Parser]::ParseFile($env:PO0_WINDOWS_ASSET,[ref]$tokens,[ref]$errors) | Out-Null; if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Error $_.Message }; exit 1 }'
 else
     printf 'pwsh not found; skipping PowerShell parser check.\n' >&2
 fi

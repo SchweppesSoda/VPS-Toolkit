@@ -3,14 +3,14 @@ show_current_config() {
     print_panel_row "配置文件" "${CONFIG_FILE}"
     print_panel_row "保存状态" "$([[ -f "${CONFIG_FILE}" ]] && printf '已保存' || printf '未保存')"
     print_panel_row "LAN Worker URL" "${WORKER_URL:-未设置}"
-    print_panel_row "Source ID" "${SOURCE_ID:-未设置}"
-    print_panel_row "Identity" "${IDENTITY:-未设置}"
-    print_panel_row "Secret" "$(mask_secret "${SECRET}")"
+    print_panel_row "来源 ID" "${SOURCE_ID:-未设置}"
+    print_panel_row "设备备注" "${IDENTITY:-未设置}"
+    print_panel_row "上报密钥" "$(mask_secret "${SECRET}")"
     print_panel_row "HTTP 上报" "$(if http_allowed; then printf '已显式允许'; else printf '默认拒绝'; fi)"
     print_panel_row "跳过 Wi-Fi SSID" "$(wifi_ssid_skip_list_display)"
     print_panel_row "上报间隔" "$(cron_minutes_to_seconds "${CRON_MINUTES}") 秒（安装定时上报时使用）"
     print_panel_row "定时暂停" "$(schedule_paused && printf '已暂停' || printf '未暂停')"
-    print_panel_row "放行 TTL" "由 LAN Worker Self-report 目标控制，默认 43200 秒"
+    print_panel_row "放行时长" "由 LAN Worker 接收端控制，默认 43200 秒"
     if [[ -n "${IP_CHECK_URLS}" ]]; then
         print_panel_row "IP 探测列表" "${IP_CHECK_URLS}"
     else
@@ -33,8 +33,8 @@ show_menu_dashboard() {
     print_panel_row "配置文件" "${CONFIG_FILE}"
     print_panel_row "保存状态" "$([[ -f "${CONFIG_FILE}" ]] && printf '已保存' || printf '未保存')"
     print_panel_row "LAN Worker URL" "${WORKER_URL:-未设置}"
-    print_panel_row "Source ID" "${SOURCE_ID:-未设置}"
-    print_panel_row "Identity" "${IDENTITY:-未设置}"
+    print_panel_row "来源 ID" "${SOURCE_ID:-未设置}"
+    print_panel_row "设备备注" "${IDENTITY:-未设置}"
     print_panel_row "跳过 Wi-Fi SSID" "$(wifi_ssid_skip_list_display)"
     print_panel_row "定时上报" "$(cron_status_summary)"
     print_panel_row "上报间隔" "$(cron_minutes_to_seconds "${CRON_MINUTES}") 秒（安装定时上报时使用）"
@@ -53,8 +53,8 @@ configure_interactive() {
         fi
     fi
     validate_worker_url || return 1
-    SOURCE_ID="$(prompt_default "Source ID" "${SOURCE_ID:-$(default_source_id)}")"
-    IDENTITY="$(prompt_default "Identity" "${IDENTITY}")"
+    SOURCE_ID="$(prompt_default "来源 ID" "${SOURCE_ID:-$(default_source_id)}")"
+    IDENTITY="$(prompt_default "设备备注" "${IDENTITY}")"
     if [[ -n "${SECRET}" ]]; then
         secret_input="$(read_prompt "Self-report secret [已设置，回车保留，输入 - 清空]: ")" || secret_input=""
         secret_input="$(trim "${secret_input}")"

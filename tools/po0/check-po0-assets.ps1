@@ -10,9 +10,9 @@ if (-not $OutputDir) {
 }
 
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.07.02+build.10" }
-$ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-07-02" }
-$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.07.02.10" }
+$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.07.03+build.1" }
+$ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-07-03" }
+$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.07.03.1" }
 
 function ConvertTo-RepoRelativePath {
     param([string]$Path)
@@ -772,10 +772,27 @@ Test-VersionsConsistent
 Test-VersionsMatchTag
 
 function Get-BashCommand {
+    if ($env:OS -eq "Windows_NT" -or $IsWindows -eq $true) {
+        $gitBashCandidates = @(
+            "C:\Program Files\Git\bin\bash.exe",
+            "C:\Program Files (x86)\Git\bin\bash.exe",
+            (Join-Path $env:LOCALAPPDATA "Programs\Git\bin\bash.exe")
+        )
+        foreach ($candidate in $gitBashCandidates) {
+            if ($candidate -and (Test-Path -LiteralPath $candidate)) { return $candidate }
+        }
+
+        $bashCandidates = @(Get-Command bash -All -ErrorAction SilentlyContinue)
+        foreach ($candidate in $bashCandidates) {
+            if ($candidate.Source -and $candidate.Source -notlike "$env:WINDIR\System32\bash.exe") {
+                return $candidate.Source
+            }
+        }
+        return ""
+    }
+
     $bash = Get-Command bash -ErrorAction SilentlyContinue
     if ($bash) { return $bash.Source }
-    $gitBash = "C:\Program Files\Git\bin\bash.exe"
-    if (Test-Path -LiteralPath $gitBash) { return $gitBash }
     return ""
 }
 
@@ -875,6 +892,7 @@ function Test-PowerShellSyntax {
 }
 
 Invoke-BashToolScript "tools/po0/test-macos-ssid-diagnostic.sh"
+Invoke-BashToolScript "tools/po0/test-self-report-refresh-policy.sh"
 Invoke-BashSyntax "nftables-relay-manager.sh"
 Invoke-BashSyntax "po0-lan-client.sh"
 Invoke-BashSyntax "po0-outbound-ip-report.sh"
@@ -891,5 +909,11 @@ Invoke-BashChecked "po0-outbound-ip-report-macos.sh" @("--changelog")
 
 Invoke-Checked "po0-outbound-ip-report.ps1" @("-Version")
 Invoke-Checked "po0-outbound-ip-report.ps1" @("-Changelog")
+
+Write-Host "Checking PowerShell tools/po0/test-windows-refresh-policy.ps1"
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot "tools/po0/test-windows-refresh-policy.ps1") | Out-Host
+if ($LASTEXITCODE -ne 0) {
+    throw "Command failed: tools/po0/test-windows-refresh-policy.ps1"
+}
 
 Write-Host "PO0 asset checks passed."
