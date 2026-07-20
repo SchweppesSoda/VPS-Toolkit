@@ -16,34 +16,59 @@ proxies:
     benchmark-disabled: true
 
 script-providers:
-  po0-stash-report-ssh-poc:
-    url: https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/stash/po0-stash-report.js
-    path: ./scripts/po0-stash-report-ssh-poc.js
+  po0-stash-report-ssh-worker-v2:
+    url: https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/stash/po0-stash-report.js?rev=20260721-v2
     interval: 86400
+  po0-stash-status-ssh-tile-v2:
+    interval: 86400
+    payload: |
+      const key = "proxyconfig.po0.stash-report.v1";
+      const forceUrl = "http://po0-ssh-report.invalid/report-now";
+      const clean = (value, limit) => String(typeof value === "string" || typeof value === "number" ? value : "-").replace(/\s+/g, " ").slice(0, limit);
+      let state = {};
+      try { state = JSON.parse($persistentStore.read(key) || "{}") || {}; } catch (_) {}
+      const acceptedAt = Number(state.accepted_at);
+      if (!Number.isFinite(acceptedAt) || acceptedAt <= 0) {
+        $done({ title: "PO0 SSH v2 未上报", content: clean(state.last_error || "等待首次定时任务", 80), icon: "terminal.fill", backgroundColor: "#6b7280", url: forceUrl });
+      } else {
+        const expiresAt = Number(state.expires_at);
+        const remaining = Number.isFinite(expiresAt)
+          ? Math.max(0, Math.min(99999, Math.floor((expiresAt * 1000 - Date.now()) / 60000)))
+          : 0;
+        const age = Math.max(0, Math.min(99999, Math.floor((Date.now() - acceptedAt * 1000) / 60000)));
+        const cidr = clean(state.accepted_cidr || state.ip, 45);
+        const error = state.last_error ? clean(state.last_error, 80) : "";
+        $done({
+          title: error ? "PO0 SSH v2 上报异常" : remaining > 0 ? "PO0 SSH v2 已上报" : "PO0 SSH v2 已过期",
+          content: error ? `${cidr}\n${error}` : `${cidr}\n${clean(state.network, 12)} · ${age} 分钟前 · 剩余 ${remaining} 分钟`,
+          icon: error || remaining <= 0 ? "exclamationmark.triangle.fill" : "checkmark.shield.fill",
+          backgroundColor: error || remaining <= 0 ? "#b45309" : "#178f55",
+          url: forceUrl,
+        });
+      }
 
 cron:
   script:
-    - name: po0-stash-report-ssh-poc
+    - name: po0-stash-report-ssh-worker-v2
       cron: '*/10 * * * *'
       timeout: 15
       argument: '{"mode":"auto","worker_url":"http://127.0.0.1:8790/stash-report/v1","source_id":"iphone-stash-ssh","secret":"CHANGE_ME_RECEIVER_BEARER","selected_proxy":"PO0 SSH Reporter","allow_loopback_http":true}'
 
 tiles:
-  - name: po0-stash-report-ssh-poc
-    interval: 60
-    title: PO0 SSH PoC
+  - name: po0-stash-status-ssh-tile-v2
+    interval: 600
+    title: PO0 SSH v2 PoC
     content: 默认关闭
     icon: terminal.fill
     backgroundColor: '#6b7280'
     url: http://po0-ssh-report.invalid/report-now
-    argument: '{"mode":"status"}'
 
 http:
   force-http-engine:
     - po0-ssh-report.invalid:80
   script:
     - match: ^http://po0-ssh-report\.invalid/report-now(?:\?.*)?$
-      name: po0-stash-report-ssh-poc
+      name: po0-stash-report-ssh-worker-v2
       type: request
       timeout: 15
       argument: '{"mode":"force","worker_url":"http://127.0.0.1:8790/stash-report/v1","source_id":"iphone-stash-ssh","secret":"CHANGE_ME_RECEIVER_BEARER","selected_proxy":"PO0 SSH Reporter","allow_loopback_http":true}'
