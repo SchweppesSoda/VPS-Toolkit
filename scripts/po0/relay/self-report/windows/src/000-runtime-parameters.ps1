@@ -31,11 +31,10 @@ $ErrorActionPreference = "Stop"
 $ReleaseDownloadBaseUrl = $(if ($env:PO0_RELEASE_DOWNLOAD_BASE_URL) { $env:PO0_RELEASE_DOWNLOAD_BASE_URL } else { "https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download" })
 $DownloadUrl = $(if ($env:PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL) { $env:PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL } elseif ($env:PO0_SELF_REPORT_PS_DOWNLOAD_URL) { $env:PO0_SELF_REPORT_PS_DOWNLOAD_URL } else { "$ReleaseDownloadBaseUrl/po0-outbound-ip-report.ps1" })
 $ScriptName = "po0-outbound-ip-report"
-$ScriptVersion = "2026.07.03+build.4"
-$ScriptReleaseDate = "2026-07-03"
+$ScriptVersion = "2026.07.20+build.1"
+$ScriptReleaseDate = "2026-07-20"
 # CHANGELOG_BEGIN
-# - Windows 更新脚本保留 build.1 兼容校验标记，旧 build.1 可从 GitHub latest 跨过计划任务名迁移。
-# - 默认计划任务名继续保持 Outbound IP Report，旧计划任务名只作为迁移兼容目标识别。
+# - 跟随 PO0 发布批次对齐到 2026.07.20+build.1；Windows 客户端无行为变化。
 # CHANGELOG_END
 $PanelValueColumn = 24
 $MenuRightColumn = 46

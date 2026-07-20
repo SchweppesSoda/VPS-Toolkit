@@ -839,6 +839,10 @@ Self-report / WebAuth 放行 TTL 默认均为 `43200` 秒（12 小时），由 L
 
 LAN Worker 的 Self-report `/report` 和 WebAuth HTTP server 会把同一轮多个 PO0 目标并发提交到 SSH worker pool，默认最多同时处理 8 个目标。响应仍保持原有语义：全部 PO0 目标成功才返回 2xx；任一目标失败、被 wrapper 拒绝或 30 秒 SSH 超时则返回 502，并保留目标级错误明细。HTTP 客户端如果先超时断开，server 只记录简短断连警告，不把 BrokenPipe traceback 打进 journal。
 
+Self-report 后端同时提供 Stash 专用 `POST /stash-report/v1`。它不接受 query token 或 `X-PO0-Token`，只接受与旧入口共用的 `SELF_REPORT_SECRET` Bearer；secret 未配置时返回 503。JSON 必填字段为 `source_id`、公网 IPv4 `ip`、`network`、`observed_at`、`request_id`，其中 source ID 必须符合 `[A-Za-z0-9][A-Za-z0-9._-]{0,47}`，network 只允许 `cellular`、`wifi`、`unknown`，时间漂移上限为 600 秒，请求 ID 在同一 server 进程内防重 600 秒。蜂窝请求调用 manager 时追加前缀 `24`，Wi-Fi/unknown 追加 `32`；旧 `/report` 调用仍省略前缀，保持 `/32` 和旧文本返回兼容。新入口以 JSON 返回 `ok`、`source_id`、归一化后的 `accepted_cidr`、`accepted_at`、`expires_at`、`targets` 和 `request_id`；任一 PO0 目标失败仍返回 502，但响应不回显 SSH 错误或 token，目标级细节只写 LAN Worker journal。Caddy 托管 snippet 仅反代 `/stash-report/v1`、`/report`、`/health`，其它路径仍返回 404。
+
+Stash 的正式链路经过上述 LAN Worker 接口并调用 `--client-ip-report`。备用 PoC 使用 Stash SSH proxy 访问 PO0 上仅绑定 `127.0.0.1:8790` 的 receiver，再由 receiver 调本机 manager `--ssh-ip-report`；它绕过 LAN Worker，默认不启用，且不得把 receiver 改成公网监听。备用实现位于 `scripts/po0/nftables/clients/stash/`。
+
 `--bootstrap` 会先 probe，再写入本机目标配置；如果要求安装本机 Worker 轮询器，管道运行时会自动落盘到固定路径。`--install-cron N` 是兼容参数，会把 DDNS 和资源任务两个计划都设为 `N` 分钟；不带 `N` 时，默认 DDNS 每 `3600` 秒上报、资源任务每 `1440` 分钟检查一次。推荐用 `--ddns-interval-seconds 3600` 显式设置 DDNS 上报间隔。Worker 默认调用 PO0 上的 `/root/nftables-relay-manager.sh`，也可以通过 `--po0-script` 覆盖。首次部署推荐 `--wizard`，高级维护菜单仍可管理本机 Worker 的 PO0 目标：查看、添加、编辑、删除、启用/停用，执行 DDNS 解析上报和资源任务轮询领取，并只读查看 PO0 端资源任务创建计划。一个配置文件可以放多台 PO0/VPS。
 
 向导自动取 token 使用 PO0 端机器可读接口：
@@ -1155,7 +1159,7 @@ bash nftables-relay-manager.sh --render > /tmp/po0-relay.conf
 bash nftables-relay-manager.sh --refresh-ddns
 bash nftables-relay-manager.sh --ddns-report-check <ddns-source-key> TOKEN
 bash nftables-relay-manager.sh --ssh-ip-report <device-id> 1.2.3.4 TOKEN <identity> 43200 32
-bash nftables-relay-manager.sh --client-ip-report <device-id> 1.2.3.4 TOKEN <identity> 43200
+bash nftables-relay-manager.sh --client-ip-report <device-id> 1.2.3.4 TOKEN <identity> 43200 32
 bash nftables-relay-manager.sh --webauth-report <auth-source> 1.2.3.4 <identity> 2026-06-16T12:00:00Z TOKEN
 bash nftables-relay-manager.sh --resource-task-create all
 bash nftables-relay-manager.sh --install-resource-task-cron all daily
@@ -1175,7 +1179,7 @@ bash nftables-relay-manager.sh --upgrade-manager-from-lan http://<LAN_WORKER_IP>
 --render         输出到 stdout，天然适合重定向，不放进交互流程
 --refresh-ddns   刷新 DDNS 来源入口的 cron/systemd timer 形式
 --ssh-ip-report  Egern / 直接 SSH 上报当前出口 IPv4，写 ssh_report
---client-ip-report LAN Worker self-report server 代报访问设备 IP，写 client_ip
+--client-ip-report LAN Worker self-report server 代报访问设备 IP，写 client_ip；可选 CIDR 前缀只允许 24/32，默认 32
 --webauth-report LAN Worker WebAuth 验证后上报访问设备 IP，写 webauth
 --resource-task-create 创建一次 iplist/ipdb/all 资源任务
 --install-resource-task-cron 安装 PO0 端定时创建资源任务的 cron

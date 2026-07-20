@@ -129,7 +129,7 @@ case "${1:-}" in
         exit $?
         ;;
     --client-ip-report)
-        do_report_client_ip_source "${2:-}" "${3:-}" "${4:-}" "${5:-}" "${6:-}"
+        do_report_client_ip_source "${2:-}" "${3:-}" "${4:-}" "${5:-}" "${6:-}" "${7:-}"
         exit $?
         ;;
     --client-ip-report-check)

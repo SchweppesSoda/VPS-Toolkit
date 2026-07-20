@@ -68,7 +68,8 @@ show_self_report_settings() {
     https_domain="$(current_self_report_https_domain)"
     print_panel_section "Self-report 接收端"
     print_panel_row "监听地址" "${SELF_REPORT_LISTEN}"
-    print_panel_row "HTTPS 入口" "$(if [[ -n "${https_domain}" ]]; then printf 'https://%s/report' "${https_domain}"; else printf '未配置'; fi)"
+    print_panel_row "通用 HTTPS" "$(if [[ -n "${https_domain}" ]]; then printf 'https://%s/report' "${https_domain}"; else printf '未配置'; fi)"
+    print_panel_row "Stash HTTPS" "$(if [[ -n "${https_domain}" ]]; then printf 'https://%s/stash-report/v1' "${https_domain}"; else printf '未配置'; fi)"
     print_panel_row "Secret" "$(mask_secret "${SELF_REPORT_SECRET}")"
     print_panel_row "默认 source" "${SELF_REPORT_SOURCE}"
     print_panel_row "默认 TTL" "${SELF_REPORT_TTL_SECONDS:-43200} 秒"
@@ -138,6 +139,7 @@ configure_self_report_https_interactive() {
     SELF_REPORT_LISTEN="${SELF_REPORT_HTTPS_BACKEND}"
     save_local_settings || return 1
     printf '将配置 HTTPS 入口：https://%s/report\n' "${domain}"
+    printf '同时配置 Stash 入口：https://%s/stash-report/v1\n' "${domain}"
     printf 'Self-report 后端将只监听本机：%s\n' "${SELF_REPORT_LISTEN}"
     printf '请确认云安全组/防火墙已放行 TCP 80/443；公网不建议放行 8788。\n'
     if prompt_yes_no "继续安装 / 更新 Caddy HTTPS 和 Self-report 后台服务" "y"; then

@@ -304,6 +304,8 @@ report_client_ip_source_unlocked() {
     local token="$3"
     local identity="${4:-}"
     local ttl="${5:-43200}"
+    local cidr_prefix="${6:-32}"
+    local raw_cidr_prefix
     local expires_at note cidr
     source_id="$(sanitize_allowlist_source_text "${source_id}")"
     identity="$(sanitize_allowlist_source_text "${identity}")"
@@ -323,15 +325,27 @@ report_client_ip_source_unlocked() {
         return 1
     }
     ttl="$(normalize_client_ttl_seconds "${ttl}" 43200)"
+    raw_cidr_prefix="${cidr_prefix}"
+    cidr_prefix="$(normalize_ssh_report_cidr_prefix "${cidr_prefix}")" || {
+        update_generic_report_stats "${CLIENT_IP_REPORT_STATS_FILE}" "${source_id}" "rejected" "${ip}" "invalid_cidr_prefix" || true
+        err "客户端 IP 上报 CIDR 前缀无效：${raw_cidr_prefix:-}"
+        return 1
+    }
     expires_at="$(utc_after_seconds_iso "${ttl}")"
-    cidr="${ip}/32"
+    cidr="$(ssh_report_cidr_for_ip_prefix "${ip}" "${cidr_prefix}")" || {
+        update_generic_report_stats "${CLIENT_IP_REPORT_STATS_FILE}" "${source_id}" "rejected" "${ip}" "invalid_cidr" || true
+        err "客户端 IP 上报 CIDR 无效：${ip}/${cidr_prefix}"
+        return 1
+    }
     note="client_ip ${source_id}"
     [[ -n "${identity}" ]] && note="${note} identity=${identity}"
-    note="${note} ttl=${ttl} $(ipdb_snapshot_for_ip "${ip}")"
+    note="${note} ttl=${ttl} prefix=${cidr_prefix} $(ipdb_snapshot_for_ip "${ip}")"
     replace_allowlist_entries_for_source_with_expiry "default" "client_ip" "${source_id}" "${note}" "${expires_at}" "${cidr}" || return 1
-    update_generic_report_stats "${CLIENT_IP_REPORT_STATS_FILE}" "${source_id}" "accepted" "${ip}" "pending=${DYNAMIC_REPORT_PENDING_COUNT:-0}" || true
+    update_generic_report_stats "${CLIENT_IP_REPORT_STATS_FILE}" "${source_id}" "accepted" "${ip}" "cidr=${cidr} pending=${DYNAMIC_REPORT_PENDING_COUNT:-0}" || true
     CLIENT_IP_REPORT_SOURCE="${source_id}"
     CLIENT_IP_REPORT_IP="${ip}"
+    CLIENT_IP_REPORT_CIDR="${cidr}"
+    CLIENT_IP_REPORT_CIDR_PREFIX="${cidr_prefix}"
     CLIENT_IP_REPORT_IDENTITY="${identity}"
     CLIENT_IP_REPORT_TTL="${ttl}"
 }

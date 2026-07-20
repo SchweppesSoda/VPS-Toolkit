@@ -21,19 +21,20 @@ do_report_client_ip_source() {
     local token="${3:-}"
     local identity="${4:-}"
     local ttl="${5:-43200}"
+    local cidr_prefix="${6:-32}"
     [[ -n "${source_id}" && -n "${ip}" ]] || {
-        err "用法：--client-ip-report <source-id> <ipv4> <token> [identity] [ttl]"
+        err "用法：--client-ip-report <source-id> <ipv4> <token> [identity] [ttl] [cidr-prefix]"
         return 1
     }
     ensure_layout || return 1
     load_settings 1
-    report_client_ip_source "${source_id}" "${ip}" "${token}" "${identity}" "${ttl}" || return 1
+    report_client_ip_source "${source_id}" "${ip}" "${token}" "${identity}" "${ttl}" "${cidr_prefix}" || return 1
     enable_allowlist_for_custom_add
     apply_src_allowlist_changes || return 1
     if [[ "${DYNAMIC_REPORT_PENDING_COUNT:-0}" -gt 0 ]]; then
         printf '客户端 IP 已记录为待审核（attack mode）：%s -> %s\n' "${CLIENT_IP_REPORT_SOURCE:-${source_id}}" "${CLIENT_IP_REPORT_IP:-${ip}}"
     else
-        printf '客户端 IP 上报已接收：%s -> %s，TTL %ss\n' "${CLIENT_IP_REPORT_SOURCE:-${source_id}}" "${CLIENT_IP_REPORT_IP:-${ip}}" "${CLIENT_IP_REPORT_TTL:-${ttl}}"
+        printf '客户端 IP 上报已接收：%s -> %s，CIDR %s，TTL %ss\n' "${CLIENT_IP_REPORT_SOURCE:-${source_id}}" "${CLIENT_IP_REPORT_IP:-${ip}}" "${CLIENT_IP_REPORT_CIDR:-${ip}/32}" "${CLIENT_IP_REPORT_TTL:-${ttl}}"
     fi
 }
 
@@ -137,7 +138,7 @@ do_show_client_ip_report_token() {
     printf 'Token      : %s\n' "${token}"
     echo ""
     echo "PO0 接收命令（SSH only；通常由 LAN Worker 自动执行）："
-    printf '  bash %s --client-ip-report self-report 1.2.3.4 %s lan-worker 43200\n' "$(basename "$0")" "${token}"
+    printf '  bash %s --client-ip-report self-report 1.2.3.4 %s lan-worker 43200 32\n' "$(basename "$0")" "${token}"
     echo ""
     echo "LAN Worker self-report server（推荐 HTTPS/Caddy；PO0 不开放 HTTP）："
     printf '  po0-lan-client --install-self-report-https --self-report-https-domain <SELF_REPORT_DOMAIN> --po0-host <PO0_HOST> --po0-script %s --self-report-source self-report --client-ip-token %s --self-report-secret <SELF_REPORT_SECRET>\n' \
@@ -321,6 +322,7 @@ case "${action}" in
         [[ "${#args[@]}" -ge 3 ]] || deny "${action} needs source ip token"
         is_public_ipv4 "${args[1]}" || deny "invalid public IPv4"
         [[ "${#args[@]}" -lt 5 || "${args[4]}" =~ ^[0-9]+$ ]] || deny "invalid ttl"
+        [[ "${#args[@]}" -lt 6 || "${args[5]}" == "24" || "${args[5]}" == "32" ]] || deny "invalid cidr prefix"
         ;;
     --ddns-report) [[ "${#args[@]}" -ge 2 ]] || deny "${action} needs source ips" ;;
     --webauth-report)

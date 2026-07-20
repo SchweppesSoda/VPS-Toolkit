@@ -18,8 +18,13 @@ run_self_report_server() {
     printf 'Self-report server listening on %s:%s; device -> LAN Worker -> SSH -> PO0.\n' "${listen_host}" "${listen_port}"
     "${py}" - "${listen_host}" "${listen_port}" <<'PY'
 import concurrent.futures
+import datetime
 import errno
+import hmac
 import http.server
+import ipaddress
+import json
+import math
 import os
 import re
 import shlex
@@ -27,6 +32,8 @@ import shutil
 import socketserver
 import subprocess
 import sys
+import threading
+import time
 import urllib.parse
 
 listen_host, listen_port = sys.argv[1], int(sys.argv[2])
@@ -51,6 +58,27 @@ def send_text(handler, status, body, content_type="text/plain; charset=utf-8"):
     except OSError as exc:
         if getattr(exc, "errno", None) in DISCONNECT_ERRNOS or getattr(exc, "winerror", None) in (10053, 10054):
             print(f"[WARN] client disconnected before response was written: {exc}", file=sys.stderr)
+            return False
+        raise
+
+def send_json(handler, status, payload, extra_headers=None):
+    body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    try:
+        handler.send_response(status)
+        handler.send_header("Content-Type", "application/json; charset=utf-8")
+        handler.send_header("Content-Length", str(len(body)))
+        handler.send_header("Cache-Control", "no-store")
+        for name, value in (extra_headers or {}).items():
+            handler.send_header(name, value)
+        handler.end_headers()
+        handler.wfile.write(body)
+        return True
+    except (BrokenPipeError, ConnectionResetError) as exc:
+        print(f"[WARN] client disconnected before JSON response was written: {exc}", file=sys.stderr)
+        return False
+    except OSError as exc:
+        if getattr(exc, "errno", None) in DISCONNECT_ERRNOS or getattr(exc, "winerror", None) in (10053, 10054):
+            print(f"[WARN] client disconnected before JSON response was written: {exc}", file=sys.stderr)
             return False
         raise
 
@@ -99,6 +127,24 @@ def parse_request(handler):
             params.update({k: v[-1] for k, v in urllib.parse.parse_qs(body).items()})
     return parsed.path, params
 
+def parse_json_request(handler, max_bytes=16384):
+    content_type = (handler.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+    if content_type != "application/json":
+        raise ValueError("content-type must be application/json")
+    raw_length = handler.headers.get("Content-Length") or ""
+    if not raw_length.isdigit():
+        raise ValueError("content-length is required")
+    length = int(raw_length)
+    if length <= 0 or length > max_bytes:
+        raise ValueError("invalid content-length")
+    try:
+        payload = json.loads(handler.rfile.read(length).decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("invalid JSON body") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("JSON body must be an object")
+    return payload
+
 def parse_targets(raw):
     targets = []
     for line in (raw or "").replace(";", "\n").splitlines():
@@ -146,6 +192,68 @@ def safe_report_token(value, fallback="self-report"):
     if not safe:
         safe = fallback
     return safe[:48].rstrip("-") or fallback
+
+SOURCE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,47}$")
+REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+STASH_REQUEST_MAX_DRIFT_SECONDS = 600
+STASH_REQUEST_ID_TTL_SECONDS = 600
+SEEN_STASH_REQUEST_IDS = {}
+SEEN_STASH_REQUEST_IDS_LOCK = threading.Lock()
+
+def valid_source_id(value):
+    return isinstance(value, str) and SOURCE_ID_RE.fullmatch(value) is not None
+
+def valid_request_id(value):
+    return isinstance(value, str) and REQUEST_ID_RE.fullmatch(value) is not None
+
+def parse_observed_at(value):
+    if isinstance(value, bool):
+        raise ValueError("observed_at must be a Unix timestamp or ISO-8601 time")
+    if isinstance(value, (int, float)):
+        timestamp = float(value)
+        if not math.isfinite(timestamp):
+            raise ValueError("observed_at must be finite")
+        return timestamp
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("observed_at must be a Unix timestamp or ISO-8601 time")
+    text = value.strip()
+    try:
+        timestamp = float(text)
+        if not math.isfinite(timestamp):
+            raise ValueError("observed_at must be finite")
+        return timestamp
+    except ValueError:
+        pass
+    iso_text = text[:-1] + "+00:00" if text.endswith(("Z", "z")) else text
+    try:
+        parsed = datetime.datetime.fromisoformat(iso_text)
+    except (AttributeError, ValueError):
+        parsed = None
+        for fmt in ("%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S.%fZ"):
+            try:
+                parsed = datetime.datetime.strptime(text, fmt).replace(tzinfo=datetime.timezone.utc)
+                break
+            except ValueError:
+                continue
+        if parsed is None:
+            raise ValueError("observed_at must be a Unix timestamp or ISO-8601 time")
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+    return parsed.timestamp()
+
+def utc_iso(timestamp):
+    return datetime.datetime.fromtimestamp(timestamp, datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+def remember_stash_request_id(request_id, now):
+    cutoff = now - STASH_REQUEST_ID_TTL_SECONDS
+    with SEEN_STASH_REQUEST_IDS_LOCK:
+        for old_request_id, seen_at in list(SEEN_STASH_REQUEST_IDS.items()):
+            if seen_at < cutoff:
+                del SEEN_STASH_REQUEST_IDS[old_request_id]
+        if request_id in SEEN_STASH_REQUEST_IDS:
+            return False
+        SEEN_STASH_REQUEST_IDS[request_id] = now
+        return True
 
 def warn_ignored_extra(context, reason):
     print(f"[WARN] {context}: ignored SSH extra arg ({reason}).", file=sys.stderr)
@@ -309,11 +417,11 @@ def target_label(target, source_override):
     port_suffix = "" if port == "22" else f":{port}"
     return f"{safe_report_token(source_override or target['source'], 'self-report')}@{target['host']}{port_suffix}"
 
-def report_target(target, ip, identity, source_override):
+def report_target(target, ip, identity, source_override, cidr_prefix=None):
     source = safe_report_token(source_override or target['source'], "self-report")
     identity = safe_report_token(identity or "self-report", source)
     ttl = str(normalized_ttl(target.get('ttl'), 43200))
-    remote = " ".join([
+    remote_parts = [
         "bash",
         shlex.quote(target['script']),
         "--client-ip-report",
@@ -322,16 +430,19 @@ def report_target(target, ip, identity, source_override):
         shlex.quote(target['token']),
         shlex.quote(identity or "self-report"),
         shlex.quote(ttl),
-    ])
+    ]
+    if cidr_prefix is not None:
+        remote_parts.append(shlex.quote(str(cidr_prefix)))
+    remote = " ".join(remote_parts)
     cmd = [SSH_BIN, "-p", target['port']]
     cmd.extend(sanitized_extra_args(target.get('extra', ''), f"Self-report {target['user']}@{target['host']}:{target['port']}"))
     cmd.extend([f"{target['user']}@{target['host']}", remote])
     return subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
 
-def report_one(target, ip, identity, source_override):
+def report_one(target, ip, identity, source_override, cidr_prefix=None):
     label = target_label(target, source_override)
     try:
-        result = report_target(target, ip, identity, source_override)
+        result = report_target(target, ip, identity, source_override, cidr_prefix)
     except subprocess.TimeoutExpired as exc:
         return label, False, f"timeout after {exc.timeout}s"
     except Exception as exc:
@@ -340,12 +451,12 @@ def report_one(target, ip, identity, source_override):
         return label, True, ""
     return label, False, str(result.stderr or result.stdout or result.returncode).strip()
 
-def report_all(ip, identity, source_override):
+def report_all(ip, identity, source_override, cidr_prefix=None):
     ok = []
     failed = []
     max_workers = min(len(TARGETS), 8)
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(report_one, target, ip, identity, source_override) for target in TARGETS]
+        futures = [executor.submit(report_one, target, ip, identity, source_override, cidr_prefix) for target in TARGETS]
         for future in futures:
             try:
                 label, success, detail = future.result()
@@ -360,10 +471,91 @@ def report_all(ip, identity, source_override):
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
+        if urllib.parse.urlparse(self.path).path in ("/stash-report/v1", "/stash-report/v1/"):
+            send_json(self, 405, {"ok": False, "error": "method_not_allowed"}, {"Allow": "POST"})
+            return
         self.handle_report()
 
     def do_POST(self):
+        if urllib.parse.urlparse(self.path).path in ("/stash-report/v1", "/stash-report/v1/"):
+            self.handle_stash_report()
+            return
         self.handle_report()
+
+    def handle_stash_report(self):
+        secret = os.environ.get("SELF_REPORT_SECRET", "")
+        if not secret:
+            send_json(self, 503, {"ok": False, "error": "server_not_configured"})
+            return
+        supplied = bearer(self.headers.get("Authorization"))
+        if not supplied or not hmac.compare_digest(supplied, secret):
+            send_json(self, 401, {"ok": False, "error": "unauthorized"})
+            return
+        try:
+            payload = parse_json_request(self)
+        except ValueError as exc:
+            send_json(self, 400, {"ok": False, "error": "invalid_request", "message": str(exc)})
+            return
+
+        source_id = payload.get("source_id")
+        ip = payload.get("ip")
+        network = payload.get("network")
+        observed_at = payload.get("observed_at")
+        request_id = payload.get("request_id")
+        if not valid_source_id(source_id):
+            send_json(self, 400, {"ok": False, "error": "invalid_source_id"})
+            return
+        if not isinstance(ip, str) or not is_public_ipv4(ip):
+            send_json(self, 400, {"ok": False, "error": "invalid_public_ipv4"})
+            return
+        if not isinstance(network, str) or network.strip().lower() not in ("cellular", "wifi", "unknown"):
+            send_json(self, 400, {"ok": False, "error": "invalid_network"})
+            return
+        network = network.strip().lower()
+        if not valid_request_id(request_id):
+            send_json(self, 400, {"ok": False, "error": "invalid_request_id"})
+            return
+        try:
+            observed_timestamp = parse_observed_at(observed_at)
+        except ValueError as exc:
+            send_json(self, 400, {"ok": False, "error": "invalid_observed_at", "message": str(exc)})
+            return
+        now = time.time()
+        if abs(now - observed_timestamp) > STASH_REQUEST_MAX_DRIFT_SECONDS:
+            send_json(self, 400, {"ok": False, "error": "stale_observation"})
+            return
+        if not remember_stash_request_id(request_id, now):
+            send_json(self, 409, {"ok": False, "error": "duplicate_request", "request_id": request_id})
+            return
+
+        cidr_prefix = 24 if network == "cellular" else 32
+        accepted_cidr = ipaddress.ip_network(f"{ip}/{cidr_prefix}", strict=False).with_prefixlen
+        ttl_seconds = min(normalized_ttl(target.get("ttl"), 43200) for target in TARGETS)
+        target_names = [target_label(target, source_id) for target in TARGETS]
+        accepted_at = utc_iso(now)
+        expires_at = utc_iso(now + ttl_seconds)
+        try:
+            ok, failed = report_all(ip, source_id, source_id, cidr_prefix)
+        except Exception as exc:
+            print(f"[WARN] Stash report failed before target completion: {exc}", file=sys.stderr)
+            ok, failed = [], ["internal report failure"]
+        ok_names = set(ok)
+        targets = [{"name": name, "ok": name in ok_names} for name in target_names]
+        response = {
+            "ok": not failed,
+            "source_id": source_id,
+            "accepted_cidr": accepted_cidr,
+            "accepted_at": accepted_at,
+            "expires_at": expires_at,
+            "targets": targets,
+            "request_id": request_id,
+        }
+        if failed:
+            print(f"[WARN] Stash report partial/failed {len(ok)}/{len(TARGETS)}: " + "; ".join(failed), file=sys.stderr)
+            response["error"] = "target_report_failed"
+            send_json(self, 502, response)
+        else:
+            send_json(self, 200, response)
 
     def handle_report(self):
         path, params = parse_request(self)

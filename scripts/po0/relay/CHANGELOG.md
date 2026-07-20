@@ -6,6 +6,11 @@
 
 ## po0-nftables-relay-manager
 
+### 2026.07.20+build.1
+
+- `--client-ip-report` 新增可选的第六个业务参数 `cidr-prefix`，仅接受 `24` 或 `32`，省略时保持 `/32` 兼容行为。
+- manager 会把上报 IPv4 归一化为对应 `/24` 或 `/32` CIDR，并在接收结果、状态统计和来源备注中记录实际 CIDR；受限 SSH wrapper 同步校验该参数。
+
 ### 2026.07.03+build.4
 
 - 跟随 PO0 发布批次对齐到 `po0-v2026.07.03.4`；本脚本无行为变化。
@@ -189,6 +194,13 @@
 - 状态面板和资源任务创建计划摘要增加彩色状态提示。
 
 ## po0-lan-worker-client
+
+### 2026.07.20+build.1
+
+- 新增 Stash 专用 `POST /stash-report/v1` JSON 接口，复用现有 Self-report Bearer secret，并按网络类型把蜂窝地址上报为 `/24`、Wi-Fi/未知网络上报为 `/32`。
+- 校验来源 ID、公网 IPv4、网络类型、时间戳和请求 ID；请求时间漂移限制为 10 分钟，同一后台进程对请求 ID 防重 10 分钟。
+- Caddy 托管配置新增 Stash 路径；旧 `/report` 接口和返回格式保持兼容。
+- 正式链路使用 LAN Worker；另提供默认关闭、只监听 PO0 `127.0.0.1:8790` 的 Stash SSH loopback receiver 作为备用 PoC。
 
 ### 2026.07.03+build.4
 
@@ -381,6 +393,10 @@
 - 状态页 / Widget 优先复用 IP9、163、126、myip.ipip 等 IP 查询接口返回的归属地 / 运营商信息，拿不到时才额外查询。
 
 ## po0-outbound-ip-report（Linux/OpenWrt）
+
+### 2026.07.20+build.1
+
+- 跟随 PO0 发布批次对齐到 `po0-v2026.07.20.1`；Linux/OpenWrt 客户端无行为变化。
 
 ### 2026.07.03+build.4
 
@@ -582,6 +598,10 @@
 
 ## po0-outbound-ip-report（macOS）
 
+### 2026.07.20+build.1
+
+- 跟随 PO0 发布批次对齐到 `po0-v2026.07.20.1`；macOS 客户端无行为变化。
+
 ### 2026.07.03+build.4
 
 - 跟随 PO0 发布批次对齐到 `po0-v2026.07.03.4`；macOS 客户端无行为变化。
@@ -727,6 +747,10 @@
 - 支持 `--save-config --menu` 首次保存默认配置后打开菜单，并提供 `--install-launchd` 别名。
 
 ## po0-outbound-ip-report（Windows PowerShell）
+
+### 2026.07.20+build.1
+
+- 跟随 PO0 发布批次对齐到 `po0-v2026.07.20.1`；Windows 客户端无行为变化。
 
 ### 2026.07.03+build.4
 

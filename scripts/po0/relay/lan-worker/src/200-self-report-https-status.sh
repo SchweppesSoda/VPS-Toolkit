@@ -3,7 +3,8 @@ show_self_report_https_status() {
     domain="$(current_self_report_https_domain)"
     print_panel_section "Self-report HTTPS / Caddy 状态"
     print_panel_row "域名" "${domain:-未配置}"
-    print_panel_row "公网入口" "$(if [[ -n "${domain}" ]]; then printf 'https://%s/report' "${domain}"; else printf '未配置'; fi)"
+    print_panel_row "通用入口" "$(if [[ -n "${domain}" ]]; then printf 'https://%s/report' "${domain}"; else printf '未配置'; fi)"
+    print_panel_row "Stash 入口" "$(if [[ -n "${domain}" ]]; then printf 'https://%s/stash-report/v1' "${domain}"; else printf '未配置'; fi)"
     print_panel_row "本机后端" "${SELF_REPORT_HTTPS_BACKEND}"
     print_panel_row "Caddyfile" "${CADDYFILE_PATH}"
     print_panel_row "Snippet" "${SELF_REPORT_CADDY_SNIPPET}"
@@ -47,6 +48,7 @@ install_self_report_https() {
         systemctl reload caddy 2>/dev/null || systemctl restart caddy || return 1
     fi
     printf 'Self-report HTTPS 已配置：https://%s/report\n' "${domain}"
+    printf 'Stash HTTPS 已配置：https://%s/stash-report/v1\n' "${domain}"
     printf '健康检查：curl -fsS https://%s/health\n' "${domain}"
     printf '注意：公网建议只放行 80/443，不建议继续放行 8788。\n'
 }

@@ -152,8 +152,8 @@ print_cli_usage() {
         "                   只读检查 PO0 DDNS 来源 key 和上报 token，供 LAN Worker probe 使用。" \
         "  --outbound-ip-report / --outbound-ip-report-check" \
         "                   旧脚本兼容别名；新自上报应先报 LAN Worker，再由 LAN Worker 调 --client-ip-report。" \
-        "  --client-ip-report <source-id> <ipv4> <token> [identity] [ttl]" \
-        "                   接收 LAN Worker self-report 代报的访问设备公网 IPv4。" \
+        "  --client-ip-report <source-id> <ipv4> <token> [identity] [ttl] [cidr-prefix]" \
+        "                   接收 LAN Worker self-report 代报的访问设备公网 IPv4；cidr-prefix 仅允许 32 或 24，默认 32。" \
         "  --client-ip-report-check <source-id> [token]" \
         "                   只读检查客户端 IP 上报 token。" \
         "  --ssh-ip-report <source-id> <ipv4> <token> [identity] [ttl] [cidr-prefix]" \

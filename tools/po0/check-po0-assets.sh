@@ -3,9 +3,9 @@ set -euo pipefail
 
 repo_root="$(cd "$(git rev-parse --show-toplevel)" && pwd -P)"
 asset_dir="${1:-${repo_root}/.tmp/po0-check-assets}"
-expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.07.03+build.4}"
-expected_po0_release_date="${PO0_EXPECTED_RELEASE_DATE:-2026-07-03}"
-expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.07.03.4}"
+expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.07.20+build.1}"
+expected_po0_release_date="${PO0_EXPECTED_RELEASE_DATE:-2026-07-20}"
+expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.07.20.1}"
 
 manifest_entries() {
     local manifest="$1"
@@ -694,6 +694,8 @@ check_manifest_coverage "self-report-windows" "tools/po0/manifests/self-report-w
 
 bash "${repo_root}/tools/po0/test-macos-ssid-diagnostic.sh"
 bash "${repo_root}/tools/po0/test-self-report-refresh-policy.sh"
+bash "${repo_root}/tools/po0/test-lan-worker-stash-report.sh"
+bash "${repo_root}/tools/po0/test-manager-client-ip-cidr-prefix.sh"
 bash "${repo_root}/tools/po0/build-po0-assets.sh" "${asset_dir}"
 
 for asset in nftables-relay-manager.sh po0-lan-client.sh po0-outbound-ip-report.sh po0-outbound-ip-report-macos.sh; do

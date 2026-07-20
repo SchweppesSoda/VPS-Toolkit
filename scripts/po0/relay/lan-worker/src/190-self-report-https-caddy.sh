@@ -165,6 +165,10 @@ write_self_report_caddy_config() {
     cat > "${SELF_REPORT_CADDY_SNIPPET}" <<EOF
 # Managed by po0-lan-client. Self-report HTTPS entrypoint.
 ${domain} {
+    @stash_report path /stash-report/v1 /stash-report/v1/
+    handle @stash_report {
+        reverse_proxy ${backend_host}:${backend_port}
+    }
     handle /report {
         reverse_proxy ${backend_host}:${backend_port}
     }

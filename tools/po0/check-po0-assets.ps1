@@ -10,9 +10,9 @@ if (-not $OutputDir) {
 }
 
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.07.03+build.4" }
-$ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-07-03" }
-$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.07.03.4" }
+$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.07.20+build.1" }
+$ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-07-20" }
+$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.07.20.1" }
 
 function ConvertTo-RepoRelativePath {
     param([string]$Path)
@@ -896,6 +896,8 @@ function Test-PowerShellSyntax {
 
 Invoke-BashToolScript "tools/po0/test-macos-ssid-diagnostic.sh"
 Invoke-BashToolScript "tools/po0/test-self-report-refresh-policy.sh"
+Invoke-BashToolScript "tools/po0/test-lan-worker-stash-report.sh"
+Invoke-BashToolScript "tools/po0/test-manager-client-ip-cidr-prefix.sh"
 Invoke-BashSyntax "nftables-relay-manager.sh"
 Invoke-BashSyntax "po0-lan-client.sh"
 Invoke-BashSyntax "po0-outbound-ip-report.sh"

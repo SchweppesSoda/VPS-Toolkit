@@ -5,10 +5,11 @@ PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.c
 DOWNLOAD_URL="${PO0_LAN_CLIENT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-lan-client.sh}"
 MANAGER_DOWNLOAD_URL="${PO0_MANAGER_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/nftables-relay-manager.sh}"
 SCRIPT_NAME="po0-lan-worker-client"
-SCRIPT_VERSION="2026.07.03+build.4"
-SCRIPT_RELEASE_DATE="2026-07-03"
+SCRIPT_VERSION="2026.07.20+build.1"
+SCRIPT_RELEASE_DATE="2026-07-20"
 # CHANGELOG_BEGIN
-# - 跟随 PO0 发布批次对齐到 build.4；LAN Worker 客户端无行为变化。
+# - 新增 Stash 专用 HTTPS JSON 上报入口 /stash-report/v1，蜂窝按 /24、Wi-Fi 和未知网络按 /32 放行。
+# - Stash 上报校验 Bearer、时间戳和请求 ID，并在同一后台进程内对请求 ID 防重 10 分钟；旧 /report 保持兼容。
 # CHANGELOG_END
 DEFAULT_PO0_SCRIPT="/root/nftables-relay-manager.sh"
 PO0_HOST="${PO0_HOST:-}"

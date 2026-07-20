@@ -526,6 +526,24 @@ po0-lan-client --menu
 
 进入 `Self-report 自上报 -> Self-report 配置 / 启动` 后，可以查看 PO0 目标、维护 `Self-report client-ip Token`、设置 source/TTL、设置监听地址、生成/修改 `Self-report secret`，并安装/更新后台服务。推荐使用“配置 HTTPS 域名 / Caddy”：输入已经解析到 LAN Worker 的域名后，脚本会配置 Caddy 自动证书和续期，并把 self-report 后端改为只监听 `127.0.0.1:8788`；访问设备上报到 `https://<SELF_REPORT_DOMAIN>/report`。请务必设置 `Self-report secret`，并用服务器防火墙或云安全组放行 TCP `80/443`，不建议公网继续放行 `8788`。菜单里的“前台启动服务”会占用当前终端，适合临时测试，按 `Ctrl+C` 退出。
 
+Stash 使用同一套 HTTPS 域名、后台服务、PO0 目标和 `Self-report secret`，专用入口为 `POST https://<SELF_REPORT_DOMAIN>/stash-report/v1`。请求必须在 `Authorization: Bearer <SELF_REPORT_SECRET>` 中携带 secret，并提交 JSON 字段 `source_id`、`ip`、`network`、`observed_at`、`request_id`；`network=cellular` 按 `/24` 上报，`wifi` 和 `unknown` 按 `/32` 上报。`observed_at` 支持 Unix 秒或带时区的 ISO-8601 时间，和 LAN Worker 当前时间相差不能超过 10 分钟；同一后台进程会把已接收的 `request_id` 保留 10 分钟并拒绝重复请求。成功响应会给出 PO0 实际接收的 `accepted_cidr`、接收/过期时间和各目标结果。旧 `/report` 入口、参数和文本响应不变。已有 LAN Worker 升级脚本后，需要再执行一次菜单里的“配置 HTTPS 域名 / Caddy”，让它重写 Caddy snippet 并重启 Self-report 后台服务，新入口才会生效。
+
+正式方案是 `Stash -> HTTPS LAN Worker /stash-report/v1 -> SSH -> PO0 --client-ip-report`。仓库另带默认关闭的备用 PoC：`Stash SSH proxy -> PO0 127.0.0.1:8790 receiver -> --ssh-ip-report`；备用 receiver 只监听 PO0 loopback，不经过 LAN Worker，也不应把 `8790` 暴露到公网。
+
+备用 receiver 在 PO0 上的安装示例：
+
+```bash
+install -D -m 0755 scripts/po0/nftables/clients/stash/po0-stash-loopback-receiver.py /usr/local/libexec/po0-stash-loopback-receiver.py
+install -D -m 0644 scripts/po0/nftables/clients/stash/po0-stash-loopback-receiver.service /etc/systemd/system/po0-stash-loopback-receiver.service
+install -D -m 0600 scripts/po0/nftables/clients/stash/stash-loopback-receiver.env.example /etc/po0/stash-loopback-receiver.env
+# 编辑 /etc/po0/stash-loopback-receiver.env，填写独立 receiver Bearer、SSH report token 和 manager 路径。
+systemctl daemon-reload
+systemctl enable --now po0-stash-loopback-receiver.service
+curl -fsS http://127.0.0.1:8790/health
+```
+
+Stash 登录 PO0 应使用专用 SSH 用户和密钥，只允许本地转发到 `127.0.0.1:8790`；不要给该 key 普通 shell、任意端口转发或 manager forced-command 权限。receiver 自己校验 Bearer 后，才用本机环境文件中的 token 调 manager。
+
 同一个 Self-report 子菜单也可以查看 `po0-lan-self-report.service` 的后台服务状态、最近 journal 日志、实时日志，以及 HTTPS/Caddy 状态和最近 Caddy 日志；实时日志同样按 `Ctrl+C` 退出。
 
 安装后台服务前至少要有一个启用的 PO0 目标，并且该目标已填写 `Self-report client-ip Token`。如果状态里看到 `--po0-host` 或 `--client-ip-token` 为空，说明旧版菜单曾写入空 service；在菜单补齐目标 Token 和 secret 后重新执行“安装 / 更新后台服务”或“配置 HTTPS 域名 / Caddy”即可覆盖。已安装过旧版 `0.0.0.0:8788` HTTP 直连 service 的机器，启用 HTTPS 后需要重新执行“配置 HTTPS 域名 / Caddy”，让 systemd unit 切换到 `127.0.0.1:8788`。
@@ -538,6 +556,8 @@ po0-lan-client --install-self-report-https --self-report-https-domain <SELF_REPO
 ```
 
 Self-report / WebAuth 放行 TTL 默认均为 `43200` 秒（12 小时），由 LAN Worker 上报 PO0 时传入；可以在启动接收端时加 `--self-report-ttl <秒数>` / `--webauth-ttl <秒数>`，也可以在 LAN Worker 菜单 `PO0 目标、SSH、Token 与 TTL -> Self-report / WebAuth TTL` 里修改目标覆盖值。访问设备客户端只决定“多久上报一次”，不决定 TTL。Self-report / WebAuth TTL 会被限制在 `60-604800` 秒内。升级旧安装时，本机 `settings.env` 里恰好等于旧默认 `3600` 或 `21600` 的默认 TTL 会在脚本加载时迁移到新默认；目标行里显式写的 TTL 不自动改写。
+
+PO0 manager 的 `--client-ip-report` 最后一个可选参数可以指定 `24` 或 `32`，省略时继续按 `/32` 处理。LAN Worker 可据访问设备的网络类型决定前缀，例如蜂窝出口使用 `/24`、Wi-Fi 使用 `/32`；PO0 会把地址归一化为实际网段后写入 `client_ip` 白名单，并继续按同一个 `source-id` 做续期和数量裁剪。
 
 同一轮 Self-report / WebAuth 上报如果配置了多个 PO0 目标，LAN Worker 会并发 SSH 到各目标；全部目标成功才返回成功，任一目标失败或超时会返回 502，并在正文保留各目标明细。这样慢 PO0 不会把多个目标耗时串行累加到访问设备的 HTTP 超时窗口里。
 

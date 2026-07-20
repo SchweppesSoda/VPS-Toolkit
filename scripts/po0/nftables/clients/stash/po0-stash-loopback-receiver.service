@@ -1,0 +1,23 @@
+[Unit]
+Description=PO0 Stash loopback report receiver (optional PoC)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+EnvironmentFile=/etc/po0/stash-loopback-receiver.env
+ExecStart=/usr/bin/python3 /usr/local/libexec/po0-stash-loopback-receiver.py
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_UNIX AF_NETLINK
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target
