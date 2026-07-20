@@ -1,0 +1,49 @@
+name: PO0 SSH 上报（备用 PoC，默认关闭）
+desc: |-
+  Stash 用 SSH 代理访问 PO0 的 127.0.0.1:8790 receiver。
+  只在正式 LAN Worker 链路不可用时测试。替换 SSH 节点、receiver secret 和 source_id。
+
+proxies:
+  - name: PO0 SSH Reporter
+    type: ssh
+    server: CHANGE_ME_PO0_HOST
+    port: 22
+    user: stash-report
+    private-key: |-
+      -----BEGIN OPENSSH PRIVATE KEY-----
+      CHANGE_ME_PRIVATE_KEY
+      -----END OPENSSH PRIVATE KEY-----
+    benchmark-disabled: true
+
+script-providers:
+  po0-stash-report-ssh-poc:
+    url: https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/stash/po0-stash-report.js
+    path: ./scripts/po0-stash-report-ssh-poc.js
+    interval: 86400
+
+cron:
+  script:
+    - name: po0-stash-report-ssh-poc
+      cron: '*/10 * * * *'
+      timeout: 15
+      argument: '{"mode":"auto","worker_url":"http://127.0.0.1:8790/stash-report/v1","source_id":"iphone-stash-ssh","secret":"CHANGE_ME_RECEIVER_BEARER","selected_proxy":"PO0 SSH Reporter","allow_loopback_http":true}'
+
+tiles:
+  - name: po0-stash-report-ssh-poc
+    interval: 60
+    title: PO0 SSH PoC
+    content: 默认关闭
+    icon: terminal.fill
+    backgroundColor: '#6b7280'
+    url: http://po0-ssh-report.invalid/report-now
+    argument: '{"mode":"status"}'
+
+http:
+  force-http-engine:
+    - po0-ssh-report.invalid:80
+  script:
+    - match: ^http://po0-ssh-report\.invalid/report-now(?:\?.*)?$
+      name: po0-stash-report-ssh-poc
+      type: request
+      timeout: 15
+      argument: '{"mode":"force","worker_url":"http://127.0.0.1:8790/stash-report/v1","source_id":"iphone-stash-ssh","secret":"CHANGE_ME_RECEIVER_BEARER","selected_proxy":"PO0 SSH Reporter","allow_loopback_http":true}'

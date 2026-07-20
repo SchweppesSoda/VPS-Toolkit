@@ -1,0 +1,38 @@
+name: PO0 LAN Worker 上报（正式）
+desc: |-
+  默认启用。每 10 分钟检查；IP 或网络变化立即上报，未变化每小时续期。
+  蜂窝按 /24，普通 Wi-Fi 按 /32。点击 Tile 可强制上报。
+  使用前只需替换两处相同 JSON 中的 worker_url、source_id、secret。
+
+script-providers:
+  po0-stash-report:
+    url: https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/stash/po0-stash-report.js
+    path: ./scripts/po0-stash-report.js
+    interval: 86400
+
+cron:
+  script:
+    - name: po0-stash-report
+      cron: '*/10 * * * *'
+      timeout: 15
+      argument: '{"mode":"auto","worker_url":"https://CHANGE_ME/stash-report/v1","source_id":"iphone-stash","secret":"CHANGE_ME_BEARER","selected_proxy":"DIRECT"}'
+
+tiles:
+  - name: po0-stash-report
+    interval: 60
+    title: PO0 未上报
+    content: 等待首次定时任务
+    icon: antenna.radiowaves.left.and.right
+    backgroundColor: '#6b7280'
+    url: http://po0-report.invalid/report-now
+    argument: '{"mode":"status"}'
+
+http:
+  force-http-engine:
+    - po0-report.invalid:80
+  script:
+    - match: ^http://po0-report\.invalid/report-now(?:\?.*)?$
+      name: po0-stash-report
+      type: request
+      timeout: 15
+      argument: '{"mode":"force","worker_url":"https://CHANGE_ME/stash-report/v1","source_id":"iphone-stash","secret":"CHANGE_ME_BEARER","selected_proxy":"DIRECT"}'

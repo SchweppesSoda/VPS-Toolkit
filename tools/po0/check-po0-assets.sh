@@ -60,6 +60,7 @@ check_raw_refs() {
         case "${line}" in
             *"scripts/po0/nftables/clients/egern/PO0-SSH-IP-Report.yaml"*|\
             *"scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js"*|\
+            *"scripts/po0/nftables/clients/stash/po0-stash-report.js"*|\
             *"scripts/po0/relay/egern/PO0-SSH-IP-Report.yaml"*|\
             *"scripts/po0/relay/egern/po0-ssh-ip-report.js"*|\
             *"scripts/po0/nftables/tools/build-iplist-package.sh"*|\
