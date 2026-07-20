@@ -103,7 +103,7 @@ function finish(mode, ok, message, state) {
 
 async function run() {
   const args = parseArgument();
-  const mode = String(args.mode || ($script.type === "tile" ? "status" : "auto"));
+  const mode = $script.type === "tile" ? "status" : String(args.mode || "auto");
   let state = readJSON(STORE_KEY, {});
   if (mode === "status") return finish(mode, true, "status", state);
 
@@ -163,7 +163,7 @@ async function run() {
 
 run().catch((error) => {
   const args = parseArgument();
-  const mode = String(args.mode || ($script.type === "tile" ? "status" : "auto"));
+  const mode = $script.type === "tile" ? "status" : String(args.mode || "auto");
   const state = readJSON(STORE_KEY, {});
   state.last_error = String(error && error.message || error);
   state.last_error_at = Math.floor(Date.now() / 1000);
