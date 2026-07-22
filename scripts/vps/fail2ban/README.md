@@ -8,7 +8,11 @@
 建议入口：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/vps/fail2ban/fail2ban.sh | sudo bash -s -- default
-curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/vps/fail2ban/fail2ban.sh | sudo bash -s -- advanced
+tmp="$(mktemp)"
+curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/vps/fail2ban/fail2ban.sh -o "$tmp"
+sudo bash "$tmp" default
+rm -f "$tmp"
 ```
+
+需要逐项配置和维护菜单时，把 `default` 改成 `advanced`。脚本会先在临时配置副本中运行 Fail2ban 检查，通过后再原子替换正式配置；启用或重启失败时会尝试恢复原配置。
 

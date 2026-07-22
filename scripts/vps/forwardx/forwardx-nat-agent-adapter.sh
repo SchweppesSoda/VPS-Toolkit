@@ -171,13 +171,16 @@ agent_files_present() {
 }
 
 run_forwardx_install_command() {
+  local rc
+
   info "Running saved ForwardX agent install command."
   if bash "${INSTALL_COMMAND_FILE}"; then
     info "ForwardX install command completed."
     return 0
+  else
+    rc=$?
   fi
 
-  local rc=$?
   if agent_files_present; then
     warn "ForwardX install command exited with ${rc}, but agent binary and config exist. This is common on Alpine when the official script reaches systemctl."
     return 0

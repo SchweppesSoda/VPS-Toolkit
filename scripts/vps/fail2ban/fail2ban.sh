@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CONF_DIR="/etc/fail2ban/jail.d"
+FAIL2BAN_CONFIG_DIR="${FAIL2BAN_CONFIG_DIR:-/etc/fail2ban}"
+CONF_DIR="${FAIL2BAN_CONFIG_DIR}/jail.d"
 LOCAL_CONF="${CONF_DIR}/99-local-hardening.conf"
-BACKUP_DIR="/etc/fail2ban/backups"
+BACKUP_DIR="${FAIL2BAN_CONFIG_DIR}/backups"
+
+LAST_CONFIG_BACKUP=""
+LAST_CONFIG_HAD_ORIGINAL=0
 
 DEFAULT_BANTIME="1w"
 DEFAULT_FINDTIME="10m"
@@ -155,17 +159,29 @@ validate_ipv4_cidr() {
 
 validate_ipv6_cidr() {
   local token="$1"
-  local ip="${token}"
-  local prefix=""
+  local python_bin=""
 
-  if [[ "${token}" == */* ]]; then
-    ip="${token%/*}"
-    prefix="${token##*/}"
+  if command -v python3 >/dev/null 2>&1; then
+    python_bin="python3"
+  elif command -v python >/dev/null 2>&1; then
+    python_bin="python"
+  elif command -v fail2ban-python >/dev/null 2>&1; then
+    python_bin="fail2ban-python"
+  else
+    return 1
   fi
 
-  [[ "${ip}" == *:* ]] || return 1
-  [[ "${ip}" =~ ^[0-9A-Fa-f:]+$ ]] || return 1
-  [[ -z "${prefix}" ]] || validate_cidr_suffix "${prefix}" 128
+  "${python_bin}" - "${token}" <<'PY'
+import ipaddress
+import sys
+
+try:
+    network = ipaddress.ip_network(sys.argv[1], strict=False)
+except ValueError:
+    raise SystemExit(1)
+
+raise SystemExit(0 if network.version == 6 else 1)
+PY
 }
 
 validate_ip_or_cidr() {
@@ -462,7 +478,7 @@ write_config() {
 
   if ! confirm_yes "确认写入并重启 Fail2ban"; then
     warn "已取消，没有写入配置。"
-    return 1
+    return 2
   fi
 
   persist_local_config "${ssh_port}" "${ignoreip}" "${bantime}" "${findtime}" "${maxretry}" "${ssh_backend}" "${nginx_logpath}"
@@ -514,17 +530,27 @@ persist_local_config() {
   local maxretry="$5"
   local ssh_backend="$6"
   local nginx_logpath="$7"
-  local backup_path
+  local backup_path=""
+  local live_tmp=""
   local nginx_block=""
+  local staging_dir=""
+  local staging_conf=""
 
   nginx_block="$(build_nginx_block "${maxretry}" "${nginx_logpath}")"
-  mkdir -p "${CONF_DIR}" "${BACKUP_DIR}"
-  backup_path="$(backup_current_config || true)"
-  if [[ -n "${backup_path}" ]]; then
-    info "已备份原配置：${backup_path}"
+  mkdir -p "${CONF_DIR}" "${BACKUP_DIR}" || return 1
+  staging_dir="$(mktemp -d "${TMPDIR:-/tmp}/fail2ban-config.XXXXXX")" || return 1
+  if ! cp -a "${FAIL2BAN_CONFIG_DIR}/." "${staging_dir}/"; then
+    rm -rf -- "${staging_dir}"
+    err "无法创建 Fail2ban 配置验证副本。"
+    return 1
   fi
+  staging_conf="${staging_dir}/jail.d/$(basename "${LOCAL_CONF}")"
+  mkdir -p "$(dirname "${staging_conf}")" || {
+    rm -rf -- "${staging_dir}"
+    return 1
+  }
 
-  cat > "${LOCAL_CONF}" <<EOF
+  if ! cat > "${staging_conf}" <<EOF
 # Managed by fail2ban.sh. Edit this file directly only if you know what you are changing.
 [DEFAULT]
 ignoreip = ${ignoreip}
@@ -540,8 +566,71 @@ ${ssh_backend}
 maxretry = ${maxretry}
 ${nginx_block}
 EOF
+  then
+    rm -rf -- "${staging_dir}"
+    err "无法生成 Fail2ban 候选配置。"
+    return 1
+  fi
 
-  info "已写入配置：${LOCAL_CONF}"
+  if ! fail2ban-client -c "${staging_dir}" -t; then
+    rm -rf -- "${staging_dir}"
+    err "候选配置未通过 Fail2ban 检查，正式配置未修改。"
+    return 1
+  fi
+
+  LAST_CONFIG_HAD_ORIGINAL=0
+  if [[ -f "${LOCAL_CONF}" ]]; then
+    LAST_CONFIG_HAD_ORIGINAL=1
+    if ! backup_path="$(backup_current_config)"; then
+      rm -rf -- "${staging_dir}"
+      err "无法备份原 Fail2ban 配置，正式配置未修改。"
+      return 1
+    fi
+  fi
+  LAST_CONFIG_BACKUP="${backup_path}"
+  if [[ -n "${backup_path}" ]]; then
+    info "已备份原配置：${backup_path}"
+  fi
+
+  live_tmp="$(mktemp "${CONF_DIR}/.99-local-hardening.conf.XXXXXX")" || {
+    rm -rf -- "${staging_dir}"
+    return 1
+  }
+  if ! cp "${staging_conf}" "${live_tmp}" || ! chmod 0644 "${live_tmp}" || ! mv -f "${live_tmp}" "${LOCAL_CONF}"; then
+    rm -f -- "${live_tmp}"
+    rm -rf -- "${staging_dir}"
+    err "无法原子替换 Fail2ban 正式配置。"
+    return 1
+  fi
+  rm -rf -- "${staging_dir}"
+
+  info "候选配置检查通过，已写入：${LOCAL_CONF}"
+}
+
+rollback_last_config() {
+  local restore_tmp=""
+
+  if [[ -n "${LAST_CONFIG_BACKUP}" && -f "${LAST_CONFIG_BACKUP}" ]]; then
+    restore_tmp="$(mktemp "${CONF_DIR}/.99-local-hardening.restore.XXXXXX")" || return 1
+    cp -a "${LAST_CONFIG_BACKUP}" "${restore_tmp}" || {
+      rm -f -- "${restore_tmp}"
+      return 1
+    }
+    mv -f "${restore_tmp}" "${LOCAL_CONF}" || {
+      rm -f -- "${restore_tmp}"
+      return 1
+    }
+    warn "Fail2ban 启用失败，已恢复原配置：${LAST_CONFIG_BACKUP}"
+    return 0
+  fi
+
+  if [[ "${LAST_CONFIG_HAD_ORIGINAL}" == "0" ]]; then
+    rm -f -- "${LOCAL_CONF}"
+    warn "Fail2ban 启用失败，已移除本次新建配置。"
+    return 0
+  fi
+
+  return 1
 }
 
 prompt_nginx_logpath() {
@@ -596,39 +685,71 @@ write_recommended_config() {
   print_config_summary "推荐模式" "${ssh_port}" "${ignoreip}" "${bantime}" "${findtime}" "${maxretry}" "${nginx_logpath}"
   if ! confirm_yes "确认按推荐值写入并重启 Fail2ban"; then
     warn "已取消，没有写入配置。"
-    return 1
+    return 2
   fi
 
   persist_local_config "${ssh_port}" "${ignoreip}" "${bantime}" "${findtime}" "${maxretry}" "${ssh_backend}" "${nginx_logpath}"
 }
 
 enable_service() {
+  local failed=0
+
+  fail2ban-client -t || failed=1
+  if [[ "${failed}" == "0" ]]; then
+    if command -v systemctl >/dev/null 2>&1; then
+      systemctl enable fail2ban || failed=1
+      [[ "${failed}" != "0" ]] || systemctl restart fail2ban || failed=1
+    else
+      service fail2ban restart || failed=1
+    fi
+  fi
+
+  if [[ "${failed}" != "0" ]]; then
+    rollback_last_config || warn "自动恢复原配置失败，请检查 ${LOCAL_CONF} 和 ${LAST_CONFIG_BACKUP:-备份目录}。"
+    if fail2ban-client -t >/dev/null 2>&1; then
+      if command -v systemctl >/dev/null 2>&1; then
+        systemctl restart fail2ban >/dev/null 2>&1 || true
+      else
+        service fail2ban restart >/dev/null 2>&1 || true
+      fi
+    fi
+    return 1
+  fi
+
   if command -v systemctl >/dev/null 2>&1; then
-    systemctl enable fail2ban
-    fail2ban-client -t
-    systemctl restart fail2ban
     systemctl --no-pager --full status fail2ban || true
-  else
-    service fail2ban restart
-    fail2ban-client -t
   fi
 }
 
 install_and_configure() {
+  local rc
   install_fail2ban
-  write_config || return 0
+  if write_config; then
+    :
+  else
+    rc=$?
+    [[ "${rc}" == "2" ]] && return 0
+    return "${rc}"
+  fi
   warn "不要关闭当前 SSH 窗口。重启后请新开一个窗口测试 SSH 登录。"
-  enable_service
+  enable_service || return 1
   printf '\n'
   show_status || true
   info "完成。建议保留当前 SSH 窗口，再新开一个窗口测试登录。"
 }
 
 default_install_and_configure() {
+  local rc
   install_fail2ban
-  write_recommended_config || return 0
+  if write_recommended_config; then
+    :
+  else
+    rc=$?
+    [[ "${rc}" == "2" ]] && return 0
+    return "${rc}"
+  fi
   warn "不要关闭当前 SSH 窗口。重启后请新开一个窗口测试 SSH 登录。"
-  enable_service
+  enable_service || return 1
   printf '\n'
   show_status || true
   info "完成。推荐模式配置已应用。"
@@ -785,4 +906,6 @@ EOF
   esac
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi
