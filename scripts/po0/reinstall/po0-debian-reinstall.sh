@@ -29,7 +29,7 @@
 
 set -e
 
-SCRIPT_VERSION="2026.07.22+build.1"
+SCRIPT_VERSION="2026.07.22+build.2"
 SCRIPT_RELEASE_DATE="2026-07-22"
 # CHANGELOG_BEGIN
 # - 修复 DISABLE_IPV6=false 时仍向安装内核传入 ipv6.disable=1。

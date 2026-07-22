@@ -244,8 +244,11 @@ upload_resource_task_artifact() {
     }
     tmp="${TEMP_FILE_RESULT}"
     resource_task_unlock
-    receive_resource_task_body_exact "${tmp}" "${reported_size}"
-    receive_rc=$?
+    if receive_resource_task_body_exact "${tmp}" "${reported_size}"; then
+        receive_rc=0
+    else
+        receive_rc=$?
+    fi
     if [[ "${receive_rc}" -ne 0 ]]; then
         rm -f -- "${tmp}" 2>/dev/null || true
         case "${receive_rc}" in
@@ -266,8 +269,11 @@ upload_resource_task_artifact() {
         rm -f -- "${tmp}" 2>/dev/null || true
         return 1
     }
-    record_resource_task_upload_locked "${task_id}" "${worker}" "${type}" "${expected_path}" "${reported_sha}" "${reported_size}" "${tmp}"
-    record_rc=$?
+    if record_resource_task_upload_locked "${task_id}" "${worker}" "${type}" "${expected_path}" "${reported_sha}" "${reported_size}" "${tmp}"; then
+        record_rc=0
+    else
+        record_rc=$?
+    fi
     if [[ "${record_rc}" == "2" ]]; then
         rm -f -- "${tmp}" 2>/dev/null || true
         resource_task_unlock

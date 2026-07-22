@@ -2,9 +2,10 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-nftables-relay-manager"
-SCRIPT_VERSION="2026.07.22+build.1"
+SCRIPT_VERSION="2026.07.22+build.2"
 SCRIPT_RELEASE_DATE="2026-07-22"
 # CHANGELOG_BEGIN
+# - 上传失败返回码改为显式捕获；即使调用环境启用 `errexit`，也会继续清理临时文件并释放任务锁。
 # - 资源任务上传新增分类大小上限和严格有界接收，并缩短任务队列锁占用时间；现有 Worker 调用参数及 SHA/size 表达保持兼容。
 # - 修复无 `flock` 环境释放内部文件锁后可能吞掉后续错误输出的问题。
 # CHANGELOG_END

@@ -11,7 +11,7 @@
 `-port`、preseed 和 GRUB 启动安装等核心流程，并增加了系统盘反查、腾讯镜像
 自动回退、密码哈希写入、依赖安装保护和一次性 GRUB 启动等增强。
 
-当前脚本版本为 `2026.07.22+build.1`。本版修正了两项启动参数问题：
+当前脚本版本为 `2026.07.22+build.2`。本版修正了两项启动参数问题：
 
 - `DISABLE_IPV6=false` 时不再写入 `ipv6.disable=1`；保持 `true` 时仍禁用安装过程 IPv6。
 - 自动识别独立 `/boot`：独立分区使用 GRUB 视角的 `/debian-autoinstall/...`，非独立分区继续使用 `/boot/debian-autoinstall/...`。
