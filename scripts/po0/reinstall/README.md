@@ -11,6 +11,17 @@
 `-port`、preseed 和 GRUB 启动安装等核心流程，并增加了系统盘反查、腾讯镜像
 自动回退、密码哈希写入、依赖安装保护和一次性 GRUB 启动等增强。
 
+当前脚本版本为 `2026.07.22+build.1`。本版修正了两项启动参数问题：
+
+- `DISABLE_IPV6=false` 时不再写入 `ipv6.disable=1`；保持 `true` 时仍禁用安装过程 IPv6。
+- 自动识别独立 `/boot`：独立分区使用 GRUB 视角的 `/debian-autoinstall/...`，非独立分区继续使用 `/boot/debian-autoinstall/...`。
+
+## 设计边界
+
+脚本仍按 PO0 特殊重装环境的既定设计，通过 HTTP 从腾讯镜像下载 Debian Installer 的 kernel/initrd，且不增加签名或哈希校验。本版没有改变下载源、协议或校验策略。
+
+上传后可以先用 `bash po0-debian-reinstall.sh --version` 和 `bash po0-debian-reinstall.sh --changelog` 确认脚本版本及当前改动；这两个入口只读，不会进入磁盘检测或重装流程。
+
 ## 使用
 
 推荐先上传重装脚本，再在 PO0 上运行：

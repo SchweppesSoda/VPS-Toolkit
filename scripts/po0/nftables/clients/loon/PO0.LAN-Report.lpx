@@ -1,0 +1,15 @@
+#!name = PO0 LAN Report
+#!desc = Reports the current non-home public IPv4 to the existing PO0 LAN Worker. Home and unknown SSIDs fail closed.
+#!author = ProxyConfig
+#!system = iOS,iPadOS
+#!loon_version = 3.5.0(969)
+#!tag = Network,PO0
+#!input = po0_worker_url
+#!input = po0_worker_token
+#!arguments-desc = Set po0_worker_url to an HTTPS URL ending in /stash-report/v1 and po0_worker_token to its bearer token. Values stay in Loon persistent storage.
+
+[Script]
+cron "*/30 * * * *" script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js,timeout=20,tag=PO0 Auto Report,argument="auto",enable=true
+network-changed script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js,timeout=20,tag=PO0 Network Changed,argument="auto",enable=true
+generic script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js,timeout=20,tag=PO0 Status,argument="status",img-url=antenna.radiowaves.left.and.right.system,enable=true
+generic script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js,timeout=20,tag=PO0 Force Report,argument="force",img-url=arrow.clockwise.circle.system,enable=true

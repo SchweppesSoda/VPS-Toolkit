@@ -22,7 +22,7 @@ jobs:
 
       - name: Build and check PO0 assets
         shell: bash
-        run: bash ./tools/po0/check-po0-assets.sh
+        run: bash ./tools/po0/check-po0-assets.sh .tmp/po0-check-assets
 
       - name: Publish complete asset set
         env:

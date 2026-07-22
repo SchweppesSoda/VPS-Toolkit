@@ -6,13 +6,13 @@ $ErrorActionPreference = "Stop"
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 if (-not $OutputDir) {
-    $OutputDir = Join-Path $RepoRoot ".tmp/po0-check-assets"
+    $OutputDir = Join-Path $RepoRoot ".tmp/po0-check-assets-powershell"
 }
 
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.07.20+build.1" }
-$ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-07-20" }
-$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.07.20.1" }
+$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.07.22+build.1" }
+$ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-07-22" }
+$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.07.22.1" }
 
 function ConvertTo-RepoRelativePath {
     param([string]$Path)
@@ -97,6 +97,8 @@ function Test-RawReferences {
     $allowed = @(
         "scripts/po0/nftables/clients/egern/PO0-SSH-IP-Report.yaml",
         "scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js",
+        "scripts/po0/nftables/clients/loon/PO0.LAN-Report.lpx",
+        "scripts/po0/nftables/clients/loon/po0-loon-report.js",
         "scripts/po0/nftables/clients/stash/po0-stash-report.js",
         "scripts/po0/relay/egern/PO0-SSH-IP-Report.yaml",
         "scripts/po0/relay/egern/po0-ssh-ip-report.js",
@@ -899,6 +901,13 @@ Invoke-BashToolScript "tools/po0/test-macos-ssid-diagnostic.sh"
 Invoke-BashToolScript "tools/po0/test-self-report-refresh-policy.sh"
 Invoke-BashToolScript "tools/po0/test-lan-worker-stash-report.sh"
 Invoke-BashToolScript "tools/po0/test-manager-client-ip-cidr-prefix.sh"
+Invoke-BashToolScript "tools/po0/test-manager-resource-upload.sh"
+Invoke-BashToolScript "tools/po0/test-debian-reinstall-grub.sh"
+Write-Host "Checking node tools/po0/test-loon-report.js"
+& node (Join-Path $RepoRoot "tools/po0/test-loon-report.js") | Out-Host
+if ($LASTEXITCODE -ne 0) {
+    throw "Command failed: node tools/po0/test-loon-report.js"
+}
 Invoke-BashSyntax "nftables-relay-manager.sh"
 Invoke-BashSyntax "po0-lan-client.sh"
 Invoke-BashSyntax "po0-outbound-ip-report.sh"

@@ -481,7 +481,7 @@ iplist
 ipdb
 ```
 
-同一轮资源轮询会持续领取 pending 任务，直到 PO0 返回无任务或达到本轮上限。默认上限是 `PO0_RESOURCE_TASK_MAX_PER_RUN=10`，设为 `0` 表示不设上限。`iplist` 的 txt 数据文件默认并发下载，默认 `PO0_IPLIST_JOBS=16`，可调范围 `1-50`。资源下载后会通过 SSH stdin 上传到 PO0，上传默认超时 `PO0_RESOURCE_UPLOAD_TIMEOUT_SECONDS=900`，PO0 校验/导入默认超时 `PO0_RESOURCE_COMPLETE_TIMEOUT_SECONDS=600`。
+同一轮资源轮询会持续领取 pending 任务，直到 PO0 返回无任务或达到本轮上限。默认上限是 `PO0_RESOURCE_TASK_MAX_PER_RUN=10`，设为 `0` 表示不设上限。`iplist` 的 txt 数据文件默认并发下载，默认 `PO0_IPLIST_JOBS=16`，可调范围 `1-50`。资源下载后会通过 SSH stdin 上传到 PO0，上传默认超时 `PO0_RESOURCE_UPLOAD_TIMEOUT_SECONDS=900`，PO0 校验/导入默认超时 `PO0_RESOURCE_COMPLETE_TIMEOUT_SECONDS=600`。PO0 接收端默认最多接收 8 MiB 的 `iplist.tar.gz` 和 128 MiB 的 `qqwry.ipdb`；如本地数据源确实更大，可在 PO0 运行 manager 时分别用 `PO0_RESOURCE_IPLIST_MAX_BYTES`、`PO0_RESOURCE_IPDB_MAX_BYTES` 覆盖为正整数的字节数。声明大小超限、配置值无效、正文短于声明长度或带有尾随数据时都会拒绝上传且不保留临时文件；现有 `--resource-task-upload TASK_ID WORKER_ID SHA256 SIZE TOKEN` 调用方式不变。
 
 LAN Worker 菜单 `资源统计` 会显示资源任务聚合统计和最近事件日志。默认聚合统计写入配置目录下的 `resource-stats.tsv`，逐次事件写入 `resource-events.tsv`；可分别用 `PO0_LAN_RESOURCE_STATS` 和 `PO0_LAN_RESOURCE_EVENTS` 覆盖路径。菜单 `清理资源统计` 可手动清空事件日志、清空全部资源统计，或只保留最近 N 条事件。每次资源轮询后会自动裁剪事件日志，默认保留最近 `500` 条，可用 `PO0_RESOURCE_EVENTS_KEEP` 调整；聚合统计不会自动清空。
 
@@ -524,9 +524,9 @@ LAN Worker 启动接收端推荐走菜单：
 po0-lan-client --menu
 ```
 
-进入 `Self-report 自上报 -> Self-report 配置 / 启动` 后，可以查看 PO0 目标、维护 `Self-report client-ip Token`、设置 source/TTL、设置监听地址、生成/修改 `Self-report secret`，并安装/更新后台服务。推荐使用“配置 HTTPS 域名 / Caddy”：输入已经解析到 LAN Worker 的域名后，脚本会配置 Caddy 自动证书和续期，并把 self-report 后端改为只监听 `127.0.0.1:8788`；访问设备上报到 `https://<SELF_REPORT_DOMAIN>/report`。请务必设置 `Self-report secret`，并用服务器防火墙或云安全组放行 TCP `80/443`，不建议公网继续放行 `8788`。菜单里的“前台启动服务”会占用当前终端，适合临时测试，按 `Ctrl+C` 退出。
+进入 `Self-report 自上报 -> Self-report 配置 / 启动` 后，可以查看 PO0 目标、维护 `Self-report client-ip Token`、设置 source/TTL、设置监听地址、生成/修改 `Self-report secret`，并安装/更新后台服务。安装或更新服务会原样复用已有 secret；只有尚未配置时才自动生成一次并保存到本机设置，生成后需要把该值同步到访问设备。`/report` 和 Stash 接口都要求 secret，底层检测到空值时会拒绝上报。推荐使用“配置 HTTPS 域名 / Caddy”：输入已经解析到 LAN Worker 的域名后，脚本会配置 Caddy 自动证书和续期，并把 self-report 后端改为只监听 `127.0.0.1:8788`；访问设备上报到 `https://<SELF_REPORT_DOMAIN>/report`。请用服务器防火墙或云安全组放行 TCP `80/443`，不建议公网继续放行 `8788`。菜单里的“前台启动服务”会占用当前终端，适合临时测试，按 `Ctrl+C` 退出。
 
-Stash 使用同一套 HTTPS 域名、后台服务、PO0 目标和 `Self-report secret`，专用入口为 `POST https://<SELF_REPORT_DOMAIN>/stash-report/v1`。请求必须在 `Authorization: Bearer <SELF_REPORT_SECRET>` 中携带 secret，并提交 JSON 字段 `source_id`、`ip`、`network`、`observed_at`、`request_id`；`network=cellular` 按 `/24` 上报，`wifi` 和 `unknown` 按 `/32` 上报。`observed_at` 支持 Unix 秒或带时区的 ISO-8601 时间，和 LAN Worker 当前时间相差不能超过 10 分钟；同一后台进程会把已接收的 `request_id` 保留 10 分钟并拒绝重复请求。成功响应会给出 PO0 实际接收的 `accepted_cidr`、接收/过期时间和各目标结果。旧 `/report` 入口、参数和文本响应不变。已有 LAN Worker 升级脚本后，需要再执行一次菜单里的“配置 HTTPS 域名 / Caddy”，让它重写 Caddy snippet 并重启 Self-report 后台服务，新入口才会生效。
+Stash 使用同一套 HTTPS 域名、后台服务、PO0 目标和 `Self-report secret`，专用入口为 `POST https://<SELF_REPORT_DOMAIN>/stash-report/v1`。请求必须在 `Authorization: Bearer <SELF_REPORT_SECRET>` 中携带 secret，并提交 JSON 字段 `source_id`、`ip`、`network`、`observed_at`、`request_id`；LAN Worker 对 Stash 的蜂窝、Wi-Fi 和未知网络统一按 `/32` 上报，客户端网络探测失败也不会扩大放行范围。`observed_at` 支持 Unix 秒或带时区的 ISO-8601 时间，和 LAN Worker 当前时间相差不能超过 10 分钟；同一后台进程会把已接收的 `request_id` 保留 10 分钟并拒绝重复请求。成功响应会给出 PO0 实际接收的 `accepted_cidr`、接收/过期时间和各目标结果。旧 `/report` 入口、参数和文本响应不变。已有 LAN Worker 升级脚本后，需要再执行一次菜单里的“配置 HTTPS 域名 / Caddy”，让它重写 Caddy snippet 并重启 Self-report 后台服务，新入口才会生效。
 
 正式方案是 `Stash -> HTTPS LAN Worker /stash-report/v1 -> SSH -> PO0 --client-ip-report`。Stash 脚本和可导入的正式 override 位于 `scripts/po0/nftables/clients/stash/po0-stash-report.js` 与 `PO0.LAN-Report.stoverride`。仓库另带默认关闭的 `PO0.SSH-Report.PoC.stoverride`：`Stash SSH proxy -> PO0 127.0.0.1:8790 receiver -> --ssh-ip-report`；备用 receiver 只监听 PO0 loopback，不经过 LAN Worker，也不应把 `8790` 暴露到公网。
 
@@ -557,7 +557,7 @@ po0-lan-client --install-self-report-https --self-report-https-domain <SELF_REPO
 
 Self-report / WebAuth 放行 TTL 默认均为 `43200` 秒（12 小时），由 LAN Worker 上报 PO0 时传入；可以在启动接收端时加 `--self-report-ttl <秒数>` / `--webauth-ttl <秒数>`，也可以在 LAN Worker 菜单 `PO0 目标、SSH、Token 与 TTL -> Self-report / WebAuth TTL` 里修改目标覆盖值。访问设备客户端只决定“多久上报一次”，不决定 TTL。Self-report / WebAuth TTL 会被限制在 `60-604800` 秒内。升级旧安装时，本机 `settings.env` 里恰好等于旧默认 `3600` 或 `21600` 的默认 TTL 会在脚本加载时迁移到新默认；目标行里显式写的 TTL 不自动改写。
 
-PO0 manager 的 `--client-ip-report` 最后一个可选参数可以指定 `24` 或 `32`，省略时继续按 `/32` 处理。LAN Worker 可据访问设备的网络类型决定前缀，例如蜂窝出口使用 `/24`、Wi-Fi 使用 `/32`；PO0 会把地址归一化为实际网段后写入 `client_ip` 白名单，并继续按同一个 `source-id` 做续期和数量裁剪。
+PO0 manager 的 `--client-ip-report` 最后一个可选参数可以指定 `24` 或 `32`，省略时继续按 `/32` 处理。该参数保留给受控调用方使用；当前 Stash HTTPS 上报固定传入 `32`，不再根据客户端网络判断扩大网段。PO0 会把地址归一化为实际网段后写入 `client_ip` 白名单，并继续按同一个 `source-id` 做续期和数量裁剪。
 
 同一轮 Self-report / WebAuth 上报如果配置了多个 PO0 目标，LAN Worker 会并发 SSH 到各目标；全部目标成功才返回成功，任一目标失败或超时会返回 502，并在正文保留各目标明细。这样慢 PO0 不会把多个目标耗时串行累加到访问设备的 HTTP 超时窗口里。
 

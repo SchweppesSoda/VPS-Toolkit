@@ -8,6 +8,9 @@ finish_resource_task() {
     local tmp now expected_path actual_sha actual_size result_message found=0 ok=0
     [[ "${task_id}" =~ ^[A-Za-z0-9._-]+$ ]] || { printf 'ERROR|任务 ID 无效\n'; return 1; }
     [[ "${worker}" =~ ^[A-Za-z0-9._:-]{1,80}$ ]] || { printf 'ERROR|worker_id 无效\n'; return 1; }
+    [[ "${reported_sha}" =~ ^[A-Fa-f0-9]{64}$ ]] || { printf 'ERROR|SHA256 无效\n'; return 1; }
+    reported_sha="${reported_sha,,}"
+    reported_size="$(resource_task_normalize_size "${reported_size}")" || { printf 'ERROR|文件大小无效\n'; return 1; }
     resource_task_token_matches "${token}" || { printf 'ERROR|Token 错误\n'; return 1; }
     resource_task_lock || return 1
     while IFS= read -r line || [[ -n "${line}" ]]; do

@@ -49,7 +49,7 @@ async function detectNetwork() {
     });
     return "wifi";
   } catch (_) {
-    return "cellular";
+    return "unknown";
   }
 }
 

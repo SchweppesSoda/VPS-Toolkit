@@ -18,6 +18,7 @@
 - Egern 模块只做当前出口 IPv4 的 SSH report，不做 DDNS。
 - Egern 的 SSID 跳过只允许作为本地 guard：仅 schedule/network 自动触发命中时跳过本次公网 IP 探测和 SSH 上报；手动运行、状态页和 Widget 刷新视为强制继续；SSID 只写入 Egern 本地状态 / 日志 / Widget，不新增 PO0、LAN Worker 或 `--ssh-ip-report` 协议字段。
 - Self-report 客户端上报到 LAN Worker，再由 LAN Worker SSH 到 PO0。
+- LAN Worker 的旧 `/report` 与 Stash `/stash-report/v1` 都必须在 `SELF_REPORT_SECRET` 为空时拒绝上报；安装或更新服务应复用已有 secret，仅在确实缺失时自动生成并持久保存，不能静默轮换现有值。
 - PO0 动态来源中 `source-id` / `source-key` 是参与分组、续期、裁剪的稳定 key；`identity` 只做备注和审计。DDNS 只有 `source-key`，没有 `identity`。
 - PO0 manager 首次部署仍推荐本地 `scp` 上传；后续可由 PO0 通过 LAN Worker HTTP 更新镜像拉取固定 manager 脚本，必须校验 resource token HMAC 后才替换。
 - LAN Worker client 才使用 `po0-lan-client --upgrade-self`；LAN Worker 的 manager 更新镜像只服务固定脚本路径，不做任意 URL 代理。
@@ -35,11 +36,13 @@
 - 修改 PO0 Release 发布文件或其生成 / 下载 / 自更新逻辑后，如果用户要求 `commit and push` 或明确希望可更新到新版，不要只 push `main`；必须在验证通过、提交并 push `main` 后，继续创建并 push 下一个 `po0-vYYYY.MM.DD.N` tag 触发 Release，并向用户说明 release 由 tag workflow 发布。
 - Release 必须按 draft 原子发布：不存在 release 时先创建 draft，上传五个脚本和 `checksums.txt`，下载回校验通过后再 publish/latest；已存在 draft 只允许补齐缺失 asset，已有 asset checksum 不一致必须失败；已发布 release 只允许校验，缺 asset 或 checksum 不一致都必须失败并打新 tag，不能修改 live/latest release。
 - 旧 manager、LAN Worker 和 self-report raw URL 已禁用，不再作为兼容入口；不要重新新增这些 raw 可执行脚本路径。Egern 标准 raw 路径是 `scripts/po0/nftables/clients/egern/`；`scripts/po0/relay/egern/` 只作为历史兼容路径暂时保留，不能作为新安装推荐入口。
-- Egern YAML/JS、Stash 客户端脚本、离线 iplist 构建器、外部 ipdb/iplist 数据源和未纳入本阶段的通用 VPS 脚本 raw 下载源是白名单；PO0 五个可执行脚本的新安装、自更新和 manager mirror 上游应使用 Release 发布文件。raw URL 检查应使用精确路径白名单，不能用 `reinstall` 等宽泛子串放行。
+- Egern YAML/JS、Loon LPX/JS、Stash 客户端脚本、离线 iplist 构建器、外部 ipdb/iplist 数据源和未纳入本阶段的通用 VPS 脚本 raw 下载源是白名单；PO0 五个可执行脚本的新安装、自更新和 manager mirror 上游应使用 Release 发布文件。raw URL 检查应使用精确路径白名单，不能用 `reinstall` 等宽泛子串放行。
 - Linux/OpenWrt、macOS、Windows 三端访问设备客户端自更新后，应先检测 cron / launchd / Windows 计划任务是否已指向标准脚本路径；只有入口漂移、缺失或迁移旧任务时才刷新，不要每次自更新都无条件重写定时入口。
 - 模块化后优先修改 `scripts/po0/relay/manager/src/`、`scripts/po0/relay/lan-worker/src/`、`scripts/po0/relay/self-report/` 和对应 manifest；不要手改由构建器生成的 Release staging 单文件。`tools/po0/check-po0-assets.sh` 是 CI/release authority；`tools/po0/check-po0-assets.ps1` 是 Windows 本地等价检查入口，二者都必须确认 manifest 覆盖、raw URL 策略、Egern legacy sync、Windows 标准安装路径、版本/tag 对齐、三端 SSID 本地跳过 guard，以及 macOS `--show-wifi-ssid` / `--diagnose-wifi-ssid` / `--request-location-permission` / `--delete-location-permission-helper` / `--open-location-services` 诊断入口、Helper App 定位授权 / CoreWLAN fallback、安全删除 Helper、无裸 `osascript` 授权 helper。
 - Windows 上运行 `tools/po0/check-po0-assets.ps1` 时，Bash 子检查应优先使用 Git Bash；不要误用 Windows 自带 WSL `bash.exe` stub。Bash 入口调用 `pwsh` 检查 Windows 脚本时，要先把 Git Bash/MSYS 路径转换成 Windows 路径，避免 `/d/Users/...` 被 `pwsh` 解析成 `D:\d\Users\...`。
 - `tools/po0/build-po0-assets.ps1` 的输出目录只能位于仓库内 `.tmp/po0-*`，因为构建前会递归清空输出目录。
+- Bash / PowerShell PO0 checker 的本地默认构建目录必须相互隔离；Release workflow 需要显式传入固定 `.tmp/po0-check-assets`，因为后续发布步骤从该目录读取资产。checker 新接入的专项测试也必须使用仓库 `.tmp/` 下的唯一临时目录，避免并行门禁互相清理。
+- `.github/workflows/po0-check.yml` 的路径过滤必须覆盖整个 `scripts/po0/nftables/clients/**` 和已接入门禁的 `scripts/po0/reinstall/**`，不能退回只监听 Egern。
 - 构建器必须显式控制编码和 LF：Bash/manifest/checksum 使用 UTF-8 no BOM；含中文的 Windows PowerShell `.ps1` 使用 UTF-8 BOM，避免 Windows PowerShell 5 按系统代码页解析失败。
 
 ## 交互脚本规则
@@ -57,6 +60,7 @@
 - PO0 负责创建资源任务和导入结果；LAN Worker 负责轮询、领取、下载和上传结果。
 - 受限 key / wrapper 改动要同时考虑刷新入口和拒绝日志，不能只改脚本正文。
 - 资源上传通过 PO0 manager 的受控 stdin 上传路径，不回退到 SCP。
+- 资源上传必须保留现有 `--resource-task-upload TASK_ID WORKER_ID SHA256 SIZE TOKEN` 协议；PO0 端按 `iplist` / `ipdb` 设置大小上限，在读取正文前拒绝超限声明，只接收声明长度并检测尾随数据，正文传输期间不得长期持有全局资源任务锁。
 - PO0 manager HTTP 更新不是资源任务；HTTP 入口在 LAN Worker，PO0 只在 HMAC、sha256、size、脚本标识和 `bash -n` 全部通过后安装。
 - SSH 参数处理要集中复用 helper，不能各调用点各自拆参数。
 

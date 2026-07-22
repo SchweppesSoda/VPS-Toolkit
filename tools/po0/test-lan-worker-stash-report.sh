@@ -109,8 +109,8 @@ try:
     cellular_payload = dict(wifi_payload, ip="8.8.8.99", network="cellular", request_id="cell-0001")
     status, body, _ = request("/stash-report/v1", cellular_payload)
     parsed = json.loads(body)
-    assert status == 200 and parsed["accepted_cidr"] == "8.8.8.0/24", (status, parsed)
-    assert report_calls[-1][-1] == 24, report_calls[-1]
+    assert status == 200 and parsed["accepted_cidr"] == "8.8.8.99/32", (status, parsed)
+    assert report_calls[-1][-1] == 32, report_calls[-1]
 
     status, body, _ = request("/stash-report/v1", cellular_payload)
     assert status == 409 and json.loads(body)["error"] == "duplicate_request", (status, body)
@@ -133,6 +133,15 @@ try:
     status, body, content_type = request("/report?token=test-secret&ip=8.8.4.4&source=legacy", auth=False)
     assert status == 200 and content_type.startswith("text/plain") and body.startswith("OK 8.8.4.4;"), (status, body)
     assert report_calls[-1][-1] is None, report_calls[-1]
+
+    os.environ["SELF_REPORT_SECRET"] = ""
+    status, body, content_type = request("/report?ip=8.8.4.4&source=legacy", auth=False)
+    assert status == 503 and content_type.startswith("text/plain") and body == "server not configured\n", (status, body)
+    status, body, content_type = request("/health", auth=False)
+    assert status == 200 and content_type.startswith("text/plain") and body == "OK\n", (status, body)
+    status, body, _ = request("/stash-report/v1", dict(wifi_payload, request_id="no-secret-0001"))
+    assert status == 503 and json.loads(body)["error"] == "server_not_configured", (status, body)
+    os.environ["SELF_REPORT_SECRET"] = "test-secret"
 finally:
     server.shutdown()
     server.server_close()

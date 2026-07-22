@@ -13,6 +13,8 @@
 
 Egern 专属配置和 nftables 实现文档从 `relay/README.md` 继续进入，避免 PO0 层入口重复展开细节。
 
+Loon 客户端使用公开 Raw 资产：主插件为 `scripts/po0/nftables/clients/loon/PO0.LAN-Report.lpx`，插件再加载同目录的 `po0-loon-report.js`。Worker URL 和 Token 只在 Loon 的插件输入中设置，不写入仓库。
+
 ## 常用入口
 
 ### PO0 nftables 中转
@@ -69,7 +71,7 @@ sudo /usr/local/sbin/vless-raw-enc-argosbx-enhancer
 
 ## 发布渠道
 
-PO0 nftables 五个可执行脚本的新安装、自更新和 LAN Worker manager 更新镜像默认使用 GitHub Release 发布文件。五个发布文件由 `tools/po0/manifests/` 按 manifest 从 manager、LAN Worker、Linux/macOS/Windows self-report 五个源码树生成。旧 manager、LAN Worker 和 self-report raw URL 已禁用，不再作为兼容入口。Egern 标准 raw 路径、Egern 历史兼容路径、离线 iplist 构建器、外部 ipdb/iplist 数据源和其它 PO0/VPS 工具若未纳入 Release，仍以各自 README 为准。
+PO0 nftables 五个可执行脚本的新安装、自更新和 LAN Worker manager 更新镜像默认使用 GitHub Release 发布文件。五个发布文件由 `tools/po0/manifests/` 按 manifest 从 manager、LAN Worker、Linux/macOS/Windows self-report 五个源码树生成。旧 manager、LAN Worker 和 self-report raw URL 已禁用，不再作为兼容入口。Egern、Loon、Stash 客户端资产，Egern 历史兼容路径、离线 iplist 构建器、外部 ipdb/iplist 数据源和其它 PO0/VPS 工具若未纳入 Release，仍以各自 README 为准。
 
 ## 安全说明
 

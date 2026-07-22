@@ -30,7 +30,7 @@ resource_task_unlock() {
     if command -v flock >/dev/null 2>&1; then
         flock -u 9 2>/dev/null || true
     fi
-    exec 9>&- 2>/dev/null || true
+    { exec 9>&-; } 2>/dev/null || true
 }
 
 resource_task_token_value() {
@@ -105,6 +105,61 @@ resource_task_artifact_name() {
         ipdb) printf 'qqwry.ipdb' ;;
         *) return 1 ;;
     esac
+}
+
+resource_task_positive_size_limit() {
+    local value="$1"
+    [[ "${value}" =~ ^[1-9][0-9]*$ ]] || return 1
+    if (( ${#value} > 19 )); then
+        return 1
+    fi
+    if (( ${#value} == 19 )) && [[ "${value}" > "9223372036854775807" ]]; then
+        return 1
+    fi
+    printf '%s\n' "${value}"
+}
+
+resource_task_upload_max_bytes() {
+    local type="$1"
+    local value
+    case "${type}" in
+        iplist) value="${RESOURCE_IPLIST_MAX_BYTES}" ;;
+        ipdb) value="${RESOURCE_IPDB_MAX_BYTES}" ;;
+        *) return 1 ;;
+    esac
+    resource_task_positive_size_limit "${value}"
+}
+
+resource_task_normalize_size() {
+    local value="$1"
+    [[ "${value}" =~ ^[0-9]+$ ]] || return 1
+    while [[ "${#value}" -gt 1 && "${value}" == 0* ]]; do
+        value="${value#0}"
+    done
+    printf '%s\n' "${value}"
+}
+
+resource_task_size_within_limit() {
+    local size="$1"
+    local limit="$2"
+    if (( ${#size} < ${#limit} )); then
+        return 0
+    fi
+    if (( ${#size} > ${#limit} )); then
+        return 1
+    fi
+    [[ "${size}" == "${limit}" || "${size}" < "${limit}" ]]
+}
+
+resource_task_type_for_id_readonly() {
+    local task_id="$1"
+    [[ -f "${RESOURCE_TASKS_FILE}" ]] || return 1
+    awk -F '|' -v task_id="${task_id}" '
+        $1 !~ /^#/ && $1 == task_id && ($2 == "iplist" || $2 == "ipdb") {
+            print $2
+            exit
+        }
+    ' "${RESOURCE_TASKS_FILE}"
 }
 
 resource_task_new_id() {

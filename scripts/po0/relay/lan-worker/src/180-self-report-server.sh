@@ -528,7 +528,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             send_json(self, 409, {"ok": False, "error": "duplicate_request", "request_id": request_id})
             return
 
-        cidr_prefix = 24 if network == "cellular" else 32
+        cidr_prefix = 32
         accepted_cidr = ipaddress.ip_network(f"{ip}/{cidr_prefix}", strict=False).with_prefixlen
         ttl_seconds = min(normalized_ttl(target.get("ttl"), 43200) for target in TARGETS)
         target_names = [target_label(target, source_id) for target in TARGETS]
@@ -567,12 +567,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
 
         secret = os.environ.get("SELF_REPORT_SECRET", "")
+        if not secret:
+            send_text(self, 503, b"server not configured\n")
+            return
         supplied = first([
             params.get("token"),
             self.headers.get("X-PO0-Token"),
             bearer(self.headers.get("Authorization")),
         ])
-        if secret and supplied != secret:
+        if not supplied or not hmac.compare_digest(supplied, secret):
             send_text(self, 401, b"unauthorized\n")
             return
 
@@ -614,7 +617,7 @@ with socketserver.ThreadingTCPServer((listen_host, listen_port), Handler) as htt
 PY
 }
 install_self_report_service() {
-    local script_path unit target_args="" fallback_args="" secret_args="" name="po0-lan-self-report.service" targets
+    local script_path unit target_args="" fallback_args="" secret_args="" name="po0-lan-self-report.service" targets generated_secret=0
     [[ "${EUID:-$(id -u 2>/dev/null || printf 1)}" -eq 0 ]] || {
         printf '安装 systemd 服务需要 root。\n' >&2
         return 1
@@ -631,7 +634,12 @@ install_self_report_service() {
         return 1
     fi
     if [[ -z "${SELF_REPORT_SECRET}" ]]; then
-        printf '警告：Self-report secret 为空；访问设备上报将不校验共享密钥。建议先用菜单生成 / 修改 secret。\n' >&2
+        SELF_REPORT_SECRET="$(random_secret)"
+        [[ -n "${SELF_REPORT_SECRET}" ]] || {
+            printf '无法生成 Self-report secret，未安装后台服务。\n' >&2
+            return 1
+        }
+        generated_secret=1
     fi
     script_path="$(ensure_persistent_script)" || return 1
     unit="/etc/systemd/system/${name}"
@@ -640,8 +648,12 @@ install_self_report_service() {
     elif ! has_config_self_report_target; then
         fallback_args=" --po0-host $(sh_quote "${PO0_HOST}") --po0-port $(sh_quote "${PO0_PORT}") --po0-user $(sh_quote "${PO0_USER}") --po0-script $(sh_quote "${PO0_SCRIPT}") --self-report-source $(sh_quote "${SELF_REPORT_SOURCE}") --client-ip-token $(sh_quote "${CLIENT_IP_TOKEN}") --self-report-ttl $(sh_quote "${SELF_REPORT_TTL_SECONDS}")"
     fi
-    [[ -n "${SELF_REPORT_SECRET}" ]] && secret_args=" --self-report-secret $(sh_quote "${SELF_REPORT_SECRET}")"
+    secret_args=" --self-report-secret $(sh_quote "${SELF_REPORT_SECRET}")"
     save_local_settings || return 1
+    if [[ "${generated_secret}" == "1" ]]; then
+        printf '检测到 Self-report secret 尚未配置，已自动生成并保存：%s\n' "${SELF_REPORT_SECRET}"
+        printf '请把该值同步到访问设备；已有 secret 的环境不会重新生成或轮换。\n'
+    fi
     cat > "${unit}" <<EOF
 [Unit]
 Description=PO0 LAN self-report receiver

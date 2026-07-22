@@ -77,6 +77,7 @@ claim_resource_task() {
             if [[ "${status}" == "pending" ]]; then
                 found=1
                 upload_path="${RESOURCE_INBOX_DIR}/${id}.$(resource_task_artifact_name "${type}")"
+                rm -f -- "${upload_path}" 2>/dev/null || true
                 printf '%s|%s|running|%s|%s||%s||||已由内网机器领取\n' \
                     "${id}" "${type}" "${created}" "${now}" "${worker}" >> "${tmp}"
                 continue

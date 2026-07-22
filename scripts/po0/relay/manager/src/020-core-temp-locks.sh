@@ -39,7 +39,7 @@ dynamic_state_lock() {
     if command -v flock >/dev/null 2>&1; then
         flock -w 15 8 || {
             err "动态来源状态文件正忙，请稍后重试。"
-            exec 8>&- 2>/dev/null || true
+            { exec 8>&-; } 2>/dev/null || true
             return 1
         }
     fi
@@ -51,7 +51,7 @@ dynamic_state_unlock() {
     if command -v flock >/dev/null 2>&1; then
         flock -u 8 2>/dev/null || true
     fi
-    exec 8>&- 2>/dev/null || true
+    { exec 8>&-; } 2>/dev/null || true
     DYNAMIC_STATE_LOCK_HELD=0
 }
 

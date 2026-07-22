@@ -98,7 +98,7 @@ lan_state_lock() {
     if command -v flock >/dev/null 2>&1; then
         flock -w 15 8 || {
             printf 'LAN Worker 配置状态文件正忙，请稍后重试。\n' >&2
-            exec 8>&- 2>/dev/null || true
+            { exec 8>&-; } 2>/dev/null || true
             return 1
         }
     fi
@@ -110,7 +110,7 @@ lan_state_unlock() {
     if command -v flock >/dev/null 2>&1; then
         flock -u 8 2>/dev/null || true
     fi
-    exec 8>&- 2>/dev/null || true
+    { exec 8>&-; } 2>/dev/null || true
     LAN_STATE_LOCK_HELD=0
 }
 

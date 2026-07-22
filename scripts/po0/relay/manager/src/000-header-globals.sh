@@ -2,10 +2,11 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-nftables-relay-manager"
-SCRIPT_VERSION="2026.07.20+build.1"
-SCRIPT_RELEASE_DATE="2026-07-20"
+SCRIPT_VERSION="2026.07.22+build.1"
+SCRIPT_RELEASE_DATE="2026-07-22"
 # CHANGELOG_BEGIN
-# - `--client-ip-report` 新增可选 CIDR 前缀，允许 LAN Worker 按网络类型上报 `/24` 或 `/32`；省略时仍保持 `/32`。
+# - 资源任务上传新增分类大小上限和严格有界接收，并缩短任务队列锁占用时间；现有 Worker 调用参数及 SHA/size 表达保持兼容。
+# - 修复无 `flock` 环境释放内部文件锁后可能吞掉后续错误输出的问题。
 # CHANGELOG_END
 CONF_DIR="${PO0_CONF_DIR:-/etc/nftables.d}"
 MAIN_CONF="/etc/nftables.conf"
@@ -36,6 +37,8 @@ RESOURCE_TASKS_FILE="${CONF_DIR}/po0-relay-resource-tasks.tsv"
 RESOURCE_TASK_TOKEN_FILE="${CONF_DIR}/po0-relay-resource-task.token"
 RESOURCE_INBOX_DIR="${CONF_DIR}/po0-relay-resource-inbox"
 RESOURCE_TASK_LOCK_FILE="${CONF_DIR}/po0-relay-resource-tasks.lock"
+RESOURCE_IPLIST_MAX_BYTES="${PO0_RESOURCE_IPLIST_MAX_BYTES:-${RESOURCE_IPLIST_MAX_BYTES:-8388608}}"
+RESOURCE_IPDB_MAX_BYTES="${PO0_RESOURCE_IPDB_MAX_BYTES:-${RESOURCE_IPDB_MAX_BYTES:-134217728}}"
 DYNAMIC_STATE_LOCK_FILE="${CONF_DIR}/po0-relay-dynamic-state.lock"
 RESOURCE_TASK_HISTORY_LIMIT=500
 DYNAMIC_ALLOWLIST_MAX_PER_SOURCE="${PO0_DYNAMIC_ALLOWLIST_MAX_PER_SOURCE:-12}"

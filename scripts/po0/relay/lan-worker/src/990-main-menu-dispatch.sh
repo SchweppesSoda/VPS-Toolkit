@@ -224,7 +224,12 @@ while [[ $# -gt 0 ]]; do
             ;;
         --self-report-secret)
             require_arg_value "$@"
-            SELF_REPORT_SECRET="${2:-}"
+            # Keep an already loaded secret when legacy automation expands an
+            # unset variable to an explicit empty argument. A genuinely new
+            # install remains empty here and generates its secret at install.
+            if [[ -n "${2:-}" || -z "${SELF_REPORT_SECRET}" ]]; then
+                SELF_REPORT_SECRET="${2:-}"
+            fi
             shift 2
             ;;
         --client-ip-token|--self-report-token)

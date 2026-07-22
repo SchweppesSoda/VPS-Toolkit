@@ -3,10 +3,9 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 src_dir="${repo_root}/scripts/po0/relay/manager/src"
-tmp_dir="${repo_root}/.tmp/po0-manager-client-ip-cidr-prefix"
-
-rm -rf "${tmp_dir}"
-mkdir -p "${tmp_dir}"
+tmp_root="$(mkdir -p "${repo_root}/.tmp" && cd "${repo_root}/.tmp" && pwd -P)"
+tmp_dir="$(mktemp -d "${tmp_root}/po0-manager-client-ip-cidr-prefix.XXXXXX")"
+tmp_dir="$(cd "${tmp_dir}" && pwd -P)"
 trap 'rm -rf "${tmp_dir}"' EXIT
 
 # Load the production CIDR and client-report functions, then replace only their

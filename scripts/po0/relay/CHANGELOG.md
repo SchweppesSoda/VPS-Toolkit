@@ -6,6 +6,14 @@
 
 ## po0-nftables-relay-manager
 
+### 2026.07.22+build.1
+
+- 资源任务上传按类型新增默认大小上限：`iplist.tar.gz` 为 8 MiB，`qqwry.ipdb` 为 128 MiB；PO0 本机可以用环境变量覆盖。
+- 上传正文改为严格有界接收，短输入、尾随数据、SHA-256 或长度不符均拒绝并清理临时文件。
+- 上传正文期间不再持有全局资源任务锁，提交前重新确认任务状态和 Worker；现有 Worker 命令参数与任务状态保持兼容。
+- 上传与完成接口统一规范化 SHA-256 大小写和文件大小前导零，避免旧调用在上传成功后无法完成任务。
+- 无 `flock` 环境释放内部文件锁后不再误把当前 shell 的后续错误输出重定向到空设备。
+
 ### 2026.07.20+build.1
 
 - `--client-ip-report` 新增可选的第六个业务参数 `cidr-prefix`，仅接受 `24` 或 `32`，省略时保持 `/32` 兼容行为。
@@ -194,6 +202,13 @@
 - 状态面板和资源任务创建计划摘要增加彩色状态提示。
 
 ## po0-lan-worker-client
+
+### 2026.07.22+build.1
+
+- Stash HTTPS 上报不再根据客户端提交的网络类型放大到 `/24`，蜂窝、Wi-Fi 和未知网络统一按 `/32` 写入 PO0。
+- Stash 客户端网络探测失败改记为 `unknown`，服务端仍强制使用 `/32`。
+- Self-report 服务安装会复用已有 secret，旧自动化显式传入空 secret 时也不会覆盖已加载的值；仅在确实缺失时自动生成并保存。旧 `/report` 在 secret 为空时返回 503，不再以无鉴权模式接收上报。
+- 无 `flock` 环境释放 LAN Worker 配置锁后不再误把当前 shell 的后续错误输出重定向到空设备。
 
 ### 2026.07.20+build.1
 
@@ -393,6 +408,10 @@
 - 状态页 / Widget 优先复用 IP9、163、126、myip.ipip 等 IP 查询接口返回的归属地 / 运营商信息，拿不到时才额外查询。
 
 ## po0-outbound-ip-report（Linux/OpenWrt）
+
+### 2026.07.22+build.1
+
+- 跟随 PO0 发布批次对齐到 `2026.07.22+build.1`；Linux/OpenWrt 客户端无行为变化。
 
 ### 2026.07.20+build.1
 
@@ -598,6 +617,10 @@
 
 ## po0-outbound-ip-report（macOS）
 
+### 2026.07.22+build.1
+
+- 跟随 PO0 发布批次对齐到 `2026.07.22+build.1`；macOS 客户端无行为变化。
+
 ### 2026.07.20+build.1
 
 - 跟随 PO0 发布批次对齐到 `po0-v2026.07.20.1`；macOS 客户端无行为变化。
@@ -747,6 +770,10 @@
 - 支持 `--save-config --menu` 首次保存默认配置后打开菜单，并提供 `--install-launchd` 别名。
 
 ## po0-outbound-ip-report（Windows PowerShell）
+
+### 2026.07.22+build.1
+
+- 跟随 PO0 发布批次对齐到 `2026.07.22+build.1`；Windows 客户端无行为变化。
 
 ### 2026.07.20+build.1
 

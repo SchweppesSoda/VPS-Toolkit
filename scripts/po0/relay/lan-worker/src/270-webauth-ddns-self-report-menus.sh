@@ -100,7 +100,7 @@ edit_self_report_secret_interactive() {
     generated="$(random_secret)"
     if [[ -n "${SELF_REPORT_SECRET}" ]]; then
         printf '当前 Self-report secret：%s\n' "${SELF_REPORT_SECRET}"
-        value="$(read_prompt "新的 Self-report secret [回车保留，输入 g 生成新值，输入 - 清空]: ")" || value=""
+        value="$(read_prompt "新的 Self-report secret [回车保留，输入 g 生成新值]: ")" || value=""
         value="$(trim "${value}")"
         case "${value}" in
             "") ;;
@@ -108,7 +108,7 @@ edit_self_report_secret_interactive() {
                 SELF_REPORT_SECRET="${generated}"
                 ;;
             -)
-                SELF_REPORT_SECRET=""
+                printf 'Self-report 接收端现在要求 secret，不能清空；已保留原值。\n' >&2
                 ;;
             *)
                 SELF_REPORT_SECRET="${value}"
@@ -118,13 +118,9 @@ edit_self_report_secret_interactive() {
         value="$(prompt_default "Self-report secret（回车使用自动生成值）" "${generated}")"
         SELF_REPORT_SECRET="${value}"
     fi
-    if [[ -n "${SELF_REPORT_SECRET}" ]]; then
-        printf 'Self-report secret 已设置为：%s\n' "${SELF_REPORT_SECRET}"
-        printf 'Linux/macOS/OpenWrt 使用：export PO0_SELF_REPORT_SECRET=%s\n' "$(sh_quote "${SELF_REPORT_SECRET}")"
-        printf 'Windows PowerShell 使用：$env:PO0_SELF_REPORT_SECRET=%s\n' "$(ps_quote "${SELF_REPORT_SECRET}")"
-    else
-        printf 'Self-report secret 已清空；接收端将不校验访问设备 secret。\n'
-    fi
+    printf 'Self-report secret 已设置为：%s\n' "${SELF_REPORT_SECRET}"
+    printf 'Linux/macOS/OpenWrt 使用：export PO0_SELF_REPORT_SECRET=%s\n' "$(sh_quote "${SELF_REPORT_SECRET}")"
+    printf 'Windows PowerShell 使用：$env:PO0_SELF_REPORT_SECRET=%s\n' "$(ps_quote "${SELF_REPORT_SECRET}")"
     save_local_settings || return 1
     printf '已保存本机设置：%s\n' "${SETTINGS_FILE}"
 }

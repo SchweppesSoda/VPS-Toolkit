@@ -6,9 +6,10 @@ on:
       - main
     paths:
       - scripts/po0/relay/**
-      - scripts/po0/nftables/clients/egern/**
+      - scripts/po0/nftables/clients/**
       - scripts/po0/nftables/legacy/**
       - scripts/po0/nftables/tools/**
+      - scripts/po0/reinstall/**
       - scripts/po0/README.md
       - tools/po0/**
       - .github/workflows/po0-check.yml
@@ -20,9 +21,10 @@ on:
   pull_request:
     paths:
       - scripts/po0/relay/**
-      - scripts/po0/nftables/clients/egern/**
+      - scripts/po0/nftables/clients/**
       - scripts/po0/nftables/legacy/**
       - scripts/po0/nftables/tools/**
+      - scripts/po0/reinstall/**
       - scripts/po0/README.md
       - tools/po0/**
       - .github/workflows/po0-check.yml

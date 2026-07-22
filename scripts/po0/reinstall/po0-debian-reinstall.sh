@@ -29,6 +29,13 @@
 
 set -e
 
+SCRIPT_VERSION="2026.07.22+build.1"
+SCRIPT_RELEASE_DATE="2026-07-22"
+# CHANGELOG_BEGIN
+# - 修复 DISABLE_IPV6=false 时仍向安装内核传入 ipv6.disable=1。
+# - 独立 /boot 分区会使用 GRUB 视角的 /debian-autoinstall 路径；其余环境保持原路径。
+# CHANGELOG_END
+
 # ======== 默认配置（可改） ========
 DEBIAN_RELEASE="bookworm"       # Debian 12 = bookworm
 HOSTNAME="debian"               # 安装后主机名
@@ -50,6 +57,74 @@ GREEN="\033[0;32m"
 YELLOW="\033[0;33m"
 BLUE="\033[0;34m"
 NC="\033[0m"
+
+installer_ipv6_kernel_arg() {
+  if [[ "${1:-}" == "true" ]]; then
+    printf 'ipv6.disable=1'
+  fi
+}
+
+detect_boot_mount_target() {
+  local target=""
+
+  if command -v findmnt >/dev/null 2>&1; then
+    target="$(findmnt -nro TARGET --target /boot 2>/dev/null || true)"
+  fi
+
+  printf '%s\n' "${target:-/}"
+}
+
+grub_installer_asset_dir() {
+  local boot_mount_target="${1:-}"
+
+  if [[ -z "$boot_mount_target" ]]; then
+    boot_mount_target="$(detect_boot_mount_target)"
+  fi
+
+  if [[ "$boot_mount_target" == "/boot" ]]; then
+    printf '/debian-autoinstall\n'
+  else
+    printf '/boot/debian-autoinstall\n'
+  fi
+}
+
+render_grub_installer_entry() {
+  local asset_dir="$1"
+  local ipv6_kernel_arg="$2"
+
+  cat <<EOF
+#!/bin/sh
+exec tail -n +3 \$0
+
+menuentry '${GRUB_MENU_TITLE}' --id ${GRUB_MENU_ID} {
+    insmod gzio
+    insmod part_msdos
+    insmod part_gpt
+    insmod ext2
+    search --no-floppy --file ${asset_dir}/linux --set=root
+
+    linux ${asset_dir}/linux \
+        auto=true priority=critical \
+        preseed/file=/preseed.cfg \
+        debian-installer/locale=en_US.UTF-8 \
+        keyboard-configuration/xkb-keymap=us \
+        netcfg/choose_interface=auto \
+        netcfg/disable_dhcp=false \
+        mirror/country=manual \
+        mirror/http/hostname=${MIRROR_HOST} \
+        mirror/http/directory=/debian \
+        mirror/http/proxy= \
+        mirror/suite=${DEBIAN_RELEASE} \
+        hostname=${HOSTNAME} domain=localdomain ${ipv6_kernel_arg}
+
+    initrd ${asset_dir}/initrd.gz
+}
+EOF
+}
+
+if [[ "${PO0_DEBIAN_REINSTALL_LIB_ONLY:-0}" == "1" ]]; then
+  return 0 2>/dev/null || exit 0
+fi
 
 resolve_disk_from_device() {
   local dev="$1"
@@ -73,10 +148,28 @@ resolve_disk_from_device() {
   return 1
 }
 
+show_version() {
+  cat <<EOF
+script_name=po0-debian-reinstall
+version=${SCRIPT_VERSION}
+release_date=${SCRIPT_RELEASE_DATE}
+EOF
+}
+
+show_changelog() {
+  awk '
+    /^# CHANGELOG_BEGIN$/ { printing = 1; next }
+    /^# CHANGELOG_END$/ { exit }
+    printing { sub(/^# ?/, ""); print }
+  ' "${BASH_SOURCE[0]}"
+}
+
 usage() {
   cat <<EOF
 用法:
   bash po0-debian-reinstall.sh [-passwd MyPassword] [-port 22]
+  bash po0-debian-reinstall.sh --version
+  bash po0-debian-reinstall.sh --changelog
 
 说明:
   -passwd  指定 root 密码；不指定则自动生成随机密码
@@ -90,7 +183,7 @@ usage() {
 EOF
 }
 
-# ------- 参数解析（只有 passwd / port） -------
+# ------- 参数解析 -------
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -passwd|--passwd)
@@ -103,6 +196,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     -h|--help)
       usage
+      exit 0
+      ;;
+    -V|--version)
+      show_version
+      exit 0
+      ;;
+    --changelog)
+      show_changelog
       exit 0
       ;;
     *)
@@ -572,41 +673,15 @@ GRUB_SCRIPT="/etc/grub.d/42_po0_autoinstall"
 LEGACY_GRUB_SCRIPT="/etc/grub.d/05_po0_autoinstall"
 GRUB_MENU_TITLE="*** po0 Auto Install Debian 12 (DD ALL ${DISK}) via Tencent ***"
 GRUB_MENU_ID="po0-autoinstall"
+GRUB_INSTALLER_ASSET_DIR="$(grub_installer_asset_dir)"
+GRUB_IPV6_KERNEL_ARG="$(installer_ipv6_kernel_arg "$DISABLE_IPV6")"
 
 if [[ -f "$LEGACY_GRUB_SCRIPT" ]]; then
   rm -f "$LEGACY_GRUB_SCRIPT"
   echo -e "${YELLOW}[!] 已移除旧版持久 GRUB 启动项：${LEGACY_GRUB_SCRIPT}${NC}"
 fi
 
-cat > "$GRUB_SCRIPT" <<EOF
-#!/bin/sh
-exec tail -n +3 \$0
-
-menuentry '${GRUB_MENU_TITLE}' --id ${GRUB_MENU_ID} {
-    insmod gzio
-    insmod part_msdos
-    insmod part_gpt
-    insmod ext2
-    search --no-floppy --file /boot/debian-autoinstall/linux --set=root
-
-    linux /boot/debian-autoinstall/linux \
-        auto=true priority=critical \
-        preseed/file=/preseed.cfg \
-        debian-installer/locale=en_US.UTF-8 \
-        keyboard-configuration/xkb-keymap=us \
-        netcfg/choose_interface=auto \
-        netcfg/disable_dhcp=false \
-        mirror/country=manual \
-        mirror/http/hostname=${MIRROR_HOST} \
-        mirror/http/directory=/debian \
-        mirror/http/proxy= \
-        mirror/suite=${DEBIAN_RELEASE} \
-        hostname=${HOSTNAME} domain=localdomain \
-        ${DISABLE_IPV6:+ipv6.disable=1}
-
-    initrd /boot/debian-autoinstall/initrd.gz
-}
-EOF
+render_grub_installer_entry "${GRUB_INSTALLER_ASSET_DIR}" "${GRUB_IPV6_KERNEL_ARG}" > "$GRUB_SCRIPT"
 
 chmod +x "$GRUB_SCRIPT"
 

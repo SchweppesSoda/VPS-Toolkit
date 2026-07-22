@@ -83,6 +83,102 @@ activate_received_iplist() {
     fi
 }
 
+receive_resource_task_body_exact() {
+    local output="$1"
+    local expected_size="$2"
+    local block_size=1048576 full_blocks remainder actual_size extra_size
+    : > "${output}" || return 1
+    full_blocks=$((expected_size / block_size))
+    remainder=$((expected_size % block_size))
+    if (( full_blocks > 0 )); then
+        dd bs="${block_size}" count="${full_blocks}" iflag=fullblock status=none > "${output}" || return 1
+    fi
+    if (( remainder > 0 )); then
+        dd bs="${remainder}" count=1 iflag=fullblock status=none >> "${output}" || return 1
+    fi
+    actual_size="$(wc -c < "${output}" | tr -d '[:space:]')"
+    [[ "${actual_size}" == "${expected_size}" ]] || return 2
+    extra_size="$(dd bs=1 count=1 status=none 2>/dev/null | wc -c | tr -d '[:space:]')" || return 1
+    [[ "${extra_size}" == "0" ]] || return 3
+}
+
+record_resource_task_upload_locked() {
+    local task_id="$1"
+    local worker="$2"
+    local expected_type="$3"
+    local expected_path="$4"
+    local reported_sha="$5"
+    local reported_size="$6"
+    local upload_tmp="$7"
+    local line id type status created claimed finished task_worker artifact sha size message
+    local tmp previous_path="" found=0 result=""
+    make_temp_file "${RESOURCE_TASKS_FILE}" || return 1
+    tmp="${TEMP_FILE_RESULT}"
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        if [[ -n "${line}" && "${line}" != \#* ]]; then
+            IFS='|' read -r id type status created claimed finished task_worker artifact sha size message <<< "${line}"
+            if [[ "${id}" == "${task_id}" ]]; then
+                found=1
+                if [[ "${type}" != "${expected_type}" || "${status}" != "running" || "${task_worker}" != "${worker}" ]]; then
+                    result="state_mismatch"
+                elif [[ -n "${artifact}" || -n "${sha}" || -n "${size}" ]]; then
+                    if [[ "${artifact}" == "${expected_path}" && "${sha,,}" == "${reported_sha,,}" && "${size}" == "${reported_size}" && -f "${expected_path}" ]]; then
+                        result="duplicate"
+                    else
+                        result="artifact_conflict"
+                    fi
+                else
+                    printf '%s|%s|running|%s|%s||%s|%s|%s|%s|%s\n' \
+                        "${id}" "${type}" "${created}" "${claimed}" "${task_worker}" \
+                        "${expected_path}" "${reported_sha,,}" "${reported_size}" "资源任务文件已上传，等待校验导入" >> "${tmp}"
+                    result="recorded"
+                    continue
+                fi
+            fi
+        fi
+        printf '%s\n' "${line}" >> "${tmp}"
+    done < "${RESOURCE_TASKS_FILE}"
+    [[ "${found}" == "1" ]] || result="not_found"
+    case "${result}" in
+        recorded)
+            if [[ -e "${expected_path}" ]]; then
+                make_temp_file "${expected_path}" || {
+                    rm -f -- "${tmp}" 2>/dev/null || true
+                    return 1
+                }
+                previous_path="${TEMP_FILE_RESULT}"
+                rm -f -- "${previous_path}" 2>/dev/null || {
+                    rm -f -- "${tmp}" 2>/dev/null || true
+                    return 1
+                }
+                mv -f "${expected_path}" "${previous_path}" || {
+                    rm -f -- "${tmp}" 2>/dev/null || true
+                    return 1
+                }
+            fi
+            if ! mv -f "${upload_tmp}" "${expected_path}"; then
+                [[ -z "${previous_path}" ]] || mv -f "${previous_path}" "${expected_path}" 2>/dev/null || true
+                rm -f -- "${tmp}" 2>/dev/null || true
+                return 6
+            fi
+            chmod 600 "${expected_path}" 2>/dev/null || true
+            if ! mv -f "${tmp}" "${RESOURCE_TASKS_FILE}"; then
+                rm -f -- "${expected_path}" 2>/dev/null || true
+                [[ -z "${previous_path}" ]] || mv -f "${previous_path}" "${expected_path}" 2>/dev/null || true
+                rm -f -- "${tmp}" 2>/dev/null || true
+                return 1
+            fi
+            [[ -z "${previous_path}" ]] || rm -f -- "${previous_path}" 2>/dev/null || true
+            return 0
+            ;;
+        duplicate) rm -f -- "${tmp}" 2>/dev/null || true; return 2 ;;
+        state_mismatch) rm -f -- "${tmp}" 2>/dev/null || true; return 3 ;;
+        artifact_conflict) rm -f -- "${tmp}" 2>/dev/null || true; return 4 ;;
+        not_found) rm -f -- "${tmp}" 2>/dev/null || true; return 5 ;;
+        *) rm -f -- "${tmp}" 2>/dev/null || true; return 1 ;;
+    esac
+}
+
 upload_resource_task_artifact() {
     local task_id="$1"
     local worker="$2"
@@ -90,13 +186,22 @@ upload_resource_task_artifact() {
     local reported_size="$4"
     local token="$5"
     local line id type status created claimed finished task_worker artifact sha size message
-    local expected_path tmp actual_sha actual_size found=0
+    local expected_path tmp actual_sha actual_size found=0 max_bytes receive_rc record_rc snapshot_type
     [[ "${task_id}" =~ ^[A-Za-z0-9._-]+$ ]] || { printf 'ERROR|任务 ID 无效\n'; return 1; }
     [[ "${worker}" =~ ^[A-Za-z0-9._:-]{1,80}$ ]] || { printf 'ERROR|worker_id 无效\n'; return 1; }
     [[ "${reported_sha}" =~ ^[A-Fa-f0-9]{64}$ ]] || { printf 'ERROR|SHA256 无效\n'; return 1; }
-    [[ "${reported_size}" =~ ^[0-9]+$ ]] || { printf 'ERROR|文件大小无效\n'; return 1; }
+    reported_size="$(resource_task_normalize_size "${reported_size}")" || { printf 'ERROR|文件大小无效\n'; return 1; }
     resource_task_token_matches "${token}" || { printf 'ERROR|Token 错误\n'; return 1; }
     command -v sha256sum >/dev/null 2>&1 || { printf 'ERROR|PO0 缺少 sha256sum\n'; return 1; }
+    command -v dd >/dev/null 2>&1 || { printf 'ERROR|PO0 缺少 dd\n'; return 1; }
+    snapshot_type="$(resource_task_type_for_id_readonly "${task_id}" 2>/dev/null || true)"
+    [[ -n "${snapshot_type}" ]] || { printf 'ERROR|任务不存在\n'; return 1; }
+    max_bytes="$(resource_task_upload_max_bytes "${snapshot_type}" 2>/dev/null || true)"
+    [[ -n "${max_bytes}" ]] || { printf 'ERROR|资源上传大小上限配置无效\n'; return 1; }
+    resource_task_size_within_limit "${reported_size}" "${max_bytes}" || {
+        printf 'ERROR|声明文件大小超过 %s 上限（%s bytes）\n' "${snapshot_type}" "${max_bytes}"
+        return 1
+    }
     resource_task_lock || return 1
     while IFS= read -r line || [[ -n "${line}" ]]; do
         [[ -n "${line}" && "${line}" != \#* ]] || continue
@@ -116,33 +221,71 @@ upload_resource_task_artifact() {
         printf 'ERROR|任务不存在\n'
         return 1
     }
+    [[ "${type}" == "${snapshot_type}" ]] || {
+        resource_task_unlock
+        printf 'ERROR|任务类型已变化\n'
+        return 1
+    }
+    max_bytes="$(resource_task_upload_max_bytes "${type}" 2>/dev/null || true)"
+    [[ -n "${max_bytes}" ]] || {
+        resource_task_unlock
+        printf 'ERROR|资源上传大小上限配置无效\n'
+        return 1
+    }
+    resource_task_size_within_limit "${reported_size}" "${max_bytes}" || {
+        resource_task_unlock
+        printf 'ERROR|声明文件大小超过 %s 上限（%s bytes）\n' "${type}" "${max_bytes}"
+        return 1
+    }
     expected_path="${RESOURCE_INBOX_DIR}/${task_id}.$(resource_task_artifact_name "${type}")"
     make_temp_file "${expected_path}" || {
         resource_task_unlock
         return 1
     }
     tmp="${TEMP_FILE_RESULT}"
-    if ! cat > "${tmp}"; then
+    resource_task_unlock
+    receive_resource_task_body_exact "${tmp}" "${reported_size}"
+    receive_rc=$?
+    if [[ "${receive_rc}" -ne 0 ]]; then
         rm -f -- "${tmp}" 2>/dev/null || true
-        resource_task_unlock
-        printf 'ERROR|接收任务文件失败\n'
+        case "${receive_rc}" in
+            2) printf 'ERROR|任务文件提前结束\n' ;;
+            3) printf 'ERROR|任务文件包含超出声明大小的尾随数据\n' ;;
+            *) printf 'ERROR|接收任务文件失败\n' ;;
+        esac
         return 1
     fi
     actual_sha="$(sha256sum "${tmp}" | awk '{print $1}')"
     actual_size="$(wc -c < "${tmp}" | tr -d '[:space:]')"
-    if [[ "${actual_sha}" != "${reported_sha}" || "${actual_size}" != "${reported_size}" ]]; then
+    if [[ "${actual_sha,,}" != "${reported_sha,,}" || "${actual_size}" != "${reported_size}" ]]; then
         rm -f -- "${tmp}" 2>/dev/null || true
-        resource_task_unlock
         printf 'ERROR|SHA256 或文件大小不匹配\n'
         return 1
     fi
-    mv -f "${tmp}" "${expected_path}" || {
+    resource_task_lock || {
         rm -f -- "${tmp}" 2>/dev/null || true
-        resource_task_unlock
-        printf 'ERROR|保存任务文件失败\n'
         return 1
     }
-    chmod 600 "${expected_path}" 2>/dev/null || true
+    record_resource_task_upload_locked "${task_id}" "${worker}" "${type}" "${expected_path}" "${reported_sha}" "${reported_size}" "${tmp}"
+    record_rc=$?
+    if [[ "${record_rc}" == "2" ]]; then
+        rm -f -- "${tmp}" 2>/dev/null || true
+        resource_task_unlock
+        printf 'OK|资源任务文件已上传\n'
+        return 0
+    fi
+    if [[ "${record_rc}" != "0" ]]; then
+        rm -f -- "${tmp}" 2>/dev/null || true
+        resource_task_unlock
+        case "${record_rc}" in
+            3) printf 'ERROR|任务状态或领取机器不匹配\n' ;;
+            4) printf 'ERROR|任务已有不同的上传文件\n' ;;
+            5) printf 'ERROR|任务不存在\n' ;;
+            6) printf 'ERROR|保存任务文件失败\n' ;;
+            *) printf 'ERROR|记录任务文件失败\n' ;;
+        esac
+        return 1
+    fi
     resource_task_unlock
     printf 'OK|资源任务文件已上传\n'
 }
