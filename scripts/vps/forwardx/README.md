@@ -1,5 +1,8 @@
 # ForwardX NAT Agent Adapter
 
+Maintenance status: low-frequency, as-needed support. Existing deployments can
+continue to use it, but it is not a default recommendation for new hosts.
+
 `forwardx-nat-agent-adapter.sh` wraps the ForwardX agent install command for
 NAT VPS hosts, especially Alpine/BusyBox systems without systemd.
 

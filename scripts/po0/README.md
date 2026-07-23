@@ -1,80 +1,21 @@
 # PO0 工具
 
-这个目录保存 PO0 或类似中转机的部署与维护工具。这里是 PO0 子系统导航；具体菜单、Token、TTL、状态文件和定时任务以各子目录 README 为准。
+这个目录保存 PO0 或类似中转机的部署与维护工具。这里仅提供子系统导航；部署命令、菜单、Token、TTL、状态文件、客户端配置和定时任务以对应模块 README 为准。
 
-## 先看哪份文档
+## 模块入口
 
-| 目标 | 文档 | 说明 |
+| 目标 | 用户主文档 | 说明 |
 | --- | --- | --- |
-| 管理 nftables 中转、源 IP 白名单、LAN Worker、Self-report、WebAuth、Egern、iplist/ipdb | [`relay/README.md`](./relay/README.md) | PO0 中转系统用户主文档。 |
-| 查看 PO0 nftables 子系统版本历史 | [`relay/CHANGELOG.md`](./relay/CHANGELOG.md) | 完整历史在仓库文档中维护；远端单脚本只显示当前版本更新内容。 |
-| 重装 Debian | [`reinstall/README.md`](./reinstall/README.md) | 会重装系统盘，执行前必须单独确认。 |
-| 部署代理服务增强 sidecar | [`proxy-services/README.md`](./proxy-services/README.md) | argosbx/Xray sidecar、VLESS RAW ENC、Shadowsocks 2022。 |
+| 管理 nftables 中转、源 IP 白名单、LAN Worker、Self-report、WebAuth、Egern、Stash、Loon、iplist/ipdb | [`relay/README.md`](./relay/README.md) | PO0 中转系统的主入口；客户端入口、发布渠道、版本历史和实现文档均从这里继续进入。 |
+| 重装 PO0 Debian | [`reinstall/README.md`](./reinstall/README.md) | 会重装系统盘，执行前必须单独确认并准备恢复通道。 |
+| 部署代理服务增强 sidecar | [`proxy-services/README.md`](./proxy-services/README.md) | argosbx/Xray sidecar、VLESS RAW ENC 和 Shadowsocks 2022。 |
 
-Egern 专属配置和 nftables 实现文档从 `relay/README.md` 继续进入，避免 PO0 层入口重复展开细节。
+运行在 PO0、LAN Worker 或访问设备上的组件职责不同，不要仅按目录名猜测部署位置。进入对应主文档后，先看其“阅读路线”或“部署”部分。
 
-Loon 客户端使用公开 Raw 资产：主插件为 `scripts/po0/nftables/clients/loon/PO0.LAN-Report.lpx`，插件再加载同目录的 `po0-loon-report.js`。Worker URL 和 Token 只在 Loon 的插件输入中设置，不写入仓库。
-
-## 常用入口
-
-### PO0 nftables 中转
-
-推荐从 GitHub Release 发布文件下载主控脚本，再在 PO0 上运行：
-
-```bash
-curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/nftables-relay-manager.sh -o /root/nftables-relay-manager.sh
-chmod +x /root/nftables-relay-manager.sh
-bash /root/nftables-relay-manager.sh
-```
-
-检查已安装版本和当前更新内容：
-
-```bash
-ssh root@<PO0_HOST> 'bash /root/nftables-relay-manager.sh --version'
-ssh root@<PO0_HOST> 'bash /root/nftables-relay-manager.sh --changelog'
-```
-
-### LAN Worker
-
-LAN Worker 命令在内网 Worker 机器上执行，不在 PO0 上执行。首次部署推荐进入向导：
-
-```bash
-curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-lan-client.sh | bash
-```
-
-向导会写入本机配置，并安装 `po0-lan-client` 命令。之后常用：
-
-```bash
-po0-lan-client --menu
-po0-lan-client --run
-po0-lan-client --probe
-```
-
-### PO0 Debian 重装
-
-这个脚本会重装系统盘。不要直接复制未知在线命令；先读 [`reinstall/README.md`](./reinstall/README.md)，再上传脚本执行。
-
-```bash
-scp scripts/po0/reinstall/po0-debian-reinstall.sh root@<PO0_HOST>:/root/po0-debian-reinstall.sh
-ssh root@<PO0_HOST> 'chmod +x /root/po0-debian-reinstall.sh && bash /root/po0-debian-reinstall.sh'
-```
-
-### PO0 代理服务增强
-
-```bash
-tmp="$(mktemp)"
-curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/proxy-services/vless-raw-enc-argosbx-enhancer.sh -o "$tmp"
-sudo install -m 0755 "$tmp" /usr/local/sbin/vless-raw-enc-argosbx-enhancer
-rm -f "$tmp"
-sudo /usr/local/sbin/vless-raw-enc-argosbx-enhancer
-```
-
-## 发布渠道
-
-PO0 nftables 五个可执行脚本的新安装、自更新和 LAN Worker manager 更新镜像默认使用 GitHub Release 发布文件。五个发布文件由 `tools/po0/manifests/` 按 manifest 从 manager、LAN Worker、Linux/macOS/Windows self-report 五个源码树生成。旧 manager、LAN Worker 和 self-report raw URL 已禁用，不再作为兼容入口。Egern、Loon、Stash 客户端资产，Egern 历史兼容路径、离线 iplist 构建器、外部 ipdb/iplist 数据源和其它 PO0/VPS 工具若未纳入 Release，仍以各自 README 为准。
+`tools/po0/` 是 Release 发布文件的离线构建与检查工具，不是 PO0 或 LAN Worker 上的运行入口。
 
 ## 安全说明
 
-- 仓库只保存脚本和示例，不应提交运行时生成的密码、Token、私钥或节点配置。
-- `nftables` 客户端配置会保存 Token，应仅放在可信机器并限制文件权限。
-- 重装、SSH、防火墙和转发脚本都可能影响远程连接，执行前应确保有 VNC、控制台或其它恢复通道。
+PO0 重装、SSH、防火墙、nftables 和转发操作都可能导致数据丢失或远程连接中断。执行前应检查脚本，并准备服务商控制台或其它恢复通道。
+
+仓库不保存运行时密码、Token、私钥、节点配置或服务器专用导出文件。

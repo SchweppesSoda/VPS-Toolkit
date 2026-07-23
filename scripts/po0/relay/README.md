@@ -25,7 +25,7 @@
 | 管理源 IP 白名单、DDNS、动态来源、attack mode | “源 IP 白名单模式”、“DDNS Resolver 上报”、“attack mode” |
 | 让内网机器领取 iplist/ipdb 资源任务 | “LAN Worker 资源任务” |
 | 让 PO0 从 LAN Worker 一键拉取更新 manager | “PO0 manager HTTP 更新镜像” |
-| 让访问设备自上报当前出口 IPv4 | “LAN Worker Self-report” |
+| 让 Linux/OpenWrt、macOS、Windows、Stash 或 Loon 自上报当前出口 IPv4 | “LAN Worker Self-report” |
 | 配置 Egern 当前出口 IPv4 SSH 上报 | “Egern 当前出口 IP 上报”，以及 [`nftables/clients/egern/README.md`](../nftables/clients/egern/README.md) |
 | 配置 Cloudflare Access / WebAuth 放行 | “LAN Worker WebAuth” |
 | 构建或导入离线 IP 数据 | “IP 数据源” |
@@ -41,7 +41,7 @@ PO0 nftables 五个可执行脚本的新安装和自更新默认使用 GitHub Re
 - `https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report-macos.sh`
 - `https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.ps1`
 
-旧 manager、LAN Worker 和 self-report raw URL 已禁用，不再作为兼容入口。Egern 标准 raw 路径、Egern 历史兼容路径、离线 iplist 构建器、外部 ipdb/iplist 数据源和未纳入本阶段的通用 VPS 工具 raw URL 仍是白名单。
+旧 manager、LAN Worker 和 self-report raw URL 已禁用，不再作为兼容入口。Egern 标准 raw 路径、Stash/Loon 客户端资产、Egern 历史兼容路径、离线 iplist 构建器、外部 ipdb/iplist 数据源和未纳入本阶段的通用 VPS 工具 raw URL 仍是白名单。
 
 如需测试或回滚下载源，可临时设置 `PO0_MANAGER_DOWNLOAD_URL`、`PO0_LAN_CLIENT_DOWNLOAD_URL`、`PO0_OUTBOUND_IP_REPORT_DOWNLOAD_URL`、`PO0_OUTBOUND_IP_REPORT_MACOS_DOWNLOAD_URL`、`PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL`；旧 `PO0_SELF_REPORT_*` 下载源变量仍作为 legacy alias 接受。这些覆盖值不会写入配置文件。
 
@@ -530,6 +530,8 @@ po0-lan-client --menu
 Stash 使用同一套 HTTPS 域名、后台服务、PO0 目标和 `Self-report secret`，专用入口为 `POST https://<SELF_REPORT_DOMAIN>/stash-report/v1`。请求必须在 `Authorization: Bearer <SELF_REPORT_SECRET>` 中携带 secret，并提交 JSON 字段 `source_id`、`ip`、`network`、`observed_at`、`request_id`；LAN Worker 对 Stash 的蜂窝、Wi-Fi 和未知网络统一按 `/32` 上报，客户端网络探测失败也不会扩大放行范围。`observed_at` 支持 Unix 秒或带时区的 ISO-8601 时间，和 LAN Worker 当前时间相差不能超过 10 分钟；同一后台进程会把已接收的 `request_id` 保留 10 分钟并拒绝重复请求。成功响应会给出 PO0 实际接收的 `accepted_cidr`、接收/过期时间和各目标结果。旧 `/report` 入口、参数和文本响应不变。已有 LAN Worker 升级脚本后，需要再执行一次菜单里的“配置 HTTPS 域名 / Caddy”，让它重写 Caddy snippet 并重启 Self-report 后台服务，新入口才会生效。
 
 正式方案是 `Stash -> HTTPS LAN Worker /stash-report/v1 -> SSH -> PO0 --client-ip-report`。Stash 脚本和可导入的正式 override 位于 `scripts/po0/nftables/clients/stash/po0-stash-report.js` 与 `PO0.LAN-Report.stoverride`。仓库另带默认关闭的 `PO0.SSH-Report.PoC.stoverride`：`Stash SSH proxy -> PO0 127.0.0.1:8790 receiver -> --ssh-ip-report`；备用 receiver 只监听 PO0 loopback，不经过 LAN Worker，也不应把 `8790` 暴露到公网。
+
+Loon 客户端使用公开 Raw 资产：主插件为 [`PO0.LAN-Report.lpx`](../nftables/clients/loon/PO0.LAN-Report.lpx)，插件再加载同目录的 [`po0-loon-report.js`](../nftables/clients/loon/po0-loon-report.js)。Worker URL 和 Token 只在 Loon 的插件输入中设置，不写入仓库。
 
 备用 receiver 在 PO0 上的安装示例：
 

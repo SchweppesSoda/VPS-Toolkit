@@ -2,44 +2,46 @@
 
 简体中文 | [English](./README.en.md)
 
-这是 VPS 维护脚本和 PO0 中转工具的源码仓库。运维脚本放在 `scripts/`；静态网页工具已迁出到 [`SchweppesSoda/vps-toolkit-web`](https://github.com/SchweppesSoda/vps-toolkit-web) 并由该仓库的 GitHub Pages 发布。
+这是 VPS 维护脚本和 PO0 中转工具的源码仓库。运维脚本位于 `scripts/`；静态网页工具已经迁至 [`SchweppesSoda/vps-toolkit-web`](https://github.com/SchweppesSoda/vps-toolkit-web)。
 
-## 先看哪份文档
+## 项目入口
 
-如果只是运行或维护现有功能，优先看 README，不要从 `*-technical.md` 或 `*-design.md` 开始；那些文档只给改实现时参考。
-
-| 你的目标 | 先看 | 说明 |
+| 使用场景 | 入口 | 维护状态 |
 | --- | --- | --- |
-| 部署或维护 PO0 nftables 中转、源 IP 白名单、LAN Worker、Self-report、WebAuth、Egern、iplist/ipdb | [`scripts/po0/relay/README.md`](./scripts/po0/relay/README.md) | PO0 中转系统的用户主文档，菜单、Token、TTL、状态文件和定时任务以它为准。 |
-| 只想确认 PO0 子系统有哪些入口 | [`scripts/po0/README.md`](./scripts/po0/README.md) | PO0 层导航，不复制 nftables 细节。 |
-| 重装 PO0 Debian | [`scripts/po0/reinstall/README.md`](./scripts/po0/reinstall/README.md) | 会重装系统盘；不提供 raw 在线执行命令。 |
-| 部署 PO0 代理服务增强 sidecar | [`scripts/po0/proxy-services/README.md`](./scripts/po0/proxy-services/README.md) | argosbx/Xray sidecar、VLESS RAW ENC、Shadowsocks 2022。 |
-| 管理普通 VPS 工具 | 下面“运行入口”索引 | SSH 加固、Fail2ban、3x-ui 导出、ForwardX、REALITY 查找分别维护在自己的目录。 |
-| 使用网页工具 | 本文的“公开网站” | 页面本身就是用户入口；网页工具源码和技术文档在 `vps-toolkit-web` 仓库维护。 |
-| 让 Codex / agent 继续维护仓库 | [`AGENTS.md`](./AGENTS.md) | 维护规则、文档归属、验证清单和历史踩坑。 |
+| PO0 nftables 中转、源 IP 白名单、LAN Worker、Self-report、WebAuth、Egern、Stash、Loon、iplist/ipdb | [`scripts/po0/relay/README.md`](./scripts/po0/relay/README.md) | 核心功能，持续维护 |
+| PO0 Debian 重装 | [`scripts/po0/reinstall/README.md`](./scripts/po0/reinstall/README.md) | 按需维护；会重装系统盘 |
+| PO0 代理服务增强 sidecar | [`scripts/po0/proxy-services/README.md`](./scripts/po0/proxy-services/README.md) | 按需维护 |
+| SSH 仅公钥登录加固 | [`scripts/vps/ssh-key-only/README.md`](./scripts/vps/ssh-key-only/README.md) | 通用 VPS 工具 |
+| 3x-ui 导出、REALITY 回落域名查找 | [3x-ui](./scripts/vps/3x-ui/README.md) / [REALITY finder](./scripts/vps/reality_dest_finder/README.md) | 独立工具，按需维护 |
+| Fail2ban、ForwardX | [Fail2ban](./scripts/vps/fail2ban/README.md) / [ForwardX](./scripts/vps/forwardx/README.md) | 低频使用；保留兼容，不作为默认部署入口 |
+| 网页工具 | [在线入口](https://schweppessoda.github.io/vps-toolkit-web/) / [`vps-toolkit-web` 源码](https://github.com/SchweppesSoda/vps-toolkit-web) | 已迁出本仓库 |
+| Codex / agent 仓库维护规则 | [`AGENTS.md`](./AGENTS.md) | 改代码前必读 |
+
+日常使用从对应 README 开始。`*-technical.md` 和 `*-design.md` 只用于修改实现，不是部署入口。
 
 ## 文档索引
 
-### 运行入口
+### 用户入口
 
 | 文档 | 用途 |
 | --- | --- |
-| [`scripts/po0/README.md`](./scripts/po0/README.md) | PO0 子系统入口。 |
-| [`scripts/po0/relay/README.md`](./scripts/po0/relay/README.md) | nftables 中转、LAN Worker、Self-report、WebAuth、Egern、资源任务和 IP 数据。 |
+| [`scripts/po0/README.md`](./scripts/po0/README.md) | PO0 子系统导航。 |
+| [`scripts/po0/relay/README.md`](./scripts/po0/relay/README.md) | PO0 nftables Relay、LAN Worker、访问设备上报和资源任务。 |
 | [`scripts/po0/reinstall/README.md`](./scripts/po0/reinstall/README.md) | PO0 Debian 重装。 |
 | [`scripts/po0/proxy-services/README.md`](./scripts/po0/proxy-services/README.md) | PO0 代理服务增强 sidecar。 |
 | [`scripts/vps/ssh-key-only/README.md`](./scripts/vps/ssh-key-only/README.md) | SSH 仅公钥登录加固。 |
-| [`scripts/vps/fail2ban/README.md`](./scripts/vps/fail2ban/README.md) | Fail2ban 安装与管理入口。 |
-| [`scripts/vps/3x-ui/README.md`](./scripts/vps/3x-ui/README.md) | 3x-ui 节点/订阅导出。 |
+| [`scripts/vps/fail2ban/README.md`](./scripts/vps/fail2ban/README.md) | Fail2ban 安装与维护。 |
+| [`scripts/vps/3x-ui/README.md`](./scripts/vps/3x-ui/README.md) | 3x-ui 节点和订阅导出。 |
 | [`scripts/vps/forwardx/README.md`](./scripts/vps/forwardx/README.md) | ForwardX NAT VPS 被控机适配。 |
 | [`scripts/vps/reality_dest_finder/README.md`](./scripts/vps/reality_dest_finder/README.md) | REALITY 回落域名查找。 |
 
-### 专项配置
+### 客户端与专项说明
 
 | 文档 | 用途 |
 | --- | --- |
-| [`scripts/po0/nftables/clients/egern/README.md`](./scripts/po0/nftables/clients/egern/README.md) | Egern 当前出口 IPv4 SSH 上报、设备 ID、Widget 和多 PO0 配置。 |
-| [`scripts/vps/fail2ban/fail2ban-guide.md`](./scripts/vps/fail2ban/fail2ban-guide.md) | Fail2ban 安装、配置和使用说明。 |
+| [`scripts/po0/nftables/clients/egern/README.md`](./scripts/po0/nftables/clients/egern/README.md) | Egern 标准客户端路径、设备 ID、Widget 和多 PO0 配置。 |
+| [`scripts/po0/relay/egern/README.md`](./scripts/po0/relay/egern/README.md) | Egern 历史兼容路径说明。 |
+| [`scripts/vps/fail2ban/fail2ban-guide.md`](./scripts/vps/fail2ban/fail2ban-guide.md) | Fail2ban 配置与使用说明。 |
 | [`scripts/vps/docs/vps-port-firewall-summary.md`](./scripts/vps/docs/vps-port-firewall-summary.md) | VPS 端口段和防火墙约定。 |
 
 ### 实现维护
@@ -47,26 +49,17 @@
 | 文档 | 用途 |
 | --- | --- |
 | [`scripts/po0/relay/CHANGELOG.md`](./scripts/po0/relay/CHANGELOG.md) | PO0 nftables 子系统版本历史。 |
-| [`scripts/po0/relay/po0-relay-technical.md`](./scripts/po0/relay/po0-relay-technical.md) | nftables manager 内部实现、协议、wrapper 和状态模型。 |
+| [`scripts/po0/relay/po0-relay-technical.md`](./scripts/po0/relay/po0-relay-technical.md) | manager 内部实现、协议、wrapper 和状态模型。 |
 | [`scripts/po0/proxy-services/vless-raw-enc-argosbx-enhancer-design.md`](./scripts/po0/proxy-services/vless-raw-enc-argosbx-enhancer-design.md) | PO0 代理服务增强脚本设计。 |
 | [`scripts/vps/ssh-key-only/setup-ssh-key-only-full-technical.md`](./scripts/vps/ssh-key-only/setup-ssh-key-only-full-technical.md) | SSH 加固脚本技术设计。 |
-| [`vps-toolkit-web/docs/proxy-node-manager/proxy_node_manager_technical.md`](https://github.com/SchweppesSoda/vps-toolkit-web/blob/main/docs/proxy-node-manager/proxy_node_manager_technical.md) | Proxy Node Manager 页面结构、交互和验证说明。 |
-| [`vps-toolkit-web/docs/argosbx-argo-batch/argosbx_argo_batch_technical.md`](https://github.com/SchweppesSoda/vps-toolkit-web/blob/main/docs/argosbx-argo-batch/argosbx_argo_batch_technical.md) | Argosbx Argo Batch 页面结构、交互和验证说明。 |
-
-### 维护规则
-
-| 文档 | 用途 |
-| --- | --- |
-| [`AGENTS.md`](./AGENTS.md) | 给 Codex / agent 的维护规则、职责边界、验证规则和文档归属表。 |
+| [`AGENTS.md`](./AGENTS.md) | 仓库职责边界、维护规则和验证清单。 |
 | [`README.en.md`](./README.en.md) | 英文辅助入口。 |
 
-## 最短入口
+## 最短示例
 
-执行前先检查脚本内容。需要 root 且可能交互的在线示例优先下载到临时文件再运行，这样菜单输入仍来自终端。
+执行前先检查脚本内容。需要 root 且可能交互的在线脚本，应先下载到临时文件再运行。
 
-### PO0 nftables 中转
-
-推荐从 GitHub Release 发布文件下载主控脚本，再在 PO0 上运行：
+### PO0 manager
 
 ```bash
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/nftables-relay-manager.sh -o /root/nftables-relay-manager.sh
@@ -76,76 +69,39 @@ bash /root/nftables-relay-manager.sh
 
 ### LAN Worker
 
-在内网 Worker 机器上进入向导：
-
 ```bash
-curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-lan-client.sh | bash
+tmp="$(mktemp)"
+curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-lan-client.sh -o "$tmp"
+bash "$tmp"
+rm -f "$tmp"
 ```
 
-之后常用：
+后续使用：
 
 ```bash
 po0-lan-client --menu
 ```
 
-### SSH 仅公钥登录加固
-
-```bash
-tmp="$(mktemp)"
-curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/vps/ssh-key-only/setup-ssh-key-only-full.sh -o "$tmp"
-sudo env SSH_CONNECTION="$SSH_CONNECTION" bash "$tmp"
-rm -f "$tmp"
-```
-
-### PO0 代理服务增强
-
-```bash
-tmp="$(mktemp)"
-curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/proxy-services/vless-raw-enc-argosbx-enhancer.sh -o "$tmp"
-sudo install -m 0755 "$tmp" /usr/local/sbin/vless-raw-enc-argosbx-enhancer
-rm -f "$tmp"
-sudo /usr/local/sbin/vless-raw-enc-argosbx-enhancer
-```
-
-### PO0 Debian 重装
-
-这个脚本会重装系统盘。先读 [`scripts/po0/reinstall/README.md`](./scripts/po0/reinstall/README.md)，再上传执行：
-
-```bash
-scp scripts/po0/reinstall/po0-debian-reinstall.sh root@<PO0_HOST>:/root/po0-debian-reinstall.sh
-ssh root@<PO0_HOST> 'chmod +x /root/po0-debian-reinstall.sh && bash /root/po0-debian-reinstall.sh'
-```
+其它工具的安装、参数和卸载方式以各自 README 为准。
 
 ## 目录结构
 
-- `scripts/po0/`：PO0 或类似中转机的重装、中转、防火墙、资源任务和代理服务增强。
-- `scripts/vps/`：通用 VPS 工具，每个工具目录维护自己的 README。
-- `tools/`：离线构建和检查工具；PO0 Release 发布文件由 `tools/po0/` 按 manifest 从 manager、LAN Worker、Linux/macOS/Windows self-report 五个模块化源码树生成。
-- Web 工具：源码和 GitHub Pages 发布已迁出到 [`SchweppesSoda/vps-toolkit-web`](https://github.com/SchweppesSoda/vps-toolkit-web)。
+- `scripts/po0/`：PO0 重装、中转、防火墙、客户端上报、资源任务和代理服务增强。
+- `scripts/vps/`：通用 VPS 工具；每个工具目录维护自己的用户文档。
+- `tools/po0/`：PO0 Release 发布文件的离线构建、manifest 和检查工具。
+- Web 工具：源码和 GitHub Pages 发布均在 [`vps-toolkit-web`](https://github.com/SchweppesSoda/vps-toolkit-web)。
 
-## 发布渠道
+## 发布与下载
 
-PO0 nftables 的五个可执行脚本通过 GitHub Release 发布文件发布：`nftables-relay-manager.sh`、`po0-lan-client.sh`、`po0-outbound-ip-report.sh`、`po0-outbound-ip-report-macos.sh`、`po0-outbound-ip-report.ps1`。构建顺序和来源以 `tools/po0/manifests/` 为准，覆盖 manager、LAN Worker、Linux/macOS/Windows self-report 五个源码树。
+PO0 manager、LAN Worker 和 Linux/macOS/Windows Outbound IP Report 五个可执行脚本通过 [GitHub Releases](https://github.com/SchweppesSoda/VPS-Toolkit/releases) 发布。旧版 raw 可执行入口已禁用；Egern、Stash、Loon 和未纳入 Release 的独立工具仍按各自文档使用允许的 raw 路径。
 
-旧 manager、LAN Worker 和 self-report raw URL 已禁用，不再作为兼容入口；Egern 标准 raw 路径、Egern 历史兼容路径、离线 iplist 构建器、外部 ipdb/iplist 数据源和暂未迁移的通用 VPS 工具仍按各自文档保留 raw URL。
-
-## 公开网站
-
-公开网页工具由 [`SchweppesSoda/vps-toolkit-web`](https://github.com/SchweppesSoda/vps-toolkit-web) 仓库的 GitHub Pages 发布：
-
-- `https://schweppessoda.github.io/vps-toolkit-web/`
-- `https://schweppessoda.github.io/vps-toolkit-web/tools/proxy-node-manager/proxy_node_manager.html`
-- `https://schweppessoda.github.io/vps-toolkit-web/tools/argosbx-argo-batch/argosbx_argo_batch.html`
-
-旧 `https://schweppessoda.github.io/vps-toolkit/` 和旧工具深链接由 `SchweppesSoda.github.io` 根 Pages 仓库保留静态跳转。本仓不再同步网页内容，也不再需要 `PAGES_DEPLOY_KEY`。
-
-不要从本仓库根目录启用 GitHub Pages，否则脚本和文档也会作为静态文件发布。
+本仓库不再发布 GitHub Pages，也不应从仓库根目录启用 Pages。
 
 ## 安全说明
 
-执行前必须检查脚本。重装、SSH、防火墙、nftables 和路由操作可能导致数据丢失或远程连接中断，应提前准备服务商控制台或其它恢复通道。
+重装、SSH、防火墙、nftables 和路由操作可能导致数据丢失或远程连接中断。执行前应检查脚本，并准备服务商控制台或其它恢复通道。
 
-不要提交运行时生成的密码、Token、deploy key、私钥、节点链接、订阅、导出文件或服务器专用配置。
+不要提交运行时密码、Token、deploy key、私钥、节点链接、订阅、导出文件或服务器专用配置。
 
 ## 许可证
 
