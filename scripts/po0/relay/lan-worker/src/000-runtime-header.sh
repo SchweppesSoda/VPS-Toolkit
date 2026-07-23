@@ -5,12 +5,10 @@ PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.c
 DOWNLOAD_URL="${PO0_LAN_CLIENT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-lan-client.sh}"
 MANAGER_DOWNLOAD_URL="${PO0_MANAGER_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/nftables-relay-manager.sh}"
 SCRIPT_NAME="po0-lan-worker-client"
-SCRIPT_VERSION="2026.07.22+build.2"
-SCRIPT_RELEASE_DATE="2026-07-22"
+SCRIPT_VERSION="2026.07.23+build.1"
+SCRIPT_RELEASE_DATE="2026-07-23"
 # CHANGELOG_BEGIN
-# - Stash HTTPS 上报统一收敛为 `/32`；客户端网络探测失败不再扩大放行范围。
-# - Self-report 安装保留已有 secret（包括旧自动化传入空参数时），缺失时自动生成；`/report` 在 secret 为空时拒绝上报。
-# - 修复无 `flock` 环境释放配置锁后可能吞掉后续错误输出的问题。
+# - 跟随 PO0 发布批次对齐到 2026.07.23+build.1；LAN Worker 无行为变化。
 # CHANGELOG_END
 DEFAULT_PO0_SCRIPT="/root/nftables-relay-manager.sh"
 PO0_HOST="${PO0_HOST:-}"

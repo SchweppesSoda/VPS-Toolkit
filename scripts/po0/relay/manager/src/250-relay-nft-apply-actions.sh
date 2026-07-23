@@ -125,17 +125,50 @@ EOF
     mv -f "${tmp}" "${output}"
 }
 
+write_managed_reload_transaction() {
+    local output="$1"
+    local config="${2:-${NFT_CONF}}"
+    [[ -r "${config}" ]] || {
+        err "relay 配置不可读：${config}。"
+        return 1
+    }
+    {
+        if nft list table ip "${NAT_TABLE}" >/dev/null 2>&1; then
+            printf 'delete table ip %s\n' "${NAT_TABLE}"
+        fi
+        if nft list table ip "${MANGLE_TABLE}" >/dev/null 2>&1; then
+            printf 'delete table ip %s\n' "${MANGLE_TABLE}"
+        fi
+        printf '\n'
+        cat "${config}"
+    } > "${output}" || {
+        err "生成 nftables 原子刷新事务失败。"
+        return 1
+    }
+}
+
 reload_managed_rules() {
-    nft -c -f "${NFT_CONF}" >/dev/null 2>&1 || {
-        err "relay 配置预检失败，请检查 ${NFT_CONF}。"
+    local transaction
+    make_temp_file "${NFT_CONF}.reload" || {
+        err "创建 nftables 原子刷新临时文件失败。"
         return 1
     }
-    nft delete table ip "${NAT_TABLE}" 2>/dev/null || true
-    nft delete table ip "${MANGLE_TABLE}" 2>/dev/null || true
-    nft -f "${NFT_CONF}" || {
-        err "加载 ${NFT_CONF} 失败。"
+    transaction="${TEMP_FILE_RESULT}"
+    write_managed_reload_transaction "${transaction}" "${NFT_CONF}" || {
+        rm -f -- "${transaction}" 2>/dev/null || true
         return 1
     }
+    nft -c -f "${transaction}" >/dev/null 2>&1 || {
+        rm -f -- "${transaction}" 2>/dev/null || true
+        err "relay 原子刷新事务预检失败，请检查 ${NFT_CONF}。"
+        return 1
+    }
+    nft -f "${transaction}" || {
+        rm -f -- "${transaction}" 2>/dev/null || true
+        err "原子加载 ${NFT_CONF} 失败；运行中的旧托管规则保持不变。"
+        return 1
+    }
+    rm -f -- "${transaction}" 2>/dev/null || true
 }
 
 apply_full_config() {

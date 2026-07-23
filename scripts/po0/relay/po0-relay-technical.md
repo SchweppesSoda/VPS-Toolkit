@@ -351,8 +351,9 @@ main_menu
   -> do_install / do_add / do_edit_rule / do_delete / do_import_rules
   -> save_settings / save_rules
   -> write_nft_conf
-  -> nft -c -f 预检
-  -> reload_managed_rules 或 apply_full_config
+  -> 日常增量：生成“删除现有托管表 + 创建完整新表”的临时事务
+       -> nft -c -f 预检完整事务 -> reload_managed_rules
+  -> 首次初始化/完整恢复：nft -c -f 预检主配置 -> apply_full_config
 ```
 
 ### 4.2 配置渲染
@@ -371,6 +372,10 @@ write_nft_allowlist_set
 ```
 
 现在 `write_nft_conf` 和 `build_src_allowlist_cache` 支持可选输出路径。`--render` 可以把计划生成的 relay nftables 配置输出到 stdout，用于高级调试或 diff，不触碰真实配置。
+
+日常增量刷新由 `write_managed_reload_transaction()` 和 `reload_managed_rules()` 完成。脚本先只读检查当前 NAT/MANGLE 托管表是否存在，把必要的 `delete table` 与完整新表定义写入同一个临时 nftables batch；随后对这个 batch 执行一次 `nft -c -f`，通过后再执行一次 `nft -f`。正式应用阶段不再单独调用 `nft delete table`，因此内核要么接受整批删除与重建，要么保持原运行时规则不变。可选 MANGLE 表当前不存在时，事务不会写入对应删除命令。
+
+首次初始化和完整恢复仍走 `apply_full_config()`：`/etc/nftables.conf` 内的 `flush ruleset` 与所有 include 由一次 `nft -f` 执行，本身也是单个 nftables batch。
 
 ### 4.3 源白名单生成
 
@@ -524,8 +529,8 @@ id<TAB>地区名称<TAB>相对路径<TAB>原始 URL
 ```text
 build_src_allowlist_cache()
 write_nft_allowlist_set()
-nft -c -f 预检
-reload_managed_rules 或 apply_full_config
+生成并 nft -c -f 预检完整原子事务
+reload_managed_rules（首次初始化/完整恢复则走 apply_full_config）
 ```
 
 因此，更新离线包后仍需要在 VPS 端导入并重新应用白名单，新的地区 CIDR 才会进入 nft set。

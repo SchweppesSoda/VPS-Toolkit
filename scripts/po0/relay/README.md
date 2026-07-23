@@ -12,6 +12,7 @@
 - LAN Worker 可选提供 PO0 manager HTTP 更新镜像；只代理固定 manager 脚本，PO0 用 resource token HMAC 校验后才替换本机脚本。
 - Egern 负责移动设备当前出口 IPv4 上报，不再解析 DDNS。
 - 资源任务只允许 `iplist`、`ipdb`，不支持任意远程 shell。
+- PO0 托管 NAT/MANGLE 表刷新会先预检完整事务，再用单个 nftables 批次原子替换；事务失败时保留运行中的旧托管规则。
 
 ## 阅读路线
 

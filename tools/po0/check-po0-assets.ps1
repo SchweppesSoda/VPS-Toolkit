@@ -10,9 +10,9 @@ if (-not $OutputDir) {
 }
 
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.07.22+build.2" }
-$ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-07-22" }
-$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.07.22.2" }
+$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.07.23+build.1" }
+$ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-07-23" }
+$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.07.23.1" }
 
 function ConvertTo-RepoRelativePath {
     param([string]$Path)
@@ -901,6 +901,7 @@ Invoke-BashToolScript "tools/po0/test-macos-ssid-diagnostic.sh"
 Invoke-BashToolScript "tools/po0/test-self-report-refresh-policy.sh"
 Invoke-BashToolScript "tools/po0/test-lan-worker-stash-report.sh"
 Invoke-BashToolScript "tools/po0/test-manager-client-ip-cidr-prefix.sh"
+Invoke-BashToolScript "tools/po0/test-manager-nft-atomic-reload.sh"
 Invoke-BashToolScript "tools/po0/test-manager-resource-upload.sh"
 Invoke-BashToolScript "tools/po0/test-debian-reinstall-grub.sh"
 Write-Host "Checking node tools/po0/test-loon-report.js"

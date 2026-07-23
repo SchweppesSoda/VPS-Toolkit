@@ -22,6 +22,7 @@
 - PO0 动态来源中 `source-id` / `source-key` 是参与分组、续期、裁剪的稳定 key；`identity` 只做备注和审计。DDNS 只有 `source-key`，没有 `identity`。
 - PO0 manager 首次部署仍推荐本地 `scp` 上传；后续可由 PO0 通过 LAN Worker HTTP 更新镜像拉取固定 manager 脚本，必须校验 resource token HMAC 后才替换。
 - LAN Worker client 才使用 `po0-lan-client --upgrade-self`；LAN Worker 的 manager 更新镜像只服务固定脚本路径，不做任意 URL 代理。
+- PO0 manager 日常增量刷新 NAT/MANGLE 托管表必须把必要的 `delete table` 和完整新表定义放进同一个临时 nftables batch；完整事务先 `nft -c`，再只执行一次正式 `nft -f`，禁止在正式应用前单独删除运行中的托管表。
 
 ## 发布与构建
 
@@ -99,6 +100,7 @@
 - 没有自更新入口、依赖 `scp` 上传的脚本（如 PO0 nftables manager）应提供 `--changelog` 或等价只读入口，供上传后确认当前版本更新内容。
 - 菜单改动要检查编号、范围、提示和 `case` 一致；能渲染主菜单时，至少输入 `0` 验证可退出。
 - 涉及 Bash helper、`set -u`、stdin 或 SSH 调用时，要做运行时回归，不只跑 `bash -n`。
+- 涉及 `reload_managed_rules` 或 nftables 应用链路时，必须运行 `tools/po0/test-manager-nft-atomic-reload.sh`，确认预检失败不进入应用、正式刷新只有一个 batch、可选托管表缺失时不生成无效删除。
 - 涉及 PowerShell、JavaScript、YAML 或网页工具时，按对应技术文档里的检查方式补验证。
 
 ## 提交规则

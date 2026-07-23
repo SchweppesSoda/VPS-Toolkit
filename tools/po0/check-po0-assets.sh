@@ -3,9 +3,9 @@ set -euo pipefail
 
 repo_root="$(cd "$(git rev-parse --show-toplevel)" && pwd -P)"
 asset_dir="${1:-${repo_root}/.tmp/po0-check-assets-bash}"
-expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.07.22+build.2}"
-expected_po0_release_date="${PO0_EXPECTED_RELEASE_DATE:-2026-07-22}"
-expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.07.22.2}"
+expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.07.23+build.1}"
+expected_po0_release_date="${PO0_EXPECTED_RELEASE_DATE:-2026-07-23}"
+expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.07.23.1}"
 
 manifest_entries() {
     local manifest="$1"
@@ -699,6 +699,7 @@ bash "${repo_root}/tools/po0/test-macos-ssid-diagnostic.sh"
 bash "${repo_root}/tools/po0/test-self-report-refresh-policy.sh"
 bash "${repo_root}/tools/po0/test-lan-worker-stash-report.sh"
 bash "${repo_root}/tools/po0/test-manager-client-ip-cidr-prefix.sh"
+bash "${repo_root}/tools/po0/test-manager-nft-atomic-reload.sh"
 bash "${repo_root}/tools/po0/test-manager-resource-upload.sh"
 bash "${repo_root}/tools/po0/test-debian-reinstall-grub.sh"
 node "${repo_root}/tools/po0/test-loon-report.js"
