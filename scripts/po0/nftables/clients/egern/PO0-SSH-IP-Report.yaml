@@ -1,5 +1,5 @@
 name: PO0 SSH IP 上报
-description: 通过受限 SSH 把当前 Egern/移动设备的公网出口 IPv4 上报到 PO0。PO0 不开放 HTTP。
+description: 通过受限 SSH 把当前 Egern/移动设备的公网出口 IPv4 上报到 PO0。上报配置可保存到本机 storage，PO0 不开放 HTTP。
 author: SchweppesSoda
 icon: network
 
@@ -105,6 +105,18 @@ scriptings:
       script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js"
       update_interval: 86400
       timeout: 30
+      debug: true
+  - generic:
+      name: 保存本机 PO0 上报配置
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js"
+      update_interval: 86400
+      timeout: 10
+      debug: true
+  - generic:
+      name: 清除本机 PO0 上报配置
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js"
+      update_interval: 86400
+      timeout: 10
       debug: true
   - generic:
       name: 保存本机设备 ID

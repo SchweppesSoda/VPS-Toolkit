@@ -407,6 +407,12 @@
 
 ## Egern SSH IP Report
 
+### 2026-07-26
+
+- 新增 Egern 原生 `ctx.storage` 上报配置持久化，保存 PO0 目标、SSH 认证、report token、周期、SSID guard、IP 探测和通知选项；不依赖 BoxJS/Relay，换主配置后继续使用本机保存值。
+- 模块新增“保存本机 PO0 上报配置”和“清除本机 PO0 上报配置”；已有完整旧版环境变量会自动迁移，本机保存值存在后成为唯一运行时配置源。
+- 未保存且环境变量不完整时，schedule/network 自动任务静默跳过，不做 HTTP/SSH/通知；手动、状态页和 Widget 提示先保存配置，使模块可安全默认启用。
+
 ### 2026-07-01
 
 - 新增 `SKIP_WIFI_SSIDS` 本地跳过 guard；定时/网络变化自动触发命中当前 Wi-Fi SSID 时，不探测公网 IP、不执行 SSH 上报、不通知，只写 Egern 本地状态/日志并保留上一轮成功状态用于 Widget。

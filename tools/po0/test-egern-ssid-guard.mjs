@@ -10,6 +10,9 @@ const moduleUrl = `data:text/javascript;base64,${Buffer.from(source).toString('b
 const { default: runEgernReport } = await import(moduleUrl);
 
 const STORAGE_KEY = 'po0-ssh-ip-report:last';
+const ERROR_STORAGE_KEY = 'po0-ssh-ip-report:last-error';
+const DEVICE_ID_KEY = 'po0-ssh-ip-report:device-id';
+const CONFIG_STORAGE_KEY = 'po0-ssh-ip-report:config:v1';
 
 function createStorage(initial = {}) {
   const values = new Map(Object.entries(initial));
@@ -63,6 +66,7 @@ function baseEnv(overrides = {}) {
 
 function createContext({
   env = {},
+  completeEnv = true,
   trigger = 'schedule',
   ssid = '',
   device = null,
@@ -82,7 +86,7 @@ function createContext({
       name: trigger,
       trigger,
       widgetFamily,
-      env: baseEnv(env),
+      env: completeEnv ? baseEnv(env) : { ...env },
       device: device || {
         wifi: ssid ? { ssid } : {},
         ipv4: { address: '192.168.1.20', gateway: '192.168.1.1' },
@@ -98,6 +102,7 @@ function createContext({
       ssh: {
         async connect(config) {
           calls.ssh += 1;
+          calls.lastSshConfig = config;
           if (sshConnect) return sshConnect(config, calls);
           return {
             async exec(command) {
@@ -123,6 +128,15 @@ function createContext({
 async function readStoredState(storage) {
   const raw = await storage.get(STORAGE_KEY);
   return raw ? JSON.parse(raw) : null;
+}
+
+async function readStoredConfig(storage) {
+  const raw = await storage.get(CONFIG_STORAGE_KEY);
+  return raw ? JSON.parse(raw) : null;
+}
+
+function serializedResult(result) {
+  return JSON.stringify(result);
 }
 
 async function testAutomaticMatchingSsidSkipsBeforeNetworkCalls() {
@@ -285,6 +299,186 @@ async function testStatusAndWidgetMatchingSsidStillReport() {
   assert.equal(widgetRun.calls.ssh, 1);
 }
 
+async function testExplicitSavePersistsReportConfigWithoutNetworkCalls() {
+  const { ctx, calls, storage } = createContext({
+    trigger: '保存本机 PO0 上报配置',
+  });
+
+  const result = await runEgernReport(ctx);
+  const stored = await readStoredConfig(storage);
+
+  assert.equal(calls.http, 0);
+  assert.equal(calls.ssh, 0);
+  assert.equal(stored.version, 1);
+  assert.equal(stored.values.PO0_HOST, 'po0.example.com');
+  assert.equal(stored.values.PO0_PASSWORD, 'secret-password');
+  assert.equal(stored.values.SSH_REPORT_TOKEN, 'secret-token');
+  assert.equal(serializedResult(result).includes('secret-password'), false);
+  assert.equal(serializedResult(result).includes('secret-token'), false);
+  assert.equal(JSON.stringify(calls.notifications).includes('secret-password'), false);
+  assert.equal(JSON.stringify(calls.notifications).includes('secret-token'), false);
+  assert.equal(JSON.stringify(calls.logs).includes('secret-password'), false);
+  assert.equal(JSON.stringify(calls.logs).includes('secret-token'), false);
+}
+
+async function testStoredConfigReportsAfterProfileReplacement() {
+  const storage = createStorage();
+  const saveRun = createContext({
+    trigger: '保存本机 PO0 上报配置',
+    storage,
+  });
+  await runEgernReport(saveRun.ctx);
+
+  const replacementRun = createContext({
+    trigger: 'schedule',
+    completeEnv: false,
+    env: {},
+    storage,
+  });
+  const result = await runEgernReport(replacementRun.ctx);
+
+  assert.equal(replacementRun.calls.http, 1);
+  assert.equal(replacementRun.calls.ssh, 1);
+  assert.equal(replacementRun.calls.lastSshConfig.host, 'po0.example.com');
+  assert.equal(replacementRun.calls.lastSshConfig.password, 'secret-password');
+  assert.equal(replacementRun.calls.lastCommand.includes("'iphone'"), true);
+  assert.equal(replacementRun.calls.lastCommand.includes("'secret-token'"), true);
+  assert.equal(result.ok, true);
+}
+
+async function testStoredConfigIsAuthoritativeUntilExplicitSave() {
+  const storage = createStorage();
+  const saveRun = createContext({
+    trigger: '保存本机 PO0 上报配置',
+    storage,
+  });
+  await runEgernReport(saveRun.ctx);
+
+  const replacementRun = createContext({
+    trigger: 'network',
+    completeEnv: false,
+    storage,
+    env: baseEnv({
+      PO0_HOST: 'replacement.example.com',
+      PO0_PASSWORD: 'replacement-password',
+      SSH_REPORT_SOURCE: 'replacement-source',
+      SSH_REPORT_TOKEN: 'replacement-token',
+    }),
+  });
+  await runEgernReport(replacementRun.ctx);
+
+  assert.equal(replacementRun.calls.lastSshConfig.host, 'po0.example.com');
+  assert.equal(replacementRun.calls.lastSshConfig.password, 'secret-password');
+  assert.equal(replacementRun.calls.lastCommand.includes('replacement-source'), false);
+  assert.equal(replacementRun.calls.lastCommand.includes('replacement-token'), false);
+}
+
+async function testExplicitSaveMergesPatchAndIgnoresReplacementDefaults() {
+  const storage = createStorage();
+  const initialSave = createContext({
+    trigger: '保存本机 PO0 上报配置',
+    storage,
+  });
+  await runEgernReport(initialSave.ctx);
+
+  const patchSave = createContext({
+    trigger: '保存本机 PO0 上报配置',
+    completeEnv: false,
+    env: { TTL_SECONDS: '50000' },
+    storage,
+  });
+  await runEgernReport(patchSave.ctx);
+  let stored = await readStoredConfig(storage);
+  assert.equal(stored.values.TTL_SECONDS, '50000');
+  assert.equal(stored.values.SSH_REPORT_SOURCE, 'iphone');
+
+  const replacementDefaultsSave = createContext({
+    trigger: '保存本机 PO0 上报配置',
+    completeEnv: false,
+    env: {
+      TTL_SECONDS: '43200',
+      SSH_REPORT_SOURCE: 'egern',
+    },
+    storage,
+  });
+  await runEgernReport(replacementDefaultsSave.ctx);
+  stored = await readStoredConfig(storage);
+  assert.equal(stored.values.TTL_SECONDS, '50000');
+  assert.equal(stored.values.SSH_REPORT_SOURCE, 'iphone');
+}
+
+async function testMissingConfigIsSilentForAutomaticRunsAndGuidedForManualRuns() {
+  const storage = createStorage();
+  const automaticRun = createContext({
+    trigger: 'schedule',
+    completeEnv: false,
+    env: {},
+    storage,
+  });
+  const automaticResult = await runEgernReport(automaticRun.ctx);
+
+  assert.equal(automaticRun.calls.http, 0);
+  assert.equal(automaticRun.calls.ssh, 0);
+  assert.equal(automaticRun.calls.notifications.length, 0);
+  assert.equal(automaticRun.calls.logs.length, 0);
+  assert.equal(automaticResult.skipped, true);
+  assert.equal(automaticResult.skipType, 'missing-config');
+  assert.equal(await storage.get(STORAGE_KEY), null);
+
+  const manualRun = createContext({
+    trigger: '立即上报 PO0 SSH IP',
+    completeEnv: false,
+    env: {},
+    storage,
+  });
+  const manualResult = await runEgernReport(manualRun.ctx);
+  assert.equal(manualRun.calls.http, 0);
+  assert.equal(manualRun.calls.ssh, 0);
+  assert.equal(manualRun.calls.notifications.length, 0);
+  assert.equal(serializedResult(manualResult).includes('保存本机 PO0 上报配置'), true);
+}
+
+async function testCompleteLegacyEnvBootstrapsNativeStorage() {
+  const { ctx, storage } = createContext({
+    trigger: 'schedule',
+  });
+
+  await runEgernReport(ctx);
+  const stored = await readStoredConfig(storage);
+
+  assert.equal(stored.version, 1);
+  assert.equal(stored.values.PO0_HOST, 'po0.example.com');
+  assert.equal(stored.values.SSH_REPORT_TOKEN, 'secret-token');
+}
+
+async function testClearConfigKeepsDeviceId() {
+  const storage = createStorage({
+    [CONFIG_STORAGE_KEY]: JSON.stringify({
+      version: 1,
+      savedAt: '2026-07-26T00:00:00.000Z',
+      values: baseEnv(),
+    }),
+    [STORAGE_KEY]: JSON.stringify({ ok: true }),
+    [ERROR_STORAGE_KEY]: 'old error',
+    [DEVICE_ID_KEY]: 'iphone15pm',
+  });
+  const clearRun = createContext({
+    trigger: '清除本机 PO0 上报配置',
+    completeEnv: false,
+    env: {},
+    storage,
+  });
+
+  await runEgernReport(clearRun.ctx);
+
+  assert.equal(await storage.get(CONFIG_STORAGE_KEY), null);
+  assert.equal(await storage.get(STORAGE_KEY), null);
+  assert.equal(await storage.get(ERROR_STORAGE_KEY), null);
+  assert.equal(await storage.get(DEVICE_ID_KEY), 'iphone15pm');
+  assert.equal(clearRun.calls.http, 0);
+  assert.equal(clearRun.calls.ssh, 0);
+}
+
 const tests = [
   testAutomaticMatchingSsidSkipsBeforeNetworkCalls,
   testAutomaticMatchingSsidPreservesPreviousSuccessState,
@@ -293,6 +487,13 @@ const tests = [
   testAutomaticCellularReportsEvenWithSkipList,
   testManualMatchingSsidStillReports,
   testStatusAndWidgetMatchingSsidStillReport,
+  testExplicitSavePersistsReportConfigWithoutNetworkCalls,
+  testStoredConfigReportsAfterProfileReplacement,
+  testStoredConfigIsAuthoritativeUntilExplicitSave,
+  testExplicitSaveMergesPatchAndIgnoresReplacementDefaults,
+  testMissingConfigIsSilentForAutomaticRunsAndGuidedForManualRuns,
+  testCompleteLegacyEnvBootstrapsNativeStorage,
+  testClearConfigKeepsDeviceId,
 ];
 
 for (const test of tests) {

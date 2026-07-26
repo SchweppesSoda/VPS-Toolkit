@@ -39,6 +39,23 @@ https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nft
 - `POLICY`：默认 `DIRECT`，用于尽量获取当前真实出口 IP。
 - `DEVICE_ID_SETUP`：只在手动运行 `保存本机设备 ID` 时读取，用于把本机设备 ID 写入 `ctx.storage`。定时/网络上报不会直接使用这个同步 env。
 
+## 本机上报配置持久化
+
+模块使用 Egern 原生 `ctx.storage` 保存 SSH 上报配置，不依赖 BoxJS、Relay 或其它常驻服务。保存内容包括 PO0 目标、SSH 密码/私钥/口令、report token、周期、SSID guard、IP 探测和通知选项；`DEVICE_ID_SETUP` 不在其中，本机设备 ID 继续使用独立 storage。
+
+首次启用或从旧版迁移时：
+
+1. 先保留当前配置里已经填好的模块环境变量，并刷新 PO0 模块/脚本。
+2. 手动运行 `保存本机 PO0 上报配置`。
+3. 打开 `PO0 SSH 上报状态`，确认上报正常。
+4. 此后可以更换 Egern 主配置；新配置里不需要重新填写这些字段。
+
+如果脚本首次运行时尚无本机保存值，但现有环境变量已经完整可用，脚本也会自动写入一次本机 storage，兼容旧配置迁移。一旦本机保存值存在，定时、网络变化、立即上报、状态页和 Widget 都以 storage 为准；新配置里的空值、schema 默认值或其它模块环境变量不会在后台覆盖它。需要修改时，在模块环境变量里填写新值并主动运行 `保存本机 PO0 上报配置`，未填写的字段会保留旧值。为防止换配置后出现的 schema 默认值误覆盖自定义旧值，默认值不会覆盖不同的已保存值；确实要恢复某字段默认值时，先运行 `清除本机 PO0 上报配置`，再重新填写并保存。
+
+尚未保存且环境变量不完整时，schedule/network 自动任务会静默跳过，不探测公网 IP、不连接 SSH、也不通知；立即上报、状态页和 Widget 会提示先保存配置。因此模块可以安全地默认启用。`清除本机 PO0 上报配置` 会同时清除最近上报状态，但保留本机设备 ID。
+
+密码、私钥和 Token 会以字符串形式保存在 Egern 本机持久化 storage，不写入本仓库，也不通过 PO0/LAN Worker 上传。删除 Egern、清除其应用数据或主动运行清除脚本后需要重新保存；不要把 Egern storage 当作凭据备份。
+
 ## 本机设备 ID
 
 Egern 配置会通过 iCloud 同步，模块环境变量不适合直接写每台设备不同的 `source-id`。模块支持在本机 `ctx.storage` 保存设备 ID，并在上报时展开 `SSH_REPORT_TARGETS` 里的 `{device}`。
@@ -94,6 +111,8 @@ source-id|host|port|user|script|token|identity|ttl
 - `schedule`：每 10 分钟轻量检查一次；实际 SSH 自动上报周期由 `AUTO_REPORT_INTERVAL_SECONDS` 控制，默认 `3600` 秒。
 - `network`：网络变化时触发一次。
 - `generic`：在 Egern 手动执行 `PO0 SSH IP Report Now`。
+- `保存本机 PO0 上报配置`：校验当前模块环境变量并保存到本机 `ctx.storage`，不探测 IP、不做 SSH 上报。
+- `清除本机 PO0 上报配置`：清除本机上报配置和最近状态，保留本机设备 ID。
 - `保存本机设备 ID`：把 `DEVICE_ID_SETUP` 写入本机 `ctx.storage`，不做 SSH 上报。
 - `清除本机设备 ID`：清除本机 `ctx.storage` 里的设备 ID。
 - `PO0 SSH 上报状态` / `widget`：显示本机设备 ID、公网 IP、上报 CIDR、IP 归属地、运营商、自动上报周期、每个 PO0 target 的成功/失败、时间、TTL 和错误原因。归属地 / 运营商优先使用本次 IP 查询接口返回的数据，拿不到时才额外查询。

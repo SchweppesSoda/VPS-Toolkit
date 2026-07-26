@@ -949,6 +949,8 @@ PO0 写 entries.tsv：source_type=ssh_report
 Egern 把最近状态写入 ctx.storage，Widget 读取显示
 ```
 
+Egern 同时用版本化 key `po0-ssh-ip-report:config:v1` 在本机 `ctx.storage` 持久化 SSH 上报配置。保存对象只接受模块白名单字段，`DEVICE_ID_SETUP` 与独立的本机设备 ID 不混入其中。读取时只要该 key 存在，storage 就是运行时唯一配置源；`ctx.env` 只在显式执行“保存本机 PO0 上报配置”时作为非空 patch 合并，避免更换主配置后空值或 schema 默认值覆盖旧凭据。尚无 storage 配置时，完整的旧版 `ctx.env` 会自动 bootstrap；不完整的 schedule/network 任务静默返回 `missing-config`，不进行 HTTP、SSH、通知或状态写入，手动/状态/Widget 才显示设置提示。因此 PO0 模块可默认启用而不会在未配置设备上周期报错。
+
 单 PO0 命令等价于：
 
 ```bash

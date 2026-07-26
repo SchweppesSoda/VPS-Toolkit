@@ -2,6 +2,8 @@ const STORAGE_KEY = 'po0-ssh-ip-report:last';
 const ERROR_STORAGE_KEY = 'po0-ssh-ip-report:last-error';
 const IP_CHECK_INDEX_KEY = 'po0-ssh-ip-report:ip-check-index';
 const DEVICE_ID_KEY = 'po0-ssh-ip-report:device-id';
+const CONFIG_STORAGE_KEY = 'po0-ssh-ip-report:config:v1';
+const CONFIG_STORAGE_VERSION = 1;
 const DEVICE_ID_FALLBACK = 'egern';
 const DEFAULT_TTL_SECONDS = 43200;
 const DEFAULT_AUTO_REPORT_INTERVAL_SECONDS = 3600;
@@ -10,6 +12,42 @@ const MAX_AUTO_REPORT_INTERVAL_SECONDS = 86400;
 const DEFAULT_CELLULAR_CIDR_PREFIX = 24;
 const REPORT_TITLE = 'PO0 SSH IP 上报';
 const REPORT_FAILED_TITLE = 'PO0 SSH IP 上报失败';
+const PERSISTED_ENV_KEYS = [
+  'PO0_HOST',
+  'PO0_PORT',
+  'PO0_USER',
+  'PO0_PASSWORD',
+  'PO0_PRIVATE_KEY',
+  'PO0_PASSPHRASE',
+  'PO0_SCRIPT',
+  'SSH_REPORT_SOURCE',
+  'SSH_REPORT_TOKEN',
+  'REPORT_IDENTITY',
+  'TTL_SECONDS',
+  'AUTO_REPORT_INTERVAL_SECONDS',
+  'CELLULAR_CIDR_PREFIX',
+  'SKIP_WIFI_SSIDS',
+  'SSH_REPORT_TARGETS',
+  'IP_CHECK_URL',
+  'IP_CHECK_URLS',
+  'POLICY',
+  'NOTIFY_SUCCESS',
+  'NOTIFY_FAILURE',
+];
+const MODULE_DEFAULT_ENV_VALUES = {
+  PO0_PORT: '22',
+  PO0_USER: 'root',
+  PO0_SCRIPT: '/root/nftables-relay-manager.sh',
+  SSH_REPORT_SOURCE: 'egern',
+  REPORT_IDENTITY: 'egern',
+  TTL_SECONDS: '43200',
+  AUTO_REPORT_INTERVAL_SECONDS: '3600',
+  CELLULAR_CIDR_PREFIX: '24',
+  IP_CHECK_URL: 'https://ip9.com.cn/get',
+  POLICY: 'DIRECT',
+  NOTIFY_SUCCESS: 'false',
+  NOTIFY_FAILURE: 'true',
+};
 
 function required(env, key) {
   const value = String(env[key] || '').trim();
@@ -315,7 +353,15 @@ function isManualRun(ctx) {
 }
 
 function isAutomaticReportRun(ctx) {
-  if (isManualRun(ctx) || isWidgetRun(ctx) || isStatusRun(ctx) || isDeviceSetupRun(ctx) || isDeviceClearRun(ctx)) return false;
+  if (
+    isManualRun(ctx)
+    || isWidgetRun(ctx)
+    || isStatusRun(ctx)
+    || isDeviceSetupRun(ctx)
+    || isDeviceClearRun(ctx)
+    || isReportConfigSaveRun(ctx)
+    || isReportConfigClearRun(ctx)
+  ) return false;
   const exactTriggers = [
     ctx?.trigger,
     ctx?.type,
@@ -344,6 +390,14 @@ function isDeviceSetupRun(ctx) {
 
 function isDeviceClearRun(ctx) {
   return /清除本机设备|clear device/i.test(scriptLabel(ctx));
+}
+
+function isReportConfigSaveRun(ctx) {
+  return /保存本机\s*(?:PO0\s*)?上报配置|save (?:local )?(?:po0 )?report config/i.test(scriptLabel(ctx));
+}
+
+function isReportConfigClearRun(ctx) {
+  return /清除本机\s*(?:PO0\s*)?上报配置|clear (?:local )?(?:po0 )?report config/i.test(scriptLabel(ctx));
 }
 
 function formatTime(value) {
@@ -582,7 +636,7 @@ function targetSummaryRows(state, ctx, metrics = widgetMetrics(ctx)) {
   });
 }
 
-function widgetFromState(state, ctx, deviceId = '') {
+function widgetFromState(state, ctx, deviceId = '', env = ctx?.env || {}) {
   const ok = Boolean(state?.ok);
   const skipped = Boolean(state?.skipped && state?.skipType === 'wifi-ssid');
   const family = widgetFamily(ctx);
@@ -613,7 +667,7 @@ function widgetFromState(state, ctx, deviceId = '') {
     rowNode(network.icon, WIDGET_COLORS.blue, network.label, network.value, WIDGET_COLORS.text, metrics),
     rowNode('iphone', WIDGET_COLORS.blue, '本机', network.localIp || '未知', WIDGET_COLORS.text, metrics),
     rowNode('wifi.router.fill', WIDGET_COLORS.blue, '网关', network.gateway || '不适用', WIDGET_COLORS.text, metrics),
-    rowNode('timer', WIDGET_COLORS.blue, '周期', formatDurationSeconds(autoReportIntervalSeconds(ctx?.env || {})), WIDGET_COLORS.text, metrics),
+    rowNode('timer', WIDGET_COLORS.blue, '周期', formatDurationSeconds(autoReportIntervalSeconds(env)), WIDGET_COLORS.text, metrics),
   ];
   const summaryRow = summaryRowNode(deviceName, skipped ? 'SSID 跳过' : `${successCount}/${targetCount || 1} 成功`, statusColor, metrics);
   const targetRows = targetSummaryRows(state, ctx, metrics);
@@ -791,10 +845,20 @@ function normalizeNetworkInfo(value) {
 
 async function storageSet(ctx, key, value) {
   const storage = ctx?.storage;
-  if (!storage) return;
-  if (typeof storage.set === 'function') return await storage.set(key, value);
-  if (typeof storage.setItem === 'function') return await storage.setItem(key, value);
-  if (typeof storage.write === 'function') return await storage.write(key, value);
+  if (!storage) return false;
+  if (typeof storage.set === 'function') {
+    await storage.set(key, value);
+    return true;
+  }
+  if (typeof storage.setItem === 'function') {
+    await storage.setItem(key, value);
+    return true;
+  }
+  if (typeof storage.write === 'function') {
+    await storage.write(key, value);
+    return true;
+  }
+  return false;
 }
 
 async function storageGet(ctx, key) {
@@ -808,10 +872,19 @@ async function storageGet(ctx, key) {
 
 async function storageDelete(ctx, key) {
   const storage = ctx?.storage;
-  if (!storage) return;
-  if (typeof storage.delete === 'function') return await storage.delete(key);
-  if (typeof storage.remove === 'function') return await storage.remove(key);
-  if (typeof storage.removeItem === 'function') return await storage.removeItem(key);
+  if (!storage) return false;
+  if (typeof storage.delete === 'function') {
+    await storage.delete(key);
+    return true;
+  }
+  if (typeof storage.remove === 'function') {
+    await storage.remove(key);
+    return true;
+  }
+  if (typeof storage.removeItem === 'function') {
+    await storage.removeItem(key);
+    return true;
+  }
   return await storageSet(ctx, key, '');
 }
 
@@ -822,6 +895,81 @@ async function storedDeviceId(ctx) {
   } catch (_) {
     return '';
   }
+}
+
+function persistableEnvValues(env) {
+  const values = {};
+  for (const key of PERSISTED_ENV_KEYS) {
+    const value = env?.[key];
+    if (value === undefined || value === null) continue;
+    const text = String(value).trim();
+    if (text) values[key] = text;
+  }
+  return values;
+}
+
+function reportConfigSaveCandidate(storedValues, runtimeEnv) {
+  const candidate = { ...(storedValues || {}) };
+  const runtimeValues = persistableEnvValues(runtimeEnv);
+  for (const [key, value] of Object.entries(runtimeValues)) {
+    const schemaDefault = MODULE_DEFAULT_ENV_VALUES[key];
+    const hasDifferentStoredValue = String(candidate[key] || '').trim()
+      && schemaDefault === value
+      && candidate[key] !== value;
+    if (hasDifferentStoredValue) continue;
+    candidate[key] = value;
+  }
+  return candidate;
+}
+
+async function storedReportConfig(ctx) {
+  const raw = await storageGet(ctx, CONFIG_STORAGE_KEY);
+  if (raw === undefined || raw === null || String(raw).trim() === '') {
+    return { exists: false, values: {}, savedAt: '' };
+  }
+
+  let parsed = raw;
+  if (typeof parsed !== 'object') {
+    try {
+      parsed = JSON.parse(String(raw));
+    } catch (_) {
+      throw new Error('本机 PO0 上报配置已损坏；请运行“清除本机 PO0 上报配置”后重新保存。');
+    }
+  }
+
+  if (
+    !parsed
+    || typeof parsed !== 'object'
+    || parsed.version !== CONFIG_STORAGE_VERSION
+    || !parsed.values
+    || typeof parsed.values !== 'object'
+  ) {
+    throw new Error('本机 PO0 上报配置版本无效；请运行“清除本机 PO0 上报配置”后重新保存。');
+  }
+
+  const values = persistableEnvValues(parsed.values);
+  if (Object.keys(values).length === 0) {
+    throw new Error('本机 PO0 上报配置为空；请运行“清除本机 PO0 上报配置”后重新保存。');
+  }
+  return {
+    exists: true,
+    values,
+    savedAt: String(parsed.savedAt || ''),
+  };
+}
+
+async function saveReportConfig(ctx, env) {
+  const values = persistableEnvValues(env);
+  const savedAt = new Date().toISOString();
+  const saved = await storageSet(ctx, CONFIG_STORAGE_KEY, JSON.stringify({
+    version: CONFIG_STORAGE_VERSION,
+    savedAt,
+    values,
+  }));
+  if (!saved) {
+    throw new Error('当前 Egern 脚本环境不支持本机 storage，无法保存 PO0 上报配置。');
+  }
+  return { values, savedAt };
 }
 
 async function storageIndex(ctx, key, length) {
@@ -1349,6 +1497,79 @@ function sshConfig(env, target) {
   return config;
 }
 
+function validateReportConfig(env, deviceId = '') {
+  const targets = parseTargets(env, deviceId);
+  for (const target of targets) {
+    sshConfig(env, target);
+  }
+  return targets;
+}
+
+function reportConfigAuthSummary(targets) {
+  const keyCount = targets.filter((target) => String(target.privateKey || '').trim()).length;
+  const passwordCount = targets.length - keyCount;
+  const parts = [];
+  if (keyCount > 0) parts.push(`${keyCount} 个私钥认证`);
+  if (passwordCount > 0) parts.push(`${passwordCount} 个密码认证`);
+  return parts.join('，') || '未识别认证方式';
+}
+
+async function handleReportConfigSaveScript(ctx, runtimeEnv, storedValues, deviceId) {
+  try {
+    const candidate = reportConfigSaveCandidate(storedValues, runtimeEnv);
+    const targets = validateReportConfig(candidate, deviceId);
+    await saveReportConfig(ctx, candidate);
+    const summary = `${targets.length} 个目标，${reportConfigAuthSummary(targets)}`;
+    notify(ctx, 'PO0 Egern Config', `本机上报配置已保存：${summary}`);
+    return widgetPanel(REPORT_TITLE, [
+      `设备: ${deviceDisplayName(deviceId)}`,
+      `已保存: ${summary}`,
+      '密码、私钥和 Token 仅写入本机 ctx.storage。',
+      '后续更换 Egern 配置时无需重新填写。',
+    ], true, ctx);
+  } catch (error) {
+    return widgetPanel(REPORT_TITLE, [
+      `设备: ${deviceDisplayName(deviceId)}`,
+      '本机上报配置未保存。',
+      error?.message || String(error),
+      '请补齐模块环境变量后重新运行本脚本。',
+    ], false, ctx);
+  }
+}
+
+async function handleReportConfigClearScript(ctx) {
+  await storageDelete(ctx, CONFIG_STORAGE_KEY);
+  await storageDelete(ctx, STORAGE_KEY);
+  await storageDelete(ctx, ERROR_STORAGE_KEY);
+  notify(ctx, 'PO0 Egern Config', '本机上报配置已清除');
+  return widgetPanel(REPORT_TITLE, [
+    '本机 PO0 上报配置及最近状态已清除。',
+    '本机设备 ID 保留不变。',
+    '如需恢复，请重新填写模块环境变量并运行“保存本机 PO0 上报配置”。',
+  ], true, ctx);
+}
+
+function missingReportConfigState(deviceId, error) {
+  return {
+    ok: false,
+    skipped: true,
+    skipType: 'missing-config',
+    configured: false,
+    deviceId,
+    error: error?.message || String(error || '本机未保存 PO0 上报配置'),
+  };
+}
+
+function missingReportConfigPanel(ctx, deviceId, error) {
+  return widgetPanel(REPORT_TITLE, [
+    `设备: ${deviceDisplayName(deviceId)}`,
+    '本机尚未保存 PO0 上报配置。',
+    error?.message || String(error || ''),
+    '请填写模块环境变量并运行“保存本机 PO0 上报配置”。',
+    '定时和网络变化任务会保持静默，不会反复报错。',
+  ], false, ctx);
+}
+
 async function reportToPO0(ctx, env, target, ip) {
   const session = await ctx.ssh.connect(sshConfig(env, target));
   try {
@@ -1378,15 +1599,17 @@ export default async function(ctx) {
   const deviceHttpResponse = await handleDeviceHttpRequest(ctx);
   if (deviceHttpResponse) return deviceHttpResponse;
 
-  const env = ctx.env || {};
-  if (isDeviceSetupRun(ctx)) return await handleDeviceSetupScript(ctx, env);
+  const runtimeEnv = ctx.env || {};
+  if (isDeviceSetupRun(ctx)) return await handleDeviceSetupScript(ctx, runtimeEnv);
   if (isDeviceClearRun(ctx)) return await handleDeviceClearScript(ctx);
+  if (isReportConfigClearRun(ctx)) return await handleReportConfigClearScript(ctx);
 
-  const policy = env.POLICY || 'DIRECT';
-  const notifySuccess = boolEnv(env.NOTIFY_SUCCESS, false) || isManualRun(ctx);
-  const notifyFailure = boolEnv(env.NOTIFY_FAILURE, true) || isManualRun(ctx);
   const startedAt = new Date();
   const deviceId = await storedDeviceId(ctx);
+  let env = runtimeEnv;
+  let policy = 'DIRECT';
+  let notifySuccess = isManualRun(ctx);
+  let notifyFailure = true;
   let targets = [];
   let ip = '';
   let ipProfile = { location: '', isp: '' };
@@ -1395,6 +1618,28 @@ export default async function(ctx) {
   let reportedCidr = '';
 
   try {
+    const storedConfig = await storedReportConfig(ctx);
+    if (isReportConfigSaveRun(ctx)) {
+      return await handleReportConfigSaveScript(ctx, runtimeEnv, storedConfig.values, deviceId);
+    }
+
+    if (storedConfig.exists) {
+      env = storedConfig.values;
+    } else {
+      try {
+        validateReportConfig(env, deviceId);
+      } catch (configError) {
+        if (isAutomaticReportRun(ctx)) {
+          return missingReportConfigState(deviceId, configError);
+        }
+        return missingReportConfigPanel(ctx, deviceId, configError);
+      }
+      await saveReportConfig(ctx, env);
+    }
+
+    policy = env.POLICY || 'DIRECT';
+    notifySuccess = boolEnv(env.NOTIFY_SUCCESS, false) || isManualRun(ctx);
+    notifyFailure = boolEnv(env.NOTIFY_FAILURE, true) || isManualRun(ctx);
     targets = parseTargets(env, deviceId);
     network = networkInfo(ctx);
     const wifiSsidSkip = ssidSkipDecision(ctx, env, network);
@@ -1402,7 +1647,7 @@ export default async function(ctx) {
       const state = await buildWifiSsidSkippedState(ctx, targets, network, deviceId, wifiSsidSkip);
       await storageSet(ctx, STORAGE_KEY, JSON.stringify(state));
       logMessage(ctx, 'info', '跳过 SSH 上报', state.skipReason);
-      return shouldReturnWidget(ctx) ? widgetFromState(state, ctx, deviceId) : state;
+      return shouldReturnWidget(ctx) ? widgetFromState(state, ctx, deviceId, env) : state;
     }
 
     const detected = await detectCurrentIPv4WithFallback(ctx, env, policy);
@@ -1506,13 +1751,13 @@ export default async function(ctx) {
       if (notifyFailure) {
         notifyLong(ctx, REPORT_FAILED_TITLE, `${ip}: ${results.length}/${targets.length} 成功；${errorSummary}`);
       }
-      return shouldReturnWidget(ctx) ? widgetFromState(state, ctx, deviceId) : state;
+      return shouldReturnWidget(ctx) ? widgetFromState(state, ctx, deviceId, env) : state;
     }
 
     if (notifySuccess) {
       notify(ctx, REPORT_TITLE, `${ip}: ${results.length}/${targets.length} 个 PO0 已更新`);
     }
-    return shouldReturnWidget(ctx) ? widgetFromState(state, ctx, deviceId) : state;
+    return shouldReturnWidget(ctx) ? widgetFromState(state, ctx, deviceId, env) : state;
   } catch (error) {
     const state = {
       ok: false,
@@ -1537,7 +1782,7 @@ export default async function(ctx) {
       notifyLong(ctx, REPORT_FAILED_TITLE, state.error);
     }
     if (shouldReturnWidget(ctx)) {
-      return widgetFromState(state, ctx, deviceId);
+      return widgetFromState(state, ctx, deviceId, env);
     }
     throw error;
   }

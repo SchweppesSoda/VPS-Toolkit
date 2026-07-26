@@ -103,10 +103,19 @@ check_egern_ssid_guard() {
         printf 'Egern YAML lacks SKIP_WIFI_SSIDS env configuration.\n' >&2
         exit 1
     }
+    grep -Fq '保存本机 PO0 上报配置' "${yaml}" || { printf 'Egern YAML lacks native storage save action.\n' >&2; exit 1; }
+    grep -Fq '清除本机 PO0 上报配置' "${yaml}" || { printf 'Egern YAML lacks native storage clear action.\n' >&2; exit 1; }
     grep -Fq 'normalizeSsidSkipList' "${js}" || { printf 'Egern JS lacks SSID skip list normalizer.\n' >&2; exit 1; }
     grep -Fq 'currentWifiSsidFromNetwork' "${js}" || { printf 'Egern JS lacks raw Wi-Fi SSID reader.\n' >&2; exit 1; }
     grep -Fq 'ssidSkipDecision' "${js}" || { printf 'Egern JS lacks SSID skip decision helper.\n' >&2; exit 1; }
     grep -Fq 'isAutomaticReportRun' "${js}" || { printf 'Egern JS lacks explicit automatic trigger helper.\n' >&2; exit 1; }
+    grep -Fq 'CONFIG_STORAGE_KEY' "${js}" || { printf 'Egern JS lacks native config storage key.\n' >&2; exit 1; }
+    grep -Fq 'persistableEnvValues' "${js}" || { printf 'Egern JS lacks persisted env whitelist helper.\n' >&2; exit 1; }
+    grep -Fq 'reportConfigSaveCandidate' "${js}" || { printf 'Egern JS lacks storage-first save merge helper.\n' >&2; exit 1; }
+    grep -Fq 'storedReportConfig' "${js}" || { printf 'Egern JS lacks native stored config reader.\n' >&2; exit 1; }
+    grep -Fq 'handleReportConfigSaveScript' "${js}" || { printf 'Egern JS lacks native config save handler.\n' >&2; exit 1; }
+    grep -Fq 'handleReportConfigClearScript' "${js}" || { printf 'Egern JS lacks native config clear handler.\n' >&2; exit 1; }
+    grep -Fq "skipType: 'missing-config'" "${js}" || { printf 'Egern JS lacks silent missing-config marker.\n' >&2; exit 1; }
     grep -Fq "skipType: 'wifi-ssid'" "${js}" || { printf 'Egern JS lacks wifi-ssid skipped state marker.\n' >&2; exit 1; }
     grep -Fq 'skipReason:' "${js}" || {
         printf 'Egern JS lacks local skip/no-upload wording.\n' >&2
@@ -702,6 +711,7 @@ bash "${repo_root}/tools/po0/test-manager-client-ip-cidr-prefix.sh"
 bash "${repo_root}/tools/po0/test-manager-nft-atomic-reload.sh"
 bash "${repo_root}/tools/po0/test-manager-resource-upload.sh"
 bash "${repo_root}/tools/po0/test-debian-reinstall-grub.sh"
+node "${repo_root}/tools/po0/test-egern-ssid-guard.mjs"
 node "${repo_root}/tools/po0/test-loon-report.js"
 bash "${repo_root}/tools/po0/build-po0-assets.sh" "${asset_dir}"
 

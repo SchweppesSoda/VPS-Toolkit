@@ -170,9 +170,27 @@ function Test-EgernSsidGuard {
     if ($yamlRaw -notmatch '(?m)^\s+SKIP_WIFI_SSIDS:') {
         throw "Egern YAML lacks SKIP_WIFI_SSIDS env configuration."
     }
+    foreach ($action in @("保存本机 PO0 上报配置", "清除本机 PO0 上报配置")) {
+        if (-not $yamlRaw.Contains($action)) {
+            throw "Egern YAML lacks native storage action: $action"
+        }
+    }
     foreach ($token in @("normalizeSsidSkipList", "currentWifiSsidFromNetwork", "ssidSkipDecision", "isAutomaticReportRun")) {
         if (-not $jsRaw.Contains($token)) {
             throw "Egern JS lacks $token."
+        }
+    }
+    foreach ($token in @(
+        "CONFIG_STORAGE_KEY",
+        "persistableEnvValues",
+        "reportConfigSaveCandidate",
+        "storedReportConfig",
+        "handleReportConfigSaveScript",
+        "handleReportConfigClearScript",
+        "skipType: 'missing-config'"
+    )) {
+        if (-not $jsRaw.Contains($token)) {
+            throw "Egern JS lacks native storage implementation token: $token"
         }
     }
     if (-not $jsRaw.Contains("skipType: 'wifi-ssid'")) {
@@ -897,6 +915,11 @@ function Test-PowerShellSyntax {
     }
 }
 
+Write-Host "Checking node tools/po0/test-egern-ssid-guard.mjs"
+& node (Join-Path $RepoRoot "tools/po0/test-egern-ssid-guard.mjs") | Out-Host
+if ($LASTEXITCODE -ne 0) {
+    throw "Command failed: node tools/po0/test-egern-ssid-guard.mjs"
+}
 Invoke-BashToolScript "tools/po0/test-macos-ssid-diagnostic.sh"
 Invoke-BashToolScript "tools/po0/test-self-report-refresh-policy.sh"
 Invoke-BashToolScript "tools/po0/test-lan-worker-stash-report.sh"
