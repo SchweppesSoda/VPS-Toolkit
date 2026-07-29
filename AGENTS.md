@@ -5,7 +5,7 @@
 ## 仓库结构
 
 - `scripts/po0/`：PO0 相关脚本，包括 nftables 主控、LAN Worker、Egern、自上报、重装和代理增强。
-- `scripts/vps/`：通用 VPS 工具，包括 SSH 加固、Fail2ban、3x-ui、ForwardX、REALITY finder。
+- `scripts/vps/`：通用 VPS 工具，包括 inventory 驱动的代理栈部署、已有机器接管与按配置复刻、SSH 加固、Fail2ban、3x-ui、ForwardX、REALITY finder。
 - Web 静态工具已迁出到 `SchweppesSoda/vps-toolkit-web`；本仓不再维护 `web/`，也不要从本仓根目录启用 GitHub Pages。
 - `tools/` 只放离线构建工具。`tools/po0/` 维护 PO0 Release 发布文件构建、manifest 和检查脚本；运行在客户端、Worker 或访问设备上的脚本应放到对应 `scripts/po0/relay/*/src/` 或明确的客户端目录。
 - PO0 Release 发布文件由 `tools/po0/build-po0-assets.ps1` / `.sh` 按 `tools/po0/manifests/` 生成；manifest 覆盖 manager、LAN Worker、Linux self-report、macOS self-report、Windows self-report 五个模块化源码树。
@@ -102,6 +102,13 @@
 - 涉及 Bash helper、`set -u`、stdin 或 SSH 调用时，要做运行时回归，不只跑 `bash -n`。
 - 涉及 `reload_managed_rules` 或 nftables 应用链路时，必须运行 `tools/po0/test-manager-nft-atomic-reload.sh`，确认预检失败不进入应用、正式刷新只有一个 batch、可选托管表缺失时不生成无效删除。
 - 涉及 PowerShell、JavaScript、YAML 或网页工具时，按对应技术文档里的检查方式补验证。
+- 修改 `scripts/vps/proxy-stack/` 的实例解析、组件调用或防火墙渲染后，必须运行
+  `tools/vps/test-proxy-stack-orchestrator.sh`。`managed` 必须拒绝任何其它 input base chain；
+  持久化路径先对 runtime batch 执行一次 `nft -c`，安装两个候选文件后再对最终 boot
+  composite 执行一次 `nft -c`，然后且只能执行一次正式 `nft -f`。before-image / EXIT
+  guard 只提供同一进程内 best-effort 恢复，两个持久化文件整体不具备断电或 `SIGKILL`
+  crash-atomic 保证。Proxy Gateway Plus 必须保持 `external` 防火墙模式，不修改三方组件
+  的业务脚本或建立第二套日常管理入口。
 
 ## 提交规则
 

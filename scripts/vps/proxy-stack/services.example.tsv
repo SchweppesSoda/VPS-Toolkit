@@ -1,0 +1,17 @@
+# 本文件全是不可部署占位符；复制为每台机器私有的 services.tsv 后逐项替换。
+# 不要把某台机器的端口、真实来源 IP/CIDR 或节点信息提交到仓库。
+# TAB 分隔：component	name	protocol	port	source-cidrs
+# component 为 host、argosbx、pdg 或 sidecar；关闭的组件不会生成对应规则。
+# 同一服务需要 TCP+UDP 时写两行；多个来源用英文逗号分隔。
+host	ssh	tcp	<ssh-port>	<replace-with-ipv4-cidr>,<replace-with-ipv6-cidr>
+argosbx	argosbx-ss2022	tcp	<argosbx-ss2022-port>	<replace-with-ipv4-cidr>,<replace-with-ipv6-cidr>
+argosbx	argosbx-ss2022	udp	<argosbx-ss2022-port>	<replace-with-ipv4-cidr>,<replace-with-ipv6-cidr>
+sidecar	sidecar-vless	tcp	<sidecar-port>	<replace-with-ipv4-cidr>,<replace-with-ipv6-cidr>
+sidecar	sidecar-ss2022	tcp	<sidecar-ss2022-port>	<replace-with-ipv4-cidr>,<replace-with-ipv6-cidr>
+sidecar	sidecar-ss2022	udp	<sidecar-ss2022-port>	<replace-with-ipv4-cidr>,<replace-with-ipv6-cidr>
+pdg	pdg-dns	tcp	<pdg-dns-port>	<client-source-cidr>
+pdg	pdg-dns	udp	<pdg-dns-port>	<client-source-cidr>
+pdg	pdg-dot	tcp	<pdg-dot-port>	<client-source-cidr>
+pdg	pdg-http-hijack	tcp	<pdg-http-listener-port>	<client-source-cidr>
+pdg	pdg-tls-hijack	tcp	<pdg-tls-listener-port>	<client-source-cidr>
+pdg	pdg-quic-tproxy	udp	<pdg-quic-listener-port>	<client-source-cidr>

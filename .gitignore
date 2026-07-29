@@ -7,6 +7,8 @@ deploy-key*
 *.p12
 *.pfx
 *.env
+!scripts/vps/proxy-stack/argosbx.example.env
+!scripts/vps/proxy-stack/proxy-gateway-plus.example.env
 *.log
 *.bak
 *.old

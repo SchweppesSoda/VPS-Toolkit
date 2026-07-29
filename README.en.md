@@ -11,6 +11,7 @@ This repository contains VPS maintenance scripts and PO0 relay tooling. Operatio
 | PO0 nftables relay, source-IP allowlists, LAN Worker, Self-report, WebAuth, Egern, Stash, Loon, or iplist/ipdb | [`scripts/po0/relay/README.md`](./scripts/po0/relay/README.md) | Core functionality, actively maintained |
 | PO0 Debian reinstall | [`scripts/po0/reinstall/README.md`](./scripts/po0/reinstall/README.md) | Maintained as needed; reinstalls the system disk |
 | PO0 proxy-service sidecar | [`scripts/po0/proxy-services/README.md`](./scripts/po0/proxy-services/README.md) | Maintained as needed |
+| VPS proxy-stack deployment, adoption, or configuration-driven rebuild | [`scripts/vps/proxy-stack/README.md`](./scripts/vps/proxy-stack/README.md) | Inventory-driven upper-layer calls to Argosbx, Proxy Gateway Plus, and the sidecar |
 | SSH public-key-only hardening | [`scripts/vps/ssh-key-only/README.md`](./scripts/vps/ssh-key-only/README.md) | General VPS tool |
 | 3x-ui export or REALITY destination lookup | [3x-ui](./scripts/vps/3x-ui/README.md) / [REALITY finder](./scripts/vps/reality_dest_finder/README.md) | Independent tools, maintained as needed |
 | Fail2ban or ForwardX | [Fail2ban](./scripts/vps/fail2ban/README.md) / [ForwardX](./scripts/vps/forwardx/README.md) | Low-frequency use; retained for compatibility, not default deployment paths |
@@ -29,6 +30,7 @@ Start from the relevant README for normal use. `*-technical.md` and `*-design.md
 | [`scripts/po0/relay/README.md`](./scripts/po0/relay/README.md) | PO0 nftables Relay, LAN Worker, access-device reporting, and resource jobs. |
 | [`scripts/po0/reinstall/README.md`](./scripts/po0/reinstall/README.md) | PO0 Debian reinstall. |
 | [`scripts/po0/proxy-services/README.md`](./scripts/po0/proxy-services/README.md) | PO0 proxy-service sidecar. |
+| [`scripts/vps/proxy-stack/README.md`](./scripts/vps/proxy-stack/README.md) | Fresh deployment, adoption of an existing host, or configuration-driven rebuild for Argosbx, Proxy Gateway Plus, and the sidecar. |
 | [`scripts/vps/ssh-key-only/README.md`](./scripts/vps/ssh-key-only/README.md) | SSH public-key-only hardening. |
 | [`scripts/vps/fail2ban/README.md`](./scripts/vps/fail2ban/README.md) | Fail2ban installation and maintenance. |
 | [`scripts/vps/3x-ui/README.md`](./scripts/vps/3x-ui/README.md) | 3x-ui node and subscription export. |
@@ -87,8 +89,9 @@ Use each tool's own README for installation, parameters, and removal instruction
 ## Repository Layout
 
 - `scripts/po0/`: PO0 reinstall, relay, firewall, client reporting, resource jobs, and proxy-service enhancement.
-- `scripts/vps/`: general VPS tools; each tool directory owns its user documentation.
+- `scripts/vps/`: general VPS tools and inventory-driven proxy-stack deployment, adoption, and configuration-driven rebuild; each tool directory owns its user documentation.
 - `tools/po0/`: offline builds, manifests, and checks for PO0 Release assets.
+- `tools/vps/`: offline focused checks for general VPS modules.
 - Browser tools: source and GitHub Pages deployment live in [`vps-toolkit-web`](https://github.com/SchweppesSoda/vps-toolkit-web).
 
 ## Releases and Downloads

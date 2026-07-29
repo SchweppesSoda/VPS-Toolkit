@@ -11,6 +11,7 @@
 | PO0 nftables 中转、源 IP 白名单、LAN Worker、Self-report、WebAuth、Egern、Stash、Loon、iplist/ipdb | [`scripts/po0/relay/README.md`](./scripts/po0/relay/README.md) | 核心功能，持续维护 |
 | PO0 Debian 重装 | [`scripts/po0/reinstall/README.md`](./scripts/po0/reinstall/README.md) | 按需维护；会重装系统盘 |
 | PO0 代理服务增强 sidecar | [`scripts/po0/proxy-services/README.md`](./scripts/po0/proxy-services/README.md) | 按需维护 |
+| VPS 代理栈部署、接管与复刻 | [`scripts/vps/proxy-stack/README.md`](./scripts/vps/proxy-stack/README.md) | Inventory 驱动；上层调用 Argosbx、Proxy Gateway Plus 和 sidecar |
 | SSH 仅公钥登录加固 | [`scripts/vps/ssh-key-only/README.md`](./scripts/vps/ssh-key-only/README.md) | 通用 VPS 工具 |
 | 3x-ui 导出、REALITY 回落域名查找 | [3x-ui](./scripts/vps/3x-ui/README.md) / [REALITY finder](./scripts/vps/reality_dest_finder/README.md) | 独立工具，按需维护 |
 | Fail2ban、ForwardX | [Fail2ban](./scripts/vps/fail2ban/README.md) / [ForwardX](./scripts/vps/forwardx/README.md) | 低频使用；保留兼容，不作为默认部署入口 |
@@ -29,6 +30,7 @@
 | [`scripts/po0/relay/README.md`](./scripts/po0/relay/README.md) | PO0 nftables Relay、LAN Worker、访问设备上报和资源任务。 |
 | [`scripts/po0/reinstall/README.md`](./scripts/po0/reinstall/README.md) | PO0 Debian 重装。 |
 | [`scripts/po0/proxy-services/README.md`](./scripts/po0/proxy-services/README.md) | PO0 代理服务增强 sidecar。 |
+| [`scripts/vps/proxy-stack/README.md`](./scripts/vps/proxy-stack/README.md) | Argosbx、Proxy Gateway Plus、sidecar 的全新部署、已有机器接管和按配置复刻。 |
 | [`scripts/vps/ssh-key-only/README.md`](./scripts/vps/ssh-key-only/README.md) | SSH 仅公钥登录加固。 |
 | [`scripts/vps/fail2ban/README.md`](./scripts/vps/fail2ban/README.md) | Fail2ban 安装与维护。 |
 | [`scripts/vps/3x-ui/README.md`](./scripts/vps/3x-ui/README.md) | 3x-ui 节点和订阅导出。 |
@@ -87,8 +89,9 @@ po0-lan-client --menu
 ## 目录结构
 
 - `scripts/po0/`：PO0 重装、中转、防火墙、客户端上报、资源任务和代理服务增强。
-- `scripts/vps/`：通用 VPS 工具；每个工具目录维护自己的用户文档。
+- `scripts/vps/`：通用 VPS 工具和 inventory 驱动的代理栈部署、接管与复刻；每个工具目录维护自己的用户文档。
 - `tools/po0/`：PO0 Release 发布文件的离线构建、manifest 和检查工具。
+- `tools/vps/`：通用 VPS 模块的离线专项检查。
 - Web 工具：源码和 GitHub Pages 发布均在 [`vps-toolkit-web`](https://github.com/SchweppesSoda/vps-toolkit-web)。
 
 ## 发布与下载
