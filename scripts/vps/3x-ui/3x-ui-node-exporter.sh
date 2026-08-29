@@ -4,7 +4,7 @@ set -uo pipefail
 # 3x-ui node exporter.
 # Reads the local 3x-ui SQLite database and exports subscription/node links.
 
-SCRIPT_VERSION="1.0.0"
+SCRIPT_VERSION="1.1.0"
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/vps/3x-ui/3x-ui-node-exporter.sh"
 
 ADDR=""
@@ -15,6 +15,13 @@ YES="0"
 SHOW_LINKS="0"
 NO_COLOR="0"
 CLI_MODE="0"
+SELF_DESTRUCT="0"
+OUT_OPTION_SET="0"
+SELF_DESTRUCT_TIMEOUT_SECONDS="900"
+SELF_DESTRUCT_TEMP_ROOT=""
+SELF_DESTRUCT_SESSION_DIR=""
+SELF_DESTRUCT_ARCHIVE=""
+SCRIPT_SOURCE_DELETED="0"
 
 C_RESET=""
 C_BOLD=""
@@ -96,6 +103,19 @@ read_tty() {
   printf '%s\n' "${value}"
 }
 
+read_tty_timeout() {
+  local prompt="$1"
+  local timeout_seconds="$2"
+  local input_path="${3:-/dev/tty}"
+  local value=""
+
+  if ! read -r -t "${timeout_seconds}" -p "${prompt}" value <"${input_path}"; then
+    return 1
+  fi
+
+  printf '%s\n' "${value}"
+}
+
 confirm_yes() {
   local prompt="$1"
   local default_answer="${2:-n}"
@@ -143,13 +163,16 @@ print_usage() {
   --db PATH          指定 3x-ui SQLite 数据库路径
   --out DIR          指定导出目录
   --raw-only         只导出原始 inbound 配置，不抓取订阅链接
+  --self-destruct    临时导出 ZIP，等待下载后自动清理本次产物
   --yes, -y          非交互确认：自动安装缺失依赖并直接导出
   --show-links       导出后预览 links.txt 前 20 行
   --no-color         关闭彩色输出
+  --version          显示版本
   --help, -h         显示帮助
 
 说明:
   默认不会把完整节点链接打印到屏幕。导出的敏感文件权限会设置为 600。
+  自销毁模式需要交互式终端，不能与 --out、--show-links 或 --yes 同时使用。
 EOF
 }
 
@@ -180,10 +203,12 @@ parse_args() {
         shift || true
         [[ $# -gt 0 ]] || { err "--out 需要一个目录。"; exit 2; }
         OUT_OVERRIDE="$1"
+        OUT_OPTION_SET="1"
         CLI_MODE="1"
         ;;
       --out=*)
         OUT_OVERRIDE="${1#*=}"
+        OUT_OPTION_SET="1"
         CLI_MODE="1"
         ;;
       --raw-only)
@@ -198,8 +223,16 @@ parse_args() {
         SHOW_LINKS="1"
         CLI_MODE="1"
         ;;
+      --self-destruct)
+        SELF_DESTRUCT="1"
+        CLI_MODE="1"
+        ;;
       --no-color)
         NO_COLOR="1"
+        ;;
+      --version)
+        printf '%s\n' "${SCRIPT_VERSION}"
+        exit 0
         ;;
       --help|-h)
         print_usage
@@ -213,6 +246,29 @@ parse_args() {
     esac
     shift || true
   done
+}
+
+validate_args() {
+  if [[ ! "${SELF_DESTRUCT_TIMEOUT_SECONDS}" =~ ^[0-9]+$ ]] ||
+    ((SELF_DESTRUCT_TIMEOUT_SECONDS < 1)); then
+    err "内部自销毁等待时间必须是正整数秒。"
+    exit 2
+  fi
+
+  [[ "${SELF_DESTRUCT}" == "1" ]] || return 0
+
+  if [[ "${OUT_OPTION_SET}" == "1" ]]; then
+    err "--self-destruct 不能与 --out 同时使用。"
+    exit 2
+  fi
+  if [[ "${SHOW_LINKS}" == "1" ]]; then
+    err "--self-destruct 不能与 --show-links 同时使用，以免节点链接留在终端回滚中。"
+    exit 2
+  fi
+  if [[ "${YES}" == "1" ]]; then
+    err "--self-destruct 不能与 --yes 同时使用；下载窗口需要人工确认。"
+    exit 2
+  fi
 }
 
 command_exists() {
@@ -499,7 +555,7 @@ locate_db() {
 }
 
 prepare_output_dir() {
-  local out="${OUT_OVERRIDE}"
+  local out="${1:-${OUT_OVERRIDE}}"
 
   if [[ -z "${out}" ]]; then
     out="/root/3xui-node-export-$(date +%Y%m%d-%H%M%S)"
@@ -508,6 +564,108 @@ prepare_output_dir() {
   mkdir -p "${out}" || return 1
   chmod 700 "${out}" || return 1
   printf '%s\n' "${out}"
+}
+
+resolve_temp_root() {
+  local root="${TMPDIR:-/tmp}"
+
+  [[ "${root}" == /* ]] || {
+    err "临时目录必须是绝对路径：${root}"
+    return 1
+  }
+  [[ "${root}" != "/" && -d "${root}" && -w "${root}" ]] || {
+    err "临时目录不可用：${root}"
+    return 1
+  }
+
+  root="$(cd -P -- "${root}" 2>/dev/null && pwd -P)" || return 1
+  [[ -n "${root}" && "${root}" != "/" ]] || return 1
+  printf '%s\n' "${root}"
+}
+
+is_safe_self_destruct_session() {
+  local path="$1"
+  local root="${SELF_DESTRUCT_TEMP_ROOT}"
+  local base=""
+
+  [[ -n "${path}" && -n "${root}" ]] || return 1
+  [[ "${path}" == "${root}"/* ]] || return 1
+  base="${path#"${root}"/}"
+  [[ "${base}" != */* ]] || return 1
+  [[ "${base}" =~ ^3xui-self-destruct\.[A-Za-z0-9]+$ ]] || return 1
+}
+
+cleanup_self_destruct_session() {
+  local path="${SELF_DESTRUCT_SESSION_DIR:-}"
+
+  [[ -n "${path}" ]] || return 0
+  if ! is_safe_self_destruct_session "${path}"; then
+    err "拒绝清理未通过安全校验的路径：${path}"
+    return 1
+  fi
+
+  if [[ -e "${path}" || -L "${path}" ]]; then
+    rm -rf -- "${path}" || {
+      err "未能清理临时导出目录：${path}"
+      return 1
+    }
+  fi
+
+  SELF_DESTRUCT_SESSION_DIR=""
+  SELF_DESTRUCT_ARCHIVE=""
+}
+
+handle_self_destruct_signal() {
+  local exit_code="$1"
+  cleanup_self_destruct_session || true
+  trap - EXIT
+  exit "${exit_code}"
+}
+
+install_self_destruct_traps() {
+  trap cleanup_self_destruct_session EXIT
+  trap 'handle_self_destruct_signal 129' HUP
+  trap 'handle_self_destruct_signal 130' INT
+  trap 'handle_self_destruct_signal 143' TERM
+}
+
+clear_self_destruct_traps() {
+  trap - EXIT HUP INT TERM
+}
+
+finalize_self_destruct_cleanup() {
+  cleanup_self_destruct_session || return 1
+  clear_self_destruct_traps
+}
+
+prepare_self_destruct_session() {
+  local root=""
+  local raw_session=""
+  local session=""
+
+  root="$(resolve_temp_root)" || return 1
+  raw_session="$(mktemp -d "${root}/3xui-self-destruct.XXXXXXXX")" || return 1
+  chmod 700 "${raw_session}" || {
+    rm -rf -- "${raw_session}"
+    return 1
+  }
+  session="$(cd -P -- "${raw_session}" 2>/dev/null && pwd -P)" || {
+    rm -rf -- "${raw_session}"
+    return 1
+  }
+
+  SELF_DESTRUCT_TEMP_ROOT="${root}"
+  SELF_DESTRUCT_SESSION_DIR="${session}"
+  is_safe_self_destruct_session "${session}" || {
+    err "临时导出目录未通过安全校验。"
+    rm -rf -- "${session}"
+    SELF_DESTRUCT_SESSION_DIR=""
+    return 1
+  }
+
+  install_self_destruct_traps
+  mkdir -p "${session}/data" || return 1
+  chmod 700 "${session}/data" || return 1
 }
 
 secure_output_files() {
@@ -519,6 +677,75 @@ secure_output_files() {
     [[ -e "${file}" ]] || continue
     [[ -f "${file}" ]] && chmod 600 "${file}" 2>/dev/null || true
   done
+}
+
+create_self_destruct_archive() {
+  local source_dir="$1"
+  local archive="$2"
+  local archive_name=""
+
+  [[ "${source_dir}" == "${SELF_DESTRUCT_SESSION_DIR}/data" ]] || {
+    err "拒绝打包未受控的导出目录：${source_dir}"
+    return 1
+  }
+  [[ "${archive}" == "${SELF_DESTRUCT_SESSION_DIR}"/* ]] || {
+    err "拒绝写入未受控的归档路径：${archive}"
+    return 1
+  }
+  archive_name="${archive#"${SELF_DESTRUCT_SESSION_DIR}"/}"
+  [[ "${archive_name}" != */* && "${archive_name}" == *.zip ]] || {
+    err "拒绝写入未受控的归档文件名：${archive_name}"
+    return 1
+  }
+
+  python3 - "${source_dir}" "${archive}" <<'PY'
+import sys
+import zipfile
+from pathlib import Path
+
+source = Path(sys.argv[1])
+archive = Path(sys.argv[2])
+
+files = sorted(path for path in source.iterdir() if path.is_file())
+if not files:
+    raise SystemExit("no export files to archive")
+
+with zipfile.ZipFile(
+    archive,
+    "w",
+    compression=zipfile.ZIP_DEFLATED,
+    compresslevel=6,
+) as bundle:
+    for path in files:
+        bundle.write(path, arcname=path.name)
+PY
+  chmod 600 "${archive}" || return 1
+}
+
+remove_self_destruct_staging() {
+  local staging="${SELF_DESTRUCT_SESSION_DIR}/data"
+
+  is_safe_self_destruct_session "${SELF_DESTRUCT_SESSION_DIR}" || return 1
+  [[ -d "${staging}" && ! -L "${staging}" ]] || return 1
+  rm -rf -- "${staging}"
+}
+
+read_archive_metadata() {
+  local archive="$1"
+
+  python3 - "${archive}" <<'PY'
+import hashlib
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+digest = hashlib.sha256()
+with path.open("rb") as handle:
+    for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+        digest.update(chunk)
+print(path.stat().st_size)
+print(digest.hexdigest())
+PY
 }
 
 run_python_export() {
@@ -718,7 +945,10 @@ fetch_links() {
   while IFS= read -r sid; do
     [[ -n "${sid}" ]] || continue
 
-    tmp="$(mktemp)"
+    tmp="$(mktemp "${out}/.subscription.XXXXXXXX")" || {
+      err "无法创建订阅抓取临时文件。"
+      return 1
+    }
     ok="0"
 
     for scheme in http https; do
@@ -827,13 +1057,15 @@ maybe_preview_after_export() {
 run_export() {
   local raw_only="${1:-0}"
   local allow_preview_prompt="${2:-0}"
+  local forced_out="${3:-}"
+  local show_summary="${4:-1}"
   local db=""
   local out=""
 
   print_title "3x-ui 节点导出"
 
   db="$(locate_db)" || return 1
-  out="$(prepare_output_dir)" || {
+  out="$(prepare_output_dir "${forced_out}")" || {
     err "无法创建导出目录。"
     return 1
   }
@@ -861,8 +1093,145 @@ run_export() {
   fi
 
   secure_output_files "${out}"
-  print_export_summary "${out}" "${raw_only}"
+  if [[ "${show_summary}" == "1" ]]; then
+    print_export_summary "${out}" "${raw_only}"
+  fi
   maybe_preview_after_export "${out}" "${allow_preview_prompt}"
+}
+
+print_self_destruct_download_page() {
+  local archive="$1"
+  local metadata=""
+  local archive_size=""
+  local archive_sha256=""
+  local archive_name="${archive##*/}"
+
+  metadata="$(read_archive_metadata "${archive}")" || return 1
+  archive_size="${metadata%%$'\n'*}"
+  archive_sha256="${metadata#*$'\n'}"
+
+  print_title "临时导出已就绪"
+  echo "临时 ZIP       : ${archive}"
+  echo "文件大小       : ${archive_size} 字节"
+  echo "SHA-256        : ${archive_sha256}"
+  echo ""
+  echo "请在自己电脑的另一个终端下载："
+  printf "  scp 'root@<VPS地址>:%s' .\n" "${archive}"
+  echo ""
+  echo "Windows PowerShell 校验："
+  echo "  Get-FileHash .\\${archive_name} -Algorithm SHA256"
+  echo "Linux 校验："
+  echo "  sha256sum ./${archive_name}"
+  echo "macOS 校验："
+  echo "  shasum -a 256 ./${archive_name}"
+  echo ""
+  warn "下载完成后回到本窗口按回车；最多等待 $((SELF_DESTRUCT_TIMEOUT_SECONDS / 60)) 分钟。"
+  warn "ZIP 未加密，请只通过 SSH/SFTP 下载并妥善保管。"
+}
+
+wait_for_self_destruct_download() {
+  local input=""
+  local input_path=""
+
+  if ! has_tty; then
+    err "自销毁模式需要交互式终端，以确认下载完成。"
+    return 1
+  fi
+
+  input_path="$(self_destruct_input_path)"
+  if input="$(read_tty_timeout \
+    "下载完成后按回车立即清理: " \
+    "${SELF_DESTRUCT_TIMEOUT_SECONDS}" \
+    "${input_path}")"; then
+    info "已收到清理确认。"
+  else
+    warn "等待时间已到或终端已断开，开始自动清理。"
+  fi
+}
+
+self_destruct_input_path() {
+  printf '%s\n' "/dev/tty"
+}
+
+maybe_delete_script_source() {
+  local src=""
+  local answer=""
+
+  src="$(script_source_path || true)"
+  if [[ -z "${src}" || "${src}" == /dev/fd/* || "${src}" == /proc/self/fd/* ]]; then
+    info "当前通过管道或临时文件描述符运行，没有脚本文件需要删除。"
+    return 0
+  fi
+  if [[ ! -f "${src}" && ! -L "${src}" ]]; then
+    info "没有找到可删除的脚本文件。"
+    return 0
+  fi
+
+  echo ""
+  warn "当前脚本文件仍在磁盘上：${src}"
+  answer="$(read_tty "如需删除这个文件，请输入 DELETE；直接回车保留: ")"
+  if [[ "${answer}" != "DELETE" ]]; then
+    info "已保留脚本文件。"
+    return 0
+  fi
+
+  rm -f -- "${src}" || {
+    err "无法删除脚本文件：${src}"
+    return 1
+  }
+  SCRIPT_SOURCE_DELETED="1"
+  success "已删除脚本文件：${src}"
+}
+
+run_self_destruct_export() {
+  local raw_only="${1:-0}"
+  local data_dir=""
+  local timestamp=""
+
+  if ! has_tty; then
+    err "自销毁模式需要在已登录 VPS 的交互式终端中运行。"
+    return 1
+  fi
+
+  umask 077
+  prepare_self_destruct_session || {
+    err "无法创建受控临时导出目录。"
+    finalize_self_destruct_cleanup || true
+    return 1
+  }
+
+  data_dir="${SELF_DESTRUCT_SESSION_DIR}/data"
+  timestamp="$(date +%Y%m%d-%H%M%S)"
+  SELF_DESTRUCT_ARCHIVE="${SELF_DESTRUCT_SESSION_DIR}/3xui-node-export-${timestamp}.zip"
+
+  if ! run_export "${raw_only}" "0" "${data_dir}" "0"; then
+    err "临时导出失败，正在清理本次产物。"
+    finalize_self_destruct_cleanup || true
+    return 1
+  fi
+
+  if ! create_self_destruct_archive "${data_dir}" "${SELF_DESTRUCT_ARCHIVE}"; then
+    err "无法生成临时 ZIP，正在清理本次产物。"
+    finalize_self_destruct_cleanup || true
+    return 1
+  fi
+  if ! remove_self_destruct_staging; then
+    err "无法删除归档前的散装文件，正在清理整个临时目录。"
+    finalize_self_destruct_cleanup || true
+    return 1
+  fi
+
+  if ! print_self_destruct_download_page "${SELF_DESTRUCT_ARCHIVE}"; then
+    err "无法读取临时 ZIP 信息，正在清理本次产物。"
+    finalize_self_destruct_cleanup || true
+    return 1
+  fi
+
+  wait_for_self_destruct_download || true
+  finalize_self_destruct_cleanup || return 1
+  success "本次临时导出目录、ZIP、数据库快照和中间文件已清理。"
+  warn "Shell 历史、终端回滚、系统审计/网络日志和文件系统快照不在清理范围内。"
+  maybe_delete_script_source
 }
 
 run_diagnostics() {
@@ -936,9 +1305,10 @@ print_main_menu() {
   print_menu_item 1 "一键导出订阅/节点链接"
   print_menu_item 2 "指定域名/IP 后导出"
   print_menu_item 3 "只导出原始 inbound 配置"
+  print_menu_item 4 "临时导出并自动清理"
   print_menu_section "工具"
-  print_menu_item 4 "环境诊断"
-  print_menu_item 5 "查看帮助和一行命令"
+  print_menu_item 5 "环境诊断"
+  print_menu_item 6 "查看帮助和一行命令"
   print_menu_footer
   print_menu_item 0 "退出"
   print_menu_footer
@@ -950,7 +1320,7 @@ main_menu() {
   while true; do
     menu_clear_screen
     print_main_menu
-    choice="$(read_tty "请选择操作 [0-5]: ")"
+    choice="$(read_tty "请选择操作 [0-6]: ")"
 
     case "${choice}" in
       1)
@@ -967,10 +1337,18 @@ main_menu() {
         pause_before_return
         ;;
       4)
-        run_diagnostics
+        ADDR=""
+        run_self_destruct_export "0"
+        if [[ "${SCRIPT_SOURCE_DELETED}" == "1" ]]; then
+          exit 0
+        fi
         pause_before_return
         ;;
       5)
+        run_diagnostics
+        pause_before_return
+        ;;
+      6)
         show_help_screen
         pause_before_return
         ;;
@@ -990,14 +1368,19 @@ main() {
 
   parse_args "$@"
   setup_colors
+  validate_args
   ensure_root "${original_args[@]}"
   ensure_dependencies
 
-  if [[ "${CLI_MODE}" == "1" ]]; then
+  if [[ "${SELF_DESTRUCT}" == "1" ]]; then
+    run_self_destruct_export "${RAW_ONLY}"
+  elif [[ "${CLI_MODE}" == "1" ]]; then
     run_export "${RAW_ONLY}" "0"
   else
     main_menu
   fi
 }
 
-main "$@"
+if [[ "${XUI_EXPORTER_SOURCE_ONLY:-0}" != "1" ]]; then
+  main "$@"
+fi
