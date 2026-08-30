@@ -5,6 +5,9 @@ case "${1:-status}" in
     test)
         /usr/libexec/po0-outbound-ip-report-uci
         ;;
+    test-force)
+        /usr/libexec/po0-outbound-ip-report-uci --force-report
+        ;;
     discover-wans)
         url="$(uci -q get po0_outbound_ip_report.main.router_probe_url 2>/dev/null || true)"
         [ -n "${url}" ] || { printf '未配置上游路由探针。\n' >&2; exit 1; }
@@ -19,4 +22,3 @@ case "${1:-status}" in
         exit 2
         ;;
 esac
-

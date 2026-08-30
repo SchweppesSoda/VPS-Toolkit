@@ -58,3 +58,7 @@ MAX_CRON_MINUTES="10080"
 INTERVAL_SECONDS=""
 HAD_ARGS=0
 [[ "$#" -gt 0 ]] && HAD_ARGS=1
+
+report_detail_enabled() {
+    return 0
+}

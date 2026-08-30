@@ -10,7 +10,7 @@ output_dir="${3:-${repo_root}/.tmp/po0-apks}"
     printf 'Invalid ImmortalWrt SDK directory: %s\n' "${sdk_root}" >&2
     exit 1
 }
-for asset in po0-wan-probe.sh po0-outbound-ip-report.sh; do
+for asset in po0-wan-probe.sh; do
     [[ -s "${asset_dir}/${asset}" ]] || { printf 'Missing PO0 asset: %s\n' "${asset}" >&2; exit 1; }
 done
 
@@ -23,7 +23,8 @@ for package in po0-wan-probe po0-outbound-ip-report; do
     cp -R "${repo_root}/packaging/openwrt/${package}" "${sdk_root}/package/${package}"
 done
 cp "${asset_dir}/po0-wan-probe.sh" "${sdk_root}/po0-assets/po0-wan-probe.sh"
-cp "${asset_dir}/po0-outbound-ip-report.sh" "${sdk_root}/po0-assets/po0-outbound-ip-report.sh"
+bash "${repo_root}/tools/po0/build-openwrt-reporter-runtime.sh" \
+    "${sdk_root}/po0-assets/po0-outbound-ip-report.sh"
 
 make -C "${sdk_root}" defconfig
 make -C "${sdk_root}" -j"$(nproc)" \

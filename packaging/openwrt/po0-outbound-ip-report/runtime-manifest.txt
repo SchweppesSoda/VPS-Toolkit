@@ -1,0 +1,5 @@
+packaging/openwrt/po0-outbound-ip-report/runtime-header.sh
+scripts/po0/relay/self-report/linux/src/070-outbound-ip-detection.sh
+scripts/po0/relay/self-report/linux/src/075-wifi-ssid-skip.sh
+scripts/po0/relay/self-report/linux/src/130-report-submit.sh
+packaging/openwrt/po0-outbound-ip-report/runtime-dispatch.sh

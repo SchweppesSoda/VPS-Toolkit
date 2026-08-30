@@ -22,6 +22,8 @@ if [ -r "${legacy_config}" ] && [ ! -e "${backup_dir}/settings.env.pre-apk" ]; t
     [ -n "${ALLOW_HTTP:-}" ] && uci set "po0_outbound_ip_report.main.allow_http=${ALLOW_HTTP}"
     [ -n "${ROUTER_PROBE_URL:-}" ] && uci set "po0_outbound_ip_report.main.router_probe_url=${ROUTER_PROBE_URL}"
     [ -n "${WANS:-}" ] && uci set "po0_outbound_ip_report.main.wans=${WANS}"
+    [ -n "${IP_CHECK_URLS:-}" ] && uci set "po0_outbound_ip_report.main.ip_check_urls=${IP_CHECK_URLS}"
+    [ -n "${SKIP_WIFI_SSIDS:-}" ] && uci set "po0_outbound_ip_report.main.skip_wifi_ssids=${SKIP_WIFI_SSIDS}"
     [ -n "${INTERVAL_SECONDS:-}" ] && uci set "po0_outbound_ip_report.main.interval_seconds=${INTERVAL_SECONDS}"
     uci set po0_outbound_ip_report.main.enabled='1'
     uci commit po0_outbound_ip_report
@@ -39,4 +41,3 @@ fi
 
 chmod 600 /etc/config/po0_outbound_ip_report 2>/dev/null || true
 exit 0
-

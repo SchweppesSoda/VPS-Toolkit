@@ -1,0 +1,23 @@
+#!/bin/sh
+set -u
+
+case "${1:-run-once}" in
+    run-once|--run-once)
+        [ "$#" -eq 0 ] || shift
+        exec /usr/libexec/po0-outbound-ip-report-uci "$@"
+        ;;
+    --version)
+        printf '%s\n' 'po0-outbound-ip-report 2026.08.30+build.3 (OpenWrt APK)'
+        ;;
+    --help|-h)
+        printf '%s\n' \
+            'PO0 outbound IP reporter (OpenWrt APK)' \
+            'Usage: po0-outbound-ip-report [run-once|--run-once|--version]' \
+            'Configuration is managed by UCI/LuCI; scheduling is managed by procd.'
+        ;;
+    *)
+        printf 'unsupported APK command: %s\n' "$1" >&2
+        printf 'Use LuCI/UCI, or run: po0-outbound-ip-report --run-once\n' >&2
+        exit 2
+        ;;
+esac

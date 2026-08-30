@@ -1,3 +1,11 @@
+report_detail_output_enabled() {
+    if declare -F report_detail_enabled >/dev/null 2>&1; then
+        report_detail_enabled
+    else
+        return 0
+    fi
+}
+
 report_once() {
     local wan_targets wan l3_device ip response curl_rc report_source report_identity
     local http_code success_message label total=0 success_count=0 failure_count=0
@@ -59,7 +67,7 @@ report_once() {
             failure_count=$((failure_count + 1))
             continue
         }
-        echo "上报${label}的公网出口 IPv4 ${ip} 到 LAN Worker：${WORKER_URL}"
+        report_detail_output_enabled && echo "上报${label}的公网出口 IPv4 ${ip} 到 LAN Worker：${WORKER_URL}"
         curl_args=(-sS --get --connect-timeout 10 --max-time 30)
         if [[ -n "${SECRET}" ]]; then
             curl_args+=(-H "X-PO0-Token: ${SECRET}")
@@ -74,18 +82,18 @@ report_once() {
             http_code="${response##*$'\n'}"
             response="${response%$'\n'*}"
             if [[ "${http_code}" == 2* ]]; then
-                [[ -n "${response}" ]] && printf '%s\n' "${response}"
+                if [[ -n "${response}" ]] && report_detail_output_enabled; then printf '%s\n' "${response}"; fi
                 success_message="$(self_report_append_response_target_success "${label}的公网出口 IPv4 ${ip} 已被 LAN Worker 接收。" "${response}")"
                 self_report_completed "${success_message}"
                 success_count=$((success_count + 1))
             else
-                [[ -n "${response}" ]] && printf '%s\n' "${response}" >&2
+                if [[ -n "${response}" ]] && report_detail_output_enabled; then printf '%s\n' "${response}" >&2; fi
                 self_report_incomplete "${label}的上报未被 LAN Worker 确认（HTTP ${http_code}）。"
                 failure_count=$((failure_count + 1))
             fi
         else
             curl_rc=$?
-            [[ -n "${response}" ]] && printf '%s\n' "${response}" >&2
+            if [[ -n "${response}" ]] && report_detail_output_enabled; then printf '%s\n' "${response}" >&2; fi
             self_report_incomplete "${label}的上报未被 LAN Worker 确认（curl exit ${curl_rc}）。"
             failure_count=$((failure_count + 1))
         fi

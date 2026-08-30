@@ -7,5 +7,6 @@ config reporter 'main'
 	option allow_http '0'
 	option router_probe_url 'http://192.168.88.1/cgi-bin/po0-wan-probe'
 	option wans 'all'
+	option ip_check_urls ''
+	option skip_wifi_ssids ''
 	option interval_seconds '3600'
-
