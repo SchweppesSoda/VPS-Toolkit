@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=po0-wan-probe
 PKG_VERSION:=2026.08.30
-PKG_RELEASE:=4
+PKG_RELEASE:=5
 PKGARCH:=all
 
 include $(INCLUDE_DIR)/package.mk

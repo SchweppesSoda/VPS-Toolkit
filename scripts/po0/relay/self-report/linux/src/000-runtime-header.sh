@@ -4,13 +4,12 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_OUTBOUND_IP_REPORT_DOWNLOAD_URL:-${PO0_SELF_REPORT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report.sh}}"
 SCRIPT_NAME="po0-outbound-ip-report"
-SCRIPT_VERSION="2026.08.30+build.4"
+SCRIPT_VERSION="2026.08.30+build.5"
 SCRIPT_RELEASE_DATE="2026-08-30"
 # CHANGELOG_BEGIN
-# - OpenWrt LuCI 手动测试改为后台任务加状态轮询，避免双 WAN 上报超过 20 秒触发 XHR 超时。
-# - 操作结果改为状态卡片，显示标题、本地更新时间、逐 WAN 结果与汇总，不再输出原始响应文本框。
-# - 明文 HTTP Worker 开关移到高级设置并标记为不推荐；HTTPS Worker 保持默认安全路径。
-# - OpenWrt APK 仍只使用 procd 调度，不安装或管理 cron。
+# - OpenWrt procd 自动任务状态新增完成时间；手动与自动上报统一记录开始时间、完成时间和退出码。
+# - LuCI 结果卡片改用中文 24 小时制，分别显示任务开始、任务完成、执行耗时和页面刷新时间。
+# - 兼容没有完成时间的旧状态记录，不伪造完成时间或耗时。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24

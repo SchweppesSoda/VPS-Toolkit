@@ -52,6 +52,33 @@ var ResultSection = form.NamedSection.extend({
 	}
 });
 
+function pad2(value) {
+	return String(value).padStart(2, '0');
+}
+
+function formatLocalDateTime(date) {
+	return '%d-%s-%s %s:%s:%s'.format(
+		date.getFullYear(),
+		pad2(date.getMonth() + 1),
+		pad2(date.getDate()),
+		pad2(date.getHours()),
+		pad2(date.getMinutes()),
+		pad2(date.getSeconds()));
+}
+
+function formatDuration(totalSeconds) {
+	var seconds = Math.max(0, Math.floor(totalSeconds));
+	var hours = Math.floor(seconds / 3600);
+	var minutes = Math.floor((seconds % 3600) / 60);
+	var remainder = seconds % 60;
+
+	if (hours)
+		return _('%s 小时 %s 分 %s 秒').format(hours, minutes, remainder);
+	if (minutes)
+		return _('%s 分 %s 秒').format(minutes, remainder);
+	return _('%s 秒').format(remainder);
+}
+
 function showActionResult(title, message, level) {
 	var node = document.getElementById('po0-action-result');
 	if (!node)
@@ -72,7 +99,7 @@ function showActionResult(title, message, level) {
 	node.className = 'po0-result-card ' + state[0];
 	node.setAttribute('aria-busy', level === 'working' ? 'true' : 'false');
 	titleNode.textContent = title;
-	metaNode.textContent = _('更新时间：%s').format(new Date().toLocaleTimeString());
+	metaNode.textContent = _('页面刷新时间：%s').format(formatLocalDateTime(new Date()));
 	iconNode.textContent = state[1];
 
 	while (bodyNode.firstChild)
@@ -89,6 +116,7 @@ function formatRecentResult(raw) {
 	var running = /^status=running$/m.test(raw);
 	var idle = /^status=idle$/m.test(raw);
 	var observed = raw.match(/^observed_at=([0-9]+)$/m);
+	var finished = raw.match(/^finished_at=([0-9]+)$/m);
 	var exitCode = raw.match(/^exit_code=([0-9]+)$/m);
 	var successPattern = /PO0 Outbound IP Report 已完成：上游路由器 WAN ([^的\r\n]+)的公网出口 IPv4 ([0-9.]+) 已被 LAN Worker 接收[^\r\n]*/g;
 	var failurePattern = /PO0 Outbound IP Report 未完成：([^\r\n]+)/g;
@@ -102,13 +130,22 @@ function formatRecentResult(raw) {
 		return { title: _('暂无上报记录'), text: _('服务尚未生成运行记录。'), level: 'neutral', running: false };
 
 	if (observed) {
-		var date = new Date(parseInt(observed[1], 10) * 1000);
-		if (!isNaN(date.getTime()))
-			lines.push(_('上报时间：%s').format(date.toLocaleString()));
+		var startedAt = parseInt(observed[1], 10);
+		var startedDate = new Date(startedAt * 1000);
+		if (!isNaN(startedDate.getTime()))
+			lines.push(_('任务开始时间：%s').format(formatLocalDateTime(startedDate)));
 	}
 	if (running) {
 		lines.push(_('后台任务正在执行，页面会自动刷新结果。'));
 		return { title: _('正在测试上报'), text: lines.join('\n'), level: 'working', running: true };
+	}
+	if (finished) {
+		var finishedAt = parseInt(finished[1], 10);
+		var finishedDate = new Date(finishedAt * 1000);
+		if (!isNaN(finishedDate.getTime()))
+			lines.push(_('任务完成时间：%s').format(formatLocalDateTime(finishedDate)));
+		if (observed && finishedAt >= startedAt)
+			lines.push(_('执行耗时：%s').format(formatDuration(finishedAt - startedAt)));
 	}
 	if (exitCode)
 		lines.push(exitCode[1] === '0' ? _('执行状态：成功') : _('执行状态：失败（exit %s）').format(exitCode[1]));

@@ -13,12 +13,17 @@ while :; do
     else
         rc=$?
     fi
+    finished="$(date +%s)"
     umask 077
-    printf 'observed_at=%s\nexit_code=%s\n' "${started}" "${rc}" > "${STATE_FILE}"
+    {
+        printf 'status=finished\n'
+        printf 'observed_at=%s\n' "${started}"
+        printf 'finished_at=%s\n' "${finished}"
+        printf 'exit_code=%s\n' "${rc}"
+    } > "${STATE_FILE}"
     interval="$(uci -q get po0_outbound_ip_report.main.interval_seconds 2>/dev/null || printf '3600')"
     case "${interval}" in ""|*[!0-9]*) interval=3600 ;; esac
     [ "${interval}" -ge 60 ] 2>/dev/null || interval=60
     sleep "${interval}" &
     wait $!
 done
-

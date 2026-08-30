@@ -2,10 +2,10 @@
 set -u
 
 SCRIPT_NAME="po0-wan-probe"
-SCRIPT_VERSION="2026.08.30+build.4"
+SCRIPT_VERSION="2026.08.30+build.5"
 SCRIPT_RELEASE_DATE="2026-08-30"
 # CHANGELOG_BEGIN
-# - 跟随 PO0 发布批次对齐到 2026.08.30+build.4；WAN 探针无行为变化。
+# - 跟随 PO0 发布批次对齐到 2026.08.30+build.5；WAN 探针无行为变化。
 # CHANGELOG_END
 CONFIG_NAME="po0_wan_probe"
 CONFIG_SECTION="main"
