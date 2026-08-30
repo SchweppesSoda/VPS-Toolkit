@@ -17,8 +17,10 @@ required=(
     packaging/openwrt/po0-outbound-ip-report/files/usr/libexec/po0-outbound-ip-report-uci
     packaging/openwrt/po0-outbound-ip-report/files/usr/libexec/po0-outbound-ip-report-service
     packaging/openwrt/po0-outbound-ip-report/files/usr/libexec/po0-outbound-ip-report-control
+    packaging/openwrt/po0-outbound-ip-report/files/usr/libexec/po0-outbound-ip-report-manual-runner
     packaging/openwrt/po0-outbound-ip-report/files/usr/libexec/po0-outbound-ip-report-migrate
     tools/po0/build-openwrt-reporter-runtime.sh
+    tools/po0/test-openwrt-manual-runner.sh
 )
 
 for file in "${required[@]}"; do
@@ -32,21 +34,37 @@ for file in \
     packaging/openwrt/po0-outbound-ip-report/files/usr/libexec/po0-outbound-ip-report-uci \
     packaging/openwrt/po0-outbound-ip-report/files/usr/libexec/po0-outbound-ip-report-service \
     packaging/openwrt/po0-outbound-ip-report/files/usr/libexec/po0-outbound-ip-report-control \
+    packaging/openwrt/po0-outbound-ip-report/files/usr/libexec/po0-outbound-ip-report-manual-runner \
     packaging/openwrt/po0-outbound-ip-report/files/usr/libexec/po0-outbound-ip-report-migrate \
     tools/po0/build-openwrt-reporter-runtime.sh \
+    tools/po0/test-openwrt-manual-runner.sh \
     tools/po0/build-po0-apks.sh; do
     sh -n "${repo_root}/${file}"
 done
 
+bash "${repo_root}/tools/po0/test-openwrt-manual-runner.sh"
+
 for package in po0-wan-probe po0-outbound-ip-report; do
     grep -Fq 'PKGARCH:=all' "${repo_root}/packaging/openwrt/${package}/Makefile"
     grep -Fq 'PKG_VERSION:=2026.08.30' "${repo_root}/packaging/openwrt/${package}/Makefile"
-    grep -Fq 'PKG_RELEASE:=3' "${repo_root}/packaging/openwrt/${package}/Makefile"
+    grep -Fq 'PKG_RELEASE:=4' "${repo_root}/packaging/openwrt/${package}/Makefile"
     grep -Fq "$(printf '$(TOPDIR)/po0-assets')" "${repo_root}/packaging/openwrt/${package}/Makefile"
 done
 
 grep -Fq 'exec /usr/libexec/po0-outbound-ip-report-engine "$@"' \
     "${repo_root}/packaging/openwrt/po0-outbound-ip-report/files/usr/libexec/po0-outbound-ip-report-uci"
+grep -Fq 'test-start)' \
+    "${repo_root}/packaging/openwrt/po0-outbound-ip-report/files/usr/libexec/po0-outbound-ip-report-control"
+grep -Fq 'test-status)' \
+    "${repo_root}/packaging/openwrt/po0-outbound-ip-report/files/usr/libexec/po0-outbound-ip-report-control"
+grep -Fq 'start-stop-daemon -S -b' \
+    "${repo_root}/packaging/openwrt/po0-outbound-ip-report/files/usr/libexec/po0-outbound-ip-report-control"
+grep -Fq 'po0-outbound-ip-report-manual-runner' \
+    "${repo_root}/packaging/openwrt/po0-outbound-ip-report/Makefile"
+grep -Fq 'outbound-ip-report-v4' \
+    "${repo_root}/packaging/openwrt/po0-outbound-ip-report/Makefile"
+grep -Fq 'po0/outbound-ip-report-v4' \
+    "${repo_root}/packaging/openwrt/po0-outbound-ip-report/files/usr/share/luci/menu.d/po0-outbound-ip-report.json"
 grep -Fq -- '--run-once)' \
     "${repo_root}/scripts/po0/relay/self-report/linux/src/990-cli-parse-dispatch.sh"
 

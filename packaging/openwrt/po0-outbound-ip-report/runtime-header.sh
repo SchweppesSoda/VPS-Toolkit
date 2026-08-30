@@ -2,7 +2,7 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-outbound-ip-report-openwrt"
-SCRIPT_VERSION="2026.08.30+build.3"
+SCRIPT_VERSION="2026.08.30+build.4"
 WORKER_URL="${PO0_OUTBOUND_IP_REPORT_WORKER_URL:-}"
 SOURCE_ID="${PO0_OUTBOUND_IP_REPORT_SOURCE:-router-88-1}"
 IDENTITY="${PO0_OUTBOUND_IP_REPORT_IDENTITY:-router-88-1-via-gateway}"

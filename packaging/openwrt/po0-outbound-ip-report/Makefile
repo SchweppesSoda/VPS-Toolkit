@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=po0-outbound-ip-report
 PKG_VERSION:=2026.08.30
-PKG_RELEASE:=3
+PKG_RELEASE:=4
 PKGARCH:=all
 
 include $(INCLUDE_DIR)/package.mk
@@ -32,6 +32,7 @@ define Package/po0-outbound-ip-report/install
 	$(INSTALL_BIN) ./files/usr/libexec/po0-outbound-ip-report-uci $(1)/usr/libexec/po0-outbound-ip-report-uci
 	$(INSTALL_BIN) ./files/usr/libexec/po0-outbound-ip-report-service $(1)/usr/libexec/po0-outbound-ip-report-service
 	$(INSTALL_BIN) ./files/usr/libexec/po0-outbound-ip-report-control $(1)/usr/libexec/po0-outbound-ip-report-control
+	$(INSTALL_BIN) ./files/usr/libexec/po0-outbound-ip-report-manual-runner $(1)/usr/libexec/po0-outbound-ip-report-manual-runner
 	$(INSTALL_BIN) ./files/usr/libexec/po0-outbound-ip-report-migrate $(1)/usr/libexec/po0-outbound-ip-report-migrate
 	$(INSTALL_BIN) ./files/etc/init.d/po0-outbound-ip-report $(1)/etc/init.d/po0-outbound-ip-report
 	$(INSTALL_CONF) ./files/etc/config/po0_outbound_ip_report $(1)/etc/config/po0_outbound_ip_report
@@ -39,7 +40,7 @@ define Package/po0-outbound-ip-report/install
 	$(INSTALL_DATA) ./files/usr/share/luci/menu.d/po0-outbound-ip-report.json $(1)/usr/share/luci/menu.d/po0-outbound-ip-report.json
 	$(INSTALL_DATA) ./files/usr/share/rpcd/acl.d/po0-outbound-ip-report.json $(1)/usr/share/rpcd/acl.d/po0-outbound-ip-report.json
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/po0
-	$(INSTALL_DATA) ./files/www/luci-static/resources/view/po0/outbound-ip-report.js $(1)/www/luci-static/resources/view/po0/outbound-ip-report-v3.js
+	$(INSTALL_DATA) ./files/www/luci-static/resources/view/po0/outbound-ip-report.js $(1)/www/luci-static/resources/view/po0/outbound-ip-report-v4.js
 endef
 
 define Package/po0-outbound-ip-report/postinst
