@@ -14,5 +14,4 @@ export PO0_OUTBOUND_IP_REPORT_ROUTER_PROBE_URL="$(uci_get router_probe_url 'http
 export PO0_OUTBOUND_IP_REPORT_WANS="$(uci_get wans 'all')"
 export PO0_OUTBOUND_IP_REPORT_INTERVAL_SECONDS="$(uci_get interval_seconds '3600')"
 
-exec /usr/sbin/po0-outbound-ip-report "$@"
-
+exec /usr/sbin/po0-outbound-ip-report --run-once "$@"

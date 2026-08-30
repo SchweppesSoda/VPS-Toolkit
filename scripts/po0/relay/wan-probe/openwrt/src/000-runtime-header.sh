@@ -2,7 +2,7 @@
 set -u
 
 SCRIPT_NAME="po0-wan-probe"
-SCRIPT_VERSION="2026.08.30+build.2"
+SCRIPT_VERSION="2026.08.30+build.3"
 SCRIPT_RELEASE_DATE="2026-08-30"
 # CHANGELOG_BEGIN
 # - 修复 OpenWrt /lib/functions.sh 与 nounset 不兼容导致探针启动失败。

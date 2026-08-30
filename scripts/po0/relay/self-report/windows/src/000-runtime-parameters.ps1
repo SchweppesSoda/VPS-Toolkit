@@ -31,10 +31,10 @@ $ErrorActionPreference = "Stop"
 $ReleaseDownloadBaseUrl = $(if ($env:PO0_RELEASE_DOWNLOAD_BASE_URL) { $env:PO0_RELEASE_DOWNLOAD_BASE_URL } else { "https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download" })
 $DownloadUrl = $(if ($env:PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL) { $env:PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL } elseif ($env:PO0_SELF_REPORT_PS_DOWNLOAD_URL) { $env:PO0_SELF_REPORT_PS_DOWNLOAD_URL } else { "$ReleaseDownloadBaseUrl/po0-outbound-ip-report.ps1" })
 $ScriptName = "po0-outbound-ip-report"
-$ScriptVersion = "2026.08.30+build.2"
+$ScriptVersion = "2026.08.30+build.3"
 $ScriptReleaseDate = "2026-08-30"
 # CHANGELOG_BEGIN
-# - 跟随 PO0 发布批次对齐到 2026.08.30+build.2；Windows 客户端无行为变化。
+# - 跟随 PO0 发布批次对齐到 2026.08.30+build.3；Windows 客户端无行为变化。
 # CHANGELOG_END
 $PanelValueColumn = 24
 $MenuRightColumn = 46

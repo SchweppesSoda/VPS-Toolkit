@@ -10,6 +10,7 @@ usage() {
         "  curl -fsSL ${DOWNLOAD_URL} | bash" \
         "  bash po0-outbound-ip-report.sh --menu" \
         "  bash po0-outbound-ip-report.sh --version" \
+        "  bash po0-outbound-ip-report.sh --run-once" \
         "  bash po0-outbound-ip-report.sh --upgrade-self" \
         "  curl -fsSL ${DOWNLOAD_URL} | bash -s -- --save-config --menu" \
         "  bash po0-outbound-ip-report.sh --worker-url https://report.example.com/report --secret SECRET --save-config" \
@@ -17,6 +18,7 @@ usage() {
         "" \
         "参数:" \
         "  --menu                打开交互菜单。" \
+        "  --run-once            非交互执行一次上报；供 procd、cron 和其它调度器使用。" \
         "  --version             显示脚本版本、发布日期、当前路径和默认安装路径。" \
         "  --changelog           显示当前版本更新内容。" \
         "  --upgrade-self        从 GitHub Release 下载并更新本机脚本；菜单内更新会自动重开新版菜单。" \
@@ -60,6 +62,10 @@ parse_args() {
         case "$1" in
             --menu)
                 SHOW_MENU="1"
+                shift
+                ;;
+            --run-once)
+                RUN_ONCE="1"
                 shift
                 ;;
             --version)
@@ -251,6 +257,8 @@ elif [[ "${RESUME_SCHEDULE}" == "1" ]]; then
     set_schedule_paused "0"
 elif [[ "${SHOW_SCHEDULE_STATUS}" == "1" ]]; then
     show_cron_status
+elif [[ "${RUN_ONCE}" == "1" ]]; then
+    report_once
 elif [[ "${SHOW_MENU}" == "1" || ( "${HAD_ARGS}" == "0" && -r /dev/tty && -w /dev/tty ) ]]; then
     menu_loop
 elif [[ "${INSTALL_CRON}" == "1" ]]; then

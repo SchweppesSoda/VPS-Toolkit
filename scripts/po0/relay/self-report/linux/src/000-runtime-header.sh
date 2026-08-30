@@ -4,9 +4,10 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_OUTBOUND_IP_REPORT_DOWNLOAD_URL:-${PO0_SELF_REPORT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report.sh}}"
 SCRIPT_NAME="po0-outbound-ip-report"
-SCRIPT_VERSION="2026.08.30+build.2"
+SCRIPT_VERSION="2026.08.30+build.3"
 SCRIPT_RELEASE_DATE="2026-08-30"
 # CHANGELOG_BEGIN
+# - 新增 --run-once 非交互模式；OpenWrt procd/LuCI 不再因 /dev/tty 文件测试误入交互菜单。
 # - OpenWrt 新增可重复的 --wan 与 --wan all，可绑定指定逻辑 WAN 探测并分别上报全部公网出口 IPv4。
 # - 多 WAN 上报为每条 WAN 生成独立来源 ID；单条失败不阻止其它 WAN 继续上报，最终以非零状态提示部分失败。
 # - 上游 OpenWrt WAN 探针拆为独立 po0-wan-probe.sh；客户端支持批量 JSON 并兼容旧文本接口。
@@ -50,6 +51,7 @@ SAVE_CONFIG=""
 PAUSE_SCHEDULE=""
 RESUME_SCHEDULE=""
 SHOW_SCHEDULE_STATUS=""
+RUN_ONCE=""
 SCHEDULE_PAUSED="0"
 CRON_MINUTES="60"
 MAX_CRON_MINUTES="10080"

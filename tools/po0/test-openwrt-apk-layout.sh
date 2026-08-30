@@ -34,9 +34,14 @@ done
 for package in po0-wan-probe po0-outbound-ip-report; do
     grep -Fq 'PKGARCH:=all' "${repo_root}/packaging/openwrt/${package}/Makefile"
     grep -Fq 'PKG_VERSION:=2026.08.30' "${repo_root}/packaging/openwrt/${package}/Makefile"
-    grep -Fq 'PKG_RELEASE:=2' "${repo_root}/packaging/openwrt/${package}/Makefile"
+    grep -Fq 'PKG_RELEASE:=3' "${repo_root}/packaging/openwrt/${package}/Makefile"
     grep -Fq "$(printf '$(TOPDIR)/po0-assets')" "${repo_root}/packaging/openwrt/${package}/Makefile"
 done
+
+grep -Fq 'exec /usr/sbin/po0-outbound-ip-report --run-once "$@"' \
+    "${repo_root}/packaging/openwrt/po0-outbound-ip-report/files/usr/libexec/po0-outbound-ip-report-uci"
+grep -Fq -- '--run-once)' \
+    "${repo_root}/scripts/po0/relay/self-report/linux/src/990-cli-parse-dispatch.sh"
 
 if command -v jq >/dev/null 2>&1; then
     find "${repo_root}/packaging/openwrt" -type f -name '*.json' -print0 | xargs -0 -n1 jq empty
