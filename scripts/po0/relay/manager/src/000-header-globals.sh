@@ -2,10 +2,10 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-nftables-relay-manager"
-SCRIPT_VERSION="2026.08.30+build.1"
+SCRIPT_VERSION="2026.08.30+build.2"
 SCRIPT_RELEASE_DATE="2026-08-30"
 # CHANGELOG_BEGIN
-# - 跟随 PO0 发布批次对齐到 2026.08.30+build.1；本脚本无行为变化。
+# - 跟随 PO0 发布批次对齐到 2026.08.30+build.2；本脚本无行为变化。
 # CHANGELOG_END
 CONF_DIR="${PO0_CONF_DIR:-/etc/nftables.d}"
 MAIN_CONF="/etc/nftables.conf"

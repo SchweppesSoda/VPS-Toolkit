@@ -4,7 +4,7 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_OUTBOUND_IP_REPORT_DOWNLOAD_URL:-${PO0_SELF_REPORT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report.sh}}"
 SCRIPT_NAME="po0-outbound-ip-report"
-SCRIPT_VERSION="2026.08.30+build.1"
+SCRIPT_VERSION="2026.08.30+build.2"
 SCRIPT_RELEASE_DATE="2026-08-30"
 # CHANGELOG_BEGIN
 # - OpenWrt 新增可重复的 --wan 与 --wan all，可绑定指定逻辑 WAN 探测并分别上报全部公网出口 IPv4。

@@ -14,6 +14,7 @@ append_allowed_wan() {
 
 load_probe_config() {
     if [ -r /lib/functions.sh ] && command -v uci >/dev/null 2>&1; then
+        set +u
         # shellcheck disable=SC1091
         . /lib/functions.sh
         config_load "${CONFIG_NAME}" 2>/dev/null || true
@@ -21,6 +22,7 @@ load_probe_config() {
         config_get IP_CHECK_URLS "${CONFIG_SECTION}" ip_check_urls "${DEFAULT_IP_CHECK_URLS}"
         config_list_foreach "${CONFIG_SECTION}" allowed_source append_allowed_source
         config_list_foreach "${CONFIG_SECTION}" wan append_allowed_wan
+        set -u
     fi
     [ -n "${ALLOWED_SOURCES}" ] || ALLOWED_SOURCES="${DEFAULT_ALLOWED_SOURCE}"
 }
@@ -149,4 +151,3 @@ detect_wan_public_ipv4() {
 json_escape() {
     printf '%s' "${1:-}" | sed 's/\\/\\\\/g;s/"/\\"/g'
 }
-

@@ -34,7 +34,7 @@ done
 for package in po0-wan-probe po0-outbound-ip-report; do
     grep -Fq 'PKGARCH:=all' "${repo_root}/packaging/openwrt/${package}/Makefile"
     grep -Fq 'PKG_VERSION:=2026.08.30' "${repo_root}/packaging/openwrt/${package}/Makefile"
-    grep -Fq 'PKG_RELEASE:=1' "${repo_root}/packaging/openwrt/${package}/Makefile"
+    grep -Fq 'PKG_RELEASE:=2' "${repo_root}/packaging/openwrt/${package}/Makefile"
     grep -Fq "$(printf '$(TOPDIR)/po0-assets')" "${repo_root}/packaging/openwrt/${package}/Makefile"
 done
 
