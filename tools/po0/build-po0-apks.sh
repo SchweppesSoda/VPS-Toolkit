@@ -26,7 +26,10 @@ cp "${asset_dir}/po0-wan-probe.sh" "${sdk_root}/po0-assets/po0-wan-probe.sh"
 cp "${asset_dir}/po0-outbound-ip-report.sh" "${sdk_root}/po0-assets/po0-outbound-ip-report.sh"
 
 make -C "${sdk_root}" defconfig
-make -C "${sdk_root}" package/po0-wan-probe/compile package/po0-outbound-ip-report/compile V=s
+make -C "${sdk_root}" -j"$(nproc)" \
+    package/po0-wan-probe/compile \
+    package/po0-outbound-ip-report/compile \
+    V=s
 
 for package in po0-wan-probe po0-outbound-ip-report; do
     built="$(find "${sdk_root}/bin/packages" -type f -name "${package}-*.apk" -print -quit)"
@@ -35,4 +38,3 @@ for package in po0-wan-probe po0-outbound-ip-report; do
 done
 
 printf 'Built PO0 APKs in %s\n' "${output_dir}"
-
