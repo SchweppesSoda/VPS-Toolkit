@@ -1,0 +1,5 @@
+config probe 'main'
+	option enabled '1'
+	list allowed_source '192.168.88.2'
+	option ip_check_urls 'https://ip9.com.cn/get,https://myip.ipip.net/json'
+

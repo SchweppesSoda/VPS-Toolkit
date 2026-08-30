@@ -8,7 +8,7 @@
 - `scripts/vps/`：通用 VPS 工具，包括 inventory 驱动的代理栈部署、已有机器接管与按配置复刻、SSH 加固、Fail2ban、3x-ui、ForwardX、REALITY finder。
 - Web 静态工具已迁出到 `SchweppesSoda/vps-toolkit-web`；本仓不再维护 `web/`，也不要从本仓根目录启用 GitHub Pages。
 - `tools/` 只放离线构建工具。`tools/po0/` 维护 PO0 Release 发布文件构建、manifest 和检查脚本；运行在客户端、Worker 或访问设备上的脚本应放到对应 `scripts/po0/relay/*/src/` 或明确的客户端目录。
-- PO0 Release 发布文件由 `tools/po0/build-po0-assets.ps1` / `.sh` 按 `tools/po0/manifests/` 生成；manifest 覆盖 manager、LAN Worker、Linux self-report、macOS self-report、Windows self-report 五个模块化源码树。
+- PO0 Release 脚本由 `tools/po0/build-po0-assets.ps1` / `.sh` 按 `tools/po0/manifests/` 生成；manifest 覆盖 manager、LAN Worker、OpenWrt WAN probe、Linux self-report、macOS self-report、Windows self-report 六个模块化源码树。OpenWrt APK 由 25.12 SDK 使用 `packaging/openwrt/` 定义构建。
 
 ## PO0 职责边界
 
@@ -26,7 +26,7 @@
 
 ## 发布与构建
 
-- PO0 nftables 五个可执行脚本的正式下载源是 GitHub Release 发布文件：`nftables-relay-manager.sh`、`po0-lan-client.sh`、`po0-outbound-ip-report.sh`、`po0-outbound-ip-report-macos.sh`、`po0-outbound-ip-report.ps1`。
+- PO0 正式下载源是 GitHub Release：六个脚本 `nftables-relay-manager.sh`、`po0-lan-client.sh`、`po0-wan-probe.sh`、`po0-outbound-ip-report.sh`、`po0-outbound-ip-report-macos.sh`、`po0-outbound-ip-report.ps1`，以及 `po0-wan-probe.apk`、`po0-outbound-ip-report.apk`。
 - `Self-report` 是 LAN Worker `/report` 协议、server 功能和历史兼容名；三端访问设备客户端的默认命令、脚本文件、配置和日志统一使用 `po0-outbound-ip-report*` / `PO0 Outbound IP Report`，系统调度器可见名称、launchd label 和 cron marker 使用不带 `PO0` 的 `Outbound IP Report` / `outbound-ip-report` / `OUTBOUND_IP_REPORT_*`。旧 `po0-self-report*` 和旧 `PO0` 调度器名称只做 legacy 配置读取、旧路径自愈迁移、旧任务清理、旧 env / CLI alias 和历史说明；更新或自愈成功后应迁移并删除默认旧名残留，不再保留默认旧命令 shim。
 - 三端访问设备客户端的 SSID 跳过只允许作为本地 guard：命中时本机跳过并写日志摘要，不上传 SSID，不新增 LAN Worker `/report` 或 PO0 协议字段；SSID 列表用英文分号分隔并精确匹配；读取失败必须继续正常上报；手动运行命中时询问是否强制继续；不要为 SSID 新增 `PO0_SELF_REPORT_*` 或 `SELF_REPORT_*` legacy alias。
 - macOS 访问设备客户端必须兼容系统自带 Bash 3.2；在 `set -u` 环境下不要用空 Bash 数组解析可选列表，例如 `local -a items` / `read -r -a items` / `"${items[@]}"`，SSID 列表解析应使用 Bash 3.2 安全的字符串循环，并保留对应 release gate。

@@ -1,0 +1,24 @@
+#!/bin/sh
+set -u
+
+LOG_FILE="/tmp/po0-outbound-ip-report.log"
+STATE_FILE="/tmp/po0-outbound-ip-report.state"
+
+while :; do
+    enabled="$(uci -q get po0_outbound_ip_report.main.enabled 2>/dev/null || printf '0')"
+    [ "${enabled}" = "1" ] || exit 0
+    started="$(date +%s)"
+    if /usr/libexec/po0-outbound-ip-report-uci > "${LOG_FILE}" 2>&1; then
+        rc=0
+    else
+        rc=$?
+    fi
+    umask 077
+    printf 'observed_at=%s\nexit_code=%s\n' "${started}" "${rc}" > "${STATE_FILE}"
+    interval="$(uci -q get po0_outbound_ip_report.main.interval_seconds 2>/dev/null || printf '3600')"
+    case "${interval}" in ""|*[!0-9]*) interval=3600 ;; esac
+    [ "${interval}" -ge 60 ] 2>/dev/null || interval=60
+    sleep "${interval}" &
+    wait $!
+done
+

@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - scripts/po0/relay/**
+      - packaging/openwrt/**
       - scripts/po0/nftables/clients/**
       - scripts/po0/nftables/legacy/**
       - scripts/po0/nftables/tools/**
@@ -21,6 +22,7 @@ on:
   pull_request:
     paths:
       - scripts/po0/relay/**
+      - packaging/openwrt/**
       - scripts/po0/nftables/clients/**
       - scripts/po0/nftables/legacy/**
       - scripts/po0/nftables/tools/**

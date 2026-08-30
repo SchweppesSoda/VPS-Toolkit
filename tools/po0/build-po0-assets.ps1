@@ -131,6 +131,11 @@ Join-Manifest `
     -RequireShebang
 
 Join-Manifest `
+    -ManifestPath (Join-Path $RepoRoot "tools/po0/manifests/wan-probe-openwrt.txt") `
+    -OutputPath (Join-Path $OutputDir "po0-wan-probe.sh") `
+    -RequireShebang
+
+Join-Manifest `
     -ManifestPath (Join-Path $RepoRoot "tools/po0/manifests/self-report-linux.txt") `
     -OutputPath (Join-Path $OutputDir "po0-outbound-ip-report.sh") `
     -RequireShebang

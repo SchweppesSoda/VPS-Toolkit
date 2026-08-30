@@ -76,6 +76,7 @@ mkdir -p "${output_dir}"
 
 join_manifest "${repo_root}/tools/po0/manifests/manager.txt" "${output_dir}/nftables-relay-manager.sh" 1 0
 join_manifest "${repo_root}/tools/po0/manifests/lan-worker.txt" "${output_dir}/po0-lan-client.sh" 1 0
+join_manifest "${repo_root}/tools/po0/manifests/wan-probe-openwrt.txt" "${output_dir}/po0-wan-probe.sh" 1 0
 join_manifest "${repo_root}/tools/po0/manifests/self-report-linux.txt" "${output_dir}/po0-outbound-ip-report.sh" 1 0
 join_manifest "${repo_root}/tools/po0/manifests/self-report-macos.txt" "${output_dir}/po0-outbound-ip-report-macos.sh" 1 0
 join_manifest "${repo_root}/tools/po0/manifests/self-report-windows.txt" "${output_dir}/po0-outbound-ip-report.ps1" 0 1

@@ -52,6 +52,8 @@ apply_env_overrides() {
     [[ -n "${ENV_IP_CHECK_URL}" ]] && IP_CHECK_URL="${ENV_IP_CHECK_URL}"
     [[ -n "${PO0_OUTBOUND_IP_REPORT_IP_CHECK_URLS+x}" ]] && IP_CHECK_URLS="${PO0_OUTBOUND_IP_REPORT_IP_CHECK_URLS}"
     [[ -n "${ENV_IP_CHECK_URLS}" ]] && IP_CHECK_URLS="${ENV_IP_CHECK_URLS}"
+    [[ -n "${PO0_OUTBOUND_IP_REPORT_WANS+x}" ]] && WANS="${PO0_OUTBOUND_IP_REPORT_WANS}"
+    [[ -n "${PO0_OUTBOUND_IP_REPORT_ROUTER_PROBE_URL+x}" ]] && ROUTER_PROBE_URL="${PO0_OUTBOUND_IP_REPORT_ROUTER_PROBE_URL}"
     [[ -n "${PO0_OUTBOUND_IP_REPORT_SKIP_WIFI_SSIDS+x}" ]] && SKIP_WIFI_SSIDS="${PO0_OUTBOUND_IP_REPORT_SKIP_WIFI_SSIDS}"
     [[ -n "${ENV_SKIP_WIFI_SSIDS}" ]] && SKIP_WIFI_SSIDS="${ENV_SKIP_WIFI_SSIDS}"
     if [[ -n "${PO0_OUTBOUND_IP_REPORT_INSTALL_PATH+x}" ]]; then
@@ -85,6 +87,8 @@ apply_env_overrides() {
     [[ -n "${PO0_OUTBOUND_IP_REPORT_ALLOW_HTTP+x}" ]] && ALLOW_HTTP="${PO0_OUTBOUND_IP_REPORT_ALLOW_HTTP}"
     [[ -n "${PO0_OUTBOUND_IP_REPORT_IP_CHECK_URL+x}" ]] && IP_CHECK_URL="${PO0_OUTBOUND_IP_REPORT_IP_CHECK_URL}"
     [[ -n "${PO0_OUTBOUND_IP_REPORT_IP_CHECK_URLS+x}" ]] && IP_CHECK_URLS="${PO0_OUTBOUND_IP_REPORT_IP_CHECK_URLS}"
+    [[ -n "${PO0_OUTBOUND_IP_REPORT_WANS+x}" ]] && WANS="${PO0_OUTBOUND_IP_REPORT_WANS}"
+    [[ -n "${PO0_OUTBOUND_IP_REPORT_ROUTER_PROBE_URL+x}" ]] && ROUTER_PROBE_URL="${PO0_OUTBOUND_IP_REPORT_ROUTER_PROBE_URL}"
     [[ -n "${PO0_OUTBOUND_IP_REPORT_SKIP_WIFI_SSIDS+x}" ]] && SKIP_WIFI_SSIDS="${PO0_OUTBOUND_IP_REPORT_SKIP_WIFI_SSIDS}"
     if [[ -n "${PO0_OUTBOUND_IP_REPORT_INSTALL_PATH+x}" ]]; then
         INSTALL_PATH="${PO0_OUTBOUND_IP_REPORT_INSTALL_PATH}"
@@ -94,6 +98,8 @@ apply_env_overrides() {
     [[ -n "${PO0_OUTBOUND_IP_REPORT_INTERVAL_SECONDS+x}" ]] && INTERVAL_SECONDS="${PO0_OUTBOUND_IP_REPORT_INTERVAL_SECONDS}"
     [[ -n "${PO0_OUTBOUND_IP_REPORT_MAX_MINUTES+x}" ]] && MAX_CRON_MINUTES="${PO0_OUTBOUND_IP_REPORT_MAX_MINUTES}"
     [[ -n "${PO0_OUTBOUND_IP_REPORT_PAUSED+x}" ]] && SCHEDULE_PAUSED="${PO0_OUTBOUND_IP_REPORT_PAUSED}"
+    WANS="$(normalize_wan_selection_list "${WANS:-}")"
+    ROUTER_PROBE_URL="$(normalize_router_probe_url "${ROUTER_PROBE_URL:-}")"
     SKIP_WIFI_SSIDS="$(normalize_wifi_ssid_skip_list "${SKIP_WIFI_SSIDS:-}")"
     normalize_legacy_default_install_path
 }
@@ -228,6 +234,9 @@ apply_device_defaults() {
 save_config_file() {
     local dir tmp old_umask
     validate_cron_minutes || return 1
+    WANS="$(normalize_wan_selection_list "${WANS:-}")"
+    validate_wan_selection || return 1
+    validate_router_probe_url || return 1
     SKIP_WIFI_SSIDS="$(normalize_wifi_ssid_skip_list "${SKIP_WIFI_SSIDS:-}")"
     dir="$(path_dirname "${CONFIG_FILE}")"
     mkdir -p "${dir}" || return 1
@@ -243,6 +252,8 @@ save_config_file() {
         write_env_assignment "ALLOW_HTTP" "${ALLOW_HTTP}"
         write_env_assignment "IP_CHECK_URL" "${IP_CHECK_URL}"
         write_env_assignment "IP_CHECK_URLS" "${IP_CHECK_URLS}"
+        write_env_assignment "WANS" "${WANS}"
+        write_env_assignment "ROUTER_PROBE_URL" "${ROUTER_PROBE_URL}"
         write_env_assignment "SKIP_WIFI_SSIDS" "${SKIP_WIFI_SSIDS}"
         write_env_assignment "INSTALL_PATH" "${INSTALL_PATH}"
         write_env_assignment "CRON_MINUTES" "${CRON_MINUTES}"

@@ -1,0 +1,22 @@
+#!/bin/sh
+set -u
+
+case "${1:-status}" in
+    test)
+        /usr/libexec/po0-outbound-ip-report-uci
+        ;;
+    discover-wans)
+        url="$(uci -q get po0_outbound_ip_report.main.router_probe_url 2>/dev/null || true)"
+        [ -n "${url}" ] || { printf '未配置上游路由探针。\n' >&2; exit 1; }
+        curl -4 -fsS --connect-timeout 5 --max-time 30 "${url}?wan=list"
+        ;;
+    status)
+        [ -r /tmp/po0-outbound-ip-report.state ] && cat /tmp/po0-outbound-ip-report.state
+        [ -r /tmp/po0-outbound-ip-report.log ] && tail -n 40 /tmp/po0-outbound-ip-report.log
+        ;;
+    *)
+        printf 'unsupported action\n' >&2
+        exit 2
+        ;;
+esac
+

@@ -1,0 +1,18 @@
+#!/bin/sh
+set -u
+
+uci_get() {
+    uci -q get "po0_outbound_ip_report.main.$1" 2>/dev/null || printf '%s' "${2:-}"
+}
+
+export PO0_OUTBOUND_IP_REPORT_WORKER_URL="$(uci_get worker_url '')"
+export PO0_OUTBOUND_IP_REPORT_SOURCE="$(uci_get source_id 'router-88-1')"
+export PO0_OUTBOUND_IP_REPORT_IDENTITY="$(uci_get identity 'router-88-1-via-gateway')"
+export PO0_OUTBOUND_IP_REPORT_SECRET="$(uci_get secret '')"
+export PO0_OUTBOUND_IP_REPORT_ALLOW_HTTP="$(uci_get allow_http '0')"
+export PO0_OUTBOUND_IP_REPORT_ROUTER_PROBE_URL="$(uci_get router_probe_url 'http://192.168.88.1/cgi-bin/po0-wan-probe')"
+export PO0_OUTBOUND_IP_REPORT_WANS="$(uci_get wans 'all')"
+export PO0_OUTBOUND_IP_REPORT_INTERVAL_SECONDS="$(uci_get interval_seconds '3600')"
+
+exec /usr/sbin/po0-outbound-ip-report "$@"
+

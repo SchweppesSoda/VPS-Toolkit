@@ -1,0 +1,15 @@
+{
+  "admin/services/po0-outbound-ip-report": {
+    "title": "PO0 出口上报",
+    "order": 92,
+    "action": {
+      "type": "view",
+      "path": "po0/outbound-ip-report"
+    },
+    "depends": {
+      "acl": [ "po0-outbound-ip-report" ],
+      "uci": { "po0_outbound_ip_report": true }
+    }
+  }
+}
+

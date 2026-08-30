@@ -10,9 +10,9 @@ if (-not $OutputDir) {
 }
 
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.07.23+build.1" }
-$ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-07-23" }
-$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.07.23.1" }
+$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.08.30+build.1" }
+$ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-08-30" }
+$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.08.30.1" }
 
 function ConvertTo-RepoRelativePath {
     param([string]$Path)
@@ -663,6 +663,7 @@ function Test-VersionsConsistent {
     $assets = @(
         "nftables-relay-manager.sh",
         "po0-lan-client.sh",
+        "po0-wan-probe.sh",
         "po0-outbound-ip-report.sh",
         "po0-outbound-ip-report-macos.sh",
         "po0-outbound-ip-report.ps1"
@@ -686,6 +687,7 @@ function Test-AssetInventory {
         "checksums.txt",
         "nftables-relay-manager.sh",
         "po0-lan-client.sh",
+        "po0-wan-probe.sh",
         "po0-outbound-ip-report-macos.sh",
         "po0-outbound-ip-report.ps1",
         "po0-outbound-ip-report.sh"
@@ -735,6 +737,7 @@ function Test-VersionsMatchTag {
     foreach ($asset in @(
         "nftables-relay-manager.sh",
         "po0-lan-client.sh",
+        "po0-wan-probe.sh",
         "po0-outbound-ip-report.sh",
         "po0-outbound-ip-report-macos.sh"
     )) {
@@ -767,6 +770,11 @@ Test-ManifestCoverage `
     -Name "lan-worker" `
     -ManifestPath (Join-Path $RepoRoot "tools/po0/manifests/lan-worker.txt") `
     -SourceDir (Join-Path $RepoRoot "scripts/po0/relay/lan-worker/src")
+
+Test-ManifestCoverage `
+    -Name "wan-probe-openwrt" `
+    -ManifestPath (Join-Path $RepoRoot "tools/po0/manifests/wan-probe-openwrt.txt") `
+    -SourceDir (Join-Path $RepoRoot "scripts/po0/relay/wan-probe/openwrt/src")
 
 Test-ManifestCoverage `
     -Name "self-report-linux" `
@@ -922,6 +930,9 @@ if ($LASTEXITCODE -ne 0) {
 }
 Invoke-BashToolScript "tools/po0/test-macos-ssid-diagnostic.sh"
 Invoke-BashToolScript "tools/po0/test-self-report-refresh-policy.sh"
+Invoke-BashToolScript "tools/po0/test-linux-multi-wan-report.sh"
+Invoke-BashToolScript "tools/po0/test-wan-probe.sh"
+Invoke-BashToolScript "tools/po0/test-openwrt-apk-layout.sh"
 Invoke-BashToolScript "tools/po0/test-lan-worker-stash-report.sh"
 Invoke-BashToolScript "tools/po0/test-manager-client-ip-cidr-prefix.sh"
 Invoke-BashToolScript "tools/po0/test-manager-nft-atomic-reload.sh"
@@ -934,6 +945,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 Invoke-BashSyntax "nftables-relay-manager.sh"
 Invoke-BashSyntax "po0-lan-client.sh"
+Invoke-BashSyntax "po0-wan-probe.sh"
 Invoke-BashSyntax "po0-outbound-ip-report.sh"
 Invoke-BashSyntax "po0-outbound-ip-report-macos.sh"
 Test-PowerShellSyntax "po0-outbound-ip-report.ps1"

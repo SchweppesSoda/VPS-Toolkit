@@ -6,6 +6,14 @@
 
 ## po0-nftables-relay-manager
 
+### 2026.08.30+build.1
+
+- 跟随 PO0 发布批次对齐到 2026.08.30+build.1；本脚本无行为变化。
+
+### 2026.08.29+build.1
+
+- 跟随 PO0 发布批次对齐到 2026.08.29+build.1；本脚本无行为变化。
+
 ### 2026.07.23+build.1
 
 - 托管 NAT/MANGLE 表刷新改为单个 nftables 事务：同一批次先删除当前托管表，再创建完整新表。
@@ -208,6 +216,14 @@
 - 状态面板和资源任务创建计划摘要增加彩色状态提示。
 
 ## po0-lan-worker-client
+
+### 2026.08.30+build.1
+
+- 跟随 PO0 发布批次对齐到 2026.08.30+build.1；LAN Worker 无行为变化。
+
+### 2026.08.29+build.1
+
+- 跟随 PO0 发布批次对齐到 2026.08.29+build.1；LAN Worker 无行为变化。
 
 ### 2026.07.23+build.1
 
@@ -425,6 +441,21 @@
 
 ## po0-outbound-ip-report（Linux/OpenWrt）
 
+### 2026.08.30+build.1
+
+- 上游 OpenWrt 探针拆为独立 `po0-wan-probe.sh`，不再把完整上报客户端放入 CGI 目录。
+- 新探针优先读取接口公网 IPv4，必要时才绑定对应 WAN 调用外部检测，并提供 `wan=all` 批量 JSON。
+- 上报器优先消费批量结果并兼容旧文本接口；每个 WAN 继续使用独立来源 ID，部分失败继续处理其它 WAN。
+- 新增 `po0-wan-probe.apk` 与 `po0-outbound-ip-report.apk` 的 UCI、procd 和 LuCI 集成。
+- 探针和 LAN Worker 请求保持普通网络请求，不读取、修改或验证 Mihomo/OpenClash 配置。
+
+### 2026.08.29+build.1
+
+- 新增可重复的 --wan <OpenWrt逻辑接口>，可选择一条或多条 WAN，并绑定各自 l3_device 探测公网 IPv4。
+- 新增 --wan all，自动枚举全部已启用的 mwan3 WAN；每条 WAN 使用独立来源 ID 分别续期。
+- 多 WAN 模式会继续处理其它 WAN，并在任一 WAN 失败时返回非零状态和成功/失败汇总。
+- 新增上游 OpenWrt 内网 HTTP WAN 探针模式；完整客户端可留在网关，探针只绑定各 WAN 查询并返回公网 IPv4。
+
 ### 2026.07.23+build.1
 
 - 跟随 PO0 发布批次对齐到 `2026.07.23+build.1`；Linux/OpenWrt 客户端无行为变化。
@@ -637,6 +668,14 @@
 
 ## po0-outbound-ip-report（macOS）
 
+### 2026.08.30+build.1
+
+- 跟随 PO0 发布批次对齐到 2026.08.30+build.1；macOS 客户端无行为变化。
+
+### 2026.08.29+build.1
+
+- 跟随 PO0 发布批次对齐到 2026.08.29+build.1；macOS 客户端无行为变化。
+
 ### 2026.07.23+build.1
 
 - 跟随 PO0 发布批次对齐到 `2026.07.23+build.1`；macOS 客户端无行为变化。
@@ -794,6 +833,14 @@
 - 支持 `--save-config --menu` 首次保存默认配置后打开菜单，并提供 `--install-launchd` 别名。
 
 ## po0-outbound-ip-report（Windows PowerShell）
+
+### 2026.08.30+build.1
+
+- 跟随 PO0 发布批次对齐到 2026.08.30+build.1；Windows 客户端无行为变化。
+
+### 2026.08.29+build.1
+
+- 跟随 PO0 发布批次对齐到 2026.08.29+build.1；Windows 客户端无行为变化。
 
 ### 2026.07.23+build.1
 

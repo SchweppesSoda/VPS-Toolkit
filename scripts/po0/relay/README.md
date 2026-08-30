@@ -580,6 +580,10 @@ po0-lan-client --install-self-report-https --self-report-https-domain <SELF_REPO
 
 访问设备定时自上报。交互式无参数运行默认进入菜单；菜单里的 `1) 配置并保存上报参数` 只写本地配置文件，不安装 cron，也不保证安装 `po0-outbound-ip-report` 命令；`2) 立即上报一次` 会读取参数或已保存配置；`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本并写入 cron；`4) 暂停 / 恢复定时上报` 只影响自动 cron，手动立即上报仍可用；`8) 从 GitHub 更新脚本` 会更新本机 `po0-outbound-ip-report` 命令并重新打开新版菜单；`9) 卸载本客户端` 会删除本脚本管理的 cron 和本机安装脚本，配置文件与 `/tmp/po0-outbound-ip-report.log` 默认保留，可选择一起删除。
 
+OpenWrt 多 WAN 可以重复传入 `--wan <逻辑接口>` 选择一条或多条出口，例如 `--wan wan1 --wan wan2`；`--wan all` 会枚举全部已启用的 mwan3 WAN。客户端从 ubus 读取每条逻辑 WAN 的 `l3_device`，绑定该设备查询公网 IPv4，再分别调用 LAN Worker。每条 WAN 的来源 ID 会自动追加接口名，例如基础来源 `router-88-1` 会生成 `router-88-1-wan1` 和 `router-88-1-wan2`，确保两条记录独立续期。某一条 WAN 失败时其它 WAN 仍继续上报，整轮最终返回非零并显示成功/失败数量。留空或使用 `--clear-wans` 时保持旧行为，只按默认路由探测和上报一个出口。
+
+对于“上游 OpenWrt 负责双 WAN、下游网关负责上报”的拓扑，完整客户端留在下游网关，并配置 `--router-probe-url http://<上游路由器>/cgi-bin/po0-wan-probe --wan all`。上游只安装独立 `po0-wan-probe.sh` 或 `po0-wan-probe.apk`：它按 UCI 来源 IP/WAN 白名单读取已启用的 mwan3 接口，优先返回接口自身公网 IPv4，必要时才绑定该 WAN 调用外部检测；`wan=all` 一次返回所有 WAN 的 JSON。探针不连接 LAN Worker、不持有上报 secret，也不运行调度器。下游可安装 `po0-outbound-ip-report.apk`，通过 LuCI 配置 Worker、探针和 WAN 选择，并由 procd 定时运行。两类 HTTP 请求都遵循设备现有网络配置，脚本不管理 Mihomo/OpenClash。
+
 首次进入菜单：
 
 ```bash

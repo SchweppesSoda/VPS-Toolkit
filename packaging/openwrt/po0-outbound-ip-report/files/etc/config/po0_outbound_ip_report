@@ -1,0 +1,11 @@
+config reporter 'main'
+	option enabled '0'
+	option worker_url ''
+	option source_id 'router-88-1'
+	option identity 'router-88-1-via-gateway'
+	option secret ''
+	option allow_http '0'
+	option router_probe_url 'http://192.168.88.1/cgi-bin/po0-wan-probe'
+	option wans 'all'
+	option interval_seconds '3600'
+

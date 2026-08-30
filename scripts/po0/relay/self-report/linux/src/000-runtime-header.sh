@@ -4,10 +4,13 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_OUTBOUND_IP_REPORT_DOWNLOAD_URL:-${PO0_SELF_REPORT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report.sh}}"
 SCRIPT_NAME="po0-outbound-ip-report"
-SCRIPT_VERSION="2026.07.23+build.1"
-SCRIPT_RELEASE_DATE="2026-07-23"
+SCRIPT_VERSION="2026.08.30+build.1"
+SCRIPT_RELEASE_DATE="2026-08-30"
 # CHANGELOG_BEGIN
-# - 跟随 PO0 发布批次对齐到 2026.07.23+build.1；Linux/OpenWrt 客户端无行为变化。
+# - OpenWrt 新增可重复的 --wan 与 --wan all，可绑定指定逻辑 WAN 探测并分别上报全部公网出口 IPv4。
+# - 多 WAN 上报为每条 WAN 生成独立来源 ID；单条失败不阻止其它 WAN 继续上报，最终以非零状态提示部分失败。
+# - 上游 OpenWrt WAN 探针拆为独立 po0-wan-probe.sh；客户端支持批量 JSON 并兼容旧文本接口。
+# - 新增 OpenWrt UCI/procd 与 LuCI APK 集成；探针和 LAN Worker 请求均保持普通网络请求，不管理 Mihomo/OpenClash。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24
@@ -32,6 +35,10 @@ SECRET=""
 ALLOW_HTTP=""
 IP_CHECK_URL="https://ip9.com.cn/get"
 IP_CHECK_URLS=""
+WANS=""
+WANS_CLI_SEEN="0"
+ROUTER_PROBE_URL=""
+ROUTER_PROBE_BATCH_RAW=""
 INSTALL_PATH=""
 INSTALL_PATH_EXPLICIT="0"
 INSTALL_CRON=""

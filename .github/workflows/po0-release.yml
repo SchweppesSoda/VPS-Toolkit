@@ -24,6 +24,37 @@ jobs:
         shell: bash
         run: bash ./tools/po0/check-po0-assets.sh .tmp/po0-check-assets
 
+      - name: Build ImmortalWrt 25.12 APK assets
+        shell: bash
+        env:
+          SDK_URL: https://downloads.immortalwrt.org/releases/25.12.1/targets/x86/64/immortalwrt-sdk-25.12.1-x86-64_gcc-14.3.0_musl.Linux-x86_64.tar.zst
+          SDK_SHA256: 02ad8cfc775001ccae8e9282d19696de54e3ab3963f005737ad61f8698263edd
+        run: |
+          set -euo pipefail
+          sdk_archive=".tmp/immortalwrt-sdk.tar.zst"
+          sdk_parent=".tmp/immortalwrt-sdk"
+          mkdir -p "${sdk_parent}"
+          curl -fL --retry 3 --connect-timeout 20 "${SDK_URL}" -o "${sdk_archive}"
+          printf '%s  %s\n' "${SDK_SHA256}" "${sdk_archive}" | sha256sum -c -
+          tar --zstd -xf "${sdk_archive}" -C "${sdk_parent}" --strip-components=1
+          (
+            cd "${sdk_parent}"
+            ./scripts/feeds update -a
+            ./scripts/feeds install -a
+          )
+          bash ./tools/po0/build-po0-apks.sh \
+            "${sdk_parent}" \
+            ".tmp/po0-check-assets" \
+            ".tmp/po0-built-apks"
+          cp .tmp/po0-built-apks/*.apk .tmp/po0-check-assets/
+          (
+            cd .tmp/po0-check-assets
+            rm -f checksums.txt
+            find . -maxdepth 1 -type f -printf '%f\n' | sort | while IFS= read -r asset; do
+              printf '%s  %s\n' "$(sha256sum "${asset}" | awk '{print $1}')" "${asset}"
+            done > checksums.txt
+          )
+
       - name: Publish complete asset set
         env:
           GH_TOKEN: ${{ github.token }}
@@ -47,12 +78,18 @@ jobs:
           script_assets=(
             "nftables-relay-manager.sh"
             "po0-lan-client.sh"
+            "po0-wan-probe.sh"
             "po0-outbound-ip-report.sh"
             "po0-outbound-ip-report-macos.sh"
             "po0-outbound-ip-report.ps1"
           )
+          package_assets=(
+            "po0-wan-probe.apk"
+            "po0-outbound-ip-report.apk"
+          )
           required_assets=(
             "${script_assets[@]}"
+            "${package_assets[@]}"
             "checksums.txt"
           )
 
@@ -85,7 +122,7 @@ jobs:
               --latest=false \
               --verify-tag \
               --title "${tag}" \
-              --notes "PO0 nftables script assets. Stable VPS-Toolkit releases must include this complete PO0 asset set."
+              --notes "PO0 nftables scripts and ImmortalWrt APK assets. Stable VPS-Toolkit releases must include this complete PO0 asset set."
             release_created=true
             release_json="$(gh release view "${tag}" --json isDraft,assets)"
           fi

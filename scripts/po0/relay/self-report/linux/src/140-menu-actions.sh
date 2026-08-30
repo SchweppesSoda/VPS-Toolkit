@@ -5,6 +5,8 @@ show_current_config() {
     print_panel_row "LAN Worker URL" "${WORKER_URL:-未设置}"
     print_panel_row "来源 ID" "${SOURCE_ID:-未设置}"
     print_panel_row "设备备注" "${IDENTITY:-未设置}"
+    print_panel_row "WAN 上报范围" "$(wan_selection_display)"
+    print_panel_row "上游路由 WAN 探针" "${ROUTER_PROBE_URL:-不使用}"
     print_panel_row "上报密钥" "$(mask_secret "${SECRET}")"
     print_panel_row "HTTP 上报" "$(if http_allowed; then printf '已显式允许'; else printf '默认拒绝'; fi)"
     print_panel_row "跳过 Wi-Fi SSID" "$(wifi_ssid_skip_list_display)"
@@ -35,13 +37,15 @@ show_menu_dashboard() {
     print_panel_row "LAN Worker URL" "${WORKER_URL:-未设置}"
     print_panel_row "来源 ID" "${SOURCE_ID:-未设置}"
     print_panel_row "设备备注" "${IDENTITY:-未设置}"
+    print_panel_row "WAN 上报范围" "$(wan_selection_display)"
+    print_panel_row "上游路由 WAN 探针" "${ROUTER_PROBE_URL:-不使用}"
     print_panel_row "跳过 Wi-Fi SSID" "$(wifi_ssid_skip_list_display)"
     print_panel_row "定时上报" "$(cron_status_summary)"
     print_panel_row "上报间隔" "$(cron_minutes_to_seconds "${CRON_MINUTES}") 秒（安装定时上报时使用）"
 }
 
 configure_interactive() {
-    local secret_input cron_seconds
+    local secret_input cron_seconds wan_default
     WORKER_URL="$(prompt_default "LAN Worker self-report HTTPS 接收地址（域名或 https://域名/report）" "${WORKER_URL:-https://report.example.com/report}")"
     WORKER_URL="$(normalize_worker_url "${WORKER_URL}")"
     if [[ "${WORKER_URL}" == http://* ]] && ! http_allowed; then
@@ -66,6 +70,9 @@ configure_interactive() {
     else
         SECRET="$(prompt_default "Self-report secret，可空" "")"
     fi
+    ROUTER_PROBE_URL="$(prompt_default "上游 OpenWrt 内网 WAN 探针 URL（留空在本机探测）" "${ROUTER_PROBE_URL}")"
+    ROUTER_PROBE_URL="$(normalize_router_probe_url "${ROUTER_PROBE_URL}")"
+    validate_router_probe_url || return 1
     cron_seconds="$(prompt_default "客户端每几秒上报一次（60-$(max_interval_seconds)；必须是 60 的倍数）" "$(cron_minutes_to_seconds "${CRON_MINUTES}")")"
     CRON_MINUTES="$(normalize_interval_seconds_to_minutes "${cron_seconds}" "${MAX_CRON_MINUTES}")" || {
         printf '上报间隔秒数无效：请输入 60-%s 且为 60 倍数的整数。\n' "$(max_interval_seconds)" >&2
@@ -75,6 +82,11 @@ configure_interactive() {
     if prompt_yes_no "是否覆盖完整 IP 探测 URL 列表" "n"; then
         IP_CHECK_URLS="$(prompt_default "完整探测 URL 列表，逗号分隔" "${IP_CHECK_URLS}")"
     fi
+    wan_default="${WANS}"
+    [[ -n "${ROUTER_PROBE_URL}" && -z "${wan_default}" ]] && wan_default="all"
+    WANS="$(prompt_default "OpenWrt WAN 逻辑接口（分号 ; 分隔；all 表示全部 mwan3 WAN；留空按默认路由）" "${wan_default}")"
+    WANS="$(normalize_wan_selection_list "${WANS}")"
+    validate_wan_selection || return 1
     SKIP_WIFI_SSIDS="$(prompt_default "跳过上报的 Wi-Fi SSID 列表（分号 ; 分隔，留空表示不跳过）" "$(normalize_wifi_ssid_skip_list "${SKIP_WIFI_SSIDS:-}")")"
     SKIP_WIFI_SSIDS="$(normalize_wifi_ssid_skip_list "${SKIP_WIFI_SSIDS:-}")"
     save_config_file

@@ -3,9 +3,9 @@ set -euo pipefail
 
 repo_root="$(cd "$(git rev-parse --show-toplevel)" && pwd -P)"
 asset_dir="${1:-${repo_root}/.tmp/po0-check-assets-bash}"
-expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.07.23+build.1}"
-expected_po0_release_date="${PO0_EXPECTED_RELEASE_DATE:-2026-07-23}"
-expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.07.23.1}"
+expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.08.30+build.1}"
+expected_po0_release_date="${PO0_EXPECTED_RELEASE_DATE:-2026-08-30}"
+expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.08.30.1}"
 
 manifest_entries() {
     local manifest="$1"
@@ -646,7 +646,7 @@ asset_has_changelog() {
 
 check_versions_consistent() {
     local expected="${expected_po0_version}" asset version date
-    for asset in nftables-relay-manager.sh po0-lan-client.sh po0-outbound-ip-report.sh po0-outbound-ip-report-macos.sh po0-outbound-ip-report.ps1; do
+    for asset in nftables-relay-manager.sh po0-lan-client.sh po0-wan-probe.sh po0-outbound-ip-report.sh po0-outbound-ip-report-macos.sh po0-outbound-ip-report.ps1; do
         version="$(asset_version "${asset_dir}/${asset}")"
         [[ -n "${version}" ]] || { printf 'Could not read version from %s\n' "${asset}" >&2; exit 1; }
         if [[ "${version}" != "${expected}" ]]; then
@@ -674,7 +674,7 @@ check_versions_match_tag() {
         exit 1
     fi
     expected="${BASH_REMATCH[1]}+build.${BASH_REMATCH[2]}"
-    for asset in nftables-relay-manager.sh po0-lan-client.sh po0-outbound-ip-report.sh po0-outbound-ip-report-macos.sh; do
+    for asset in nftables-relay-manager.sh po0-lan-client.sh po0-wan-probe.sh po0-outbound-ip-report.sh po0-outbound-ip-report-macos.sh; do
         version="$(grep -m1 '^SCRIPT_VERSION=' "${asset_dir}/${asset}" | sed -E 's/^SCRIPT_VERSION="([^"]+)".*/\1/')"
         [[ "${version}" == "${expected}" ]] || { printf '%s version %s does not match tag %s\n' "${asset}" "${version}" "${expected}" >&2; exit 1; }
     done
@@ -684,14 +684,14 @@ check_versions_match_tag() {
 
 check_asset_inventory() {
     local expected actual checksum_names
-    expected="$(printf '%s\n' checksums.txt nftables-relay-manager.sh po0-lan-client.sh po0-outbound-ip-report-macos.sh po0-outbound-ip-report.ps1 po0-outbound-ip-report.sh | sort)"
+    expected="$(printf '%s\n' checksums.txt nftables-relay-manager.sh po0-lan-client.sh po0-wan-probe.sh po0-outbound-ip-report-macos.sh po0-outbound-ip-report.ps1 po0-outbound-ip-report.sh | sort)"
     actual="$(find "${asset_dir}" -maxdepth 1 -type f -printf '%f\n' | sort)"
     if [[ "${actual}" != "${expected}" ]]; then
         printf 'Unexpected PO0 asset inventory.\nExpected:\n%s\nActual:\n%s\n' "${expected}" "${actual}" >&2
         exit 1
     fi
     checksum_names="$(awk '{print $2}' "${asset_dir}/checksums.txt" | sort)"
-    if [[ "${checksum_names}" != "$(printf '%s\n' nftables-relay-manager.sh po0-lan-client.sh po0-outbound-ip-report-macos.sh po0-outbound-ip-report.ps1 po0-outbound-ip-report.sh | sort)" ]]; then
+    if [[ "${checksum_names}" != "$(printf '%s\n' nftables-relay-manager.sh po0-lan-client.sh po0-wan-probe.sh po0-outbound-ip-report-macos.sh po0-outbound-ip-report.ps1 po0-outbound-ip-report.sh | sort)" ]]; then
         printf 'checksums.txt does not cover the exact asset set.\n' >&2
         exit 1
     fi
@@ -700,12 +700,16 @@ check_asset_inventory() {
 
 check_manifest_coverage "manager" "tools/po0/manifests/manager.txt" "scripts/po0/relay/manager/src"
 check_manifest_coverage "lan-worker" "tools/po0/manifests/lan-worker.txt" "scripts/po0/relay/lan-worker/src"
+check_manifest_coverage "wan-probe-openwrt" "tools/po0/manifests/wan-probe-openwrt.txt" "scripts/po0/relay/wan-probe/openwrt/src"
 check_manifest_coverage "self-report-linux" "tools/po0/manifests/self-report-linux.txt" "scripts/po0/relay/self-report/linux/src"
 check_manifest_coverage "self-report-macos" "tools/po0/manifests/self-report-macos.txt" "scripts/po0/relay/self-report/macos/src"
 check_manifest_coverage "self-report-windows" "tools/po0/manifests/self-report-windows.txt" "scripts/po0/relay/self-report/windows/src" "*.ps1"
 
 bash "${repo_root}/tools/po0/test-macos-ssid-diagnostic.sh"
 bash "${repo_root}/tools/po0/test-self-report-refresh-policy.sh"
+bash "${repo_root}/tools/po0/test-linux-multi-wan-report.sh"
+bash "${repo_root}/tools/po0/test-wan-probe.sh"
+bash "${repo_root}/tools/po0/test-openwrt-apk-layout.sh"
 bash "${repo_root}/tools/po0/test-lan-worker-stash-report.sh"
 bash "${repo_root}/tools/po0/test-manager-client-ip-cidr-prefix.sh"
 bash "${repo_root}/tools/po0/test-manager-nft-atomic-reload.sh"
@@ -715,7 +719,7 @@ node "${repo_root}/tools/po0/test-egern-ssid-guard.mjs"
 node "${repo_root}/tools/po0/test-loon-report.js"
 bash "${repo_root}/tools/po0/build-po0-assets.sh" "${asset_dir}"
 
-for asset in nftables-relay-manager.sh po0-lan-client.sh po0-outbound-ip-report.sh po0-outbound-ip-report-macos.sh; do
+for asset in nftables-relay-manager.sh po0-lan-client.sh po0-wan-probe.sh po0-outbound-ip-report.sh po0-outbound-ip-report-macos.sh; do
     printf 'Checking bash -n %s\n' "${asset}"
     bash -n "${asset_dir}/${asset}"
 done
@@ -729,6 +733,7 @@ fi
 bash "${asset_dir}/nftables-relay-manager.sh" --version >/dev/null
 bash "${asset_dir}/nftables-relay-manager.sh" --changelog >/dev/null
 bash "${asset_dir}/po0-lan-client.sh" --version >/dev/null
+REQUEST_METHOD=POST REMOTE_ADDR=192.168.88.2 bash "${asset_dir}/po0-wan-probe.sh" >/dev/null
 bash "${asset_dir}/po0-outbound-ip-report.sh" --version >/dev/null
 bash "${asset_dir}/po0-outbound-ip-report.sh" --changelog >/dev/null
 bash "${asset_dir}/po0-outbound-ip-report-macos.sh" --version >/dev/null

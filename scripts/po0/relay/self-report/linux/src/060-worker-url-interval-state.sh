@@ -51,9 +51,35 @@ validate_worker_url() {
     esac
 }
 
+normalize_router_probe_url() {
+    local value="${1:-}"
+    value="$(trim "${value}")"
+    while [[ "${value}" == */ ]]; do value="${value%/}"; done
+    printf '%s\n' "${value}"
+}
+
+validate_router_probe_url() {
+    ROUTER_PROBE_URL="$(normalize_router_probe_url "${ROUTER_PROBE_URL:-}")"
+    [[ -n "${ROUTER_PROBE_URL}" ]] || return 0
+    case "${ROUTER_PROBE_URL}" in
+        http://*|https://*) ;;
+        *)
+            printf '上游路由器 WAN 探针 URL 无效：仅支持 http:// 或 https://。\n' >&2
+            return 1
+            ;;
+    esac
+    case "${ROUTER_PROBE_URL}" in
+        *\?*|*\#*)
+            printf '上游路由器 WAN 探针 URL 不应包含查询参数或片段。\n' >&2
+            return 1
+            ;;
+    esac
+}
+
 config_complete() {
     [[ -n "${WORKER_URL}" ]] || return 1
     validate_worker_url >/dev/null 2>&1 || return 1
+    validate_router_probe_url >/dev/null 2>&1 || return 1
     validate_cron_minutes >/dev/null 2>&1 || return 1
 }
 

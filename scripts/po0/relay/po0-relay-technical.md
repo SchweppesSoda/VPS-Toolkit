@@ -667,6 +667,10 @@ curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download
 
 PO0 Outbound IP Report client 适合运行在访问设备上：它检测自身当前出口公网 IPv4，并通过 `https://<SELF_REPORT_DOMAIN>/report` 上报给 LAN Worker self-report server；LAN Worker 的 Caddy HTTPS 入口反代到本机后端，再通过 SSH 调 PO0。Linux/OpenWrt 客户端菜单按 `[0-9]` 管理；macOS 客户端因新增通知 / 静默模式开关、Wi-Fi SSID 权限诊断和定位权限 Helper 删除入口，菜单按 `[0-12]` 管理；Windows 客户端菜单按 `[0-10]` 管理。三个客户端的 `1) 配置并保存上报参数` 只持久写入本地配置文件，不安装定时任务；`2) 立即上报一次` 读取参数或已保存配置；`3) 安装 / 更新定时上报` 读取已保存配置并创建 cron / launchd / Windows 计划任务；`4) 暂停 / 恢复定时上报` 只影响自动任务，不影响手动立即上报。macOS 的 `6) 通知 / 静默模式` 和 Windows 的 `6) Windows 通知 / 静默模式` 会保存通知偏好，并在定时任务已安装时刷新实际 launchd / 计划任务启动参数。Linux/OpenWrt 的 `8) 从 GitHub 更新脚本` / `9) 卸载本客户端`、macOS 的 `10) 从 GitHub 更新脚本` / `11) 删除定位权限 Helper` / `12) 卸载本客户端`、Windows 的 `9) 从 GitHub 更新脚本` / `10) 卸载本客户端` 语义一致，都会更新本机脚本或删除本脚本管理的定时任务和安装脚本；macOS 删除定位权限 Helper 只移除本地 `PO0 Location Permission Helper.app`，不修改 macOS 定位授权 / TCC 记录；配置与日志默认保留，可在确认后一起删除。
 
+Linux/OpenWrt 的 WAN 选择仅改变公网 IPv4 探测路径，不改变到 LAN Worker 的 HTTP 提交路径。显式 `--wan` 使用 ubus 的 `network.interface.<name>` 状态解析 `l3_device`，并让 curl 以 `--interface <l3_device>` 绑定出口；`--wan all` 只枚举 mwan3 中类型为 interface 且未禁用的条目。多 WAN 仍按现有 `/report` 协议逐条提交一个 IPv4，不扩展 LAN Worker 请求格式；来源 ID 和 identity 会追加规范化 WAN 名，且保留 WAN 后缀在 48 字符限制内。探测或提交单条失败不会中断后续 WAN，但整轮返回失败，避免 cron 把部分成功误记为全部成功。
+
+可选的 `ROUTER_PROBE_URL` 用于上游 OpenWrt / 下游网关拓扑。CGI 使用独立 Release asset `po0-wan-probe.sh`，不再复用完整 Linux 上报器。探针只接受 GET、UCI `allowed_source` 白名单和已启用且允许的 mwan3 WAN；`wan=list` 与 `wan=<name>` 保留文本兼容接口，`wan=all` 返回带版本、观测时间和逐 WAN 成败的 JSON。探针先从 ubus 接口状态读取公网 IPv4，只有私网/CGNAT或缺失时才绑定 `l3_device` 调用外部检测。下游客户端优先使用批量 JSON、失败时兼容旧文本接口，再沿用 LAN Worker 提交流程。探针请求和 Worker 请求均为普通网络请求，不清理代理环境、不修改路由，也不读取或验证 Mihomo/OpenClash 配置。
+
 Linux/OpenWrt 客户端未传 `--source-id` / `--identity` 时，会用 hostname + machine-id/MAC 生成默认 Source ID，并用设备名作为 Identity；显式参数、环境变量和已保存配置优先。首次进入菜单：
 
 ```bash

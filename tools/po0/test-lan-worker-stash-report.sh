@@ -4,16 +4,30 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source_file="${repo_root}/scripts/po0/relay/lan-worker/src/180-self-report-server.sh"
 
-if command -v python3 >/dev/null 2>&1; then
-    python_bin="python3"
-elif command -v python >/dev/null 2>&1; then
-    python_bin="python"
-else
-    printf 'python3/python is required for LAN Worker Stash report tests.\n' >&2
+python_cmd=()
+python_works() {
+    "$@" -c 'import sys; raise SystemExit(0)' >/dev/null 2>&1
+}
+if [[ -n "${PO0_PYTHON_BIN:-}" ]] && python_works "${PO0_PYTHON_BIN}"; then
+    python_cmd=("${PO0_PYTHON_BIN}")
+elif command -v python3 >/dev/null 2>&1 && python_works python3; then
+    python_cmd=(python3)
+elif command -v python >/dev/null 2>&1 && python_works python; then
+    python_cmd=(python)
+elif command -v py >/dev/null 2>&1 && python_works py -3; then
+    python_cmd=(py -3)
+elif [[ -n "${USERPROFILE:-}" ]] && command -v cygpath >/dev/null 2>&1; then
+    bundled_python="$(cygpath -u "${USERPROFILE}\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe")"
+    if [[ -x "${bundled_python}" ]] && python_works "${bundled_python}"; then
+        python_cmd=("${bundled_python}")
+    fi
+fi
+if [[ "${#python_cmd[@]}" -eq 0 ]]; then
+    printf 'A working Python interpreter is required for LAN Worker Stash report tests; WindowsApps aliases are not usable.\n' >&2
     exit 1
 fi
 
-"${python_bin}" - "${source_file}" <<'PY'
+"${python_cmd[@]}" - "${source_file}" <<'PY'
 import json
 import os
 import pathlib

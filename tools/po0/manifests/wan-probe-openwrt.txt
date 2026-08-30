@@ -1,0 +1,4 @@
+scripts/po0/relay/wan-probe/openwrt/src/000-runtime-header.sh
+scripts/po0/relay/wan-probe/openwrt/src/010-wan-detection.sh
+scripts/po0/relay/wan-probe/openwrt/src/990-cgi-dispatch.sh
+
