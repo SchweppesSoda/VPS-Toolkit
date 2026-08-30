@@ -2,6 +2,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+mkdir -p "${repo_root}/.tmp"
 tmp_dir="$(mktemp -d "${repo_root}/.tmp/po0-wan-probe-test.XXXXXX")"
 trap 'rm -rf "${tmp_dir}"' EXIT
 asset_dir="${tmp_dir}/assets"
@@ -87,4 +88,3 @@ output="$(run_probe GET 192.168.88.2 'wan=bad%20wan')"
 grep -Fq 'Status: 400 Bad Request' <<< "${output}" || fail 'invalid WAN should be rejected'
 
 printf 'OpenWrt WAN probe tests passed.\n'
-
