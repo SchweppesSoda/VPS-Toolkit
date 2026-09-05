@@ -170,7 +170,7 @@ function Test-EgernSsidGuard {
     if ($yamlRaw -notmatch '(?m)^\s+SKIP_WIFI_SSIDS:') {
         throw "Egern YAML lacks SKIP_WIFI_SSIDS env configuration."
     }
-    foreach ($action in @("保存本机 PO0 上报配置", "清除本机 PO0 上报配置")) {
+    foreach ($action in @("保存本机自建 PO0 / 通用设置", "保存本机 PO0 官方防火墙配置", "清除本机全部 PO0 上报配置")) {
         if (-not $yamlRaw.Contains($action)) {
             throw "Egern YAML lacks native storage action: $action"
         }
@@ -523,7 +523,7 @@ function Test-MacOsWifiSsidDiagnostic {
     if ($raw -notmatch 'request_macos_location_permission\(\)' -or $raw -notmatch 'ensure_macos_location_permission_helper_app\(\)' -or $raw -notmatch 'macos_location_helper_wifi_ssid\(\)') {
         throw "macOS asset lacks Location Services authorization request helper."
     }
-    if ($raw -notmatch '\[0-13\]' -or $raw -notmatch '10\) show_wifi_ssid_permission_help_interactive; pause_before_return ;;' -or $raw -notmatch '12\) remove_macos_location_permission_helper_app_interactive; pause_before_return ;;') {
+    if ($raw -notmatch '\[0-16\]' -or $raw -notmatch '13\) show_wifi_ssid_permission_help_interactive; pause_before_return ;;' -or $raw -notmatch '15\) remove_macos_location_permission_helper_app_interactive; pause_before_return ;;') {
         throw "macOS asset lacks Wi-Fi SSID diagnostic menu/range/case wiring."
     }
     if ($raw -notmatch 'remove_macos_location_permission_helper_app\(\)' -or $raw -notmatch 'remove_macos_location_permission_helper_app_interactive\(\)') {

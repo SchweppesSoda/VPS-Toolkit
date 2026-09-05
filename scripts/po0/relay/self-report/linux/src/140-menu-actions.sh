@@ -17,7 +17,8 @@ official_read_secret_prompt() {
 
 configure_official_interactive() {
     local token_input
-    printf '官方通道 token 只写入权限 600 的 settings.env，菜单不会回显或记录 token。\n'
+    print_panel_section "PO0 官方防火墙参数"
+    printf '官方检查周期固定为 600 秒。Token 可带 @0..4 指定槽位，输入不回显。\n'
     if official_channel_enabled; then
         token_input="$(official_read_secret_prompt '官方 token [已设置，回车保留，输入 - 清空]: ')" || return 1
     else
@@ -61,20 +62,23 @@ show_current_config() {
     print_panel_section "PO0 Outbound IP Report 客户端配置"
     print_panel_row "配置文件" "${CONFIG_FILE}"
     print_panel_row "保存状态" "$([[ -f "${CONFIG_FILE}" ]] && printf '已保存' || printf '未保存')"
+    print_panel_section "自建 PO0 · LAN Worker"
     print_panel_row "LAN Worker URL" "${WORKER_URL:-未设置}"
-    print_panel_row "官方防火墙" "$(official_tokens_summary)"
-    print_panel_row "官方状态" "$(official_state_summary)"
-    print_panel_row "官方上报策略" "固定每 $(official_interval_seconds) 秒；状态文件内部管理"
     print_panel_row "来源 ID" "${SOURCE_ID:-未设置}"
     print_panel_row "设备备注" "${IDENTITY:-未设置}"
     print_panel_row "WAN 上报范围" "$(wan_selection_display)"
     print_panel_row "上游路由 WAN 探针" "${ROUTER_PROBE_URL:-不使用}"
     print_panel_row "上报密钥" "$(mask_secret "${SECRET}")"
     print_panel_row "HTTP 上报" "$(if http_allowed; then printf '已显式允许'; else printf '默认拒绝'; fi)"
-    print_panel_row "跳过 Wi-Fi SSID" "$(wifi_ssid_skip_list_display)"
-    print_panel_row "上报间隔" "$(cron_minutes_to_seconds "${CRON_MINUTES}") 秒（安装定时上报时使用）"
-    print_panel_row "定时暂停" "$(schedule_paused && printf '已暂停' || printf '未暂停')"
     print_panel_row "放行时长" "由 LAN Worker 接收端控制，默认 43200 秒"
+    print_panel_row "自建上报间隔" "$(cron_minutes_to_seconds "${CRON_MINUTES}") 秒（安装定时上报时使用）"
+    print_panel_section "PO0 官方防火墙"
+    print_panel_row "官方 Token" "$(official_tokens_summary)"
+    print_panel_row "官方状态" "$(official_state_summary)"
+    print_panel_row "官方检查周期" "固定 600 秒"
+    print_panel_section "通用设置与定时任务"
+    print_panel_row "跳过 Wi-Fi SSID" "$(wifi_ssid_skip_list_display)"
+    print_panel_row "定时暂停" "$(schedule_paused && printf '已暂停' || printf '未暂停')"
     if [[ -n "${IP_CHECK_URLS}" ]]; then
         print_panel_row "IP 探测列表" "${IP_CHECK_URLS}"
     else
@@ -96,20 +100,25 @@ show_menu_dashboard() {
     print_panel_section "当前状态"
     print_panel_row "配置文件" "${CONFIG_FILE}"
     print_panel_row "保存状态" "$([[ -f "${CONFIG_FILE}" ]] && printf '已保存' || printf '未保存')"
+    print_panel_section "自建 PO0 · LAN Worker"
     print_panel_row "LAN Worker URL" "${WORKER_URL:-未设置}"
-    print_panel_row "官方防火墙" "$(official_tokens_summary)"
-    print_panel_row "官方状态" "$(official_state_summary)"
-    print_panel_row "官方上报策略" "固定每 $(official_interval_seconds) 秒；状态文件内部管理"
     print_panel_row "来源 ID" "${SOURCE_ID:-未设置}"
     print_panel_row "设备备注" "${IDENTITY:-未设置}"
     print_panel_row "WAN 上报范围" "$(wan_selection_display)"
     print_panel_row "上游路由 WAN 探针" "${ROUTER_PROBE_URL:-不使用}"
+    print_panel_row "放行时长" "由 LAN Worker 接收端控制，默认 43200 秒"
+    print_panel_row "自建上报间隔" "$(cron_minutes_to_seconds "${CRON_MINUTES}") 秒（安装定时上报时使用）"
+    print_panel_section "PO0 官方防火墙"
+    print_panel_row "官方 Token" "$(official_tokens_summary)"
+    print_panel_row "官方状态" "$(official_state_summary)"
+    print_panel_row "官方检查周期" "固定 600 秒"
+    print_panel_section "通用设置与定时任务"
     print_panel_row "跳过 Wi-Fi SSID" "$(wifi_ssid_skip_list_display)"
     print_panel_row "定时上报" "$(cron_status_summary)"
-    print_panel_row "上报间隔" "$(cron_minutes_to_seconds "${CRON_MINUTES}") 秒（安装定时上报时使用）"
 }
 
 configure_interactive() {
+    print_panel_section "自建 PO0 · LAN Worker 参数"
     local secret_input cron_seconds wan_default
     WORKER_URL="$(prompt_default "LAN Worker self-report HTTPS 接收地址（域名或 https://域名/report）" "${WORKER_URL:-https://report.example.com/report}")"
     WORKER_URL="$(normalize_worker_url "${WORKER_URL}")"
@@ -138,20 +147,25 @@ configure_interactive() {
     ROUTER_PROBE_URL="$(prompt_default "上游 OpenWrt 内网 WAN 探针 URL（留空在本机探测）" "${ROUTER_PROBE_URL}")"
     ROUTER_PROBE_URL="$(normalize_router_probe_url "${ROUTER_PROBE_URL}")"
     validate_router_probe_url || return 1
-    cron_seconds="$(prompt_default "客户端每几秒上报一次（60-$(max_interval_seconds)；必须是 60 的倍数）" "$(cron_minutes_to_seconds "${CRON_MINUTES}")")"
+    cron_seconds="$(prompt_default "自建 PO0 每几秒上报一次（60-$(max_interval_seconds)；必须是 60 的倍数）" "$(cron_minutes_to_seconds "${CRON_MINUTES}")")"
     CRON_MINUTES="$(normalize_interval_seconds_to_minutes "${cron_seconds}" "${MAX_CRON_MINUTES}")" || {
         printf '上报间隔秒数无效：请输入 60-%s 且为 60 倍数的整数。\n' "$(max_interval_seconds)" >&2
         return 1
     }
-    IP_CHECK_URL="$(prompt_default "首选公网 IPv4 探测 URL" "${IP_CHECK_URL}")"
-    if prompt_yes_no "是否覆盖完整 IP 探测 URL 列表" "n"; then
-        IP_CHECK_URLS="$(prompt_default "完整探测 URL 列表，逗号分隔" "${IP_CHECK_URLS}")"
-    fi
     wan_default="${WANS}"
     [[ -n "${ROUTER_PROBE_URL}" && -z "${wan_default}" ]] && wan_default="all"
     WANS="$(prompt_default "OpenWrt WAN 逻辑接口（分号 ; 分隔；all 表示全部 mwan3 WAN；留空按默认路由）" "${wan_default}")"
     WANS="$(normalize_wan_selection_list "${WANS}")"
     validate_wan_selection || return 1
+    save_config_file
+}
+
+configure_common_interactive() {
+    print_panel_section "通用设置 · 本机探测与 Wi-Fi 跳过"
+    IP_CHECK_URL="$(prompt_default "首选公网 IPv4 探测 URL" "${IP_CHECK_URL}")"
+    if prompt_yes_no "是否覆盖完整 IP 探测 URL 列表" "n"; then
+        IP_CHECK_URLS="$(prompt_default "完整探测 URL 列表，逗号分隔" "${IP_CHECK_URLS}")"
+    fi
     SKIP_WIFI_SSIDS="$(prompt_default "跳过上报的 Wi-Fi SSID 列表（分号 ; 分隔，留空表示不跳过）" "$(normalize_wifi_ssid_skip_list "${SKIP_WIFI_SSIDS:-}")")"
     SKIP_WIFI_SSIDS="$(normalize_wifi_ssid_skip_list "${SKIP_WIFI_SSIDS:-}")"
     save_config_file
@@ -181,7 +195,7 @@ install_cron_interactive() {
     if ! config_complete; then
         configure_interactive || return 1
     elif worker_channel_requested; then
-        cron_seconds="$(prompt_default "定时上报每几秒执行一次（60-$(max_interval_seconds)；必须是 60 的倍数）" "$(cron_minutes_to_seconds "${CRON_MINUTES}")")"
+        cron_seconds="$(prompt_default "自建 PO0 定时上报每几秒执行一次（60-$(max_interval_seconds)；必须是 60 的倍数）" "$(cron_minutes_to_seconds "${CRON_MINUTES}")")"
         CRON_MINUTES="$(normalize_interval_seconds_to_minutes "${cron_seconds}" "${MAX_CRON_MINUTES}")" || {
             printf '上报间隔秒数无效：请输入 60-%s 且为 60 倍数的整数。\n' "$(max_interval_seconds)" >&2
             return 1
@@ -195,51 +209,42 @@ menu_loop() {
     while true; do
         menu_clear_screen
         show_menu_dashboard
-        print_menu_section "手动上报"
-        print_menu_pair 1 "配置并保存上报参数" 2 "立即上报一次"
+        print_menu_section "自建 PO0 · LAN Worker"
+        print_menu_item 1 "配置自建 PO0 参数"
+        print_menu_section "PO0 官方防火墙"
+        print_menu_pair 2 "配置官方 Token / 槽位" 3 "查看官方状态（只读）"
+        print_menu_item 4 "清除官方 Token"
+        print_menu_section "通用设置与手动上报"
+        print_menu_pair 5 "配置探测 / Wi-Fi 跳过" 6 "立即上报已配置通道"
         print_menu_section "定时上报"
-        print_menu_pair 3 "安装 / 更新定时上报" 4 "暂停 / 恢复定时上报"
-        print_menu_pair 5 "查看定时上报状态" 6 "删除定时上报"
+        print_menu_pair 7 "安装 / 更新定时上报" 8 "暂停 / 恢复定时上报"
+        print_menu_pair 9 "查看定时上报状态" 10 "删除定时上报"
         print_menu_section "查看"
-        print_menu_item 7 "显示当前配置"
+        print_menu_item 11 "显示当前配置"
         print_menu_section "维护"
-        print_menu_pair 8 "从 GitHub 更新脚本" 9 "卸载本客户端"
-        print_menu_section "官方防火墙"
-        print_menu_pair 10 "配置官方防火墙" 11 "查看官方状态"
-        print_menu_item 12 "清除官方 token"
+        print_menu_pair 12 "从 GitHub 更新脚本" 13 "卸载本客户端"
         print_menu_section "退出"
         print_menu_item 0 "退出"
         print_menu_footer
-        choice="$(read_prompt "请选择操作 [0-12]: ")" || return 0
+        choice="$(read_prompt "请选择操作 [0-13]: ")" || return 0
         choice="$(trim "${choice}")"
         case "${choice}" in
             1) configure_interactive; pause_before_return ;;
-            2) run_once_interactive; pause_before_return ;;
-            3) install_cron_interactive; pause_before_return ;;
-            4) toggle_schedule_interactive; pause_before_return ;;
-            5) show_cron_status; pause_before_return ;;
-            6)
-                if prompt_yes_no "确认删除 PO0 Outbound IP Report 定时上报" "n"; then
-                    remove_cron
-                else
-                    echo "已取消。"
-                fi
-                pause_before_return
-                ;;
-            7) show_current_config; pause_before_return ;;
-            8) upgrade_self_from_download --reopen-menu || pause_before_return ;;
-            9)
-                uninstall_self_report_interactive
-                rc=$?
-                pause_before_return
-                [[ "${rc}" == "0" ]] && return 0
-                ;;
-            10) configure_official_interactive; pause_before_return ;;
-            11) official_status_once; pause_before_return ;;
-            12) clear_official_tokens_interactive; pause_before_return ;;
+            2) configure_official_interactive; pause_before_return ;;
+            3) official_status_once; pause_before_return ;;
+            4) clear_official_tokens_interactive; pause_before_return ;;
+            5) configure_common_interactive; pause_before_return ;;
+            6) run_once_interactive; pause_before_return ;;
+            7) install_cron_interactive; pause_before_return ;;
+            8) toggle_schedule_interactive; pause_before_return ;;
+            9) show_cron_status; pause_before_return ;;
+            10) if prompt_yes_no "确认删除定时上报" "n"; then remove_cron; else echo "已取消。"; fi; pause_before_return ;;
+            11) show_current_config; pause_before_return ;;
+            12) upgrade_self_from_download --reopen-menu || pause_before_return ;;
+            13) uninstall_self_report_interactive; rc=$?; pause_before_return; [[ "${rc}" == "0" ]] && return 0 ;;
             0) return 0 ;;
             "") ;;
-            *) printf '无效选择。\n' >&2; pause_before_return ;;
+            *) printf '无效选择：请输入 0-13。\n' >&2; pause_before_return ;;
         esac
     done
 }

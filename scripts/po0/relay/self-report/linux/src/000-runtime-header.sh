@@ -7,8 +7,7 @@ SCRIPT_NAME="po0-outbound-ip-report"
 SCRIPT_VERSION="2026.09.05+build.8"
 SCRIPT_RELEASE_DATE="2026-09-05"
 # CHANGELOG_BEGIN
-# - 对齐发布版本校验；功能包含本轮直连 WAN 探测、独立上报通道和本机槽位配置修复。
-# - 旁路网关使用专用源地址直连探测真实 WAN IP，域名由主路由 DNS 解析；LAN Worker 提交遵循本机网络规则。
+# - 参数菜单和状态按自建 PO0、官方防火墙、通用设置分区，分别保存；官方周期固定 600 秒。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24

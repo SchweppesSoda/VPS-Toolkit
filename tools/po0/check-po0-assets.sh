@@ -103,8 +103,9 @@ check_egern_ssid_guard() {
         printf 'Egern YAML lacks SKIP_WIFI_SSIDS env configuration.\n' >&2
         exit 1
     }
-    grep -Fq '保存本机 PO0 上报配置' "${yaml}" || { printf 'Egern YAML lacks native storage save action.\n' >&2; exit 1; }
-    grep -Fq '清除本机 PO0 上报配置' "${yaml}" || { printf 'Egern YAML lacks native storage clear action.\n' >&2; exit 1; }
+    grep -Fq '保存本机自建 PO0 / 通用设置' "${yaml}" || { printf 'Egern YAML lacks native storage save action.\n' >&2; exit 1; }
+    grep -Fq '保存本机 PO0 官方防火墙配置' "${yaml}" || { printf 'Egern YAML lacks independent official settings action.\n' >&2; exit 1; }
+    grep -Fq '清除本机全部 PO0 上报配置' "${yaml}" || { printf 'Egern YAML lacks native storage clear action.\n' >&2; exit 1; }
     grep -Fq 'normalizeSsidSkipList' "${js}" || { printf 'Egern JS lacks SSID skip list normalizer.\n' >&2; exit 1; }
     grep -Fq 'currentWifiSsidFromNetwork' "${js}" || { printf 'Egern JS lacks raw Wi-Fi SSID reader.\n' >&2; exit 1; }
     grep -Fq 'ssidSkipDecision' "${js}" || { printf 'Egern JS lacks SSID skip decision helper.\n' >&2; exit 1; }
@@ -481,7 +482,7 @@ check_macos_wifi_ssid_diagnostic() {
         printf 'macOS asset lacks Location Services authorization request helper.\n' >&2
         exit 1
     }
-    grep -Fq 'Wi-Fi SSID 权限诊断' "${asset}" && grep -Fq '请选择操作 [0-13]' "${asset}" && grep -Fq '10) show_wifi_ssid_permission_help_interactive; pause_before_return ;;' "${asset}" && grep -Fq '12) remove_macos_location_permission_helper_app_interactive; pause_before_return ;;' "${asset}" || {
+    grep -Fq 'Wi-Fi SSID 权限诊断' "${asset}" && grep -Fq '请选择操作 [0-16]' "${asset}" && grep -Fq '13) show_wifi_ssid_permission_help_interactive; pause_before_return ;;' "${asset}" && grep -Fq '15) remove_macos_location_permission_helper_app_interactive; pause_before_return ;;' "${asset}" || {
         printf 'macOS asset lacks Wi-Fi SSID diagnostic menu/range/case wiring.\n' >&2
         exit 1
     }

@@ -435,7 +435,7 @@ async function testMissingConfigIsSilentForAutomaticRunsAndGuidedForManualRuns()
   assert.equal(manualRun.calls.http, 0);
   assert.equal(manualRun.calls.ssh, 0);
   assert.equal(manualRun.calls.notifications.length, 0);
-  assert.equal(serializedResult(manualResult).includes('保存本机 PO0 上报配置'), true);
+  assert.equal(serializedResult(manualResult).includes('保存本机自建 PO0 / 通用设置'), true);
 }
 
 async function testCompleteLegacyEnvBootstrapsNativeStorage() {

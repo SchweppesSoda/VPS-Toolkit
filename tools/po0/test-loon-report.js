@@ -102,6 +102,7 @@ function execute(options = {}) {
       JSON,
       setTimeout,
       clearTimeout,
+      $script: { name: options.scriptName || "" },
       $argument: options.argument === undefined ? JSON.stringify({
         mode: options.mode || "auto",
         worker_url: "https://report.example.com/stash-report/v1",
@@ -489,18 +490,26 @@ function testPluginContract() {
   const plugin = fs.readFileSync(pluginPath, "utf8");
   const declarations = plugin.split(/\r?\n/).filter((line) => /^(?:cron|network-changed|generic)\b/.test(line));
   assert.strictEqual(declarations.length, 6);
-  assert.strictEqual(declarations.filter((line) => /^network-changed\b/.test(line)).length, 1);
-  assert.strictEqual(declarations.filter((line) => /^cron\b/.test(line) && /argument="auto"/.test(line)).length, 1);
-  assert.strictEqual(declarations.filter((line) => /^network-changed\b/.test(line) && /argument="auto"/.test(line)).length, 1);
-  assert.strictEqual(declarations.filter((line) => /^generic\b/.test(line) && /argument="status"/.test(line)).length, 1);
-  assert.strictEqual(declarations.filter((line) => /^generic\b/.test(line) && /argument="force"/.test(line)).length, 1);
   assert.strictEqual(declarations.filter((line) => /timeout=300/.test(line)).length, 4);
-  assert.match(plugin, /#!input\s*=\s*po0_worker_url/);
-  assert.match(plugin, /#!input\s*=\s*po0_worker_token/);
-  assert.match(plugin, /#!input\s*=\s*PO0_FIREWALL_TOKENS/);
-  assert.match(plugin, /cron "\*\/10 \* \* \* \*"/);
-  assert.match(plugin, /official|官方防火墙/i);
-  assert.ok(declarations.every((line) => line.includes(`script-path=${scriptRawUrl}`)));
+  assert.match(plugin, /\[Argument\]/);
+  assert.match(plugin, /po0_worker_url = input,tag=【自建 PO0】/);
+  assert.match(plugin, /po0_worker_token = input,tag=【自建 PO0】/);
+  assert.match(plugin, /PO0_FIREWALL_TOKENS = input,tag=【官方防火墙】/);
+  assert.strictEqual(declarations.filter((line) => line.includes('argument=[{PO0_FIREWALL_TOKENS}]')).length, 1);
+  assert.ok(declarations.every((line) => line.includes('script-path=' + scriptRawUrl)));
+}
+
+async function testNamedPluginArguments() {
+  const saved = await execute({ scriptName: '官方防火墙 · 保存本机设置',
+    argument: { PO0_FIREWALL_TOKENS: 'pgnfw_named_mock@2' }, forbidConfig: true });
+  assert.deepStrictEqual(saved.requests, []);
+  assert.equal(JSON.parse(saved.store.get(STORE_KEY + '.official-config')).tokens, 'pgnfw_named_mock@2');
+  const status = await execute({ scriptName: '通用 · 查看上报状态',
+    argument: { po0_worker_url: 'https://report.example.com/stash-report/v1', po0_worker_token: 'mock' }, forbidConfig: true });
+  assert.deepStrictEqual(status.requests, []);
+  const forced = await execute({ scriptName: '通用 · 立即上报',
+    argument: { po0_worker_url: 'https://report.example.com/stash-report/v1', po0_worker_token: 'mock' } });
+  assert.ok(forced.requests.some((entry) => entry.method === 'post' && entry.request.url === 'https://report.example.com/stash-report/v1'));
 }
 
 function testLocalSlotSurvivesSync() {
@@ -528,6 +537,7 @@ function testLocalSlotSurvivesSync() {
 
 (async () => {
   testLocalSlotSurvivesSync();
+  await testNamedPluginArguments();
   await testSuccessfulAwayReport();
   await testPluginPersistentCredentials();
   await testHomeAndUnknownFailClosed();

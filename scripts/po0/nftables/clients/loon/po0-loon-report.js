@@ -98,7 +98,18 @@ function parseArgument(raw) {
 }
 
 function getArgument() {
-  return parseArgument(typeof $argument === "undefined" ? "" : $argument);
+  const args = parseArgument(typeof $argument === "undefined" ? "" : $argument);
+  if (args.mode) return args; // Legacy string / JSON actions retain their explicit mode.
+  const name = typeof $script === "undefined" ? "" : String($script.name || "");
+  const modes = {
+    "通用 · 自动上报": "auto",
+    "通用 · 网络变化上报": "auto",
+    "通用 · 查看上报状态": "status",
+    "通用 · 立即上报": "force",
+    "官方防火墙 · 保存本机设置": "save-official",
+  };
+  if (!modes[name]) throw new Error("无法识别上报操作，请更新 PO0 插件");
+  return Object.assign({}, args, { mode: modes[name] });
 }
 
 function readRuntimeConfig() {
@@ -166,6 +177,7 @@ function firstNonEmpty(values) {
 
 function loadCredentials(args) {
   const workerUrl = firstNonEmpty([
+    args.po0_worker_url,
     args.worker_url,
     args.workerUrl,
     readStore(PO0_WORKER_URL_KEY),
@@ -174,6 +186,7 @@ function loadCredentials(args) {
   const token = firstNonEmpty([
     args.token,
     args.secret,
+    args.po0_worker_token,
     args.worker_token,
     readStore(PO0_WORKER_TOKEN_KEY),
     readStore(`${PO0_STORE_KEY}.worker_token`),

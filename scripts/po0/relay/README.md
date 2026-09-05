@@ -158,13 +158,24 @@ curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download
 
 Linux / OpenWrt PO0 Outbound IP Report client：
 
-首次交互式运行默认进入菜单。菜单里的 `1) 配置并保存上报参数` 只写本地配置文件，不安装 cron，也不保证安装 `po0-outbound-ip-report` 命令；`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本并写入 cron；`8) 从 GitHub 更新脚本` 会更新本机 `po0-outbound-ip-report` 命令并重新打开新版菜单；`9) 卸载本客户端` 会删除本脚本管理的 cron 和本机安装脚本，配置文件与日志默认保留，也可在确认后一起删除。
+仅配置官方通道时，安装定时任务不会再询问自建上报间隔。
+
+三端菜单统一按“自建 PO0 · LAN Worker”“PO0 官方防火墙”“通用设置”分区：
+
+- `1) 配置自建 PO0 参数`：只修改 Worker 地址、来源 ID、设备备注、上报密钥和自建上报间隔。
+- `2) 配置官方 Token / 槽位`、`3) 查看官方状态（只读）`、`4) 清除官方 Token`：独立管理官方参数，检查周期固定为 600 秒。
+- `5) 配置探测 / Wi-Fi 跳过`：管理探测地址和本机 SSID 跳过；`6) 立即上报已配置通道` 执行已配置的通道。
+- `7) 安装 / 更新定时上报`、`8) 暂停 / 恢复定时上报`、`9) 查看定时上报状态` 管理自动任务。
+
+保存一个区域不会改写另一区域的参数，也不会立即上报或安装定时任务。Linux 菜单范围为 0–13，macOS 为 0–16，Windows 为 0–14。
+
+首次交互式运行默认进入菜单。菜单里的 `1) 配置自建 PO0 参数` 只写本地配置文件，不安装 cron，也不保证安装 `po0-outbound-ip-report` 命令；`7) 安装 / 更新定时上报` 会保存配置、安装本机脚本并写入 cron；`12) 从 GitHub 更新脚本` 会更新本机 `po0-outbound-ip-report` 命令并重新打开新版菜单；`13) 卸载本客户端` 会删除本脚本管理的 cron 和本机安装脚本，配置文件与日志默认保留，也可在确认后一起删除。
 
 ```bash
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.sh | bash
 ```
 
-首次保存默认配置并打开菜单，不需要先在命令行写域名和 secret；进菜单后用 `1) 配置并保存上报参数` 填写或修改：
+首次保存默认配置并打开菜单，不需要先在命令行写域名和 secret；进菜单后用 `1) 配置自建 PO0 参数` 填写或修改：
 
 ```bash
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.sh | bash -s -- --save-config --menu
@@ -226,7 +237,7 @@ po0-outbound-ip-report --changelog
 
 Windows PowerShell PO0 Outbound IP Report client：
 
-首次交互式运行默认进入菜单，推荐显式加 `-Menu`。菜单里的 `1) 配置并保存上报参数` 只写本地配置文件，不安装计划任务；`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本并写入计划任务；`6) Windows 通知 / 静默模式` 会保存通知偏好，并在计划任务已安装时同步计划任务启动文件；`9) 从 GitHub 更新脚本` 会更新本机 `po0-outbound-ip-report.ps1` 并重新打开新版菜单；`10) 卸载本客户端` 会删除本脚本管理的计划任务、计划任务启动文件和本机安装脚本，配置文件与日志默认保留，也可在确认后一起删除。
+首次交互式运行默认进入菜单，推荐显式加 `-Menu`。菜单里的 `1) 配置自建 PO0 参数` 只写本地配置文件，不安装计划任务；`7) 安装 / 更新定时上报` 会保存配置、安装本机脚本并写入计划任务；`10) Windows 通知 / 静默模式` 会保存通知偏好，并在计划任务已安装时同步计划任务启动文件；`13) 从 GitHub 更新脚本` 会更新本机 `po0-outbound-ip-report.ps1` 并重新打开新版菜单；`14) 卸载本客户端` 会删除本脚本管理的计划任务、计划任务启动文件和本机安装脚本，配置文件与日志默认保留，也可在确认后一起删除。
 
 ```powershell
 $script = "$env:TEMP\po0-outbound-ip-report.ps1"
@@ -553,9 +564,9 @@ Token 必须包含 `pgnfw_` 前缀：官方链接 `https://124.221.69.228/api/fi
 
 官方接口的固定槽位为 `0..4`，页面显示为槽位 `1..5`；其它客户端使用 `pgnfw_xxxx@0` 到 `@4`。同一目标的不同设备或 WAN 应手动分配不同固定槽位：本机设备 ID 不会自动转换成官方槽位，也没有跨设备自动分配功能。
 
-- Egern：运行“保存本机 PO0 上报配置”后，Token 和槽位随配置保存在本机 `ctx.storage`。定时、网络变化和普通手动上报优先使用该配置，不受同步环境变量影响；设备 ID 继续独立保存。
-- Stash：已保存的官方配置使用本机专用存储，运行时不会被同步模块参数覆盖。修改 `/save-official` 对应的 `argument` 后访问 `http://po0-report.invalid/save-official`，只保存本机 Token/槽位；访问 `/clear-official` 清除，均不上报。
-- Loon：修改插件输入后执行 `Save Local Official Settings`；清除用 `Clear Local Official Settings`。正常上报使用本机专用存储中的 Token/槽位。
+- Egern：运行“保存本机 PO0 官方防火墙配置”后，Token 和槽位随配置保存在本机 `ctx.storage`。定时、网络变化和普通手动上报优先使用该配置，不受同步环境变量影响；设备 ID 继续独立保存。
+- Stash：Worker 与官方参数分区填写，官方 Token 只放在 `/save-official` 对应的 `argument`。已保存的官方配置使用本机专用存储，运行时不会被同步模块参数覆盖。修改 `/save-official` 对应的 `argument` 后访问 `http://po0-report.invalid/save-official`，只保存本机 Token/槽位；访问 `/clear-official` 清除，均不上报。
+- Loon：修改插件输入后执行 `官方防火墙 · 保存本机设置`；清除用 `官方防火墙 · 清除本机设置`。正常上报使用本机专用存储中的 Token/槽位。
 - Windows、macOS：Token 和 `@槽位` 保存在各自客户端本地配置中。它们支持固定槽位，但不会按其它设备的 ID 自动分配槽位。
 
 OpenWrt 页面按“自建防火墙 · LAN Worker”和“PO0 官方防火墙”分组，每个通道拥有自己的自动开关、保存并上报和最近结果。自动开关不阻止明确的手动上报/查询，手动上报只执行所选通道。
@@ -570,7 +581,7 @@ OpenWrt 页面按“自建防火墙 · LAN Worker”和“PO0 官方防火墙”
 - Linux / OpenWrt 访问设备：在 `po0-outbound-ip-report --menu` 保存 `PO0_FIREWALL_TOKENS`，或交互设置后用 `--official-status` / `--official-only`；OpenWrt 的 WAN 选择由 APK/LuCI 官方绑定及本机源地址设置决定。
 - macOS：`po0-outbound-ip-report-macos.sh --save-config --menu` 保存 token，查询用 `--official-status`，独立运行用 `--official-only`；请求走本机默认出口。
 - Windows：`po0-outbound-ip-report.ps1 -Menu` 进入菜单并在其中配置保存 token，查询用 `-OfficialStatus`，独立运行用 `-OfficialOnly`；计划任务仍按 Windows 默认出口。
-- Egern / 移动端：在标准 Egern YAML 的 `PO0_FIREWALL_TOKENS` 配置项保存 token，动作 `PO0 官方防火墙状态（只读）` 查看；自动上报使用 `DIRECT`，SSID guard 和通知在 Egern 本机配置。
+- Egern / 移动端：参数表按【自建 PO0】【官方防火墙】【通用】排列；填写标准 Egern YAML 的 `PO0_FIREWALL_TOKENS` 后运行“保存本机 PO0 官方防火墙配置”，动作 `PO0 官方防火墙状态（只读）` 查看；自动上报使用 `DIRECT`，SSID guard 和通知在 Egern 本机配置。
 - OpenWrt APK：在 LuCI 的 `PO0 Outbound IP Report` 页面配置官方 token、开关和 WAN 绑定。仅启用 WAN1 或 WAN2 行即可单线上报；两行都启用即可双线上报。旁路网关 88.2 先分配专用本机地址 `192.168.88.250` / `192.168.88.251`，分别填作 WAN1 / WAN2 源地址；88.1 的 mwan3 按这两个源地址分别固定到 `wan1_only` / `wan2_only`，不限定目的服务器，所选 WAN 故障时不可切换。88.2 的 OpenClash 须绕过这两个专用源地址发出的探测和官方请求。配置、Token、定时任务及状态均留在 88.2；88.1 只提供 DNS 和 WAN 转发，完成迁移后无需运行 `po0-wan-probe` HTTP 服务。
 
 ## LAN Worker Self-report
@@ -640,7 +651,7 @@ po0-lan-client --install-self-report-https --self-report-https-domain <SELF_REPO
 
 ### Linux / OpenWrt PO0 Outbound IP Report client
 
-访问设备定时自上报。交互式无参数运行默认进入菜单；菜单里的 `1) 配置并保存上报参数` 只写本地配置文件，不安装 cron，也不保证安装 `po0-outbound-ip-report` 命令；`2) 立即上报一次` 会读取参数或已保存配置；`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本并写入 cron；`4) 暂停 / 恢复定时上报` 只影响自动 cron，手动立即上报仍可用；`8) 从 GitHub 更新脚本` 会更新本机 `po0-outbound-ip-report` 命令并重新打开新版菜单；`9) 卸载本客户端` 会删除本脚本管理的 cron 和本机安装脚本，配置文件与 `/tmp/po0-outbound-ip-report.log` 默认保留，可选择一起删除。
+访问设备定时自上报。交互式无参数运行默认进入菜单；菜单里的 `1) 配置自建 PO0 参数` 只写本地配置文件，不安装 cron，也不保证安装 `po0-outbound-ip-report` 命令；`6) 立即上报已配置通道` 会读取参数或已保存配置；`7) 安装 / 更新定时上报` 会保存配置、安装本机脚本并写入 cron；`8) 暂停 / 恢复定时上报` 只影响自动 cron，手动立即上报仍可用；`12) 从 GitHub 更新脚本` 会更新本机 `po0-outbound-ip-report` 命令并重新打开新版菜单；`13) 卸载本客户端` 会删除本脚本管理的 cron 和本机安装脚本，配置文件与 `/tmp/po0-outbound-ip-report.log` 默认保留，可选择一起删除。
 
 OpenWrt 多 WAN 可以重复传入 `--wan <逻辑接口>` 选择一条或多条出口，例如 `--wan wan1 --wan wan2`；`--wan all` 会枚举全部已启用的 mwan3 WAN。客户端从 ubus 读取每条逻辑 WAN 的 `l3_device`，绑定该设备查询公网 IPv4，再分别调用 LAN Worker。每条 WAN 的来源 ID 会自动追加接口名，例如基础来源 `router-88-1` 会生成 `router-88-1-wan1` 和 `router-88-1-wan2`，确保两条记录独立续期。某一条 WAN 失败时其它 WAN 仍继续上报，整轮最终返回非零并显示成功/失败数量。留空或使用 `--clear-wans` 时保持旧行为，只按默认路由探测和上报一个出口。
 
@@ -652,7 +663,7 @@ OpenWrt 多 WAN 可以重复传入 `--wan <逻辑接口>` 选择一条或多条�
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.sh | bash
 ```
 
-首次保存默认配置并打开菜单，不需要先在命令行写域名和 secret；进菜单后用 `1) 配置并保存上报参数` 填写或修改。未传 `--source-id` / `--identity` 时，客户端会用 hostname + machine-id/MAC 生成默认 Source ID，并用设备名作为 Identity；需要固定自定义 ID 时再显式添加 `--source-id <CLIENT_ID>`：
+首次保存默认配置并打开菜单，不需要先在命令行写域名和 secret；进菜单后用 `1) 配置自建 PO0 参数` 填写或修改。未传 `--source-id` / `--identity` 时，客户端会用 hostname + machine-id/MAC 生成默认 Source ID，并用设备名作为 Identity；需要固定自定义 ID 时再显式添加 `--source-id <CLIENT_ID>`：
 
 ```bash
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.sh | bash -s -- --save-config --menu
@@ -736,9 +747,9 @@ po0-outbound-ip-report --changelog
 
 ### macOS PO0 Outbound IP Report client
 
-macOS 使用专用 Bash 脚本和用户级 launchd LaunchAgent，不复用 Linux/OpenWrt cron 脚本。`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本，并写入 `~/Library/LaunchAgents/outbound-ip-report.plist`；`6) 通知 / 静默模式` 可切换自动上报完成 / 失败后的 macOS 通知。
+macOS 使用专用 Bash 脚本和用户级 launchd LaunchAgent，不复用 Linux/OpenWrt cron 脚本。`7) 安装 / 更新定时上报` 会保存配置、安装本机脚本，并写入 `~/Library/LaunchAgents/outbound-ip-report.plist`；`10) 通知 / 静默模式` 可切换自动上报完成 / 失败后的 macOS 通知。
 
-菜单 `9) Wi-Fi SSID 权限诊断` 会显示当前 SSID 读取状态，并可创建 / 打开 `PO0 Location Permission Helper.app` 触发 macOS 定位权限请求；菜单 `11) 删除定位权限 Helper` 只删除本地 Helper app，不修改 macOS 定位授权记录。`12) 卸载本客户端` 会删除本脚本管理的定时上报、本机安装脚本和 Helper app。
+菜单 `13) Wi-Fi SSID 权限诊断` 会显示当前 SSID 读取状态，并可创建 / 打开 `PO0 Location Permission Helper.app` 触发 macOS 定位权限请求；菜单 `15) 删除定位权限 Helper` 只删除本地 Helper app，不修改 macOS 定位授权记录。`16) 卸载本客户端` 会删除本脚本管理的定时上报、本机安装脚本和 Helper app。
 
 macOS 系统自带 Bash 通常是 3.2，客户端会保持 Bash 3.2 兼容，不要求额外安装新版 Bash。`2026.07.01+build.6` 修复过 SSID 跳过列表在 Bash 3.2 + `set -u` 下可能出现的 `items[@]: unbound variable`；如果看到这类报错，先从 GitHub Release 更新到 build.6 或更新版本。
 
@@ -848,7 +859,7 @@ Windows 默认按普通用户安装和运行，路径在 `%LOCALAPPDATA%\PO0\po0
 
 旧版曾把 Windows 本机脚本写到 `po0-self-report.ps1`。新版从旧路径启动时会迁移到 `po0-outbound-ip-report.ps1` 并刷新计划任务；更新或自愈完成后会把默认旧配置、旧日志、旧 IP 探测状态、旧计划任务启动文件和旧计划任务迁到新命名并删除旧默认残留。旧路径只作为兼容迁移和卸载目标，不再作为新安装入口。
 
-交互式运行默认进入菜单，推荐显式加 `-Menu`。菜单里的 `1) 配置并保存上报参数` 只写本地配置文件，不安装计划任务；`2) 立即上报一次` 会读取参数或已保存配置；`3) 安装 / 更新定时上报` 会保存配置、安装本机脚本并写入计划任务；`4) 暂停 / 恢复定时上报` 只影响自动计划任务，手动立即上报仍可用；`6) Windows 通知 / 静默模式` 会保存通知偏好，并在计划任务已安装时同步计划任务启动文件；`9) 从 GitHub 更新脚本` 会更新本机 `po0-outbound-ip-report.ps1` 并重新打开新版菜单；`10) 卸载本客户端` 会删除本脚本管理的计划任务、计划任务启动文件和本机安装脚本，配置文件与日志默认保留，可选择一起删除。
+交互式运行默认进入菜单，推荐显式加 `-Menu`。菜单里的 `1) 配置自建 PO0 参数` 只写本地配置文件，不安装计划任务；`6) 立即上报已配置通道` 会读取参数或已保存配置；`7) 安装 / 更新定时上报` 会保存配置、安装本机脚本并写入计划任务；`8) 暂停 / 恢复定时上报` 只影响自动计划任务，手动立即上报仍可用；`10) Windows 通知 / 静默模式` 会保存通知偏好，并在计划任务已安装时同步计划任务启动文件；`13) 从 GitHub 更新脚本` 会更新本机 `po0-outbound-ip-report.ps1` 并重新打开新版菜单；`14) 卸载本客户端` 会删除本脚本管理的计划任务、计划任务启动文件和本机安装脚本，配置文件与日志默认保留，可选择一起删除。
 
 首次运行时先下载到临时文件，再打开菜单：
 

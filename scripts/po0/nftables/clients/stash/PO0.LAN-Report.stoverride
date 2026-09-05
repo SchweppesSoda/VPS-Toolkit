@@ -1,5 +1,7 @@
 name: PO0 LAN Worker 上报（正式）
 desc: |-
+  【自建 PO0】Worker URL、source_id、secret 填在自动 / 手动 / 状态入口。
+  【官方防火墙】Token / 槽位只填在 /save-official 入口并在本机保存。
   默认保留 LAN Worker；官方 Token 必须填写 pgnfw_xxxx 整段，支持 pgnfw_xxxx@0 到 @4（界面槽位 1–5）。同一目标的不同设备请使用不同槽位。
   官方通道每 10 分钟只读检查，必要时直连加白；LAN Worker 的 IP/网络变化和一小时续期规则保持原样。
   两路在同一次唤醒中按“官方先、Worker 后”执行，例行成功安静；Tile 只显示脱敏状态。
@@ -52,12 +54,15 @@ script-providers:
         });
       }
 
+
+# ── 自建 PO0 · LAN Worker 参数（自动 / 手动 / 状态三处保持一致）──
+# 官方 Token 在下方独立保存；此处读取本机已经保存的官方配置。
 cron:
   script:
     - name: po0-stash-report-worker-v2
       cron: '*/10 * * * *'
       timeout: 90
-      argument: '{"mode":"auto","worker_url":"https://CHANGE_ME/stash-report/v1","source_id":"iphone-stash","secret":"CHANGE_ME_BEARER","selected_proxy":"DIRECT","PO0_FIREWALL_TOKENS":""}'
+      argument: '{"mode":"auto","worker_url":"https://CHANGE_ME/stash-report/v1","source_id":"iphone-stash","secret":"CHANGE_ME_BEARER","selected_proxy":"DIRECT"}'
 
 tiles:
   - name: po0-stash-status-tile-v2
@@ -76,13 +81,15 @@ http:
       name: po0-stash-report-worker-v2
       type: request
       timeout: 90
-      argument: '{"mode":"force","worker_url":"https://CHANGE_ME/stash-report/v1","source_id":"iphone-stash","secret":"CHANGE_ME_BEARER","selected_proxy":"DIRECT","PO0_FIREWALL_TOKENS":""}'
+      argument: '{"mode":"force","worker_url":"https://CHANGE_ME/stash-report/v1","source_id":"iphone-stash","secret":"CHANGE_ME_BEARER","selected_proxy":"DIRECT"}'
     - match: ^http://po0-report\.invalid/status(?:\?.*)?$
       name: po0-stash-report-worker-v2
       type: request
       timeout: 90
-      argument: '{"mode":"status","worker_url":"https://CHANGE_ME/stash-report/v1","source_id":"iphone-stash","secret":"CHANGE_ME_BEARER","selected_proxy":"DIRECT","PO0_FIREWALL_TOKENS":""}'
+      argument: '{"mode":"status","worker_url":"https://CHANGE_ME/stash-report/v1","source_id":"iphone-stash","secret":"CHANGE_ME_BEARER","selected_proxy":"DIRECT"}'
 
+    # ── 官方防火墙参数 · 仅在这里填写 Token / 槽位 ──
+    # 保存后固定每 600 秒检查；本次保存不发起上报。
     - match: ^http://po0-report\.invalid/save-official$
       name: po0-stash-report-worker-v2
       type: request

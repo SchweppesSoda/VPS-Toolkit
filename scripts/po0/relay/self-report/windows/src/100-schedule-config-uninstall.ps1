@@ -48,21 +48,25 @@ function Show-ClientConfig {
     Write-PanelSection "PO0 Outbound IP Report 客户端配置"
     Write-PanelRow "配置文件" $script:ConfigPath
     Write-PanelRow "保存状态" $(if (Test-Path -LiteralPath $script:ConfigPath) { "已保存" } else { "未保存" })
+    Write-PanelSection "自建 PO0 · LAN Worker"
     Write-PanelRow "LAN Worker URL" $(if ($script:WorkerUrl) { $script:WorkerUrl } else { "未设置" })
     Write-PanelRow "来源 ID" $script:SourceId
     Write-PanelRow "设备备注" $script:Identity
     Write-PanelRow "上报密钥" (Get-MaskedSecret $script:Secret)
-    Write-PanelRow "PO0 官方防火墙" (Get-Po0FirewallTokenSummary)
-    Write-PanelRow "官方防火墙状态" (Get-Po0FirewallDashboardSummary)
-    Write-PanelRow "官方防火墙 due" (Get-Po0FirewallDueSummary)
     Write-PanelRow "HTTP 上报" $(if ($script:AllowHttp) { "已显式允许" } else { "默认拒绝" })
-    Write-PanelRow "上报间隔" ("每 {0} 秒（安装定时上报时使用）" -f (Get-IntervalSeconds))
+    Write-PanelRow "放行时长" "由 LAN Worker 接收端控制，默认 43200 秒"
+    Write-PanelRow "自建上报间隔" ("每 {0} 秒（安装定时上报时使用）" -f (Get-IntervalSeconds))
+    Write-PanelSection "PO0 官方防火墙"
+    Write-PanelRow "官方 Token" (Get-Po0FirewallTokenSummary)
+    Write-PanelRow "官方状态" (Get-Po0FirewallDashboardSummary)
+    Write-PanelRow "下次检查" (Get-Po0FirewallDueSummary)
+    Write-PanelRow "官方检查周期" "固定 600 秒"
+    Write-PanelSection "通用设置与定时任务"
     Write-PanelRow "跳过 Wi-Fi SSID" (Format-WifiSsidPolicyList -Ssids $script:SkipWifiSsids)
     Write-PanelRow "当前 Wi-Fi SSID" (Format-CurrentWifiSsidStatus)
     Write-NotifyStatusRows
     Write-PanelRow "定时暂停" $(if ($script:SchedulePaused) { "已暂停" } else { "未暂停" })
     Write-PanelRow "计划任务" (Get-ScheduledReporterSummary)
-    Write-PanelRow "放行时长" "由 LAN Worker 接收端控制，默认 43200 秒"
     if ($script:IpCheckUrls.Count -gt 0) {
         Write-PanelRow "IP 探测列表" ($script:IpCheckUrls -join ",")
     } else {
@@ -84,21 +88,27 @@ function Show-ClientDashboard {
     Write-PanelSection "当前状态"
     Write-PanelRow "配置文件" $script:ConfigPath
     Write-PanelRow "保存状态" $(if (Test-Path -LiteralPath $script:ConfigPath) { "已保存" } else { "未保存" })
+    Write-PanelSection "自建 PO0 · LAN Worker"
     Write-PanelRow "LAN Worker URL" $(if ($script:WorkerUrl) { $script:WorkerUrl } else { "未设置" })
     Write-PanelRow "来源 ID" $script:SourceId
     Write-PanelRow "设备备注" $script:Identity
     Write-PanelRow "运行日志" (Get-DefaultLogPath)
-    Write-PanelRow "PO0 官方防火墙" (Get-Po0FirewallTokenSummary)
-    Write-PanelRow "官方防火墙状态" (Get-Po0FirewallDashboardSummary)
-    Write-PanelRow "官方防火墙 due" (Get-Po0FirewallDueSummary)
+    Write-PanelRow "放行时长" "由 LAN Worker 接收端控制，默认 43200 秒"
+    Write-PanelRow "自建上报间隔" ("每 {0} 秒（安装计划任务时使用）" -f (Get-IntervalSeconds))
+    Write-PanelSection "PO0 官方防火墙"
+    Write-PanelRow "官方 Token" (Get-Po0FirewallTokenSummary)
+    Write-PanelRow "官方状态" (Get-Po0FirewallDashboardSummary)
+    Write-PanelRow "下次检查" (Get-Po0FirewallDueSummary)
+    Write-PanelRow "官方检查周期" "固定 600 秒"
+    Write-PanelSection "通用设置与定时任务"
     Write-PanelRow "跳过 Wi-Fi SSID" (Format-WifiSsidPolicyList -Ssids $script:SkipWifiSsids)
     Write-PanelRow "当前 Wi-Fi SSID" (Format-CurrentWifiSsidStatus)
     Write-NotifyStatusRows
     Write-PanelRow "计划任务" (Get-ScheduledReporterSummary)
-    Write-PanelRow "上报间隔" ("每 {0} 秒（安装计划任务时使用）" -f (Get-IntervalSeconds))
 }
 
 function Set-ClientConfigInteractive {
+    Write-PanelSection "自建 PO0 · LAN Worker 参数"
     $workerDefault = $(if ($script:WorkerUrl) { $script:WorkerUrl } else { "" })
     $workerPrompt = "LAN Worker self-report HTTPS 接收地址（可空；输入 - 清空）"
     if ($workerDefault) { $workerPrompt = "{0} [{1}]" -f $workerPrompt, $workerDefault }
@@ -120,17 +130,19 @@ function Set-ClientConfigInteractive {
             throw "已拒绝 HTTP。请改用 https://域名/report。"
         }
     }
-    Read-Po0FirewallTokensInteractive
     if ($script:WorkerUrl) {
         Assert-WorkerUrl
-    } elseif (-not (Test-Po0FirewallConfigured)) {
-        throw "至少配置 LAN Worker URL 或 PO0 官方防火墙 token。"
     }
     $script:SourceId = Read-Default "来源 ID" $script:SourceId
     $script:Identity = Read-Default "设备备注" $script:Identity
     Read-SecretSetting
-    $seconds = Read-Default "客户端每几秒上报一次（60-$($script:MaxMinutes * 60)；必须是 60 的倍数）" ([string](Get-IntervalSeconds))
+    $seconds = Read-Default "自建 PO0 每几秒上报一次（60-$($script:MaxMinutes * 60)；必须是 60 的倍数）" ([string](Get-IntervalSeconds))
     $script:Minutes = Convert-IntervalSecondsToMinutes $seconds
+    Save-ClientConfig
+}
+
+function Set-CommonConfigInteractive {
+    Write-PanelSection "通用设置 · 本机探测与 Wi-Fi 跳过"
     $script:IpCheckUrl = Read-Default "首选公网 IPv4 探测 URL" $script:IpCheckUrl
     $override = Read-Host "是否覆盖完整 IP 探测 URL 列表 [y/N]"
     if ($override -match "^(y|yes)$") {
@@ -145,11 +157,35 @@ function Set-ClientConfigInteractive {
     Save-ClientConfig
 }
 
+function Set-OfficialConfigInteractive {
+    Write-PanelSection "PO0 官方防火墙参数"
+    Write-Host "官方检查周期固定为 600 秒。Token 可带 @0..4 指定槽位，输入不回显。"
+    Read-Po0FirewallTokensInteractive
+    Save-ClientConfig
+}
+
+function Clear-OfficialConfigInteractive {
+    if (Read-YesNoDefault "确认清除已保存的官方防火墙 Token" $false) {
+        $script:Po0FirewallTokens = ""
+        Save-ClientConfig
+    }
+}
+
+function Show-OfficialStatusInteractive {
+    $previous = $script:Po0FirewallStatusOnly
+    try {
+        $script:Po0FirewallStatusOnly = $true
+        Invoke-SelfReport
+    } finally {
+        $script:Po0FirewallStatusOnly = $previous
+    }
+}
+
 function Install-ScheduledReporterInteractive {
     if (-not (Test-ClientConfigComplete)) {
         Set-ClientConfigInteractive
-    } else {
-        $seconds = Read-Default "定时上报每几秒执行一次（60-$($script:MaxMinutes * 60)；必须是 60 的倍数）" ([string](Get-IntervalSeconds))
+    } elseif ($script:WorkerUrl) {
+        $seconds = Read-Default "自建 PO0 定时上报每几秒执行一次（60-$($script:MaxMinutes * 60)；必须是 60 的倍数）" ([string](Get-IntervalSeconds))
         $script:Minutes = Convert-IntervalSecondsToMinutes $seconds
     }
     $script:TaskNotify = Read-YesNoDefault "自动上报完成/失败后弹出 Windows 通知" $script:TaskNotify

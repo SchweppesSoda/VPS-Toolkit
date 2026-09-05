@@ -602,6 +602,8 @@ function isAutomaticReportRun(ctx) {
     || isStatusRun(ctx)
     || isDeviceSetupRun(ctx)
     || isDeviceClearRun(ctx)
+    || isWorkerConfigSaveRun(ctx)
+    || isOfficialConfigSaveRun(ctx)
     || isReportConfigSaveRun(ctx)
     || isReportConfigClearRun(ctx)
   ) return false;
@@ -639,12 +641,20 @@ function isDeviceClearRun(ctx) {
   return /清除本机设备|clear device/i.test(scriptLabel(ctx));
 }
 
+function isWorkerConfigSaveRun(ctx) {
+  return /保存本机自建 PO0 \/ 通用设置/.test(scriptLabel(ctx));
+}
+
+function isOfficialConfigSaveRun(ctx) {
+  return /保存本机\s*PO0\s*官方防火墙配置/.test(scriptLabel(ctx));
+}
+
 function isReportConfigSaveRun(ctx) {
   return /保存本机\s*(?:PO0\s*)?上报配置|save (?:local )?(?:po0 )?report config/i.test(scriptLabel(ctx));
 }
 
 function isReportConfigClearRun(ctx) {
-  return /清除本机\s*(?:PO0\s*)?上报配置|clear (?:local )?(?:po0 )?report config/i.test(scriptLabel(ctx));
+  return /清除本机\s*(?:全部\s*)?(?:PO0\s*)?上报配置|clear (?:local )?(?:po0 )?report config/i.test(scriptLabel(ctx));
 }
 
 function isOfficialConfigClearRun(ctx) {
@@ -1285,7 +1295,7 @@ async function storedReportConfig(ctx) {
     try {
       parsed = JSON.parse(String(raw));
     } catch (_) {
-      throw new Error('本机 PO0 上报配置已损坏；请运行“清除本机 PO0 上报配置”后重新保存。');
+      throw new Error('本机 PO0 上报配置已损坏；请运行“清除本机全部 PO0 上报配置”后重新保存。');
     }
   }
 
@@ -1296,12 +1306,12 @@ async function storedReportConfig(ctx) {
     || !parsed.values
     || typeof parsed.values !== 'object'
   ) {
-    throw new Error('本机 PO0 上报配置版本无效；请运行“清除本机 PO0 上报配置”后重新保存。');
+    throw new Error('本机 PO0 上报配置版本无效；请运行“清除本机全部 PO0 上报配置”后重新保存。');
   }
 
   const values = persistableEnvValues(parsed.values);
   if (Object.keys(values).length === 0) {
-    throw new Error('本机 PO0 上报配置为空；请运行“清除本机 PO0 上报配置”后重新保存。');
+    throw new Error('本机 PO0 上报配置为空；请运行“清除本机全部 PO0 上报配置”后重新保存。');
   }
   return {
     exists: true,
@@ -2146,6 +2156,35 @@ function reportConfigAuthSummary(targets) {
   return parts.join('，') || '未识别认证方式';
 }
 
+async function handleScopedConfigSaveScript(ctx, runtimeEnv, storedValues, deviceId, officialOnly) {
+  const title = officialOnly ? '官方防火墙配置' : '自建 PO0 / 通用设置';
+  try {
+    let candidate;
+    if (officialOnly) {
+      const input = String(runtimeEnv.PO0_FIREWALL_TOKENS || '').trim();
+      if (!input) throw new Error('请填写官方 Token；清除请使用独立的清除官方 Token 操作。');
+      parseOfficialTokens(input);
+      candidate = { ...(storedValues || {}), PO0_FIREWALL_TOKENS: input };
+    } else {
+      const scopedEnv = { ...runtimeEnv };
+      delete scopedEnv.PO0_FIREWALL_TOKENS;
+      candidate = reportConfigSaveCandidate(storedValues, scopedEnv);
+      const workerEnv = { ...candidate };
+      delete workerEnv.PO0_FIREWALL_TOKENS;
+      const channels = validateReportChannels(workerEnv, deviceId);
+      if (channels.workerError) throw channels.workerError;
+      if (!channels.anyValid && !String(candidate.PO0_FIREWALL_TOKENS || '').trim()) {
+        throw new Error('请先配置自建 PO0 的 SSH 目标，或单独保存官方防火墙配置。');
+      }
+    }
+    await saveReportConfig(ctx, candidate);
+    notify(ctx, 'PO0 Egern Config', title + '已保存');
+    return widgetPanel(REPORT_TITLE, [title + '已保存。', '另一通道的已保存参数保持不变；本次只保存，不发起上报。'], true, ctx);
+  } catch (error) {
+    return widgetPanel(REPORT_TITLE, [title + '未保存。', redactError(error, { ...(storedValues || {}), ...runtimeEnv })], false, ctx);
+  }
+}
+
 async function handleReportConfigSaveScript(ctx, runtimeEnv, storedValues, deviceId) {
   try {
     const candidate = reportConfigSaveCandidate(storedValues, runtimeEnv);
@@ -2190,7 +2229,7 @@ async function handleReportConfigClearScript(ctx) {
   return widgetPanel(REPORT_TITLE, [
     '本机 PO0 上报配置及最近状态已清除。',
     '本机设备 ID 保留不变。',
-    '如需恢复，请重新填写模块环境变量并运行“保存本机 PO0 上报配置”。',
+    '如需恢复，请重新填写模块环境变量并运行“保存本机自建 PO0 / 通用设置”或“保存本机 PO0 官方防火墙配置”。',
   ], true, ctx);
 }
 
@@ -2207,7 +2246,7 @@ async function handleOfficialConfigClearScript(ctx, storedValues) {
   return widgetPanel(REPORT_TITLE, [
     '本机官方防火墙 token 已清除。',
     'SSH 上报配置和本机设备 ID 保留不变。',
-    '如需恢复，请填写 PO0_FIREWALL_TOKENS 后运行“保存本机 PO0 上报配置”。',
+    '如需恢复，请填写 PO0_FIREWALL_TOKENS 后运行“保存本机 PO0 官方防火墙配置”。',
   ], true, ctx);
 }
 
@@ -2227,7 +2266,7 @@ function missingReportConfigPanel(ctx, deviceId, error, env = ctx?.env || {}) {
     `设备: ${deviceDisplayName(deviceId)}`,
     '本机尚未保存 PO0 上报配置。',
     redactError(error, env),
-    '请填写模块环境变量并运行“保存本机 PO0 上报配置”。',
+    '请填写模块环境变量并运行“保存本机自建 PO0 / 通用设置”或“保存本机 PO0 官方防火墙配置”。',
     '定时和网络变化任务会保持静默，不会反复报错。',
   ], false, ctx);
 }
@@ -2317,6 +2356,9 @@ async function runEgernReportUnlocked(ctx) {
   try {
     deviceId = await storedDeviceId(ctx);
     const storedConfig = await storedReportConfig(ctx);
+    if (isWorkerConfigSaveRun(ctx) || isOfficialConfigSaveRun(ctx)) {
+      return await handleScopedConfigSaveScript(ctx, runtimeEnv, storedConfig.values, deviceId, isOfficialConfigSaveRun(ctx));
+    }
     if (isReportConfigSaveRun(ctx)) {
       return await handleReportConfigSaveScript(ctx, runtimeEnv, storedConfig.values, deviceId);
     }

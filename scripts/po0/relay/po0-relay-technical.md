@@ -665,7 +665,7 @@ chmod 755 /usr/local/sbin/po0-lan-client
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-lan-client.sh | bash -s -- --bootstrap --po0-host <PO0_HOST> --po0-script /root/nftables-relay-manager.sh --source-key home --ddns-domain home.example.com --token <DDNS_TOKEN> --resource-token <RESOURCE_TOKEN> --ddns-interval-seconds 3600 --install-cron
 ```
 
-PO0 Outbound IP Report client 适合运行在访问设备上：它检测自身当前出口公网 IPv4，并通过 `https://<SELF_REPORT_DOMAIN>/report` 上报给 LAN Worker self-report server；LAN Worker 的 Caddy HTTPS 入口反代到本机后端，再通过 SSH 调 PO0。Linux/OpenWrt 客户端菜单按 `[0-9]` 管理；macOS 客户端因新增通知 / 静默模式开关、Wi-Fi SSID 权限诊断和定位权限 Helper 删除入口，菜单按 `[0-12]` 管理；Windows 客户端菜单按 `[0-10]` 管理。三个客户端的 `1) 配置并保存上报参数` 只持久写入本地配置文件，不安装定时任务；`2) 立即上报一次` 读取参数或已保存配置；`3) 安装 / 更新定时上报` 读取已保存配置并创建 cron / launchd / Windows 计划任务；`4) 暂停 / 恢复定时上报` 只影响自动任务，不影响手动立即上报。macOS 的 `6) 通知 / 静默模式` 和 Windows 的 `6) Windows 通知 / 静默模式` 会保存通知偏好，并在定时任务已安装时刷新实际 launchd / 计划任务启动参数。Linux/OpenWrt 的 `8) 从 GitHub 更新脚本` / `9) 卸载本客户端`、macOS 的 `10) 从 GitHub 更新脚本` / `11) 删除定位权限 Helper` / `12) 卸载本客户端`、Windows 的 `9) 从 GitHub 更新脚本` / `10) 卸载本客户端` 语义一致，都会更新本机脚本或删除本脚本管理的定时任务和安装脚本；macOS 删除定位权限 Helper 只移除本地 `PO0 Location Permission Helper.app`，不修改 macOS 定位授权 / TCC 记录；配置与日志默认保留，可在确认后一起删除。
+PO0 Outbound IP Report client 适合运行在访问设备上：它检测自身当前出口公网 IPv4，并通过 `https://<SELF_REPORT_DOMAIN>/report` 上报给 LAN Worker self-report server；LAN Worker 的 Caddy HTTPS 入口反代到本机后端，再通过 SSH 调 PO0。三端参数入口按自建、官方和通用设置分开，菜单编号与使用方法见 README 的访问设备客户端章节。各区域继续写入同一本机配置文件，官方保存入口仅更新 Token / 槽位，自建保存入口不读取官方 Token 输入；SSID 和探测设置通过独立通用入口更新。保存配置不发起上报或安装定时任务。
 
 Linux/OpenWrt 的 WAN 选择仅改变公网 IPv4 探测路径，不改变到 LAN Worker 的 HTTP 提交路径。显式 `--wan` 使用 ubus 的 `network.interface.<name>` 状态解析 `l3_device`，并让 curl 以 `--interface <l3_device>` 绑定出口；`--wan all` 只枚举 mwan3 中类型为 interface 且未禁用的条目。多 WAN 仍按现有 `/report` 协议逐条提交一个 IPv4，不扩展 LAN Worker 请求格式；来源 ID 和 identity 会追加规范化 WAN 名，且保留 WAN 后缀在 48 字符限制内。探测或提交单条失败不会中断后续 WAN，但整轮返回失败，避免 cron 把部分成功误记为全部成功。
 
@@ -979,7 +979,7 @@ PO0 写 entries.tsv：source_type=ssh_report
 Egern 把最近状态写入 ctx.storage，Widget 读取显示
 ```
 
-Egern 同时用版本化 key `po0-ssh-ip-report:config:v1` 在本机 `ctx.storage` 持久化 SSH 上报配置。保存对象只接受模块白名单字段，`DEVICE_ID_SETUP` 与独立的本机设备 ID 不混入其中。读取时只要该 key 存在，storage 就是运行时唯一配置源；`ctx.env` 只在显式执行“保存本机 PO0 上报配置”时作为非空 patch 合并，避免更换主配置后空值或 schema 默认值覆盖旧凭据。尚无 storage 配置时，完整的旧版 `ctx.env` 会自动 bootstrap；不完整的 schedule/network 任务静默返回 `missing-config`，不进行 HTTP、SSH、通知或状态写入，手动/状态/Widget 才显示设置提示。因此 PO0 模块可默认启用而不会在未配置设备上周期报错。
+Egern 同时用版本化 key `po0-ssh-ip-report:config:v1` 在本机 `ctx.storage` 持久化 SSH 上报配置。保存对象只接受模块白名单字段，`DEVICE_ID_SETUP` 与独立的本机设备 ID 不混入其中。读取时只要该 key 存在，storage 就是运行时唯一配置源；`ctx.env` 在“保存本机自建 PO0 / 通用设置”中只合并非官方字段，在“保存本机 PO0 官方防火墙配置”中只合并官方 Token；历史“保存本机 PO0 上报配置”动作保留兼容。新入口分别校验本通道并保留另一通道的已保存参数，避免更换主配置后空值或 schema 默认值覆盖旧凭据。尚无 storage 配置时，完整的旧版 `ctx.env` 会自动 bootstrap；不完整的 schedule/network 任务静默返回 `missing-config`，不进行 HTTP、SSH、通知或状态写入，手动/状态/Widget 才显示设置提示。因此 PO0 模块可默认启用而不会在未配置设备上周期报错。
 
 单 PO0 命令等价于：
 

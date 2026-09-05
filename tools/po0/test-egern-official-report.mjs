@@ -859,7 +859,42 @@ async function testSavedSlotSurvivesSyncedEnvironment() {
   assert.equal(JSON.parse(await storage.get(CONFIG_STORAGE_KEY)).values.PO0_FIREWALL_TOKENS, token + '@0');
 }
 
+async function testScopedSavesDoNotOverwriteOtherChannel() {
+  const storage = createStorage({
+    [CONFIG_STORAGE_KEY]: JSON.stringify({ version: 1, values: {
+      PO0_HOST: 'po0.example.com', SSH_REPORT_TOKEN: 'ssh-mock', PO0_PASSWORD: 'password-mock',
+      PO0_FIREWALL_TOKENS: 'pgnfw_original_mock@0', SKIP_WIFI_SSIDS: 'Home',
+    } }),
+  });
+  const worker = createContext({ storage, trigger: '保存本机自建 PO0 / 通用设置', env: {
+    SSH_REPORT_TOKEN: 'ssh-new-mock', PO0_FIREWALL_TOKENS: 'invalid-synced-token', SKIP_WIFI_SSIDS: 'Home;Office',
+  } });
+  await runEgernReport(worker.ctx);
+  let values = JSON.parse(await storage.get(CONFIG_STORAGE_KEY)).values;
+  assert.equal(values.SSH_REPORT_TOKEN, 'ssh-new-mock');
+  assert.equal(values.PO0_FIREWALL_TOKENS, 'pgnfw_original_mock@0');
+  assert.equal(values.SKIP_WIFI_SSIDS, 'Home;Office');
+  const official = createContext({ storage, trigger: '保存本机 PO0 官方防火墙配置', env: {
+    PO0_FIREWALL_TOKENS: 'pgnfw_replacement_mock@4', SSH_REPORT_TOKEN: 'must-not-replace', SKIP_WIFI_SSIDS: 'must-not-replace',
+  } });
+  await runEgernReport(official.ctx);
+  values = JSON.parse(await storage.get(CONFIG_STORAGE_KEY)).values;
+  assert.equal(values.PO0_FIREWALL_TOKENS, 'pgnfw_replacement_mock@4');
+  assert.equal(values.SSH_REPORT_TOKEN, 'ssh-new-mock');
+  assert.equal(values.SKIP_WIFI_SSIDS, 'Home;Office');
+  const before = await storage.get(CONFIG_STORAGE_KEY);
+  const invalid = createContext({ storage, trigger: '保存本机 PO0 官方防火墙配置', env: { PO0_FIREWALL_TOKENS: 'invalid' } });
+  await runEgernReport(invalid.ctx);
+  assert.equal(await storage.get(CONFIG_STORAGE_KEY), before);
+  for (const run of [worker, official, invalid]) {
+    assert.equal(run.calls.get.length, 0);
+    assert.equal(run.calls.post.length, 0);
+    assert.equal(run.calls.ssh, 0);
+  }
+}
+
 const tests = [
+  testScopedSavesDoNotOverwriteOtherChannel,
   testSavedSlotSurvivesSyncedEnvironment,
   testHitUsesDirectGetOnlyAndStaysQuiet,
   testOfficialOnlyIgnoresSshSchemaDefaults,
