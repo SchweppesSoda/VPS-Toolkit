@@ -601,7 +601,7 @@ return view.extend({
 		o = s.taboption('advanced', form.Value, 'router_probe_url', _('主路由探针 URL'));
 		o.default = 'http://192.168.88.1/cgi-bin/po0-wan-probe';
 		o.rmempty = true;
-		o.description = _('仅给现有 LAN Worker 通道读取上游 WAN；PO0 官方通道直接在实际主路由执行，不经过这个只读探针。');
+		o.description = _('供现有 LAN Worker 通道读取上游 WAN；官方通道按下方 WAN 绑定选择实际请求出口。');
 
 		var wanOption = s.taboption('advanced', form.Value, 'wans', _('WAN 选择'));
 		wanOption.default = 'all';
@@ -615,6 +615,14 @@ return view.extend({
 		o.description = _('多个 SSID 用英文分号分隔；只影响当前设备上的客户端上报。主路由的 PO0 官方 WAN 绑定不套用 SSID 跳过。');
 
 		var officialTargets = uci.sections('po0_outbound_ip_report', 'official_target') || [];
+		[ 'wan1', 'wan2' ].forEach(function(wan) {
+			var source = s.taboption('advanced', form.Value, 'official_source_' + wan, _('官方 %s 本机源地址（可选）').format(wan.toUpperCase()));
+			source.datatype = 'ip4addr';
+			source.rmempty = true;
+			source.placeholder = wan === 'wan1' ? '192.168.88.2' : '192.168.88.3';
+			source.description = _('在旁路网关运行时填写用于此 WAN 分流的本机 IPv4；上游需将该地址的官方请求固定到对应 WAN，故障时不切换。安装在双 WAN 主路由时留空。');
+		});
+
 		var officialTargetSection = m.section(form.TableSection, 'official_target', _('PO0 官方目标'));
 		officialTargetSection.anonymous = true;
 		officialTargetSection.addremove = true;
@@ -648,7 +656,7 @@ return view.extend({
 		officialBindingSection.anonymous = true;
 		officialBindingSection.addremove = true;
 		officialBindingSection.sortable = true;
-		officialBindingSection.description = _('把同一个官方目标分别绑定到实际逻辑 WAN。每个绑定最多占用官方 5 个白名单名额中的一个；指定 WAN 失败时不会自动改走其他 WAN。');
+		officialBindingSection.description = _('只启用 WAN1 或 WAN2 的绑定即可单线上报；两条都启用即可双线上报。每个绑定最多占用官方 5 个白名单名额中的一个。');
 
 		o = officialBindingSection.option(form.Flag, 'enabled', _('启用'));
 		o.default = '1';
@@ -670,8 +678,10 @@ return view.extend({
 
 		o = officialBindingSection.option(form.Value, 'wan', _('逻辑 WAN'));
 		o.rmempty = false;
+		o.value('wan1', 'WAN1');
+		o.value('wan2', 'WAN2');
 		o.placeholder = 'wan1';
-		o.description = _('例如 wan1、wan2；必须是主路由上实际启用的 mwan3 逻辑接口。');
+		o.description = _('旁路网关使用高级设置中的对应本机源地址；未填写时使用本机逻辑 WAN。');
 
 		o = officialBindingSection.option(form.ListValue, 'slot', _('固定槽位'));
 		o.value('', _('自动选择'));

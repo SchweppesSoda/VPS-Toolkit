@@ -41,6 +41,20 @@ esac
 command -v uci >/dev/null 2>&1 || fail 'uci is required'
 command -v curl >/dev/null 2>&1 || fail 'curl is required'
 
+# The upstream router routes this local source address to the selected WAN.
+source_ip="${PO0_OFFICIAL_SOURCE_IP:-}"
+if [ -n "$source_ip" ]; then
+	printf '%s\n' "$source_ip" | awk -F. '
+		NF != 4 { exit 1 }
+		{ for (i = 1; i <= 4; i++) if ($i !~ /^[0-9]+$/ || length($i) > 3 || $i + 0 > 255) exit 1 }
+	' || fail 'official source IPv4 is invalid'
+	command -v ip >/dev/null 2>&1 || fail 'ip is required for source IPv4 selection'
+	ip -o -4 address show | awk -v wanted="$source_ip" '
+		{ split($4, addr, "/"); if (addr[1] == wanted) found = 1 }
+		END { exit !found }
+	' || fail 'official source IPv4 is not assigned to this device'
+fi
+
 target_type="$(uci -q get "po0_outbound_ip_report.${target}" 2>/dev/null || true)"
 [ "$target_type" = 'official_target' ] || fail 'official target does not exist'
 enabled="$(uci_get "$target" enabled)"
@@ -93,6 +107,7 @@ set +e
 http_code="$({
 	printf 'url = "%s"\n' "$url"
 	printf 'request = "%s"\n' "$request"
+	[ -z "$source_ip" ] || printf 'interface = "%s"\n' "$source_ip"
 } | env -u http_proxy -u https_proxy -u all_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY \
 	curl -4sS --noproxy '*' --proto '=https' --connect-timeout 5 --max-time 20 \
 		--retry 2 --retry-delay 2 --max-filesize 65536 \

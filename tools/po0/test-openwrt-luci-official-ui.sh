@@ -20,6 +20,7 @@ grep -Fq "form.TableSection, 'official_target'" "${ui}" || fail "official target
 grep -Fq "form.TableSection, 'official_binding'" "${ui}" || fail "official binding table is missing"
 grep -Fq "'worker_enabled'" "${ui}" || fail "independent Worker switch is missing"
 grep -Fq "'official_enabled'" "${ui}" || fail "official switch is missing"
+grep -Fq "'official_source_' + wan" "${ui}" || fail "gateway WAN source settings are missing"
 grep -Fq "官方自动通道固定每 600 秒检查一次" "${ui}" || fail "official fixed interval explanation is missing"
 if grep -Fq "official_interval_seconds" "${ui}"; then
 	fail "LuCI must not expose a free-form official interval"

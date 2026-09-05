@@ -72,11 +72,11 @@ done
 for package in po0-outbound-ip-report; do
     grep -Fq 'PKGARCH:=all' "${repo_root}/packaging/openwrt/${package}/Makefile"
     grep -Fq 'PKG_VERSION:=2026.09.05' "${repo_root}/packaging/openwrt/${package}/Makefile"
-    grep -Fq 'PKG_RELEASE:=2' "${repo_root}/packaging/openwrt/${package}/Makefile"
+    grep -Fq 'PKG_RELEASE:=3' "${repo_root}/packaging/openwrt/${package}/Makefile"
     grep -Fq "$(printf '$(TOPDIR)/po0-assets')" "${repo_root}/packaging/openwrt/${package}/Makefile"
-    grep -Fq 'SCRIPT_VERSION="2026.09.05+build.4"' \
+    grep -Fq 'SCRIPT_VERSION="2026.09.05+build.5"' \
         "${repo_root}/packaging/openwrt/${package}/runtime-header.sh"
-    grep -Fq 'po0-outbound-ip-report 2026.09.05+build.4 (OpenWrt APK)' \
+    grep -Fq 'po0-outbound-ip-report 2026.09.05+build.5 (OpenWrt APK)' \
         "${repo_root}/packaging/openwrt/${package}/files/usr/sbin/po0-outbound-ip-report"
 done
 
@@ -143,9 +143,9 @@ if rg -n "LOCK_DIR='/tmp|/tmp/po0-outbound-ip-report.run.lock|>>/tmp/po0-outboun
     printf 'OpenWrt official runtime must not use pre-creatable /tmp locks or logs.\n' >&2
     exit 1
 fi
-grep -Fq 'outbound-ip-report-v6' \
+grep -Fq 'outbound-ip-report-v7' \
     "${repo_root}/packaging/openwrt/po0-outbound-ip-report/Makefile"
-grep -Fq 'po0/outbound-ip-report-v6' \
+grep -Fq 'po0/outbound-ip-report-v7' \
     "${repo_root}/packaging/openwrt/po0-outbound-ip-report/files/usr/share/luci/menu.d/po0-outbound-ip-report.json"
 grep -Fq -- '--run-once)' \
     "${repo_root}/scripts/po0/relay/self-report/linux/src/990-cli-parse-dispatch.sh"
@@ -174,7 +174,7 @@ if rg -n 'SECRET|secret' "${repo_root}/packaging/openwrt/po0-outbound-ip-report/
     exit 1
 fi
 
-grep -Fq '+mwan3' "$repo_root/packaging/openwrt/po0-outbound-ip-report/Makefile"
+! grep -Fq '+mwan3' "$repo_root/packaging/openwrt/po0-outbound-ip-report/Makefile"
 grep -Fq 'official firewall whitelist' "$repo_root/packaging/openwrt/po0-outbound-ip-report/Makefile"
 grep -Fq 'chmod 600 $(1)/etc/config/po0_outbound_ip_report' "$repo_root/packaging/openwrt/po0-outbound-ip-report/Makefile"
 grep -Fq '"$now" -lt "$last"' "$repo_root/packaging/openwrt/po0-outbound-ip-report/files/usr/libexec/po0-outbound-ip-report-service"

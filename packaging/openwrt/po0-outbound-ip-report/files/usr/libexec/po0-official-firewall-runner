@@ -209,17 +209,25 @@ emit_row() {
 	printf '\n'
 }
 
+invoke_helper() {
+	if [ -n "$source_ip" ]; then
+		env PO0_OFFICIAL_SOURCE_IP="$source_ip" "$HELPER" "$target" "$@"
+	else
+		env PO0_OFFICIAL_SOURCE_IP= "$MWAN3" use "$wan" "$HELPER" "$target" "$@"
+	fi
+}
+
 run_helper() {
 	mode="$1"
 	stderr_file="${TMP_DIR}/stderr.$$"
 	response=''
 	if [ "$mode" = 'status' ]; then
-		if response="$("$MWAN3" use "$wan" "$HELPER" "$target" status 2>"$stderr_file")"; then
+		if response="$(invoke_helper status 2>"$stderr_file")"; then
 			RUN_RC='0'
 		else
 			RUN_RC="$?"
 		fi
-	elif response="$("$MWAN3" use "$wan" "$HELPER" "$target" add "$slot" 2>"$stderr_file")"; then
+	elif response="$(invoke_helper add "$slot" 2>"$stderr_file")"; then
 		RUN_RC='0'
 	else
 		RUN_RC="$?"
@@ -233,6 +241,7 @@ process_binding() {
 	target="$(uci_get "$binding" target)"
 	label="$(uci_get "$target" label)"
 	wan="$(uci_get "$binding" wan)"
+	source_ip="$(uci_get main "official_source_${wan}")"
 	slot="$(uci_get "$binding" slot)"
 	enabled="$(uci_get "$binding" enabled)"
 	[ -z "$WAN_FILTER" ] || [ "$wan" = "$WAN_FILTER" ] || return 0
@@ -250,9 +259,9 @@ process_binding() {
 		emit_row
 		return 0
 	fi
-	if ! safe_id "$target" || ! safe_wan "$wan" || [ ! -x "$MWAN3" ]; then
+	if ! safe_id "$target" || ! safe_wan "$wan" || { [ -z "$source_ip" ] && [ ! -x "$MWAN3" ]; }; then
 		status='error'
-		message='指定 WAN 或 mwan3 不可用，未回退到默认出口。'
+		message='指定 WAN 不可用；旁路网关需填写对应本机源地址，未回退到默认出口。'
 		emit_row
 		FAILURES=$((FAILURES + 1))
 		return 0

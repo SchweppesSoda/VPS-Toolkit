@@ -97,7 +97,7 @@ po0-lan-client --probe
 po0-lan-client --version
 ```
 
-PO0 nftables 子系统内带 `SCRIPT_VERSION`、`--version` / `--changelog` 或自更新提示的六个可独立部署脚本（PO0 manager、LAN Worker、WAN probe、三端 PO0 Outbound IP Report）统一使用 `YYYY.MM.DD+build.N` 混合版本格式。本轮脚本版本为 `2026.09.05+build.4`。两个 OpenWrt APK 另有各自的包版本：本轮 outbound 为 `2026.09.05-r2`，WAN probe 继续为 `2026.08.30-r5`。正式 PO0 Release 发布文件的脚本内部版本必须与 release tag 尾号一致：`po0-vYYYY.MM.DD.N` 对应 `YYYY.MM.DD+build.N`，例如 `po0-v2026.07.01.7` 对应 `2026.07.01+build.7`。完整历史写在 [`CHANGELOG.md`](CHANGELOG.md)。
+PO0 nftables 子系统内带 `SCRIPT_VERSION`、`--version` / `--changelog` 或自更新提示的六个可独立部署脚本（PO0 manager、LAN Worker、WAN probe、三端 PO0 Outbound IP Report）统一使用 `YYYY.MM.DD+build.N` 混合版本格式。本轮脚本版本为 `2026.09.05+build.5`。两个 OpenWrt APK 另有各自的包版本：本轮 outbound 为 `2026.09.05-r3`，WAN probe 继续为 `2026.08.30-r5`。正式 PO0 Release 发布文件的脚本内部版本必须与 release tag 尾号一致：`po0-vYYYY.MM.DD.N` 对应 `YYYY.MM.DD+build.N`，例如 `po0-v2026.07.01.7` 对应 `2026.07.01+build.7`。完整历史写在 [`CHANGELOG.md`](CHANGELOG.md)。
 
 更新 LAN Worker 上已安装的 client：
 
@@ -545,16 +545,16 @@ po0-lan-client --install-cron
 
 访问设备客户端在同一轮总是先执行官方车道，再执行原有车道；两边各自记录结果，任一边失败不会取消另一边，因此可以报告“部分完成”。如果当前 Wi-Fi SSID 命中本机跳过列表，两条车道会一起跳过；`--force-report` 只绕过本机的 due/SSID 判断，仍不能跳过官方 GET-first 规则。官方状态摘要（各端支持的状态页或 Widget）只显示状态、已用/上限额度、当前出口和槽位，不显示 token；定时任务默认保持安静，手动、失败或部分完成时才按客户端设置通知。
 
-除主 OpenWrt 的官方绑定外，Linux、macOS、Windows、Egern 和普通 LAN Worker 都使用本机默认出口（Egern 为 `DIRECT`）。只有主 OpenWrt 可以在官方绑定里用 `mwan3` 明确选择 `wan1` 或 `wan2`；未指定或其它设备不会伪造指定 WAN，也不在失败时偷偷切换出口。实现参考 [kelenetwork/po0fw](https://github.com/kelenetwork/po0fw)（MIT），不是 Chicksure 专属协议。
+Linux、macOS、Windows、Egern 和普通 LAN Worker 使用本机默认出口（Egern 为 `DIRECT`）。OpenWrt APK 的官方绑定可选择 `wan1`、`wan2`，或同时启用两条绑定：安装在双 WAN 主路由时使用本机 `mwan3`；安装在旁路网关时使用高级设置中的 `official_source_wan1` / `official_source_wan2` 本机 IPv4，由上游固定分流到对应 WAN。GET 与 POST 使用相同源地址，未分配的源地址会拒绝请求。实现参考 [kelenetwork/po0fw](https://github.com/kelenetwork/po0fw)（MIT），不是 Chicksure 专属协议。
 
 ### 各端最短配置入口
 
 - LAN Worker：`po0-lan-client --menu` → `29) 配置官方防火墙 token`；只读用 `po0-lan-client --official-firewall-status`，运行用 `po0-lan-client --run-official-firewall`。
-- Linux / OpenWrt 访问设备：在 `po0-outbound-ip-report --menu` 保存 `PO0_FIREWALL_TOKENS`，或交互设置后用 `--official-status` / `--official-only`；主 OpenWrt 的 WAN 选择由 APK/LuCI 的官方绑定交给 `mwan3`。
+- Linux / OpenWrt 访问设备：在 `po0-outbound-ip-report --menu` 保存 `PO0_FIREWALL_TOKENS`，或交互设置后用 `--official-status` / `--official-only`；OpenWrt 的 WAN 选择由 APK/LuCI 官方绑定及本机源地址设置决定。
 - macOS：`po0-outbound-ip-report-macos.sh --save-config --menu` 保存 token，查询用 `--official-status`，独立运行用 `--official-only`；请求走本机默认出口。
 - Windows：`po0-outbound-ip-report.ps1 -Menu` 进入菜单并在其中配置保存 token，查询用 `-OfficialStatus`，独立运行用 `-OfficialOnly`；计划任务仍按 Windows 默认出口。
 - Egern / 移动端：在标准 Egern YAML 的 `PO0_FIREWALL_TOKENS` 配置项保存 token，动作 `PO0 官方防火墙状态（只读）` 查看；自动上报使用 `DIRECT`，SSID guard 和通知在 Egern 本机配置。
-- 主 OpenWrt APK：LuCI 的 `PO0 Outbound IP Report` 页面配置官方 token、开关和官方 WAN 绑定；需要选出口时只填 `wan1` 或 `wan2`，由 `mwan3` 执行。
+- OpenWrt APK：在 LuCI 的 `PO0 Outbound IP Report` 页面配置官方 token、开关和 WAN 绑定。仅启用 WAN1 或 WAN2 行即可单线上报；两行都启用即可双线上报。旁路网关 88.2 可将高级设置中的 WAN1 源地址设为 `192.168.88.2`、WAN2 设为本机已有的 `192.168.88.3`；88.1 必须把这两个源地址到官方服务器 `124.221.69.228:443` 的请求分别固定到 `wan1_only` / `wan2_only`，所选 WAN 故障时不可切换。88.2 的透明代理还需绕过官方服务器 IP；OpenClash 可将 `124.221.69.228/32` 加入 `openclash_custom_localnetwork_ipv4.list`。配置、token、定时任务及状态均留在 88.2；主路由只负责转发。
 
 ## LAN Worker Self-report
 

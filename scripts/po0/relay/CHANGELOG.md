@@ -6,6 +6,10 @@
 
 ## po0-nftables-relay-manager
 
+### 2026.09.05+build.5
+
+- 对齐本轮 OpenWrt 旁路网关支持的发布版本；本脚本行为未变。
+
 ### 2026.09.05+build.4
 
 - 修复发布包校验清单，避免整包校验失败；本脚本功能沿用 `2026.09.05+build.3`。
@@ -240,6 +244,10 @@
 - 状态面板和资源任务创建计划摘要增加彩色状态提示。
 
 ## po0-lan-worker-client
+
+### 2026.09.05+build.5
+
+- 对齐本轮 OpenWrt 旁路网关支持的发布版本；本脚本行为未变。
 
 ### 2026.09.05+build.4
 
@@ -497,6 +505,10 @@
 
 ## po0-wan-probe（OpenWrt）
 
+### 2026.09.05+build.5
+
+- 对齐本轮 OpenWrt 旁路网关支持的发布版本；本脚本行为未变。
+
 ### 2026.09.05+build.4
 
 - 修复发布包校验清单，避免整包校验失败；本脚本功能沿用 `2026.09.05+build.3`。
@@ -515,6 +527,10 @@
 - `po0-wan-probe.apk` 继续使用 `2026.08.30-r5`，不随 outbound APK 的版本 bump。
 
 ## po0-outbound-ip-report（Linux/OpenWrt）
+
+### 2026.09.05+build.5
+
+- 支持在旁路 OpenWrt 通过本机源地址选择官方 WAN1、WAN2 或双 WAN；保留主路由本机 WAN 模式。
 
 ### 2026.09.05+build.4
 
@@ -774,6 +790,10 @@
 
 ## po0-outbound-ip-report（macOS）
 
+### 2026.09.05+build.5
+
+- 对齐本轮 OpenWrt 旁路网关支持的发布版本；本脚本行为未变。
+
 ### 2026.09.05+build.4
 
 - 修复发布包校验清单，避免整包校验失败；本脚本功能沿用 `2026.09.05+build.3`。
@@ -964,6 +984,10 @@
 - 支持 `--save-config --menu` 首次保存默认配置后打开菜单，并提供 `--install-launchd` 别名。
 
 ## po0-outbound-ip-report（Windows PowerShell）
+
+### 2026.09.05+build.5
+
+- 对齐本轮 OpenWrt 旁路网关支持的发布版本；本脚本行为未变。
 
 ### 2026.09.05+build.4
 

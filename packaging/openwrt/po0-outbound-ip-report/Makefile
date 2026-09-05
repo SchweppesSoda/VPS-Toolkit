@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=po0-outbound-ip-report
 PKG_VERSION:=2026.09.05
-PKG_RELEASE:=2
+PKG_RELEASE:=3
 PKGARCH:=all
 
 include $(INCLUDE_DIR)/package.mk
@@ -11,7 +11,7 @@ define Package/po0-outbound-ip-report
   SECTION:=net
   CATEGORY:=Network
   TITLE:=PO0 outbound IPv4 reporter
-  DEPENDS:=+bash +curl +ca-bundle +jsonfilter +luci-base +mwan3
+  DEPENDS:=+bash +curl +ca-bundle +jsonfilter +luci-base
 endef
 
 define Package/po0-outbound-ip-report/description
@@ -45,7 +45,7 @@ define Package/po0-outbound-ip-report/install
 	$(INSTALL_DATA) ./files/usr/share/luci/menu.d/po0-outbound-ip-report.json $(1)/usr/share/luci/menu.d/po0-outbound-ip-report.json
 	$(INSTALL_DATA) ./files/usr/share/rpcd/acl.d/po0-outbound-ip-report.json $(1)/usr/share/rpcd/acl.d/po0-outbound-ip-report.json
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/po0
-	$(INSTALL_DATA) ./files/www/luci-static/resources/view/po0/outbound-ip-report.js $(1)/www/luci-static/resources/view/po0/outbound-ip-report-v6.js
+	$(INSTALL_DATA) ./files/www/luci-static/resources/view/po0/outbound-ip-report.js $(1)/www/luci-static/resources/view/po0/outbound-ip-report-v7.js
 endef
 
 define Package/po0-outbound-ip-report/postinst

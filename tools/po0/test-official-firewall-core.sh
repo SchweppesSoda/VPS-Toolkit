@@ -26,6 +26,8 @@ stderr_file="${tmp_dir}/stderr"
 curl_log="${tmp_dir}/curl.log"
 curl_argv_log="${tmp_dir}/curl-argv.log"
 mwan_log="${tmp_dir}/mwan.log"
+source_log="${tmp_dir}/source.log"
+export PO0_TEST_SOURCE_LOG="$source_log"
 jsonfilter_log="${tmp_dir}/jsonfilter.log"
 
 mkdir -p "${bin_dir}"
@@ -60,6 +62,8 @@ show)
 get)
 	key="${2:-}"
 	case "${key}" in
+	po0_outbound_ip_report.main.official_source_wan1) printf '%s\n' "${PO0_TEST_SOURCE_WAN1:-}" ;;
+	po0_outbound_ip_report.main.official_source_wan2) printf '%s\n' "${PO0_TEST_SOURCE_WAN2:-}" ;;
 	po0_outbound_ip_report.binding1)
 		printf '%s\n' 'official_binding'
 		;;
@@ -194,6 +198,8 @@ printf '%s\n' "$@" >> "$PO0_TEST_CURL_ARGV_LOG"
 request="$(printf '%s\n' "${config}" | sed -n 's/^request = "\(.*\)"$/\1/p')"
 [ -n "${request}" ] || exit 2
 printf '%s\n' "${request}" >> "${PO0_TEST_CURL_LOG:?}"
+source_ip="$(printf '%s\n' "$config" | sed -n 's/^interface = "\(.*\)"$/\1/p')"
+printf '%s|%s\n' "$request" "$source_ip" >> "$PO0_TEST_SOURCE_LOG"
 
 output_file=''
 header_file=''
@@ -299,6 +305,12 @@ healthy|*)
 esac
 MOCK
 
+cat > "${bin_dir}/ip" <<'MOCK'
+#!/bin/sh
+printf '%s\n' '2: br-lan inet 192.168.88.2/24 scope global br-lan' '2: br-lan inet 192.168.88.3/32 scope global br-lan'
+MOCK
+chmod 0700 "${bin_dir}/ip"
+
 cat > "${bin_dir}/mwan3" <<'MOCK'
 #!/bin/sh
 set -eu
@@ -349,6 +361,7 @@ LAST_RC=0
 export PO0_TEST_CURL_ARGV_LOG="$curl_argv_log"
 
 reset_logs() {
+	: > "$source_log"
 	: > "$curl_argv_log"
 : > "${curl_log}"
 : > "${mwan_log}"
@@ -365,6 +378,8 @@ run_runner() {
 	env \
 		"PATH=${bin_dir}:${PATH}" \
 		"PO0_TEST_SCENARIO=${scenario}" \
+		"PO0_TEST_SOURCE_WAN1=${source_wan1:-}" \
+		"PO0_TEST_SOURCE_WAN2=${source_wan2:-}" \
 		"PO0_TEST_CURL_LOG=${curl_log}" \
 		"PO0_TEST_MWAN_LOG=${mwan_log}" \
 		"PO0_TEST_JSONFILTER_LOG=${jsonfilter_log}" \
@@ -387,6 +402,8 @@ run_helper() {
 	env \
 		"PATH=${bin_dir}:${PATH}" \
 		"PO0_TEST_SCENARIO=${scenario}" \
+		"PO0_TEST_SOURCE_WAN1=${source_wan1:-}" \
+		"PO0_TEST_SOURCE_WAN2=${source_wan2:-}" \
 		"PO0_TEST_CURL_LOG=${curl_log}" \
 		"PO0_TEST_MWAN_LOG=${mwan_log}" \
 		"PO0_TEST_JSONFILTER_LOG=${jsonfilter_log}" \
@@ -490,6 +507,42 @@ run_helper_sensitive_case() {
 		fail 'sensitive response marker escaped through helper output'
 	fi
 }
+
+run_source_ip_cases() {
+	source_wan1='192.168.88.2'
+	source_wan2='192.168.88.3'
+	run_runner not-whitelisted report binding1
+	assert_rc 0 'source-bound WAN1 GET/POST failed'
+	assert_curl_sequence 'GET POST'
+	[ "$(tr '\n' ' ' < "$source_log")" = 'GET|192.168.88.2 POST|192.168.88.2 ' ] || fail 'GET/POST used different WAN1 sources'
+	[ ! -s "$mwan_log" ] || fail 'gateway invoked local mwan3'
+	multi_bindings='1'
+	run_runner healthy status --official-wan wan2
+	assert_rc 0 'WAN2-only selection failed'
+	[ "$(cat "$source_log")" = 'GET|192.168.88.3' ] || fail 'WAN2-only selection used the wrong source'
+	run_runner healthy status
+	assert_rc 0 'dual-WAN selection failed'
+	[ "$(tr '\n' ' ' < "$source_log")" = 'GET|192.168.88.2 GET|192.168.88.3 ' ] || fail 'dual-WAN sources were not independent'
+	for source_wan1 in '999.1.1.1' '192.168.88.99'; do
+		run_runner healthy report binding1
+		assert_rc 1 'invalid or unassigned source was accepted'
+		assert_no_requests
+	done
+	source_wan1=''
+	source_wan2=''
+	multi_bindings='0'
+	run_runner healthy status binding1
+	assert_rc 0 'native mwan3 compatibility failed'
+	assert_mwan_sequence 'status'
+	assert_no_token
+}
+
+if [ "${PO0_TEST_ONLY:-}" = 'source-ip' ]; then
+	run_source_ip_cases
+	printf 'PASS: gateway WAN1/WAN2/dual-WAN source selection checks passed.\n'
+	exit 0
+fi
+run_source_ip_cases
 
 if [ "${PO0_TEST_ONLY:-}" = 'root-whitelist' ]; then
 	run_root_whitelist_cases
