@@ -312,6 +312,14 @@ try {
     Assert-True ($manifest.Contains("058-official-firewall.ps1")) "Windows manifest must include the official channel."
 
     . $compositePath -ConfigPath $configPath -WorkerUrl "https://worker.invalid/report" -Minutes 60 -LogPath $logPath -RunOnce
+    if (-not $runningOnWindows) {
+        $script:MockClientConfigAclCallCount = 0
+        function Set-Po0ClientConfigAcl {
+            param([string]$Path)
+            Assert-True (Test-Path -LiteralPath $Path) "Config ACL mock must receive an existing temporary file."
+            $script:MockClientConfigAclCallCount++
+        }
+    }
     function Test-IsAdmin { return $false }
     function Write-SelfReportLogLine { param($Level, $Message) }
     function Write-SelfReportInfo { param([string]$Message) }
@@ -514,6 +522,9 @@ try {
         Assert-True (@($configRules | Where-Object { $_ -match "S-1-5-18" -or $_ -match "SYSTEM" }).Count -gt 0) "Config ACL must retain SYSTEM."
         Assert-True (@($configRules | Where-Object { $_ -match "S-1-5-32-544" -or $_ -match "Administrators" }).Count -gt 0) "Config ACL must retain Administrators."
     }
+    if (-not $runningOnWindows) {
+        Assert-Equal 1 $script:MockClientConfigAclCallCount "Config ACL mock should be called once."
+    }
 
     Assert-False ((Test-Path -LiteralPath $logPath) -and (Get-Content -LiteralPath $logPath -Raw -ErrorAction SilentlyContinue).Contains($tokenA)) "Token must not enter log."
 
@@ -533,7 +544,6 @@ try {
         Remove-Item -LiteralPath $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
-
 
 
 

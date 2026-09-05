@@ -6,6 +6,10 @@
 
 ## po0-nftables-relay-manager
 
+### 2026.09.05+build.3
+
+- 适配非 Windows CI 的 ACL 测试隔离；本脚本功能沿用 `2026.09.05+build.2`。
+
 ### 2026.09.05+build.2
 
 - CI 跨平台兼容性修复；本脚本功能沿用 `2026.09.05+build.1`。
@@ -232,6 +236,10 @@
 - 状态面板和资源任务创建计划摘要增加彩色状态提示。
 
 ## po0-lan-worker-client
+
+### 2026.09.05+build.3
+
+- 适配非 Windows CI 的 ACL 测试隔离；本脚本功能沿用 `2026.09.05+build.2`。
 
 ### 2026.09.05+build.2
 
@@ -481,6 +489,10 @@
 
 ## po0-wan-probe（OpenWrt）
 
+### 2026.09.05+build.3
+
+- 适配非 Windows CI 的 ACL 测试隔离；本脚本功能沿用 `2026.09.05+build.2`。
+
 ### 2026.09.05+build.2
 
 - CI 跨平台兼容性修复；本脚本功能沿用 `2026.09.05+build.1`。
@@ -491,6 +503,10 @@
 - `po0-wan-probe.apk` 继续使用 `2026.08.30-r5`，不随 outbound APK 的版本 bump。
 
 ## po0-outbound-ip-report（Linux/OpenWrt）
+
+### 2026.09.05+build.3
+
+- 适配非 Windows CI 的 ACL 测试隔离；本脚本功能沿用 `2026.09.05+build.2`。
 
 ### 2026.09.05+build.2
 
@@ -742,6 +758,10 @@
 
 ## po0-outbound-ip-report（macOS）
 
+### 2026.09.05+build.3
+
+- 适配非 Windows CI 的 ACL 测试隔离；本脚本功能沿用 `2026.09.05+build.2`。
+
 ### 2026.09.05+build.2
 
 - CI 跨平台兼容性修复；本脚本功能沿用 `2026.09.05+build.1`。
@@ -924,6 +944,10 @@
 - 支持 `--save-config --menu` 首次保存默认配置后打开菜单，并提供 `--install-launchd` 别名。
 
 ## po0-outbound-ip-report（Windows PowerShell）
+
+### 2026.09.05+build.3
+
+- 适配非 Windows CI 的 ACL 测试隔离；本脚本功能沿用 `2026.09.05+build.2`。
 
 ### 2026.09.05+build.2
 
