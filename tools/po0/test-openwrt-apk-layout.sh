@@ -69,14 +69,16 @@ for package in po0-wan-probe; do
     grep -Fq "$(printf '$(TOPDIR)/po0-assets')" "${repo_root}/packaging/openwrt/${package}/Makefile"
 done
 
+expected_reporter_version="$(sed -n 's/^SCRIPT_VERSION="\([^"]*\)"/\1/p' "${repo_root}/scripts/po0/relay/self-report/linux/src/000-runtime-header.sh")"
+[[ "${expected_reporter_version}" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}\+build\.[0-9]+$ ]] || { printf 'Invalid reporter source version.\n' >&2; exit 1; }
 for package in po0-outbound-ip-report; do
     grep -Fq 'PKGARCH:=all' "${repo_root}/packaging/openwrt/${package}/Makefile"
     grep -Fq 'PKG_VERSION:=2026.09.05' "${repo_root}/packaging/openwrt/${package}/Makefile"
     grep -Fq 'PKG_RELEASE:=4' "${repo_root}/packaging/openwrt/${package}/Makefile"
     grep -Fq "$(printf '$(TOPDIR)/po0-assets')" "${repo_root}/packaging/openwrt/${package}/Makefile"
-    grep -Fq 'SCRIPT_VERSION="2026.09.05+build.6"' \
+    grep -Fq "SCRIPT_VERSION=\"${expected_reporter_version}\"" \
         "${repo_root}/packaging/openwrt/${package}/runtime-header.sh"
-    grep -Fq 'po0-outbound-ip-report 2026.09.05+build.6 (OpenWrt APK)' \
+    grep -Fq "po0-outbound-ip-report ${expected_reporter_version} (OpenWrt APK)" \
         "${repo_root}/packaging/openwrt/${package}/files/usr/sbin/po0-outbound-ip-report"
 done
 

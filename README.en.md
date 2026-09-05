@@ -114,7 +114,7 @@ PO0 releases are published through [GitHub Releases](https://github.com/Schweppe
 - `po0-outbound-ip-report.apk`
 - `checksums.txt`
 
-This release uses script version `2026.09.05+build.5` and tag `po0-v2026.09.05.5`; the outbound APK is `2026.09.05-r3` and the WAN probe APK remains `2026.08.30-r5`. Legacy raw executable entry points are disabled. Egern, Stash, Loon, and independent tools not included in the Release continue to use the allowed raw paths documented by their own guides.
+This release uses script version `2026.09.05+build.8` and tag `po0-v2026.09.05.8`; the outbound APK is `2026.09.05-r4` and the WAN probe APK remains `2026.08.30-r5`. Legacy raw executable entry points are disabled. Egern, Stash, Loon, and independent tools not included in the Release continue to use the allowed raw paths documented by their own guides.
 
 This repository no longer publishes GitHub Pages. Do not enable Pages from the repository root.
 
