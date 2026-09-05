@@ -209,7 +209,8 @@ jobs:
             for asset in "${required_assets[@]}"; do
               verify_asset_checksum "${asset}"
             done
-            gh release edit "${tag}" --draft=false --latest
+            latest_flag="$(node ./tools/po0/release-components.mjs latest-flag "${tag}")"
+            gh release edit "${tag}" --draft=false "--latest=${latest_flag}"
             if [[ "${release_created}" == "true" ]]; then
               echo "Published complete PO0 release: ${tag}"
             else

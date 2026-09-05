@@ -33,11 +33,12 @@
 - 三端访问设备客户端的 SSID 跳过只允许作为本地 guard：命中时本机跳过并写日志摘要，不上传 SSID，不新增 LAN Worker `/report` 或 PO0 协议字段；SSID 列表用英文分号分隔并精确匹配；读取失败必须继续正常上报；手动运行命中时询问是否强制继续；不要为 SSID 新增 `PO0_SELF_REPORT_*` 或 `SELF_REPORT_*` legacy alias。
 - macOS 访问设备客户端必须兼容系统自带 Bash 3.2；在 `set -u` 环境下不要用空 Bash 数组解析可选列表，例如 `local -a items` / `read -r -a items` / `"${items[@]}"`，SSID 列表解析应使用 Bash 3.2 安全的字符串循环，并保留对应 release gate。
 - macOS 当前 Wi-Fi SSID 读取遇到 `redacted` / `<redacted>` 时应按系统隐私权限隐藏处理，必须 fail-open 继续上报；允许提供 `--show-wifi-ssid` / `--diagnose-wifi-ssid` / `--request-location-permission` / `--delete-location-permission-helper` / `--open-location-services` 这类本地诊断、用户授权指引、Helper App CoreLocation 授权请求、本地 Helper 删除和系统设置跳转。macOS 26+ 不要依赖 Terminal/iTerm 出现在定位服务列表里；`--request-location-permission` 应使用带稳定 bundle id、定位用途声明和可选 ad-hoc 签名的 `PO0 Location Permission Helper.app` 触发授权，并由 Helper 在本机通过 CoreWLAN 读取 SSID 后返回给脚本；删除 Helper 只移除本地 app，不能修改 macOS 定位授权 / TCC 记录；不静默授予或修改定位服务 / TCC 权限，不运行 `sudo`、不运行 `tccutil`、不保存提权凭据、不写 TCC 数据库。
-- `po0-vYYYY.MM.DD.N` tag 触发 PO0 Release；任何会成为 GitHub latest 的正式 release 必须包含完整 PO0 asset 集合和 `checksums.txt`。非 PO0 发布只能用 draft / prerelease，不能抢占 latest。
-- 创建 PO0 Release tag 前，六个 Release 发布文件脚本的内部版本必须统一为 `YYYY.MM.DD+build.N`，且 `N` 必须与 `po0-vYYYY.MM.DD.N` tag 尾号一致；不要让用户看到 release tag 与脚本 `--version` 输出不一致。同步更新 `tools/po0/check-po0-assets.sh` 和 `.ps1` 中的预期脚本版本与 tag 默认值，并在打 tag 前执行这两个实际版本检查函数的针对性验证。
-- Release workflow 只由 `po0-vYYYY.MM.DD.N` tag 触发，失败后用 GitHub Actions rerun，不保留 `workflow_dispatch` 发布入口。
-- 修改 PO0 Release 发布文件或其生成 / 下载 / 自更新逻辑后，如果用户要求 `commit and push` 或明确希望可更新到新版，不要只 push `main`；必须在验证通过、提交并 push `main` 后，继续创建并 push 下一个 `po0-vYYYY.MM.DD.N` tag 触发 Release，并向用户说明 release 由 tag workflow 发布。
-- Release 必须按 draft 原子发布：不存在 release 时先创建 draft，上传六个脚本、两个 APK 和 `checksums.txt`，下载回校验通过后再 publish/latest；已存在 draft 只允许补齐缺失 asset，已有 asset checksum 不一致必须失败；已发布 release 只允许校验，缺 asset 或 checksum 不一致都必须失败并打新 tag，不能修改 live/latest release。
+- 按用户要求，PO0 可以选择分开发布：`po0-scripts-vYYYY.MM.DD.N` 只发布五个主脚本与 `checksums.txt`，不运行 APK SDK；`po0-apk-vYYYY.MM.DD.N` 只发布 `po0-outbound-ip-report.apk` 与 `checksums.txt`，始终 `latest=false`；`po0-vYYYY.MM.DD.N` 保留整包发布。组件流程显式选择上述资产，不携带旧 WAN probe。
+- 创建脚本或整包 Release tag 前，本次脚本资产的内部版本必须统一为 `YYYY.MM.DD+build.N`，日期和尾号与所选 tag 一致；同步 Bash / PowerShell checker 的预期脚本版本和规范 `po0-vYYYY.MM.DD.N` tag，并执行两个实际版本检查函数。APK 组件独立发布时不要求同步或发布桌面脚本。
+- Release workflow 由上述三种 tag 选择发布范围，失败后用 GitHub Actions rerun；不覆盖已有 tag。脚本组件 tag 的日期和尾号必须与脚本版本一致，检查时映射到同版本 `po0-v` tag；APK tag 独立编号，沿用 APK 自身包版本。
+- 用户要求脚本 `commit and push` 或希望可更新到新版时，验证并 push `main` 后默认创建 `po0-scripts-vYYYY.MM.DD.N` tag；仅 APK 变更使用 `po0-apk-vYYYY.MM.DD.N`，明确要求整包时才用 `po0-vYYYY.MM.DD.N`。发布流程或文档变更本身不要求重复发布未变的脚本。
+- 每种 Release 都按本次选定范围 draft 原子发布：完整上传相应资产及精确覆盖它们的 `checksums.txt`，回下载校验通过后再公开。已存在 draft 只允许补齐缺失 asset；已有资产 checksum 不同、或正式 release 缺资产时必须失败并用新 tag，禁止覆盖正式资产。
+- Latest 供脚本安装 / 自更新使用，只允许脚本或整包 release 更新；旧版本晚完成不能让 Latest 倒退。APK 使用独立 tag 的版本化下载地址，不使用 `releases/latest/download/*.apk`。
 - 旧 manager、LAN Worker 和 self-report raw URL 已禁用，不再作为兼容入口；不要重新新增这些 raw 可执行脚本路径。Egern 标准 raw 路径是 `scripts/po0/nftables/clients/egern/`；`scripts/po0/relay/egern/` 只作为历史兼容路径暂时保留，不能作为新安装推荐入口。
 - Egern YAML/JS、Loon LPX/JS、Stash 客户端脚本、离线 iplist 构建器、外部 ipdb/iplist 数据源和未纳入本阶段的通用 VPS 脚本 raw 下载源是白名单；PO0 六个可执行脚本的新安装、自更新和 manager mirror 上游应使用 Release 发布文件。raw URL 检查应使用精确路径白名单，不能用 `reinstall` 等宽泛子串放行。
 - Linux/OpenWrt、macOS、Windows 三端访问设备客户端自更新后，应先检测 cron / launchd / Windows 计划任务是否已指向标准脚本路径；只有入口漂移、缺失或迁移旧任务时才刷新，不要每次自更新都无条件重写定时入口。

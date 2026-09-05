@@ -1,0 +1,90 @@
+name: Release PO0 scripts or APK
+
+on:
+  push:
+    tags:
+      - "po0-scripts-v[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9].[0-9]*"
+      - "po0-apk-v[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9].[0-9]*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: po0-release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Select release component
+        id: plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          node tools/po0/release-components.mjs plan "$GITHUB_REF_NAME" > .po0-release-plan.json
+          jq -r 'to_entries[] | select(.value | type == "string") | "\(.key)=\(.value)"' .po0-release-plan.json >> "$GITHUB_OUTPUT"
+
+      - name: Build and check scripts
+        if: steps.plan.outputs.component == 'scripts'
+        shell: bash
+        env:
+          GITHUB_REF_NAME: ${{ steps.plan.outputs.canonical_tag }}
+          GITHUB_REF: refs/tags/${{ steps.plan.outputs.canonical_tag }}
+          GITHUB_REF_TYPE: tag
+        run: bash tools/po0/check-po0-assets.sh .tmp/po0-component-scripts
+
+      - name: Prepare script release
+        if: steps.plan.outputs.component == 'scripts'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .tmp/po0-component-publish
+          for asset in nftables-relay-manager.sh po0-lan-client.sh po0-outbound-ip-report.sh po0-outbound-ip-report-macos.sh po0-outbound-ip-report.ps1; do
+            cp ".tmp/po0-component-scripts/$asset" .tmp/po0-component-publish/
+          done
+          node tools/po0/release-components.mjs prepare scripts .tmp/po0-component-publish
+
+      - name: Build APK inputs
+        if: steps.plan.outputs.component == 'apk'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tools/po0/build-po0-assets.sh .tmp/po0-component-scripts
+          bash tools/po0/test-openwrt-apk-layout.sh
+          bash tools/po0/test-openwrt-service.sh
+          bash tools/po0/test-openwrt-luci-official-ui.sh
+
+      - name: Build APK with ImmortalWrt SDK
+        if: steps.plan.outputs.component == 'apk'
+        shell: bash
+        env:
+          SDK_URL: https://downloads.immortalwrt.org/releases/25.12.1/targets/x86/64/immortalwrt-sdk-25.12.1-x86-64_gcc-14.3.0_musl.Linux-x86_64.tar.zst
+          SDK_SHA256: 02ad8cfc775001ccae8e9282d19696de54e3ab3963f005737ad61f8698263edd
+        run: |
+          set -euo pipefail
+          sdk_archive=".tmp/po0-component-sdk.tar.zst"
+          sdk_parent=".tmp/po0-component-sdk"
+          mkdir -p "$sdk_parent"
+          curl -fL --retry 3 --connect-timeout 20 "$SDK_URL" -o "$sdk_archive"
+          printf '%s  %s\n' "$SDK_SHA256" "$sdk_archive" | sha256sum -c -
+          tar --zstd -xf "$sdk_archive" -C "$sdk_parent" --strip-components=1
+          (
+            cd "$sdk_parent"
+            ./scripts/feeds update -a
+            ./scripts/feeds install -a
+          )
+          bash tools/po0/build-po0-apks.sh "$sdk_parent" .tmp/po0-component-scripts .tmp/po0-component-built-apks
+          mkdir -p .tmp/po0-component-publish
+          cp .tmp/po0-component-built-apks/po0-outbound-ip-report.apk .tmp/po0-component-publish/
+          node tools/po0/release-components.mjs prepare apk .tmp/po0-component-publish
+
+      - name: Publish selected component
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node tools/po0/release-components.mjs publish "$GITHUB_REF_NAME" .tmp/po0-component-publish

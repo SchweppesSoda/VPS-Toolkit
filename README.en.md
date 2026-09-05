@@ -102,7 +102,7 @@ The official firewall is an optional, disabled-by-default second lane: GET the c
 
 ## Releases and Downloads
 
-PO0 releases are published through [GitHub Releases](https://github.com/SchweppesSoda/VPS-Toolkit/releases); the complete asset set is fixed:
+PO0 releases are published through [GitHub Releases](https://github.com/SchweppesSoda/VPS-Toolkit/releases); full releases contain the following assets; scripts and APKs can also be published separately:
 
 - `nftables-relay-manager.sh`
 - `po0-lan-client.sh`
@@ -114,7 +114,7 @@ PO0 releases are published through [GitHub Releases](https://github.com/Schweppe
 - `po0-outbound-ip-report.apk`
 - `checksums.txt`
 
-This release uses script version `2026.09.05+build.8` and tag `po0-v2026.09.05.8`; the outbound APK is `2026.09.05-r4` and the WAN probe APK remains `2026.08.30-r5`. Legacy raw executable entry points are disabled. Egern, Stash, Loon, and independent tools not included in the Release continue to use the allowed raw paths documented by their own guides.
+Scripts and APKs can be released separately; see the [release scope guide](scripts/po0/relay/README.md#选择发布范围). Scripts use Latest, while APK downloads use their own versioned release URLs. Legacy raw executable entry points are disabled. Egern, Stash, Loon, and independent tools not included in the Release continue to use the allowed raw paths documented by their own guides.
 
 This repository no longer publishes GitHub Pages. Do not enable Pages from the repository root.
 

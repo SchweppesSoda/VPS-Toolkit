@@ -33,7 +33,7 @@
 
 ## 发布渠道
 
-PO0 nftables 六个可执行脚本和两个 OpenWrt APK 的正式发布资产统一放在 GitHub Release：
+PO0 的正式发布渠道是 GitHub Release。可按下面的“选择发布范围”单独发布脚本、APK 或整包；整包资产清单如下：
 
 - `https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/nftables-relay-manager.sh`
 - `https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-lan-client.sh`
@@ -48,6 +48,21 @@ PO0 nftables 六个可执行脚本和两个 OpenWrt APK 的正式发布资产统
 旧 manager、LAN Worker 和 self-report raw URL 已禁用，不再作为兼容入口。Egern 标准 raw 路径、Stash/Loon 客户端资产、Egern 历史兼容路径、离线 iplist 构建器、外部 ipdb/iplist 数据源和未纳入本阶段的通用 VPS 工具 raw URL 仍是白名单。
 
 如需测试或回滚下载源，可临时设置 `PO0_MANAGER_DOWNLOAD_URL`、`PO0_LAN_CLIENT_DOWNLOAD_URL`、`PO0_OUTBOUND_IP_REPORT_DOWNLOAD_URL`、`PO0_OUTBOUND_IP_REPORT_MACOS_DOWNLOAD_URL`、`PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL`；旧 `PO0_SELF_REPORT_*` 下载源变量仍作为 legacy alias 接受。这些覆盖值不会写入配置文件。
+
+
+### 选择发布范围
+
+| 发布内容 | 标签格式 | 下载方式 |
+| --- | --- | --- |
+| 五个主脚本 | `po0-scripts-vYYYY.MM.DD.N` | 更新 GitHub Latest，现有脚本安装和自更新地址继续有效 |
+| OpenWrt 上报器 APK | `po0-apk-vYYYY.MM.DD.N` | 独立 Release，不改变脚本 Latest |
+| 整包 | `po0-vYYYY.MM.DD.N` | 原整包流程；全部构建通过后发布 |
+
+仅修改脚本时选择脚本标签，流程不启动 APK SDK。脚本 tag 的日期和尾号须对应 `YYYY.MM.DD+build.N`；APK tag 与 APK 包版本分别维护。推送选定标签后自动发布，失败可重新运行对应 GitHub Actions 任务，不覆盖已有标签。
+
+APK 下载使用具体版本，例如 `https://github.com/SchweppesSoda/VPS-Toolkit/releases/download/po0-apk-vYYYY.MM.DD.N/po0-outbound-ip-report.apk`，不要通过脚本 Latest 下载 APK。各 Release 的 `checksums.txt` 只覆盖该次发布资产；资产全部回下载校验通过后才公开，正式资产不被覆盖。较早的整包任务晚完成也不会让 Latest 倒退。
+
+Egern、Stash、Loon 继续使用各自文档中的 raw 地址，推送 `main` 后即可更新。
 
 ## 部署命令
 
@@ -97,7 +112,7 @@ po0-lan-client --probe
 po0-lan-client --version
 ```
 
-PO0 nftables 子系统内带 `SCRIPT_VERSION`、`--version` / `--changelog` 或自更新提示的六个可独立部署脚本（PO0 manager、LAN Worker、WAN probe、三端 PO0 Outbound IP Report）统一使用 `YYYY.MM.DD+build.N` 混合版本格式。本轮脚本版本为 `2026.09.05+build.8`。两个 OpenWrt APK 另有各自的包版本：本轮 outbound 为 `2026.09.05-r4`，WAN probe 继续为 `2026.08.30-r5`。正式 PO0 Release 发布文件的脚本内部版本必须与 release tag 尾号一致：`po0-vYYYY.MM.DD.N` 对应 `YYYY.MM.DD+build.N`，例如 `po0-v2026.07.01.7` 对应 `2026.07.01+build.7`。完整历史写在 [`CHANGELOG.md`](CHANGELOG.md)。
+PO0 nftables 子系统内带 `SCRIPT_VERSION`、`--version` / `--changelog` 或自更新提示的六个可独立部署脚本（PO0 manager、LAN Worker、WAN probe、三端 PO0 Outbound IP Report）统一使用 `YYYY.MM.DD+build.N` 混合版本格式。最新可下载脚本版本以 GitHub Latest 为准。两个 OpenWrt APK 另有各自的包版本：本轮 outbound 为 `2026.09.05-r4`，WAN probe 继续为 `2026.08.30-r5`。正式 PO0 Release 发布文件的脚本内部版本必须与 release tag 尾号一致：`po0-vYYYY.MM.DD.N` 对应 `YYYY.MM.DD+build.N`，例如 `po0-v2026.07.01.7` 对应 `2026.07.01+build.7`。完整历史写在 [`CHANGELOG.md`](CHANGELOG.md)。
 
 更新 LAN Worker 上已安装的 client：
 

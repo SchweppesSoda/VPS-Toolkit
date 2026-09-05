@@ -102,7 +102,7 @@ PO0 正式发布由六个独立脚本组成：manager 负责 PO0 nftables 与受
 
 ## 发布与下载
 
-PO0 正式版本通过 [GitHub Releases](https://github.com/SchweppesSoda/VPS-Toolkit/releases) 发布；完整资产固定为：
+PO0 正式版本通过 [GitHub Releases](https://github.com/SchweppesSoda/VPS-Toolkit/releases) 发布；整包发布当前包含以下资产；脚本和 APK 也可按下方说明分开发布：
 
 - `nftables-relay-manager.sh`
 - `po0-lan-client.sh`
@@ -114,7 +114,7 @@ PO0 正式版本通过 [GitHub Releases](https://github.com/SchweppesSoda/VPS-To
 - `po0-outbound-ip-report.apk`
 - `checksums.txt`
 
-本轮脚本版本为 `2026.09.05+build.8`，tag 为 `po0-v2026.09.05.8`；outbound APK 为 `2026.09.05-r4`，WAN probe APK 继续为 `2026.08.30-r5`。旧版 raw 可执行入口已禁用；Egern、Stash、Loon 和未纳入 Release 的独立工具仍按各自文档使用允许的 raw 路径。
+脚本与 APK 可独立发布，详见[发布范围说明](scripts/po0/relay/README.md#选择发布范围)。脚本使用 Latest；APK 使用各自 Release 的固定版本地址。旧版 raw 可执行入口已禁用；Egern、Stash、Loon 和未纳入 Release 的独立工具仍按各自文档使用允许的 raw 路径。
 
 本仓库不再发布 GitHub Pages，也不应从仓库根目录启用 Pages。
 
