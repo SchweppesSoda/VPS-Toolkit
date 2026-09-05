@@ -4,9 +4,10 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_OUTBOUND_IP_REPORT_DOWNLOAD_URL:-${PO0_SELF_REPORT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report.sh}}"
 SCRIPT_NAME="po0-outbound-ip-report"
-SCRIPT_VERSION="2026.09.05+build.6"
+SCRIPT_VERSION="2026.09.05+build.7"
 SCRIPT_RELEASE_DATE="2026-09-05"
 # CHANGELOG_BEGIN
+# - 对齐发布版本校验；功能包含本轮直连 WAN 探测、独立上报通道和本机槽位配置修复。
 # - 旁路网关使用专用源地址直连探测真实 WAN IP，域名由主路由 DNS 解析；LAN Worker 提交遵循本机网络规则。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46

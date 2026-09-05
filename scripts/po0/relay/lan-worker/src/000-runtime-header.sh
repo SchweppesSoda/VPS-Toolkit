@@ -5,9 +5,10 @@ PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.c
 DOWNLOAD_URL="${PO0_LAN_CLIENT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-lan-client.sh}"
 MANAGER_DOWNLOAD_URL="${PO0_MANAGER_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/nftables-relay-manager.sh}"
 SCRIPT_NAME="po0-lan-worker-client"
-SCRIPT_VERSION="2026.09.05+build.6"
+SCRIPT_VERSION="2026.09.05+build.7"
 SCRIPT_RELEASE_DATE="2026-09-05"
 # CHANGELOG_BEGIN
+# - 对齐发布版本校验；功能包含本轮直连 WAN 探测、独立上报通道和本机槽位配置修复。
 # - 对齐本轮双通道界面与本机槽位配置发布版本；本脚本行为未变。
 # CHANGELOG_END
 DEFAULT_PO0_SCRIPT="/root/nftables-relay-manager.sh"
