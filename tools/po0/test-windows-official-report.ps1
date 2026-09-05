@@ -5,6 +5,7 @@ Set-StrictMode -Version 2.0
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $sourceRoot = "scripts/po0/relay/self-report/windows/src"
+$runningOnWindows = ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT)
 $partNames = @(
     "000-runtime-parameters.ps1"
     "010-platform-paths-logging-notification.ps1"
@@ -506,11 +507,13 @@ try {
     Assert-True (Test-Path -LiteralPath $configPath) "Config must be written."
     $configText = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8
     Assert-True ($configText.Contains($tokenA)) "Configured token must be persisted in config."
-    $configAcl = Get-Acl -LiteralPath $configPath
-    Assert-True ([bool]$configAcl.AreAccessRulesProtected) "Token-bearing config ACL must disable inheritance."
-    $configRules = @($configAcl.Access | ForEach-Object { [string]$_.IdentityReference.Value })
-    Assert-True (@($configRules | Where-Object { $_ -match "S-1-5-18" -or $_ -match "SYSTEM" }).Count -gt 0) "Config ACL must retain SYSTEM."
-    Assert-True (@($configRules | Where-Object { $_ -match "S-1-5-32-544" -or $_ -match "Administrators" }).Count -gt 0) "Config ACL must retain Administrators."
+    if ($runningOnWindows) {
+        $configAcl = Get-Acl -LiteralPath $configPath
+        Assert-True ([bool]$configAcl.AreAccessRulesProtected) "Token-bearing config ACL must disable inheritance."
+        $configRules = @($configAcl.Access | ForEach-Object { [string]$_.IdentityReference.Value })
+        Assert-True (@($configRules | Where-Object { $_ -match "S-1-5-18" -or $_ -match "SYSTEM" }).Count -gt 0) "Config ACL must retain SYSTEM."
+        Assert-True (@($configRules | Where-Object { $_ -match "S-1-5-32-544" -or $_ -match "Administrators" }).Count -gt 0) "Config ACL must retain Administrators."
+    }
 
     Assert-False ((Test-Path -LiteralPath $logPath) -and (Get-Content -LiteralPath $logPath -Raw -ErrorAction SilentlyContinue).Contains($tokenA)) "Token must not enter log."
 

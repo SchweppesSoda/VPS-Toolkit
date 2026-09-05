@@ -5,11 +5,10 @@ PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.c
 DOWNLOAD_URL="${PO0_LAN_CLIENT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-lan-client.sh}"
 MANAGER_DOWNLOAD_URL="${PO0_MANAGER_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/nftables-relay-manager.sh}"
 SCRIPT_NAME="po0-lan-worker-client"
-SCRIPT_VERSION="2026.09.05+build.1"
+SCRIPT_VERSION="2026.09.05+build.2"
 SCRIPT_RELEASE_DATE="2026-09-05"
 # CHANGELOG_BEGIN
-# - 新增默认关闭的 PO0 官方防火墙双通道；每个官方账号最多 5 个槽位，按 GET-first 决定是否 POST。
-# - 官方 token 仅保存到权限 600 的配置文件，官方检查固定 600 秒并与 DDNS、资源任务和 Self-report 独立。
+# - CI 跨平台兼容性修复；本脚本功能沿用 2026.09.05+build.1。
 # CHANGELOG_END
 DEFAULT_PO0_SCRIPT="/root/nftables-relay-manager.sh"
 PO0_HOST="${PO0_HOST:-}"

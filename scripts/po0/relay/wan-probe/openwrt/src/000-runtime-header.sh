@@ -2,10 +2,10 @@
 set -u
 
 SCRIPT_NAME="po0-wan-probe"
-SCRIPT_VERSION="2026.09.05+build.1"
+SCRIPT_VERSION="2026.09.05+build.2"
 SCRIPT_RELEASE_DATE="2026-09-05"
 # CHANGELOG_BEGIN
-# - 跟随 PO0 发布批次对齐到 2026.09.05+build.1；WAN 探针行为未变。
+# - CI 跨平台兼容性修复；本脚本功能沿用 2026.09.05+build.1。
 # CHANGELOG_END
 CONFIG_NAME="po0_wan_probe"
 CONFIG_SECTION="main"

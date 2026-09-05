@@ -4,11 +4,10 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_OUTBOUND_IP_REPORT_MACOS_DOWNLOAD_URL:-${PO0_SELF_REPORT_MACOS_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report-macos.sh}}"
 SCRIPT_NAME="po0-outbound-ip-report"
-SCRIPT_VERSION="2026.09.05+build.1"
+SCRIPT_VERSION="2026.09.05+build.2"
 SCRIPT_RELEASE_DATE="2026-09-05"
 # CHANGELOG_BEGIN
-# - 增加默认关闭的 PO0 官方防火墙双通道；每个官方账号最多 5 个槽位，按 GET-first 决定是否 POST。
-# - 官方 token 仅通过权限 600 的配置文件或交互菜单管理，官方检查固定 600 秒并与普通上报独立。
+# - CI 跨平台兼容性修复；本脚本功能沿用 2026.09.05+build.1。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24
