@@ -12,6 +12,15 @@ const scriptRawUrl = "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolki
 const source = fs.readFileSync(scriptPath, "utf8");
 const STORE_KEY = "proxyconfig.po0.loon-report.v1";
 const RUN_LOCK_KEY = `${STORE_KEY}.run-lock`;
+const FIREWALL_KEY = "PO0_FIREWALL_TOKENS";
+
+function officialOnlyArgument(mode) {
+  return JSON.stringify({ mode, worker_url: "", token: "" });
+}
+
+function officialBody(whitelist, currentIp = "8.8.8.8/24") {
+  return { enabled: true, currentIp, limit: 5, whitelist };
+}
 
 function futureWorkerResponse(now = Date.now()) {
   return {
@@ -26,11 +35,15 @@ function futureWorkerResponse(now = Date.now()) {
 
 function execute(options = {}) {
   return new Promise((resolve, reject) => {
-    const store = new Map(Object.entries(options.store || {}));
+    const store = options.store instanceof Map
+      ? options.store
+      : new Map(Object.entries(options.store || {}));
     const requests = [];
     const notifications = [];
     const writes = [];
     const logs = [];
+    const officialGets = (options.officialGets || []).slice();
+    const officialPosts = (options.officialPosts || []).slice();
     let configCalls = 0;
     let doneCalls = 0;
     let postCallbackFinished = false;
@@ -39,18 +52,40 @@ function execute(options = {}) {
     const httpClient = {
       get: (request, callback) => {
         requests.push({ method: "get", request });
-        const reply = () => callback(null, { status: 200 }, JSON.stringify({ ip: "8.8.8.8" }));
-        if (options.asyncHttp) setTimeout(reply, 5);
+        const isOfficial = String(request.url || "").includes("/api/firewall/");
+        const spec = isOfficial
+          ? (officialGets.shift() || { status: 200, body: options.officialResponse })
+          : null;
+        const delayMs = isOfficial ? Math.max(0, Number(spec && spec.delayMs) || 0) : 0;
+        const reply = () => {
+          if (isOfficial) {
+            if (spec.error) return callback(spec.error);
+            const body = spec.body === undefined ? { enabled: true, currentIp: "8.8.8.8/24", limit: 5, whitelist: [] } : spec.body;
+            return callback(null, { status: spec.status || 200 }, typeof body === "string" ? body : JSON.stringify(body));
+          }
+          return callback(null, { status: 200 }, JSON.stringify({ ip: "8.8.8.8" }));
+        };
+        if (options.asyncHttp || delayMs > 0) setTimeout(reply, delayMs + (options.asyncHttp ? 5 : 0));
         else reply();
       },
       post: (request, callback) => {
         requests.push({ method: "post", request });
+        const isOfficial = String(request.url || "").includes("/api/firewall/");
+        const spec = isOfficial
+          ? (officialPosts.shift() || { status: 200, body: options.officialResponse })
+          : null;
+        const delayMs = isOfficial ? Math.max(0, Number(spec && spec.delayMs) || 0) : 0;
         const reply = () => {
           postCallbackFinished = true;
           if (options.postError) callback(options.postError);
+          else if (isOfficial) {
+            if (spec.error) return callback(spec.error);
+            const body = spec.body === undefined ? { enabled: true, currentIp: "8.8.8.8/24", limit: 5, whitelist: [{ ip: "8.8.8.8/24", slot: null }] } : spec.body;
+            return callback(null, { status: spec.status || 200 }, typeof body === "string" ? body : JSON.stringify(body));
+          }
           else callback(null, { status: 200 }, JSON.stringify(options.workerResponse || futureWorkerResponse()));
         };
-        if (options.asyncHttp) setTimeout(reply, 5);
+        if (options.asyncHttp || delayMs > 0) setTimeout(reply, delayMs + (options.asyncHttp ? 5 : 0));
         else reply();
       },
     };
@@ -102,6 +137,7 @@ function execute(options = {}) {
           reject(new Error("$done called more than once"));
           return;
         }
+        if (typeof options.onDone === "function") options.onDone(store);
         clearTimeout(timeout);
         resolve({ store, requests, notifications, writes, logs, configCalls, doneCalls, postCallbackFinished });
       },
@@ -159,10 +195,14 @@ async function testHomeAndUnknownFailClosed() {
     assert.strictEqual(result.requests.length, 0, `${JSON.stringify(ssid)} must perform no HTTP`);
   }
 
-  const forced = await execute({ ssid: "ZTE-47kTee", mode: "force" });
-  assert.strictEqual(forced.requests.length, 0, "force must not bypass the home guard");
+  const forced = await execute({
+    ssid: "ZTE-47kTee",
+    mode: "force",
+    argument: JSON.stringify({ mode: "force", worker_url: "", token: "" }),
+  });
+  assert.strictEqual(forced.requests.length, 0, "force without configured routes should remain network-free");
   assert.strictEqual(forced.notifications.length, 1);
-  assert.match(forced.notifications[0].content, /家庭 Wi-Fi/);
+  assert.match(forced.notifications[0].content, /没有启用/);
 }
 
 async function testStatusIsReadOnly() {
@@ -200,6 +240,92 @@ async function testTTLAndDebounceAvoidNetwork() {
   assert.strictEqual(debounceResult.requests.length, 0, "debounce must avoid all HTTP");
 }
 
+async function testSharedRunLockAcrossModesAndContexts() {
+  const token = "pgnfw_loon_shared_lock";
+  const statusStore = new Map([[FIREWALL_KEY, token]]);
+  const statusPromise = execute({
+    argument: officialOnlyArgument("status"),
+    store: statusStore,
+    officialGets: [{ body: officialBody([]) }],
+    asyncHttp: true,
+  });
+  await Promise.resolve();
+  const runningForce = await execute({
+    argument: officialOnlyArgument("force"),
+    store: statusStore,
+    officialGets: [{ body: officialBody([]) }],
+  });
+  assert.deepStrictEqual(runningForce.requests, [], "status lock must block force while running");
+  await statusPromise;
+  await Promise.resolve();
+  const statusLock = JSON.parse(statusStore.get(RUN_LOCK_KEY) || "{}");
+  assert.deepStrictEqual(statusLock, {}, "completed status must release its owner lock");
+
+  const forceAfterStatus = await execute({
+    argument: officialOnlyArgument("force"),
+    store: statusStore,
+    officialGets: [{ body: officialBody([{ ip: "8.8.8.8/24", slot: null }]) }],
+  });
+  assert.deepStrictEqual(forceAfterStatus.requests.map((entry) => entry.method), ["get"], "force may run immediately after status completion");
+
+  const autoStore = new Map([[FIREWALL_KEY, token]]);
+  const autoPromise = execute({
+    argument: officialOnlyArgument("auto"),
+    store: autoStore,
+    officialGets: [{ body: officialBody([]) }],
+    officialPosts: [{ body: officialBody([{ ip: "8.8.8.8/24", slot: null }]) }],
+    asyncHttp: true,
+  });
+  await Promise.resolve();
+  const runningStatus = await execute({
+    argument: officialOnlyArgument("status"),
+    store: autoStore,
+    officialGets: [{ body: officialBody([]) }],
+  });
+  assert.deepStrictEqual(runningStatus.requests, [], "auto lock must block status while running");
+  await autoPromise;
+  await Promise.resolve();
+
+  const statusAfterAuto = await execute({
+    argument: officialOnlyArgument("status"),
+    store: autoStore,
+    officialGets: [{ body: officialBody([{ ip: "8.8.8.8/24", slot: null }]) }],
+  });
+  assert.deepStrictEqual(statusAfterAuto.requests.map((entry) => entry.method), ["get"], "status may run immediately after auto completion");
+
+  const raceStore = new Map([[FIREWALL_KEY, token]]);
+  await execute({
+    argument: officialOnlyArgument("status"),
+    store: raceStore,
+    officialGets: [{ body: officialBody([]) }],
+    onDone(store) {
+      store.set(RUN_LOCK_KEY, JSON.stringify({
+        version: 1,
+        owner: "replacement-owner",
+        at: Date.now(),
+        expires_at: Date.now() + 120_000,
+        context: "replacement",
+        mode: "force",
+      }));
+    },
+  });
+  const replacement = JSON.parse(raceStore.get(RUN_LOCK_KEY));
+  assert.strictEqual(replacement.owner, "replacement-owner", "old owner must not release a replacement lock");
+  const blockedByReplacement = await execute({
+    argument: officialOnlyArgument("force"),
+    store: raceStore,
+    officialGets: [{ body: officialBody([]) }],
+  });
+  assert.deepStrictEqual(blockedByReplacement.requests, [], "replacement owner lock must remain active");
+
+  /*
+   * The assertions above deliberately use a shared persistent map.  A
+   * completed run releases only its owner, while a concurrent run sees the
+   * same lock regardless of mode or network context.
+   */
+  return;
+}
+
 async function testErrorsAreRedacted() {
   const result = await execute({
     mode: "force",
@@ -215,7 +341,148 @@ async function testErrorsAreRedacted() {
 async function testLocalSideEffectFailuresStillFinish() {
   const result = await execute({ mode: "force", writeError: true, notificationError: true });
   assert.strictEqual(result.doneCalls, 1);
-  assert.strictEqual(result.postCallbackFinished, true);
+  assert.strictEqual(result.postCallbackFinished, false, "failed lock persistence must fail closed before network");
+}
+
+async function testOfficialGetFirstAndFixedSlot() {
+  const token = "pgnfw_loon_fixture";
+  const result = await execute({
+    argument: officialOnlyArgument("force"),
+    store: { [FIREWALL_KEY]: token + "@2" },
+    officialGets: [{ body: officialBody([{ ip: "1.1.1.1/24", slot: 0 }]) }],
+    officialPosts: [{ body: officialBody([{ ip: "8.8.8.8/24", slot: 2 }]) }],
+  });
+  assert.deepStrictEqual(result.requests.map((entry) => entry.method), ["get", "post"]);
+  assert.ok(result.requests[0].request.url.endsWith("/" + token));
+  assert.strictEqual(result.requests[0].request.node, "DIRECT");
+  assert.ok(result.requests[1].request.url.endsWith("/add?slot=2"));
+  assert.strictEqual(result.requests[1].request.node, "DIRECT");
+  const state = JSON.parse(result.store.get(STORE_KEY));
+  assert.strictEqual(state.official.accounts[0].current, "8.8.8.8/24");
+  assert.strictEqual(state.official.accounts[0].fixed_slot, 2);
+  assert.strictEqual(state.official.accounts[0].used, 1);
+  assert.ok(!JSON.stringify(state).includes(token));
+  assert.ok(!result.logs.join("\n").includes(token));
+  assert.ok(!result.notifications.map((item) => item.content).join("\n").includes(token));
+}
+
+async function testOfficialHitAndGetFailureNeverPost() {
+  const token = "pgnfw_loon_readonly";
+  const hit = await execute({
+    argument: officialOnlyArgument("force"),
+    store: { [FIREWALL_KEY]: token + "@2" },
+    officialGets: [{ body: officialBody([{ ip: "8.8.8.8/24", slot: 2 }]) }],
+  });
+  assert.deepStrictEqual(hit.requests.map((entry) => entry.method), ["get"]);
+  assert.strictEqual(hit.notifications.length, 1);
+
+  const failed = await execute({
+    argument: officialOnlyArgument("force"),
+    store: { [FIREWALL_KEY]: token },
+    officialGets: [{ status: 503, body: "upstream unavailable" }],
+  });
+  assert.deepStrictEqual(failed.requests.map((entry) => entry.method), ["get"]);
+  assert.ok(!failed.requests.some((entry) => entry.method === "post"));
+  assert.ok(!failed.logs.join("\n").includes(token));
+  assert.ok(!failed.notifications.map((item) => item.content).join("\n").includes(token));
+}
+
+async function testOfficialStatusMissingIsReadable() {
+  const token = "pgnfw_loon_status";
+  const result = await execute({
+    mode: "status",
+    argument: officialOnlyArgument("status"),
+    store: { [FIREWALL_KEY]: token },
+    officialGets: [{ body: officialBody([{ ip: "1.1.1.1/24", slot: null }]) }],
+    forbidConfig: true,
+  });
+  assert.strictEqual(result.configCalls, 0);
+  assert.deepStrictEqual(result.requests.map((entry) => entry.method), ["get"]);
+  assert.strictEqual(result.notifications.length, 1);
+  assert.strictEqual(result.notifications[0].subtitle, "可用");
+  const state = JSON.parse(result.store.get(STORE_KEY));
+  assert.strictEqual(state.official.accounts[0].status, "missing");
+  assert.strictEqual(state.official.accounts[0].current, "8.8.8.8/24");
+}
+
+async function testOfficialRunsBeforeCachedWorker() {
+  const now = Math.floor(Date.now() / 1000);
+  const token = "pgnfw_loon_due";
+  const cached = JSON.stringify({
+    context: "wifi:Cafe-WiFi",
+    ip: "8.8.8.8",
+    network: "wifi",
+    accepted_at: now - 30,
+    expires_at: now + 7200,
+    next_refresh_at: now + 1200,
+    official: { last_attempt_at: now - 601 },
+  });
+  const result = await execute({
+    store: { [STORE_KEY]: cached, [FIREWALL_KEY]: token },
+    officialGets: [{ body: officialBody([{ ip: "8.8.8.8/24", slot: null }]) }],
+  });
+  assert.deepStrictEqual(result.requests.map((entry) => entry.method), ["get"]);
+  assert.ok(result.requests[0].request.url.includes("/api/firewall/"));
+}
+
+async function testOfficialDuplicateSlotsFailClosed() {
+  const token = "pgnfw_loon_bad_slots";
+  const result = await execute({
+    argument: officialOnlyArgument("force"),
+    store: { [FIREWALL_KEY]: token },
+    officialGets: [{ body: officialBody([{ ip: "1.1.1.1/24", slot: 0 }, { ip: "2.2.2.2/24", slot: 0 }]) }],
+  });
+  assert.deepStrictEqual(result.requests.map((entry) => entry.method), ["get"]);
+  assert.ok(!result.requests.some((entry) => entry.method === "post"));
+  const state = JSON.parse(result.store.get(STORE_KEY));
+  assert.strictEqual(state.official.accounts[0].status, "error");
+  assert.ok(!JSON.stringify(state).includes(token));
+}
+
+async function testSameTokenDifferentSlotsFailClosed() {
+  const token = "pgnfw_loon_same_account";
+  const result = await execute({
+    argument: officialOnlyArgument("force"),
+    store: { [FIREWALL_KEY]: token + "@0," + token + "@1" },
+  });
+  assert.deepStrictEqual(result.requests, [], "the same official account must not run concurrently through different slots");
+  assert.ok(!result.logs.join("\n").includes(token));
+  assert.ok(!result.notifications.map((item) => item.content).join("\n").includes(token));
+}
+
+async function testPersistentLockWriteFailureFailsClosed() {
+  const token = "pgnfw_loon_lock_store_failure";
+  const result = await execute({
+    argument: officialOnlyArgument("force"),
+    store: { [FIREWALL_KEY]: token },
+    writeError: true,
+    officialGets: [{ body: officialBody([]) }],
+    officialPosts: [{ body: officialBody([{ ip: "8.8.8.8/24", slot: null }]) }],
+  });
+  assert.deepStrictEqual(result.requests, [], "a failed lock write must block all network reports");
+}
+
+async function testParallelOfficialAccountsPreserveLaneOrder() {
+  const first = "pgnfw_loon_parallel_one";
+  const second = "pgnfw_loon_parallel_two";
+  const result = await execute({
+    store: { [FIREWALL_KEY]: first + "," + second },
+    officialGets: [
+      { delayMs: 35, body: officialBody([]) },
+      { delayMs: 0, body: officialBody([]) },
+    ],
+    officialPosts: [
+      { delayMs: 15, body: officialBody([{ ip: "8.8.8.8/24", slot: null }]) },
+      { delayMs: 15, body: officialBody([{ ip: "8.8.8.8/24", slot: null }]) },
+    ],
+  });
+  const officialRequests = result.requests.filter((entry) => String(entry.request.url || "").includes("/api/firewall/"));
+  assert.deepStrictEqual(officialRequests.slice(0, 2).map((entry) => entry.method), ["get", "get"]);
+  assert.deepStrictEqual(officialRequests.map((entry) => entry.method), ["get", "get", "post", "post"]);
+  const workerIndex = result.requests.findIndex((entry) => entry.request.url === "https://api.ipify.org?format=json");
+  assert.ok(workerIndex >= 4, "Worker must start only after every official account finishes");
+  assert.strictEqual(JSON.parse(result.store.get(STORE_KEY)).official.accounts[0].account, 1);
+  assert.strictEqual(JSON.parse(result.store.get(STORE_KEY)).official.accounts[1].account, 2);
 }
 
 function testPluginContract() {
@@ -227,8 +494,12 @@ function testPluginContract() {
   assert.strictEqual(declarations.filter((line) => /^network-changed\b/.test(line) && /argument="auto"/.test(line)).length, 1);
   assert.strictEqual(declarations.filter((line) => /^generic\b/.test(line) && /argument="status"/.test(line)).length, 1);
   assert.strictEqual(declarations.filter((line) => /^generic\b/.test(line) && /argument="force"/.test(line)).length, 1);
+  assert.strictEqual(declarations.filter((line) => /timeout=300/.test(line)).length, 4);
   assert.match(plugin, /#!input\s*=\s*po0_worker_url/);
   assert.match(plugin, /#!input\s*=\s*po0_worker_token/);
+  assert.match(plugin, /#!input\s*=\s*PO0_FIREWALL_TOKENS/);
+  assert.match(plugin, /cron "\*\/10 \* \* \* \*"/);
+  assert.match(plugin, /official|官方防火墙/i);
   assert.ok(declarations.every((line) => line.includes(`script-path=${scriptRawUrl}`)));
 }
 
@@ -238,8 +509,17 @@ function testPluginContract() {
   await testHomeAndUnknownFailClosed();
   await testStatusIsReadOnly();
   await testTTLAndDebounceAvoidNetwork();
+  await testSharedRunLockAcrossModesAndContexts();
   await testErrorsAreRedacted();
   await testLocalSideEffectFailuresStillFinish();
+  await testOfficialGetFirstAndFixedSlot();
+  await testOfficialHitAndGetFailureNeverPost();
+  await testOfficialStatusMissingIsReadable();
+  await testOfficialRunsBeforeCachedWorker();
+  await testOfficialDuplicateSlotsFailClosed();
+  await testSameTokenDifferentSlotsFailClosed();
+  await testPersistentLockWriteFailureFailsClosed();
+  await testParallelOfficialAccountsPreserveLaneOrder();
   testPluginContract();
   console.log("po0-loon-report tests: OK");
 })().catch((error) => {

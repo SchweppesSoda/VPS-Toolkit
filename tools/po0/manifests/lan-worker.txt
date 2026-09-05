@@ -4,6 +4,7 @@ scripts/po0/relay/lan-worker/src/020-version-usage-config-paths.sh
 scripts/po0/relay/lan-worker/src/030-shell-settings-state.sh
 scripts/po0/relay/lan-worker/src/040-installed-settings-shell-ip-utils.sh
 scripts/po0/relay/lan-worker/src/050-state-files-prompt-input.sh
+scripts/po0/relay/lan-worker/src/055-official-firewall.sh
 scripts/po0/relay/lan-worker/src/060-ssh-key-input.sh
 scripts/po0/relay/lan-worker/src/070-ssh-extra-input.sh
 scripts/po0/relay/lan-worker/src/080-ssh-extra-target-model.sh

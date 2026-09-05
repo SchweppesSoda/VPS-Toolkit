@@ -3,7 +3,10 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/po0-linux-multi-wan-test.XXXXXX")"
-trap 'rm -rf "${tmp_dir}"' EXIT
+export HOME="${tmp_dir}/home"
+export XDG_STATE_HOME="${tmp_dir}/state"
+export XDG_RUNTIME_DIR="${tmp_dir}/runtime"
+trap 'rm -rf -- "${tmp_dir}"' EXIT
 call_log="${tmp_dir}/calls.log"
 
 fail() {

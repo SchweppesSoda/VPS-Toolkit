@@ -94,6 +94,8 @@ usage() {
         "  --run                执行已配置目标的 DDNS 解析上报，并轮询领取 PO0 已创建的资源任务。" \
         "  --run-ddns           只执行 DDNS resolver 上报。" \
         "  --run-resource       只轮询领取 PO0 已创建的资源任务。" \
+        "  --run-official-firewall  给本机默认出口执行 PO0 官方防火墙上报；不会替下游客户端上报。" \
+        "  --official-firewall-status  只读查询官方防火墙状态；当前 IP 未命中时不会加白。" \
         "  --webauth-server     在 LAN Worker 本地运行 WebAuth 接收服务；PO0 不开放 HTTP。" \
         "  --webauth-targets STR WebAuth 上报目标；格式 source|host|port|user|script|token|ttl|ssh_args，多目标用分号或换行分隔。" \
         "  --install-webauth-service 安装 systemd 服务运行 WebAuth server。" \
@@ -118,5 +120,7 @@ usage() {
         "DDNS resolver 模式解析 --ddns-domain；--source-key 只用于匹配 PO0 端来源，不在本机解析。" \
         "Self-report 模式接收访问设备上报/请求里的公网 IP，再通过 PO0 的 client_ip 来源写白名单。" \
         "资源任务由 PO0 创建，PO0 端 cron 决定创建周期；本机 Worker 轮询器只负责领取待处理任务，构建/下载后通过 SSH 调 PO0 manager 上传。" \
+        "PO0_FIREWALL_TOKENS=token[,token@0..4] 可选官方防火墙 token 列表；默认关闭，内容只保存于 600 权限 settings。" \
+        "官方防火墙通道只使用本机默认路由；多 WAN 定向请在主 OpenWrt 官方 WAN 绑定配置中完成。" \
         "配置文件会明文保存 Token，请放在可信内网机器上，并注意文件权限。"
 }

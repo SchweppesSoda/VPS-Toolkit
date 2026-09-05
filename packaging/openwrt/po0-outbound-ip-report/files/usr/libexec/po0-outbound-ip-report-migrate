@@ -39,5 +39,23 @@ if [ -r /etc/crontabs/root ] && grep -q 'OUTBOUND_IP_REPORT_BEGIN' /etc/crontabs
     /etc/init.d/cron reload >/dev/null 2>&1 || true
 fi
 
+changed=0
+if ! uci -q get po0_outbound_ip_report.main.worker_enabled >/dev/null 2>&1; then
+	uci set po0_outbound_ip_report.main.worker_enabled='1'
+	changed=1
+fi
+if ! uci -q get po0_outbound_ip_report.main.official_enabled >/dev/null 2>&1; then
+	uci set po0_outbound_ip_report.main.official_enabled='0'
+	changed=1
+fi
+
+# The official channel cadence is a package safety constant. Remove the old
+# free-form option so an upgrade cannot leave a misleading setting behind.
+if uci -q get po0_outbound_ip_report.main.official_interval_seconds >/dev/null 2>&1; then
+	uci -q delete po0_outbound_ip_report.main.official_interval_seconds || true
+	changed=1
+fi
+[ "$changed" = '1' ] && uci commit po0_outbound_ip_report
 chmod 600 /etc/config/po0_outbound_ip_report 2>/dev/null || true
+chmod 0700 /usr/libexec/po0-outbound-ip-report-uci /usr/libexec/po0-official-firewall-request /usr/libexec/po0-official-firewall-runner 2>/dev/null || true
 exit 0

@@ -1,8 +1,70 @@
+official_read_secret_prompt() {
+    local prompt="$1" value="" rc
+    [[ -r /dev/tty && -w /dev/tty ]] || {
+        printf '官方 token 只能在交互终端中配置。\n' >&2
+        return 1
+    }
+    printf '%s' "${prompt}" > /dev/tty || return 1
+    if IFS= read -r -s value < /dev/tty; then
+        rc=0
+    else
+        rc=$?
+    fi
+    printf '\n' > /dev/tty
+    (( rc == 0 )) || return 1
+    printf '%s\n' "${value}"
+}
+
+configure_official_interactive() {
+    local token_input
+    printf '官方通道 token 只写入权限 600 的 settings.env，菜单不会回显或记录 token。\n'
+    if official_channel_enabled; then
+        token_input="$(official_read_secret_prompt '官方 token [已设置，回车保留，输入 - 清空]: ')" || return 1
+    else
+        token_input="$(official_read_secret_prompt '官方 token（可用逗号分隔，支持 token@0..4）: ')" || return 1
+    fi
+    token_input="$(trim "${token_input}")"
+    case "${token_input}" in
+        "")
+            if ! official_channel_enabled; then
+                printf '未输入官方 token，配置未保存。\n' >&2
+                return 1
+            fi
+            ;;
+        "-")
+            PO0_FIREWALL_TOKENS=""
+            ;;
+        *)
+            PO0_FIREWALL_TOKENS="${token_input}"
+            ;;
+    esac
+    if official_channel_enabled; then
+        official_validate_tokens || return 1
+    fi
+    save_config_file
+}
+
+clear_official_tokens_interactive() {
+    if ! official_channel_enabled; then
+        printf '官方防火墙当前未配置 token。\n'
+        return 0
+    fi
+    if ! prompt_yes_no "确认清除已保存的官方防火墙 token" "n"; then
+        echo '已取消。'
+        return 0
+    fi
+    PO0_FIREWALL_TOKENS=""
+    save_config_file
+}
+
 show_current_config() {
     print_panel_section "PO0 Outbound IP Report 客户端配置"
     print_panel_row "配置文件" "${CONFIG_FILE}"
     print_panel_row "保存状态" "$([[ -f "${CONFIG_FILE}" ]] && printf '已保存' || printf '未保存')"
     print_panel_row "LAN Worker URL" "${WORKER_URL:-未设置}"
+    print_panel_row "官方防火墙" "$(official_tokens_summary)"
+    print_panel_row "官方状态" "$(official_state_summary)"
+    print_panel_row "官方上报策略" "固定每 $(official_interval_seconds) 秒；状态文件内部管理"
     print_panel_row "来源 ID" "${SOURCE_ID:-未设置}"
     print_panel_row "设备备注" "${IDENTITY:-未设置}"
     print_panel_row "WAN 上报范围" "$(wan_selection_display)"
@@ -35,6 +97,9 @@ show_menu_dashboard() {
     print_panel_row "配置文件" "${CONFIG_FILE}"
     print_panel_row "保存状态" "$([[ -f "${CONFIG_FILE}" ]] && printf '已保存' || printf '未保存')"
     print_panel_row "LAN Worker URL" "${WORKER_URL:-未设置}"
+    print_panel_row "官方防火墙" "$(official_tokens_summary)"
+    print_panel_row "官方状态" "$(official_state_summary)"
+    print_panel_row "官方上报策略" "固定每 $(official_interval_seconds) 秒；状态文件内部管理"
     print_panel_row "来源 ID" "${SOURCE_ID:-未设置}"
     print_panel_row "设备备注" "${IDENTITY:-未设置}"
     print_panel_row "WAN 上报范围" "$(wan_selection_display)"
@@ -115,7 +180,7 @@ install_cron_interactive() {
     local cron_seconds
     if ! config_complete; then
         configure_interactive || return 1
-    else
+    elif worker_channel_requested; then
         cron_seconds="$(prompt_default "定时上报每几秒执行一次（60-$(max_interval_seconds)；必须是 60 的倍数）" "$(cron_minutes_to_seconds "${CRON_MINUTES}")")"
         CRON_MINUTES="$(normalize_interval_seconds_to_minutes "${cron_seconds}" "${MAX_CRON_MINUTES}")" || {
             printf '上报间隔秒数无效：请输入 60-%s 且为 60 倍数的整数。\n' "$(max_interval_seconds)" >&2
@@ -139,10 +204,13 @@ menu_loop() {
         print_menu_item 7 "显示当前配置"
         print_menu_section "维护"
         print_menu_pair 8 "从 GitHub 更新脚本" 9 "卸载本客户端"
+        print_menu_section "官方防火墙"
+        print_menu_pair 10 "配置官方防火墙" 11 "查看官方状态"
+        print_menu_item 12 "清除官方 token"
         print_menu_section "退出"
         print_menu_item 0 "退出"
         print_menu_footer
-        choice="$(read_prompt "请选择操作 [0-9]: ")" || return 0
+        choice="$(read_prompt "请选择操作 [0-12]: ")" || return 0
         choice="$(trim "${choice}")"
         case "${choice}" in
             1) configure_interactive; pause_before_return ;;
@@ -166,6 +234,9 @@ menu_loop() {
                 pause_before_return
                 [[ "${rc}" == "0" ]] && return 0
                 ;;
+            10) configure_official_interactive; pause_before_return ;;
+            11) official_status_once; pause_before_return ;;
+            12) clear_official_tokens_interactive; pause_before_return ;;
             0) return 0 ;;
             "") ;;
             *) printf '无效选择。\n' >&2; pause_before_return ;;

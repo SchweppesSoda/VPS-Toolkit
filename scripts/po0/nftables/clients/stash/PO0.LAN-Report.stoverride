@@ -1,30 +1,38 @@
 name: PO0 LAN Worker 上报（正式）
 desc: |-
-  默认启用。每 10 分钟检查；IP 或网络变化立即上报，未变化每小时续期。
-  蜂窝按 /24，普通 Wi-Fi 按 /32。点击 Tile 可强制上报。
-  v2 Tile 使用内联只读渲染器，不加载或执行远端上报 worker。
-  使用前只需替换两处相同 JSON 中的 worker_url、source_id、secret。
+  默认保留现有 LAN Worker；可另外设置 PO0_FIREWALL_TOKENS（逗号分隔，可写 token@0..4；同一 token 即使写不同槽位也只能出现一次；填 - 可清空）启用官方防火墙通道。
+  官方通道每 10 分钟只读检查，必要时直连加白；LAN Worker 的 IP/网络变化和一小时续期规则保持原样。
+  两路在同一次唤醒中按“官方先、Worker 后”执行，例行成功安静；Tile 只显示脱敏状态。
+  点击状态 Tile 或访问 http://po0-report.invalid/status 只读检查（不会加白）；访问 /report-now 才是手动上报，仍会先 GET 再按需加白。
+  使用前替换两处相同 JSON 中的 worker_url、source_id、secret；官方 token 会保存在 Stash 持久化存储。
 
 script-providers:
   po0-stash-report-worker-v2:
-    url: https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/stash/po0-stash-report.js?rev=20260721-v2
+    url: https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/stash/po0-stash-report.js?rev=20260905-v5
     interval: 86400
   po0-stash-status-tile-v2:
     interval: 86400
     payload: |
       const key = "proxyconfig.po0.stash-report.v1";
-      const forceUrl = "http://po0-report.invalid/report-now";
-      const clean = (value, limit) => String(typeof value === "string" || typeof value === "number" ? value : "-").replace(/\s+/g, " ").slice(0, limit);
+        const statusUrl = "http://po0-report.invalid/status";
+      const clean = (value, limit) => String(typeof value === "string" || typeof value === "number" ? value : "-").replace(/pgnfw_[A-Za-z0-9._~-]+/g, "[REDACTED]").replace(/Bearer\s+[^\s,;]+/gi, "Bearer [REDACTED]").replace(/\s+/g, " ").slice(0, limit);
       let state = {};
       try { state = JSON.parse($persistentStore.read(key) || "{}") || {}; } catch (_) {}
-      const acceptedAt = Number(state.accepted_at);
-      if (!Number.isFinite(acceptedAt) || acceptedAt <= 0) {
-        $done({
-          title: "PO0 v2 未上报",
-          content: clean(state.last_error || "等待首次定时任务", 80),
+        const official = state.official && Array.isArray(state.official.accounts) ? state.official : {};
+        const officialAccounts = Array.isArray(official.accounts) ? official.accounts : [];
+        const officialOk = officialAccounts.filter((item) => item.status !== "error").length;
+        const officialMissing = officialAccounts.filter((item) => item.status === "missing" || item.status === "slot-mismatch").length;
+        const officialText = officialAccounts.length
+          ? `官方 ${officialOk}/${officialAccounts.length}${officialMissing ? ` · 未命中 ${officialMissing}` : ""}`
+          : "官方未启用";
+        const acceptedAt = Number(state.accepted_at);
+        if (!Number.isFinite(acceptedAt) || acceptedAt <= 0) {
+          $done({
+          title: officialAccounts.length && !official.last_error ? "PO0 官方状态" : "PO0 v2 未上报",
+          content: `${officialText}\n${clean(state.last_error || "等待首次定时任务", 80)}`,
           icon: "antenna.radiowaves.left.and.right",
           backgroundColor: "#6b7280",
-          url: forceUrl,
+          url: statusUrl,
         });
       } else {
         const expiresAt = Number(state.expires_at);
@@ -36,10 +44,10 @@ script-providers:
         const error = state.last_error ? clean(state.last_error, 80) : "";
         $done({
           title: error ? "PO0 v2 上报异常" : remaining > 0 ? "PO0 v2 已上报" : "PO0 v2 已过期",
-          content: error ? `${cidr}\n${error}` : `${cidr}\n${clean(state.network, 12)} · ${age} 分钟前 · 剩余 ${remaining} 分钟`,
+          content: error ? `${cidr}\n${error}\n${officialText}` : `${cidr}\n${clean(state.network, 12)} · ${age} 分钟前 · 剩余 ${remaining} 分钟\n${officialText}`,
           icon: error || remaining <= 0 ? "exclamationmark.triangle.fill" : "checkmark.shield.fill",
           backgroundColor: error || remaining <= 0 ? "#b45309" : "#178f55",
-          url: forceUrl,
+          url: statusUrl,
         });
       }
 
@@ -47,8 +55,8 @@ cron:
   script:
     - name: po0-stash-report-worker-v2
       cron: '*/10 * * * *'
-      timeout: 15
-      argument: '{"mode":"auto","worker_url":"https://CHANGE_ME/stash-report/v1","source_id":"iphone-stash","secret":"CHANGE_ME_BEARER","selected_proxy":"DIRECT"}'
+      timeout: 90
+      argument: '{"mode":"auto","worker_url":"https://CHANGE_ME/stash-report/v1","source_id":"iphone-stash","secret":"CHANGE_ME_BEARER","selected_proxy":"DIRECT","PO0_FIREWALL_TOKENS":""}'
 
 tiles:
   - name: po0-stash-status-tile-v2
@@ -57,7 +65,7 @@ tiles:
     content: 等待首次定时任务
     icon: antenna.radiowaves.left.and.right
     backgroundColor: '#6b7280'
-    url: http://po0-report.invalid/report-now
+    url: http://po0-report.invalid/status
 
 http:
   force-http-engine:
@@ -66,5 +74,10 @@ http:
     - match: ^http://po0-report\.invalid/report-now(?:\?.*)?$
       name: po0-stash-report-worker-v2
       type: request
-      timeout: 15
-      argument: '{"mode":"force","worker_url":"https://CHANGE_ME/stash-report/v1","source_id":"iphone-stash","secret":"CHANGE_ME_BEARER","selected_proxy":"DIRECT"}'
+      timeout: 90
+      argument: '{"mode":"force","worker_url":"https://CHANGE_ME/stash-report/v1","source_id":"iphone-stash","secret":"CHANGE_ME_BEARER","selected_proxy":"DIRECT","PO0_FIREWALL_TOKENS":""}'
+    - match: ^http://po0-report\.invalid/status(?:\?.*)?$
+      name: po0-stash-report-worker-v2
+      type: request
+      timeout: 90
+      argument: '{"mode":"status","worker_url":"https://CHANGE_ME/stash-report/v1","source_id":"iphone-stash","secret":"CHANGE_ME_BEARER","selected_proxy":"DIRECT","PO0_FIREWALL_TOKENS":""}'

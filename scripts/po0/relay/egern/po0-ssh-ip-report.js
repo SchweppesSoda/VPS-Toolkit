@@ -1,10 +1,16 @@
 const STORAGE_KEY = 'po0-ssh-ip-report:last';
 const ERROR_STORAGE_KEY = 'po0-ssh-ip-report:last-error';
+const OFFICIAL_STORAGE_KEY = 'po0-ssh-ip-report:official:v1';
 const IP_CHECK_INDEX_KEY = 'po0-ssh-ip-report:ip-check-index';
 const DEVICE_ID_KEY = 'po0-ssh-ip-report:device-id';
 const CONFIG_STORAGE_KEY = 'po0-ssh-ip-report:config:v1';
 const CONFIG_STORAGE_VERSION = 1;
 const DEVICE_ID_FALLBACK = 'egern';
+const OFFICIAL_FIREWALL_API_BASE = 'https://124.221.69.228/api/firewall';
+const OFFICIAL_FIREWALL_INTERVAL_SECONDS = 600;
+const OFFICIAL_FIREWALL_MAX_TOKENS = 16;
+const REPORT_LOCK_KEY = 'po0-ssh-ip-report:run-lock:v1';
+const REPORT_LOCK_TTL_MS = 120000;
 const DEFAULT_TTL_SECONDS = 43200;
 const DEFAULT_AUTO_REPORT_INTERVAL_SECONDS = 3600;
 const MIN_AUTO_REPORT_INTERVAL_SECONDS = 600;
@@ -22,6 +28,7 @@ const PERSISTED_ENV_KEYS = [
   'PO0_SCRIPT',
   'SSH_REPORT_SOURCE',
   'SSH_REPORT_TOKEN',
+  'PO0_FIREWALL_TOKENS',
   'REPORT_IDENTITY',
   'TTL_SECONDS',
   'AUTO_REPORT_INTERVAL_SECONDS',
@@ -66,6 +73,55 @@ function wrapText(value, width) {
     chunks.push(text.slice(index, index + width));
   }
   return chunks;
+}
+
+function redactSensitiveText(value, secrets = []) {
+  let text = String(value ?? '');
+  const candidates = Array.from(new Set(
+    (Array.isArray(secrets) ? secrets : [secrets])
+      .map((secret) => String(secret ?? '').trim())
+      .filter(Boolean),
+  )).sort((left, right) => right.length - left.length);
+
+  for (const secret of candidates) {
+    text = text.split(secret).join('[REDACTED]');
+    let encoded = '';
+    try { encoded = encodeURIComponent(secret); } catch (_) {}
+    if (encoded && encoded !== secret) text = text.split(encoded).join('[REDACTED]');
+  }
+
+  text = text.replace(/\bBearer\s+[^\s,;)}\]>"']+/gi, 'Bearer [REDACTED]');
+  text = text.replace(/\bpgnfw_[A-Za-z0-9._~@+-]{1,240}/g, '[REDACTED]');
+  return text;
+}
+
+function redactError(error, env = {}, channels = {}, targets = []) {
+  const secrets = [];
+  const add = (value) => {
+    const text = String(value ?? '').trim();
+    if (text) secrets.push(text);
+  };
+
+  for (const key of [
+    'PO0_FIREWALL_TOKENS',
+    'SSH_REPORT_TOKEN',
+    'SSH_REPORT_TARGETS',
+    'PO0_PASSWORD',
+    'PO0_PRIVATE_KEY',
+    'PO0_PASSPHRASE',
+  ]) {
+    add(env?.[key]);
+  }
+  for (const item of channels?.officialTokens || []) add(item?.token);
+  const targetList = Array.isArray(targets) ? targets : [targets];
+  for (const target of targetList) {
+    add(target?.token);
+    add(target?.password);
+    add(target?.privateKey);
+    add(target?.passphrase);
+  }
+
+  return redactSensitiveText(error?.message || String(error || ''), secrets);
 }
 
 function normalizeSshPrivateKey(value) {
@@ -309,6 +365,193 @@ function boolEnv(value, fallback) {
   return ['1', 'true', 'yes', 'on'].includes(raw);
 }
 
+function officialNowMs() {
+  try {
+    const testValue = Number(globalThis.__PO0_EGERN_TEST_NOW);
+    if (Number.isFinite(testValue)) return testValue;
+  } catch (_) {}
+  return Date.now();
+}
+
+function officialNowIso() {
+  return new Date(officialNowMs()).toISOString();
+}
+
+function parseOfficialTokenItem(value) {
+  const item = String(value ?? '').trim();
+  if (!item || /[\r\n]/.test(item)) {
+    throw new Error('PO0 官方防火墙 token 配置包含空项或换行。');
+  }
+
+  let token = item;
+  let slot = null;
+  const at = item.indexOf('@');
+  if (at >= 0) {
+    if (at !== item.lastIndexOf('@')) {
+      throw new Error('PO0 官方防火墙 token 配置无效：槽位只能写 @0 到 @4。');
+    }
+    token = item.slice(0, at);
+    const slotText = item.slice(at + 1);
+    if (!/^[0-4]$/.test(slotText)) {
+      throw new Error('PO0 官方防火墙 token 配置无效：槽位只能写 @0 到 @4。');
+    }
+    slot = Number(slotText);
+  }
+
+  if (!/^pgnfw_[A-Za-z0-9._~-]{1,240}$/.test(token)) {
+    throw new Error('PO0 官方防火墙 token 配置无效：请使用 pgnfw_...。');
+  }
+  return { token, slot };
+}
+
+function parseOfficialTokens(raw) {
+  const value = String(raw ?? '').trim();
+  if (!value) return [];
+  if (/[\r\n]/.test(value)) {
+    throw new Error('PO0 官方防火墙 token 配置不能包含换行。');
+  }
+
+  const seen = new Set();
+  const tokens = value.split(',').map((item) => parseOfficialTokenItem(item));
+  for (const item of tokens) {
+    // A token identifies one official account; slot hints are not separate accounts.
+    const key = item.token;
+    if (seen.has(key)) {
+      throw new Error('PO0 官方防火墙 token 列表包含重复项。');
+    }
+    seen.add(key);
+  }
+  if (tokens.length > OFFICIAL_FIREWALL_MAX_TOKENS) {
+    throw new Error(`PO0 官方防火墙 token 数量超过上限（最多 ${OFFICIAL_FIREWALL_MAX_TOKENS} 个）。`);
+  }
+  return tokens;
+}
+
+function officialTokensConfigured(env) {
+  return String(env?.PO0_FIREWALL_TOKENS ?? '').trim() !== '';
+}
+
+function officialCidr24(value) {
+  const match = String(value ?? '').trim().match(/^(\d{1,3})(?:\.(\d{1,3})){3}\/24$/);
+  if (!match) return '';
+  const address = String(value).trim().slice(0, -3);
+  const parts = address.split('.').map((part) => Number(part));
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return '';
+  return `${parts.join('.')}/24`;
+}
+
+function officialNormalizePayload(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    throw new Error('官方防火墙返回数据无效。');
+  }
+  if (data.enabled !== true) {
+    throw new Error('官方防火墙当前未启用。');
+  }
+  const currentIp = officialCidr24(data.currentIp);
+  if (!currentIp) {
+    throw new Error('官方防火墙未返回有效当前出口 IPv4。');
+  }
+  const limit = data.limit;
+  if (!Number.isInteger(limit) || limit < 1 || limit > 5) {
+    throw new Error('官方防火墙返回的名额无效。');
+  }
+  if (!Array.isArray(data.whitelist) || data.whitelist.length > limit || data.whitelist.length > 5) {
+    throw new Error('官方防火墙返回的白名单无效。');
+  }
+
+  const seenSlots = new Set();
+  const whitelist = data.whitelist.map((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new Error('官方防火墙返回的白名单无效。');
+    }
+    const ip = officialCidr24(entry.ip);
+    if (!ip) throw new Error('官方防火墙返回的白名单 IP 无效。');
+
+    let slot = null;
+    if (entry.slot !== undefined && entry.slot !== null && entry.slot !== '') {
+      if (!Number.isInteger(entry.slot) || entry.slot < 0 || entry.slot > 4) {
+        throw new Error('官方防火墙返回的槽位无效。');
+      }
+      if (seenSlots.has(entry.slot)) {
+        throw new Error('官方防火墙返回了重复槽位。');
+      }
+      seenSlots.add(entry.slot);
+      slot = entry.slot;
+    }
+    return { ip, slot };
+  });
+
+  return {
+    enabled: true,
+    currentIp,
+    limit,
+    used: whitelist.length,
+    whitelist,
+  };
+}
+
+async function officialPayloadFromResponse(response) {
+  const status = Number(response?.status);
+  if (!Number.isInteger(status) || status < 200 || status >= 300) {
+    const suffix = Number.isInteger(status) ? `（HTTP ${status}）` : '';
+    throw new Error(`官方防火墙请求失败${suffix}。`);
+  }
+
+  let data;
+  try {
+    if (typeof response?.json === 'function') {
+      data = await response.json();
+    } else {
+      const text = await responseText(response);
+      data = JSON.parse(text);
+    }
+    if (typeof data === 'string') data = JSON.parse(data);
+  } catch (_) {
+    throw new Error('官方防火墙返回数据无效。');
+  }
+  return officialNormalizePayload(data);
+}
+
+async function officialDirectRequest(ctx, item, operation) {
+  const method = operation === 'post' ? 'post' : 'get';
+  const encodedToken = encodeURIComponent(item.token);
+  let url = `${OFFICIAL_FIREWALL_API_BASE}/${encodedToken}`;
+  if (method === 'post') {
+    url += '/add';
+    if (item.slot !== null && item.slot !== undefined) url += `?slot=${item.slot}`;
+  }
+
+  const request = ctx?.http?.[method];
+  if (typeof request !== 'function') {
+    throw new Error('Egern HTTP 能力不可用。');
+  }
+
+  let response;
+  try {
+    response = await request.call(ctx.http, url, {
+      policy: 'DIRECT',
+      timeout: 10000,
+      redirect: 'error',
+      credentials: 'omit',
+      insecureTls: false,
+      headers: { Accept: 'application/json' },
+    });
+  } catch (_) {
+    throw new Error('官方防火墙网络请求失败。');
+  }
+  return await officialPayloadFromResponse(response);
+}
+
+function officialSafeError(error) {
+  const text = String(error?.message || '');
+  if (text === '官方防火墙网络请求失败。' || text === 'Egern HTTP 能力不可用。') return text;
+  const http = text.match(/^官方防火墙请求失败（HTTP (\d{3})）。$/);
+  if (http) return `官方防火墙请求失败（HTTP ${http[1]}）。`;
+  if (/^官方防火墙(?:当前未启用|未返回有效当前出口 IPv4|返回数据无效|返回的名额无效|返回的白名单无效|返回的槽位无效|返回了重复槽位|加白后未确认当前出口)。$/.test(text)) return text;
+  if (/^PO0 官方防火墙 token (?:配置包含空项或换行|配置无效：槽位只能写 @0 到 @4|配置无效：请使用 pgnfw_\.\.\.|列表包含重复项|数量超过上限（最多 16 个）)。$/.test(text)) return text;
+  return '官方防火墙请求失败。';
+}
+
 function normalizeDeviceId(value) {
   const id = String(value || '').trim();
   if (!id) return '';
@@ -349,7 +592,7 @@ function scriptLabel(ctx) {
 }
 
 function isManualRun(ctx) {
-  return /generic|manual|now|立即|手动/i.test(scriptLabel(ctx));
+  return /generic|manual|now|force|立即|手动|强制/i.test(scriptLabel(ctx));
 }
 
 function isAutomaticReportRun(ctx) {
@@ -380,6 +623,10 @@ function isStatusRun(ctx) {
   return /状态|status/i.test(scriptLabel(ctx));
 }
 
+function isOfficialStatusRun(ctx) {
+  return /官方防火墙.*状态|official firewall status/i.test(scriptLabel(ctx));
+}
+
 function shouldReturnWidget(ctx) {
   return isWidgetRun(ctx) || isStatusRun(ctx);
 }
@@ -398,6 +645,10 @@ function isReportConfigSaveRun(ctx) {
 
 function isReportConfigClearRun(ctx) {
   return /清除本机\s*(?:PO0\s*)?上报配置|clear (?:local )?(?:po0 )?report config/i.test(scriptLabel(ctx));
+}
+
+function isOfficialConfigClearRun(ctx) {
+  return /清除本机\s*PO0\s*官方防火墙(?:\s*token)?|clear (?:local )?po0 official firewall(?: tokens?)?/i.test(scriptLabel(ctx));
 }
 
 function formatTime(value) {
@@ -565,7 +816,8 @@ function summaryRowNode(deviceName, targetText, targetColor, metrics = widgetMet
 }
 
 function widgetPanel(title, content, ok, ctx) {
-  const lines = Array.isArray(content) ? content : String(content || '').split('\n').filter(Boolean);
+  const lines = (Array.isArray(content) ? content : String(content || '').split('\n').filter(Boolean))
+    .map((line) => redactSensitiveText(line));
   const family = widgetFamily(ctx);
   const metrics = widgetMetrics(ctx);
   const maxLines = family.includes('large') ? 10 : family.includes('small') ? 4 : 7;
@@ -586,7 +838,7 @@ function widgetPanel(title, content, ok, ctx) {
         gap: metrics.headerGap,
         children: [
           iconNode(ok ? 'checkmark.shield.fill' : 'exclamationmark.triangle.fill', accent, 18),
-          textNode(title, metrics.titleSize, 'semibold', WIDGET_COLORS.text),
+          textNode(redactSensitiveText(title), metrics.titleSize, 'semibold', WIDGET_COLORS.text),
         ],
       },
       ...shownLines.map((line) => textNode(line)),
@@ -636,6 +888,63 @@ function targetSummaryRows(state, ctx, metrics = widgetMetrics(ctx)) {
   });
 }
 
+function officialStatusText(entry) {
+  if (entry?.status === 'hit') return '当前出口已命中';
+  if (entry?.status === 'updated') return '已更新当前出口';
+  if (entry?.status === 'missing') return '当前出口未加白（只读）';
+  if (entry?.status === 'error') return entry.error || '检查失败';
+  return '未检查';
+}
+
+function officialDisplaySlot(slot) {
+  return Number.isInteger(slot) && slot >= 0 && slot <= 4 ? slot + 1 : null;
+}
+
+function officialWhitelistText(entry) {
+  const currentIp = entry?.currentIp || '';
+  const rows = Array.isArray(entry?.whitelist) ? entry.whitelist : [];
+  if (rows.length === 0) return '空';
+  return rows.map((row) => {
+    const marker = row.ip === currentIp && (entry?.slot === null || row.slot === entry?.slot) ? ' 当前' : '';
+    const displaySlot = officialDisplaySlot(row.slot);
+    const slot = displaySlot === null ? '自动' : `#${displaySlot}`;
+    return `${row.ip} ${slot}${marker}`;
+  }).join('，');
+}
+
+function officialSummaryRows(state, ctx, metrics = widgetMetrics(ctx)) {
+  const official = state?.official;
+  if (!official) return [];
+  const entries = Array.isArray(official.entries) ? official.entries : [];
+  const family = widgetFamily(ctx);
+  if (entries.length === 0) {
+    return [rowNode('shield.lefthalf.filled', WIDGET_COLORS.yellow, '官方', '暂无状态', WIDGET_COLORS.yellow, metrics)];
+  }
+  const maxEntries = family.includes('large') ? 3 : 1;
+  const rows = [];
+  entries.slice(0, maxEntries).forEach((entry, index) => {
+    const color = entry.status === 'error' ? WIDGET_COLORS.red
+      : entry.status === 'missing' ? WIDGET_COLORS.yellow : WIDGET_COLORS.green;
+    const name = `官方${entry.ordinal || index + 1}`;
+    const displaySlot = officialDisplaySlot(entry.fixedSlot);
+    const fixedSlot = displaySlot === null ? '未固定' : `#${displaySlot}`;
+    const quota = `${entry.used || 0}/${entry.limit || 0}`;
+    if (family.includes('small')) {
+      rows.push(rowNode('shield.lefthalf.filled', color, name, `${entry.currentIp || '未知'} · ${officialStatusText(entry)} · 槽位 ${fixedSlot}`, color, metrics));
+      rows.push(rowNode('list.bullet.rectangle', WIDGET_COLORS.blue, '白名单', `${officialWhitelistText(entry)} · 名额 ${quota}`, WIDGET_COLORS.text, metrics));
+    } else {
+      rows.push(rowNode('shield.lefthalf.filled', color, name, `${entry.currentIp || '未知'} · ${officialStatusText(entry)}`, color, metrics));
+      rows.push(rowNode('list.bullet.rectangle', WIDGET_COLORS.blue, '白名单', officialWhitelistText(entry), WIDGET_COLORS.text, metrics));
+      rows.push(rowNode('5.square.fill', WIDGET_COLORS.blue, '名额', quota, WIDGET_COLORS.text, metrics));
+      rows.push(rowNode('square.dashed', WIDGET_COLORS.blue, '固定槽位', fixedSlot, WIDGET_COLORS.text, metrics));
+    }
+  });
+  if (entries.length > maxEntries) {
+    rows.push(rowNode('ellipsis.circle', WIDGET_COLORS.dim, '其他', `还有 ${entries.length - maxEntries} 个官方账号`, WIDGET_COLORS.dim, metrics));
+  }
+  return rows;
+}
+
 function widgetFromState(state, ctx, deviceId = '', env = ctx?.env || {}) {
   const ok = Boolean(state?.ok);
   const skipped = Boolean(state?.skipped && state?.skipType === 'wifi-ssid');
@@ -651,7 +960,7 @@ function widgetFromState(state, ctx, deviceId = '', env = ctx?.env || {}) {
   const targetCount = state?.targetCount ?? targets.length;
   const statusColor = skipped ? WIDGET_COLORS.yellow : ok ? WIDGET_COLORS.green : WIDGET_COLORS.red;
   const statusIcon = skipped ? 'pause.circle.fill' : ok ? 'checkmark.shield.fill' : 'exclamationmark.triangle.fill';
-  const timeText = formatTime(skipped ? state?.checkedAt || state?.at : state?.at || state?.checkedAt);
+  const timeText = formatTime(skipped ? state?.checkedAt || state?.at : state?.at || state?.official?.checkedAt || state?.checkedAt);
 
   if (!state) {
     return widgetPanel(REPORT_TITLE, [`设备: ${deviceName}`, '暂无上报状态。', '点按刷新即可立即上报。'], false, ctx);
@@ -671,6 +980,7 @@ function widgetFromState(state, ctx, deviceId = '', env = ctx?.env || {}) {
   ];
   const summaryRow = summaryRowNode(deviceName, skipped ? 'SSID 跳过' : `${successCount}/${targetCount || 1} 成功`, statusColor, metrics);
   const targetRows = targetSummaryRows(state, ctx, metrics);
+  const officialRows = officialSummaryRows(state, ctx, metrics);
   if (!isSmall && skipped) {
     targetRows.unshift(rowNode('pause.circle.fill', WIDGET_COLORS.yellow, '本次', 'SSID 命中，未探测/未上传', WIDGET_COLORS.yellow, metrics));
   }
@@ -689,10 +999,17 @@ function widgetFromState(state, ctx, deviceId = '', env = ctx?.env || {}) {
     ],
   };
 
+  const officialBlock = !isSmall && officialRows.length > 0 ? {
+    type: 'stack',
+    direction: 'column',
+    gap: metrics.bottomGap,
+    children: [sectionTitleNode('官方防火墙', metrics), ...officialRows],
+  } : null;
   const detailChildren = isSmall ? [
     publicRows[0],
     publicRows[1],
     networkRows[0],
+    ...officialRows.slice(0, 2),
     bottomBlock,
   ] : [
     {
@@ -704,6 +1021,7 @@ function widgetFromState(state, ctx, deviceId = '', env = ctx?.env || {}) {
         { type: 'stack', direction: 'column', gap: metrics.columnInnerGap, flex: 1, children: [sectionTitleNode('本机状态', metrics), ...networkRows] },
       ],
     },
+    ...(officialBlock ? [officialBlock] : []),
     bottomBlock,
   ];
 
@@ -888,6 +1206,40 @@ async function storageDelete(ctx, key) {
   return await storageSet(ctx, key, '');
 }
 
+function parseReportLock(raw) {
+  let value = raw;
+  if (typeof value === 'string') {
+    try { value = JSON.parse(value); } catch (_) { return null; }
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const owner = String(value.owner || '');
+  const expiresAt = Number(value.expiresAt);
+  if (!owner || !Number.isFinite(expiresAt)) return null;
+  return { owner, expiresAt };
+}
+
+async function acquireReportLock(ctx, mode, nowMs) {
+  const existing = parseReportLock(await storageGet(ctx, REPORT_LOCK_KEY));
+  if (existing && existing.expiresAt > nowMs) return null;
+  const owner = `${nowMs}-${Math.random().toString(36).slice(2, 10)}`;
+  const record = {
+    version: 1,
+    owner,
+    mode: String(mode || 'report'),
+    startedAt: nowMs,
+    expiresAt: nowMs + REPORT_LOCK_TTL_MS,
+  };
+  if (!await storageSet(ctx, REPORT_LOCK_KEY, JSON.stringify(record))) return null;
+  const confirmed = parseReportLock(await storageGet(ctx, REPORT_LOCK_KEY));
+  return confirmed && confirmed.owner === owner ? record : null;
+}
+
+async function releaseReportLock(ctx, lock) {
+  if (!lock || !lock.owner) return;
+  const current = parseReportLock(await storageGet(ctx, REPORT_LOCK_KEY));
+  if (current && current.owner === lock.owner) await storageDelete(ctx, REPORT_LOCK_KEY);
+}
+
 async function storedDeviceId(ctx) {
   const raw = await storageGet(ctx, DEVICE_ID_KEY);
   try {
@@ -1044,7 +1396,7 @@ function sanitizedTargetStatus(target, skipped = false) {
   if (target?.cidrPrefix !== undefined) clean.cidrPrefix = target.cidrPrefix;
   if (target?.reportedCidr) clean.reportedCidr = target.reportedCidr;
   if (target?.expiresAt) clean.expiresAt = target.expiresAt;
-  if (target?.error) clean.error = String(target.error);
+  if (target?.error) clean.error = redactSensitiveText(target.error, [target?.token]);
   if (skipped || target?.skipped) clean.skipped = true;
   return clean;
 }
@@ -1070,12 +1422,17 @@ function sanitizedStoredState(raw) {
     'successCount',
     'failureCount',
     'targetConfigSignature',
+    'official',
     'expiresAt',
     'skipped',
     'skipType',
     'skipReason',
   ]) {
-    if (state[key] !== undefined) clean[key] = state[key];
+    if (state[key] !== undefined) {
+      clean[key] = key === 'official'
+        ? sanitizeOfficialState(state[key])
+        : typeof state[key] === 'string' ? redactSensitiveText(state[key]) : state[key];
+    }
   }
   if (Array.isArray(state.targets)) {
     clean.targets = state.targets.map((target) => sanitizedTargetStatus(target));
@@ -1224,13 +1581,227 @@ async function shouldSkipUnchangedAutoReport(ctx, env, targets, ip, reportedCidr
   };
 }
 
+function sanitizeOfficialEntry(entry = {}) {
+  const clean = {
+    ordinal: Number.isInteger(entry.ordinal) ? entry.ordinal : 0,
+    slot: Number.isInteger(entry.slot) ? entry.slot : null,
+    fixedSlot: Number.isInteger(entry.fixedSlot) ? entry.fixedSlot : null,
+    status: String(entry.status || 'error'),
+    currentIp: officialCidr24(entry.currentIp) || '',
+    used: Number.isInteger(entry.used) ? entry.used : 0,
+    limit: Number.isInteger(entry.limit) ? entry.limit : 0,
+    currentInWhitelist: Boolean(entry.currentInWhitelist),
+  };
+  if (Array.isArray(entry.whitelist)) {
+    clean.whitelist = entry.whitelist
+      .map((item) => ({
+        ip: officialCidr24(item?.ip) || '',
+        slot: Number.isInteger(item?.slot) ? item.slot : null,
+      }))
+      .filter((item) => item.ip);
+  } else {
+    clean.whitelist = [];
+  }
+  if (entry.error) clean.error = officialSafeError({ message: String(entry.error) });
+  return clean;
+}
+
+function sanitizeOfficialState(raw) {
+  const state = parseStoredState(raw);
+  if (!state || typeof state !== 'object' || Array.isArray(state)) return null;
+  const entries = Array.isArray(state.entries) ? state.entries.map(sanitizeOfficialEntry) : [];
+  const clean = {
+    version: 1,
+    ok: Boolean(state.ok),
+    status: String(state.status || 'unknown'),
+    skipped: Boolean(state.skipped),
+    checkedAt: String(state.checkedAt || ''),
+    lastAttemptAt: String(state.lastAttemptAt || ''),
+    lastSuccessAt: String(state.lastSuccessAt || ''),
+    currentIp: officialCidr24(state.currentIp) || entries.find((entry) => entry.currentIp)?.currentIp || '',
+    used: Number.isInteger(state.used) ? state.used : entries[0]?.used || 0,
+    limit: Number.isInteger(state.limit) ? state.limit : entries[0]?.limit || 0,
+    successCount: Number.isInteger(state.successCount) ? state.successCount : entries.filter((entry) => entry.status !== 'error').length,
+    failureCount: Number.isInteger(state.failureCount) ? state.failureCount : entries.filter((entry) => entry.status === 'error').length,
+    entries,
+  };
+  const first = entries.find((entry) => entry.currentIp) || entries[0];
+  clean.whitelist = Array.isArray(state.whitelist)
+    ? state.whitelist.map((item) => ({
+      ip: officialCidr24(item?.ip) || '',
+      slot: Number.isInteger(item?.slot) ? item.slot : null,
+    })).filter((item) => item.ip)
+    : first?.whitelist || [];
+  return clean;
+}
+
+async function storedOfficialState(ctx) {
+  return sanitizeOfficialState(await storageGet(ctx, OFFICIAL_STORAGE_KEY));
+}
+
+function officialIsDue(ctx, state) {
+  if (!isAutomaticReportRun(ctx)) return true;
+  const last = Date.parse(String(state?.lastAttemptAt || ''));
+  if (!Number.isFinite(last)) return true;
+  const age = officialNowMs() - last;
+  return age < 0 || age >= OFFICIAL_FIREWALL_INTERVAL_SECONDS * 1000;
+}
+
+function officialStateFromEntries(entries, mode, now, previous, skipped = false) {
+  const cleanEntries = entries.map(sanitizeOfficialEntry);
+  const failures = cleanEntries.filter((entry) => entry.status === 'error').length;
+  const successes = cleanEntries.length - failures;
+  const first = cleanEntries.find((entry) => entry.currentIp) || cleanEntries[0] || {};
+  const state = {
+    version: 1,
+    ok: failures === 0,
+    status: skipped ? 'due-skipped' : failures > 0 ? (successes > 0 ? 'partial' : 'failed') : mode === 'status' ? 'status' : 'success',
+    skipped,
+    checkedAt: now,
+    lastAttemptAt: mode === 'report' ? now : String(previous?.lastAttemptAt || ''),
+    lastSuccessAt: mode === 'report' && failures === 0 ? now : String(previous?.lastSuccessAt || ''),
+    currentIp: first.currentIp || String(previous?.currentIp || ''),
+    whitelist: first.whitelist || previous?.whitelist || [],
+    used: Number.isInteger(first.used) ? first.used : Number.isInteger(previous?.used) ? previous.used : 0,
+    limit: Number.isInteger(first.limit) ? first.limit : Number.isInteger(previous?.limit) ? previous.limit : 0,
+    successCount: successes,
+    failureCount: failures,
+    entries: cleanEntries,
+  };
+  return state;
+}
+
+function officialConfigErrorState(error, mode, previous) {
+  const message = officialSafeError(error);
+  const now = officialNowIso();
+  const entry = sanitizeOfficialEntry({ ordinal: 0, status: 'error', error: message });
+  const state = officialStateFromEntries([entry], mode, now, previous);
+  state.status = 'config-error';
+  state.lastAttemptAt = String(previous?.lastAttemptAt || '');
+  state.lastSuccessAt = String(previous?.lastSuccessAt || '');
+  return { active: true, ok: false, state, skipped: false, needsNotification: false };
+}
+
+async function runOfficialFirewall(ctx, env, mode = 'report') {
+  const previous = await storedOfficialState(ctx);
+  let items;
+  try {
+    items = parseOfficialTokens(env?.PO0_FIREWALL_TOKENS);
+  } catch (error) {
+    return officialConfigErrorState(error, mode, previous);
+  }
+  if (items.length === 0) return { active: false, ok: true, state: previous, skipped: false, needsNotification: false };
+
+  if (mode === 'report' && !officialIsDue(ctx, previous)) {
+    const dueState = previous
+      ? { ...previous, skipped: true, status: 'due-skipped', checkedAt: officialNowIso() }
+      : officialStateFromEntries([], mode, officialNowIso(), previous, true);
+    return {
+      active: true,
+      ok: true,
+      state: dueState,
+      skipped: true,
+      needsNotification: false,
+    };
+  }
+
+  const now = officialNowIso();
+  const entries = [];
+  let needsNotification = false;
+  if (mode === 'report') {
+    await storageSet(ctx, OFFICIAL_STORAGE_KEY, JSON.stringify({
+      version: 1,
+      ok: false,
+      status: 'running',
+      skipped: false,
+      checkedAt: now,
+      lastAttemptAt: now,
+      lastSuccessAt: String(previous?.lastSuccessAt || ''),
+      currentIp: String(previous?.currentIp || ''),
+      whitelist: Array.isArray(previous?.whitelist) ? previous.whitelist : [],
+      used: previous?.used || 0,
+      limit: previous?.limit || 0,
+      successCount: 0,
+      failureCount: 0,
+      entries: [],
+    }));
+  }
+
+  const runOfficialAccount = async (item, index) => {
+    const entry = {
+      ordinal: index + 1,
+      slot: item.slot,
+      fixedSlot: item.slot,
+      status: 'error',
+      currentIp: '',
+      used: 0,
+      limit: 0,
+      currentInWhitelist: false,
+      whitelist: [],
+    };
+    try {
+      const status = await officialDirectRequest(ctx, item, 'get');
+      entry.currentIp = status.currentIp;
+      entry.whitelist = status.whitelist;
+      entry.used = status.used;
+      entry.limit = status.limit;
+      entry.currentInWhitelist = status.whitelist.some((row) => row.ip === status.currentIp
+        && (item.slot === null || row.slot === item.slot));
+      if (entry.currentInWhitelist) {
+        entry.status = 'hit';
+      } else if (mode === 'status') {
+        entry.status = 'missing';
+      } else {
+        const updated = await officialDirectRequest(ctx, item, 'post');
+        const updatedHit = updated.whitelist.some((row) => row.ip === updated.currentIp
+          && (item.slot === null || row.slot === item.slot));
+        if (!updatedHit) throw new Error('官方防火墙加白后未确认当前出口。');
+        entry.status = 'updated';
+        entry.currentIp = updated.currentIp;
+        entry.whitelist = updated.whitelist;
+        entry.used = updated.used;
+        entry.limit = updated.limit;
+        entry.currentInWhitelist = true;
+      }
+    } catch (error) {
+      entry.error = officialSafeError(error);
+    }
+    return {
+      entry: sanitizeOfficialEntry(entry),
+      needsNotification: entry.status === 'updated',
+    };
+  };
+
+  // Accounts are independent, so run them concurrently. Each account keeps
+  // its own strict GET -> optional POST sequence, and Promise.all preserves
+  // configured order for state/UI output. Worker SSH starts only afterwards.
+  const results = await Promise.all(items.map((item, index) => runOfficialAccount(item, index)));
+  for (const result of results) {
+    entries.push(result.entry);
+    if (result.entry.status === 'error') {
+      try { logMessage(ctx, 'error', '官方防火墙账号 #' + result.entry.ordinal + ' 失败', result.entry.error); } catch (_) {}
+    }
+  }
+  needsNotification = results.some((result) => result.needsNotification);
+
+  const state = officialStateFromEntries(entries, mode, now, previous);
+  await storageSet(ctx, OFFICIAL_STORAGE_KEY, JSON.stringify(state));
+  return {
+    active: true,
+    ok: state.failureCount === 0,
+    state,
+    skipped: false,
+    needsNotification,
+  };
+}
+
 function notify(ctx, title, body) {
   if (!ctx || typeof ctx.notify !== 'function') return;
-  ctx.notify({ title, body });
+  ctx.notify({ title: redactSensitiveText(title), body: redactSensitiveText(body) });
 }
 
 function notifyLong(ctx, title, body) {
-  const text = String(body || '').trim();
+  const text = redactSensitiveText(body).trim();
   if (!text) return;
   const chunks = wrapText(text, 180).slice(0, 4);
   if (chunks.length <= 1) {
@@ -1259,7 +1830,9 @@ function commandResultError(result) {
 }
 
 function logMessage(ctx, level, message, detail = '') {
-  const line = `[${REPORT_TITLE}] ${message}${detail ? `: ${detail}` : ''}`;
+  const safeMessage = redactSensitiveText(message);
+  const safeDetail = redactSensitiveText(detail);
+  const line = '[' + REPORT_TITLE + '] ' + safeMessage + (safeDetail ? ': ' + safeDetail : '');
   try {
     if (level === 'error') console.error(line);
     else console.log(line);
@@ -1272,7 +1845,7 @@ function logMessage(ctx, level, message, detail = '') {
 function htmlResponse(ctx, status, title, lines) {
   const bodyLines = (Array.isArray(lines) ? lines : [lines])
     .filter((line) => line !== undefined && line !== null)
-    .map((line) => `<p>${escapeHtml(line)}</p>`)
+    .map((line) => `<p>${escapeHtml(redactSensitiveText(line))}</p>`)
     .join('\n');
   const body = `<!doctype html>
 <html lang="zh-CN">
@@ -1328,7 +1901,7 @@ async function handleDeviceHttpRequest(ctx) {
       ]);
     } catch (error) {
       return htmlResponse(ctx, 400, 'PO0 Egern Device', [
-        error?.message || String(error),
+        redactError(error, ctx?.env || {}),
         '示例: http://po0-egern.local/set-device?id=iphone15pm',
       ]);
     }
@@ -1372,7 +1945,7 @@ async function handleDeviceSetupScript(ctx, env) {
   } catch (error) {
     return widgetPanel(REPORT_TITLE, [
       '设备: 未设置',
-      error?.message || String(error),
+      redactError(error, env),
       '请在 DEVICE_ID_SETUP 填入如 iphone15pm 后再运行本脚本。',
     ], false, ctx);
   }
@@ -1505,6 +2078,65 @@ function validateReportConfig(env, deviceId = '') {
   return targets;
 }
 
+function workerConfigRequested(env) {
+  const requiredKeys = [
+    'PO0_HOST',
+    'PO0_PASSWORD',
+    'PO0_PRIVATE_KEY',
+    'PO0_PASSPHRASE',
+    'SSH_REPORT_TOKEN',
+    'SSH_REPORT_TARGETS',
+  ];
+  if (requiredKeys.some((key) => String(env?.[key] ?? '').trim() !== '')) return true;
+  return [
+    'PO0_PORT',
+    'PO0_USER',
+    'PO0_SCRIPT',
+    'SSH_REPORT_SOURCE',
+    'REPORT_IDENTITY',
+    'TTL_SECONDS',
+  ].some((key) => {
+    const value = String(env?.[key] ?? '').trim();
+    const schemaDefault = String(MODULE_DEFAULT_ENV_VALUES[key] ?? '').trim();
+    return value !== '' && value !== schemaDefault;
+  });
+}
+
+function validateReportChannels(env, deviceId = '') {
+  const officialRequested = officialTokensConfigured(env);
+  const workerRequested = workerConfigRequested(env);
+  let officialTokens = [];
+  let officialError = null;
+  let workerTargets = [];
+  let workerError = null;
+
+  if (officialRequested) {
+    try {
+      officialTokens = parseOfficialTokens(env?.PO0_FIREWALL_TOKENS);
+    } catch (error) {
+      officialError = error;
+    }
+  }
+  if (workerRequested) {
+    try {
+      workerTargets = validateReportConfig(env, deviceId);
+    } catch (error) {
+      workerError = error;
+    }
+  }
+
+  return {
+    officialRequested,
+    officialTokens,
+    officialError,
+    workerRequested,
+    workerTargets,
+    workerError,
+    anyRequested: officialRequested || workerRequested,
+    anyValid: officialTokens.length > 0 || workerTargets.length > 0,
+  };
+}
+
 function reportConfigAuthSummary(targets) {
   const keyCount = targets.filter((target) => String(target.privateKey || '').trim()).length;
   const passwordCount = targets.length - keyCount;
@@ -1517,21 +2149,33 @@ function reportConfigAuthSummary(targets) {
 async function handleReportConfigSaveScript(ctx, runtimeEnv, storedValues, deviceId) {
   try {
     const candidate = reportConfigSaveCandidate(storedValues, runtimeEnv);
-    const targets = validateReportConfig(candidate, deviceId);
+    const channels = validateReportChannels(candidate, deviceId);
+    if (!channels.anyRequested || !channels.anyValid) {
+      throw channels.officialError || channels.workerError || new Error('至少配置一个可用的 PO0 上报通道。');
+    }
+    if (channels.officialError) throw channels.officialError;
+    if (channels.workerError) throw channels.workerError;
     await saveReportConfig(ctx, candidate);
-    const summary = `${targets.length} 个目标，${reportConfigAuthSummary(targets)}`;
+    const summaryParts = [];
+    if (channels.workerTargets.length > 0) {
+      summaryParts.push(`${channels.workerTargets.length} 个 SSH 目标，${reportConfigAuthSummary(channels.workerTargets)}`);
+    }
+    if (channels.officialTokens.length > 0) {
+      summaryParts.push(`官方防火墙 ${channels.officialTokens.length} 个账号（内容不显示）`);
+    }
+    const summary = summaryParts.join('；');
     notify(ctx, 'PO0 Egern Config', `本机上报配置已保存：${summary}`);
     return widgetPanel(REPORT_TITLE, [
       `设备: ${deviceDisplayName(deviceId)}`,
       `已保存: ${summary}`,
-      '密码、私钥和 Token 仅写入本机 ctx.storage。',
+      '密码、私钥和 Token 仅写入本机 ctx.storage；运行状态不保存 Token。',
       '后续更换 Egern 配置时无需重新填写。',
     ], true, ctx);
   } catch (error) {
     return widgetPanel(REPORT_TITLE, [
       `设备: ${deviceDisplayName(deviceId)}`,
       '本机上报配置未保存。',
-      error?.message || String(error),
+      redactError(error, { ...(storedValues || {}), ...(runtimeEnv || {}) }),
       '请补齐模块环境变量后重新运行本脚本。',
     ], false, ctx);
   }
@@ -1541,6 +2185,7 @@ async function handleReportConfigClearScript(ctx) {
   await storageDelete(ctx, CONFIG_STORAGE_KEY);
   await storageDelete(ctx, STORAGE_KEY);
   await storageDelete(ctx, ERROR_STORAGE_KEY);
+  await storageDelete(ctx, OFFICIAL_STORAGE_KEY);
   notify(ctx, 'PO0 Egern Config', '本机上报配置已清除');
   return widgetPanel(REPORT_TITLE, [
     '本机 PO0 上报配置及最近状态已清除。',
@@ -1549,22 +2194,39 @@ async function handleReportConfigClearScript(ctx) {
   ], true, ctx);
 }
 
-function missingReportConfigState(deviceId, error) {
+async function handleOfficialConfigClearScript(ctx, storedValues) {
+  const next = { ...(storedValues || {}) };
+  delete next.PO0_FIREWALL_TOKENS;
+  if (Object.keys(next).length === 0) {
+    await storageDelete(ctx, CONFIG_STORAGE_KEY);
+  } else {
+    await saveReportConfig(ctx, next);
+  }
+  await storageDelete(ctx, OFFICIAL_STORAGE_KEY);
+  notify(ctx, 'PO0 Egern Config', '本机官方防火墙 token 已清除');
+  return widgetPanel(REPORT_TITLE, [
+    '本机官方防火墙 token 已清除。',
+    'SSH 上报配置和本机设备 ID 保留不变。',
+    '如需恢复，请填写 PO0_FIREWALL_TOKENS 后运行“保存本机 PO0 上报配置”。',
+  ], true, ctx);
+}
+
+function missingReportConfigState(deviceId, error, env = {}) {
   return {
     ok: false,
     skipped: true,
     skipType: 'missing-config',
     configured: false,
     deviceId,
-    error: error?.message || String(error || '本机未保存 PO0 上报配置'),
+    error: redactError(error, env) || '本机未保存 PO0 上报配置',
   };
 }
 
-function missingReportConfigPanel(ctx, deviceId, error) {
+function missingReportConfigPanel(ctx, deviceId, error, env = ctx?.env || {}) {
   return widgetPanel(REPORT_TITLE, [
     `设备: ${deviceDisplayName(deviceId)}`,
     '本机尚未保存 PO0 上报配置。',
-    error?.message || String(error || ''),
+    redactError(error, env),
     '请填写模块环境变量并运行“保存本机 PO0 上报配置”。',
     '定时和网络变化任务会保持静默，不会反复报错。',
   ], false, ctx);
@@ -1595,7 +2257,31 @@ async function reportToPO0(ctx, env, target, ip) {
   }
 }
 
-export default async function(ctx) {
+function officialFailureSummary(result) {
+  const entries = Array.isArray(result?.state?.entries) ? result.state.entries : [];
+  return entries
+    .filter((entry) => entry.status === 'error')
+    .map((entry) => {
+      const displaySlot = officialDisplaySlot(entry.slot);
+      const slot = displaySlot === null ? '' : `（槽位 ${displaySlot}）`;
+      return `官方账号 #${entry.ordinal || '?'}${slot}：${entry.error || '官方防火墙请求失败。'}`;
+    })
+    .join('；');
+}
+
+function officialUpdateSummary(result) {
+  const entries = Array.isArray(result?.state?.entries) ? result.state.entries : [];
+  return entries
+    .filter((entry) => entry.status === 'updated')
+    .map((entry) => {
+      const displaySlot = officialDisplaySlot(entry.slot);
+      const slot = displaySlot === null ? '' : `，槽位 ${displaySlot}`;
+      return `账号 #${entry.ordinal || '?'}${slot} 当前出口 ${entry.currentIp || '未知'}`;
+    })
+    .join('；');
+}
+
+async function runEgernReportUnlocked(ctx) {
   const deviceHttpResponse = await handleDeviceHttpRequest(ctx);
   if (deviceHttpResponse) return deviceHttpResponse;
 
@@ -1604,49 +2290,114 @@ export default async function(ctx) {
   if (isDeviceClearRun(ctx)) return await handleDeviceClearScript(ctx);
   if (isReportConfigClearRun(ctx)) return await handleReportConfigClearScript(ctx);
 
-  const startedAt = new Date();
-  const deviceId = await storedDeviceId(ctx);
+  const startedAt = new Date(officialNowMs());
+  let deviceId = '';
   let env = runtimeEnv;
   let policy = 'DIRECT';
   let notifySuccess = isManualRun(ctx);
   let notifyFailure = true;
+  let channels = {
+    officialRequested: false,
+    officialTokens: [],
+    officialError: null,
+    workerRequested: false,
+    workerTargets: [],
+    workerError: null,
+    anyRequested: false,
+    anyValid: false,
+  };
   let targets = [];
+  let officialResult = { active: false, ok: true, state: null, skipped: false, needsNotification: false };
   let ip = '';
   let ipProfile = { location: '', isp: '' };
-  let network = networkInfo(ctx);
+  let network = normalizeNetworkInfo(null);
   let cidrPrefix = 32;
   let reportedCidr = '';
 
   try {
+    deviceId = await storedDeviceId(ctx);
     const storedConfig = await storedReportConfig(ctx);
     if (isReportConfigSaveRun(ctx)) {
       return await handleReportConfigSaveScript(ctx, runtimeEnv, storedConfig.values, deviceId);
     }
-
     if (storedConfig.exists) {
       env = storedConfig.values;
-    } else {
-      try {
-        validateReportConfig(env, deviceId);
-      } catch (configError) {
-        if (isAutomaticReportRun(ctx)) {
-          return missingReportConfigState(deviceId, configError);
-        }
-        return missingReportConfigPanel(ctx, deviceId, configError);
-      }
+    }
+    if (isOfficialConfigClearRun(ctx)) {
+      return await handleOfficialConfigClearScript(ctx, storedConfig.values);
+    }
+
+    channels = validateReportChannels(env, deviceId);
+    if (!channels.anyRequested) {
+      const configError = channels.workerError || new Error('本机尚未配置 PO0 上报通道。');
+      if (isAutomaticReportRun(ctx)) return missingReportConfigState(deviceId, configError, env);
+      return missingReportConfigPanel(ctx, deviceId, configError, env);
+    }
+    if (!channels.anyValid && !channels.officialRequested) {
+      const configError = channels.workerError || new Error('本机 PO0 SSH 上报配置无效。');
+      if (isAutomaticReportRun(ctx)) return missingReportConfigState(deviceId, configError, env);
+      return missingReportConfigPanel(ctx, deviceId, configError, env);
+    }
+    if (!storedConfig.exists && channels.anyValid && !channels.officialError && !channels.workerError) {
       await saveReportConfig(ctx, env);
     }
 
     policy = env.POLICY || 'DIRECT';
     notifySuccess = boolEnv(env.NOTIFY_SUCCESS, false) || isManualRun(ctx);
     notifyFailure = boolEnv(env.NOTIFY_FAILURE, true) || isManualRun(ctx);
-    targets = parseTargets(env, deviceId);
+    targets = channels.workerTargets;
     network = networkInfo(ctx);
     const wifiSsidSkip = ssidSkipDecision(ctx, env, network);
     if (wifiSsidSkip.skip) {
       const state = await buildWifiSsidSkippedState(ctx, targets, network, deviceId, wifiSsidSkip);
+      if (channels.officialRequested) state.official = await storedOfficialState(ctx);
       await storageSet(ctx, STORAGE_KEY, JSON.stringify(state));
-      logMessage(ctx, 'info', '跳过 SSH 上报', state.skipReason);
+      logMessage(ctx, 'info', '跳过本轮上报', state.skipReason);
+      return shouldReturnWidget(ctx) ? widgetFromState(state, ctx, deviceId, env) : state;
+    }
+
+    if (channels.officialRequested) {
+      const officialMode = isStatusRun(ctx) || isWidgetRun(ctx) ? 'status' : 'report';
+      try {
+        officialResult = channels.officialError
+          ? officialConfigErrorState(channels.officialError, officialMode, await storedOfficialState(ctx))
+          : await runOfficialFirewall(ctx, env, officialMode);
+      } catch (error) {
+        officialResult = officialConfigErrorState(error, officialMode, null);
+      }
+    }
+
+    const workerFailures = [];
+    if (channels.workerError) workerFailures.push('SSH 上报配置无效。');
+
+    if (targets.length === 0 || isOfficialStatusRun(ctx)) {
+      const officialState = officialResult.state || null;
+      const officialIp = officialState?.currentIp || '';
+      const state = {
+        ok: Boolean(officialResult.ok) && workerFailures.length === 0,
+        ip: officialIp.replace(/\/24$/, ''),
+        reportedCidr: officialIp,
+        cidrPrefix: 24,
+        ipProfile,
+        network,
+        at: startedAt.toISOString(),
+        checkedAt: officialState?.checkedAt || startedAt.toISOString(),
+        deviceId,
+        targetCount: 0,
+        successCount: 0,
+        failureCount: (officialResult.ok ? 0 : 1) + workerFailures.length,
+      };
+      if (channels.officialRequested) state.official = officialState;
+      const officialError = officialFailureSummary(officialResult);
+      const errors = [officialError, ...workerFailures].filter(Boolean);
+      if (errors.length > 0) state.error = errors.join('；');
+      await storageSet(ctx, STORAGE_KEY, JSON.stringify(state));
+      if (!state.ok) {
+        await storageSet(ctx, ERROR_STORAGE_KEY, state.error || '官方防火墙上报失败。');
+        if (notifyFailure) notifyLong(ctx, REPORT_FAILED_TITLE, state.error || '官方防火墙上报失败。');
+      } else if (officialResult.needsNotification) {
+        notify(ctx, REPORT_TITLE, `官方防火墙已更新：${officialUpdateSummary(officialResult)}`);
+      }
       return shouldReturnWidget(ctx) ? widgetFromState(state, ctx, deviceId, env) : state;
     }
 
@@ -1682,6 +2433,7 @@ export default async function(ctx) {
         ipProfile,
         deviceId,
       };
+      if (channels.officialRequested) state.official = officialResult.state || await storedOfficialState(ctx);
       await storageSet(ctx, STORAGE_KEY, JSON.stringify(state));
       logMessage(ctx, 'info', '跳过 SSH 上报', state.skipReason);
       return state;
@@ -1704,12 +2456,12 @@ export default async function(ctx) {
           cidrPrefix: target.cidrPrefix,
           reportedCidr: target.reportedCidr,
           expiresAt: new Date(startedAt.getTime() + Math.max(60, target.ttlSeconds) * 1000).toISOString(),
-          output: String(output || '').trim(),
+          output: redactSensitiveText(String(output || '').trim(), [target.token]),
         };
         results.push(report);
         targetReports.push(report);
       } catch (error) {
-        const errorText = error?.message || String(error);
+        const errorText = redactError(error, env, channels, [target]);
         logMessage(ctx, 'error', `${targetName(target)} 失败`, errorText);
         const report = {
           ok: false,
@@ -1725,8 +2477,13 @@ export default async function(ctx) {
       }
     }
 
+    if (channels.workerError) {
+      failures.push({ error: 'SSH 上报配置无效。' });
+    }
+    const officialError = officialFailureSummary(officialResult);
+    const overallFailure = failures.length > 0 || Boolean(officialResult.active && !officialResult.ok);
     const state = {
-      ok: failures.length === 0,
+      ok: !overallFailure,
       sourceId: targets.map((target) => target.sourceId).join(','),
       ip,
       reportedCidr,
@@ -1739,26 +2496,39 @@ export default async function(ctx) {
       deviceId,
       targetCount: targets.length,
       successCount: results.length,
-      failureCount: failures.length,
+      failureCount: failures.length + (officialResult.active && !officialResult.ok ? 1 : 0),
       targetConfigSignature: targetConfigSignatures(targets),
       targets: targetReports,
     };
+    if (channels.officialRequested) state.official = officialResult.state || await storedOfficialState(ctx);
+    const errorParts = [officialError, ...failures.map((failure) => failure.error)].filter(Boolean);
+    if (errorParts.length > 0) state.error = errorParts.join('；');
     await storageSet(ctx, STORAGE_KEY, JSON.stringify(state));
 
-    if (failures.length > 0) {
-      const errorSummary = failures.map((failure) => `${targetName(failure)}: ${failure.error}`).join('; ');
+    if (overallFailure) {
+      const workerErrorSummary = failures
+        .filter((failure) => failure.sourceId || failure.host)
+        .map((failure) => `${targetName(failure)}: ${failure.error}`)
+        .join('; ');
+      const errorSummary = [officialError, workerErrorSummary, channels.workerError ? 'SSH 上报配置无效。' : '']
+        .filter(Boolean)
+        .join('；') || '本轮上报未完成。';
       await storageSet(ctx, ERROR_STORAGE_KEY, errorSummary);
       if (notifyFailure) {
-        notifyLong(ctx, REPORT_FAILED_TITLE, `${ip}: ${results.length}/${targets.length} 成功；${errorSummary}`);
+        notifyLong(ctx, REPORT_FAILED_TITLE, `${ip || officialResult.state?.currentIp || '当前出口'}：${results.length}/${targets.length} 个 SSH 目标完成；${errorSummary}`);
       }
       return shouldReturnWidget(ctx) ? widgetFromState(state, ctx, deviceId, env) : state;
     }
 
+    if (officialResult.needsNotification) {
+      notify(ctx, REPORT_TITLE, `官方防火墙已更新：${officialUpdateSummary(officialResult)}`);
+    }
     if (notifySuccess) {
       notify(ctx, REPORT_TITLE, `${ip}: ${results.length}/${targets.length} 个 PO0 已更新`);
     }
     return shouldReturnWidget(ctx) ? widgetFromState(state, ctx, deviceId, env) : state;
   } catch (error) {
+    const errorText = redactError(error, env, channels, targets) || '本轮上报未完成。';
     const state = {
       ok: false,
       sourceId: targets.map((target) => target.sourceId).join(',') || String(env.SSH_REPORT_SOURCE || 'egern').trim() || 'egern',
@@ -1773,8 +2543,9 @@ export default async function(ctx) {
       targetCount: targets.length,
       successCount: 0,
       failureCount: targets.length || 1,
-      error: error?.message || String(error),
+      error: errorText,
     };
+    if (officialResult.active && officialResult.state) state.official = officialResult.state;
     await storageSet(ctx, STORAGE_KEY, JSON.stringify(state));
     await storageSet(ctx, ERROR_STORAGE_KEY, state.error);
     logMessage(ctx, 'error', '运行失败', state.error);
@@ -1784,6 +2555,56 @@ export default async function(ctx) {
     if (shouldReturnWidget(ctx)) {
       return widgetFromState(state, ctx, deviceId, env);
     }
-    throw error;
+    throw new Error(errorText);
+  }
+}
+
+function reportLockBypass(ctx) {
+  const requestUrl = parseRequestUrl(ctx);
+  const isDeviceRequest = requestUrl
+    && requestUrl.protocol === 'http:'
+    && requestUrl.hostname === 'po0-egern.local';
+  return Boolean(isDeviceRequest)
+    || isDeviceSetupRun(ctx)
+    || isDeviceClearRun(ctx)
+    || isReportConfigSaveRun(ctx)
+    || isReportConfigClearRun(ctx)
+    || isOfficialConfigClearRun(ctx);
+}
+
+export default async function(ctx) {
+  if (reportLockBypass(ctx)) return runEgernReportUnlocked(ctx);
+  const mode = isStatusRun(ctx) || isWidgetRun(ctx)
+    ? 'status'
+    : isManualRun(ctx)
+      ? 'manual'
+      : 'scheduled';
+  let lock;
+  try {
+    lock = await acquireReportLock(ctx, mode, officialNowMs());
+  } catch (error) {
+    return {
+      ok: false,
+      status: 'lock-error',
+      error: redactError(error, ctx?.env || {}) || '上报锁操作失败。',
+    };
+  }
+  if (!lock) {
+    const current = sanitizedStoredState(await storageGet(ctx, STORAGE_KEY)) || {};
+    return {
+      ...current,
+      ok: false,
+      status: 'busy',
+      error: '已有另一项上报或状态检查正在进行，本次未重复执行。',
+    };
+  }
+  try {
+    return await runEgernReportUnlocked(ctx);
+  } finally {
+    try {
+      await releaseReportLock(ctx, lock);
+    } catch (error) {
+      logMessage(ctx, 'error', '释放上报锁失败', redactError(error, ctx?.env || {}));
+    }
   }
 }

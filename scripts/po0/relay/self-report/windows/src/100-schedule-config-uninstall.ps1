@@ -52,6 +52,9 @@ function Show-ClientConfig {
     Write-PanelRow "来源 ID" $script:SourceId
     Write-PanelRow "设备备注" $script:Identity
     Write-PanelRow "上报密钥" (Get-MaskedSecret $script:Secret)
+    Write-PanelRow "PO0 官方防火墙" (Get-Po0FirewallTokenSummary)
+    Write-PanelRow "官方防火墙状态" (Get-Po0FirewallDashboardSummary)
+    Write-PanelRow "官方防火墙 due" (Get-Po0FirewallDueSummary)
     Write-PanelRow "HTTP 上报" $(if ($script:AllowHttp) { "已显式允许" } else { "默认拒绝" })
     Write-PanelRow "上报间隔" ("每 {0} 秒（安装定时上报时使用）" -f (Get-IntervalSeconds))
     Write-PanelRow "跳过 Wi-Fi SSID" (Format-WifiSsidPolicyList -Ssids $script:SkipWifiSsids)
@@ -85,6 +88,9 @@ function Show-ClientDashboard {
     Write-PanelRow "来源 ID" $script:SourceId
     Write-PanelRow "设备备注" $script:Identity
     Write-PanelRow "运行日志" (Get-DefaultLogPath)
+    Write-PanelRow "PO0 官方防火墙" (Get-Po0FirewallTokenSummary)
+    Write-PanelRow "官方防火墙状态" (Get-Po0FirewallDashboardSummary)
+    Write-PanelRow "官方防火墙 due" (Get-Po0FirewallDueSummary)
     Write-PanelRow "跳过 Wi-Fi SSID" (Format-WifiSsidPolicyList -Ssids $script:SkipWifiSsids)
     Write-PanelRow "当前 Wi-Fi SSID" (Format-CurrentWifiSsidStatus)
     Write-NotifyStatusRows
@@ -93,8 +99,19 @@ function Show-ClientDashboard {
 }
 
 function Set-ClientConfigInteractive {
-    $script:WorkerUrl = Read-Default "LAN Worker self-report HTTPS 接收地址（域名或 https://域名/report）" $(if ($script:WorkerUrl) { $script:WorkerUrl } else { "https://report.example.com/report" })
-    $script:WorkerUrl = Normalize-WorkerUrl $script:WorkerUrl
+    $workerDefault = $(if ($script:WorkerUrl) { $script:WorkerUrl } else { "" })
+    $workerPrompt = "LAN Worker self-report HTTPS 接收地址（可空；输入 - 清空）"
+    if ($workerDefault) { $workerPrompt = "{0} [{1}]" -f $workerPrompt, $workerDefault }
+    $workerInput = Read-Host $workerPrompt
+    if ($null -ne $workerInput -and $workerInput.Trim() -eq "-") {
+        $script:WorkerUrl = ""
+    } elseif ($null -ne $workerInput -and $workerInput.Trim()) {
+        $script:WorkerUrl = Normalize-WorkerUrl $workerInput
+    } elseif ($workerDefault) {
+        $script:WorkerUrl = Normalize-WorkerUrl $workerDefault
+    } else {
+        $script:WorkerUrl = ""
+    }
     if ($script:WorkerUrl -match "^http://" -and -not $script:AllowHttp) {
         $confirmHttp = Read-Host "检测到 http:// 地址。仅本地调试/旧环境才允许，是否继续允许 HTTP [y/N]"
         if ($confirmHttp -match "^(y|yes)$") {
@@ -103,7 +120,12 @@ function Set-ClientConfigInteractive {
             throw "已拒绝 HTTP。请改用 https://域名/report。"
         }
     }
-    Assert-WorkerUrl
+    Read-Po0FirewallTokensInteractive
+    if ($script:WorkerUrl) {
+        Assert-WorkerUrl
+    } elseif (-not (Test-Po0FirewallConfigured)) {
+        throw "至少配置 LAN Worker URL 或 PO0 官方防火墙 token。"
+    }
     $script:SourceId = Read-Default "来源 ID" $script:SourceId
     $script:Identity = Read-Default "设备备注" $script:Identity
     Read-SecretSetting
@@ -138,6 +160,10 @@ function Show-ScheduledReporter {
     Write-PanelSection "PO0 Outbound IP Report 定时上报"
     Write-PanelRow "配置文件" $script:ConfigPath
     Write-PanelRow "暂停状态" $(if ($script:SchedulePaused) { "已暂停（手动立即上报仍可用）" } else { "未暂停" })
+    Write-PanelRow "PO0 官方防火墙" (Get-Po0FirewallTokenSummary)
+    Write-PanelRow "官方防火墙状态" (Get-Po0FirewallDashboardSummary)
+    Write-PanelRow "官方防火墙 due" (Get-Po0FirewallDueSummary)
+    Write-PanelRow "计划任务唤醒" ("每 {0} 分钟" -f (Get-Po0FirewallWakeIntervalMinutes))
     Write-PanelRow "跳过 Wi-Fi SSID" (Format-WifiSsidPolicyList -Ssids $script:SkipWifiSsids)
     Write-PanelRow "当前 Wi-Fi SSID" (Format-CurrentWifiSsidStatus)
     try {
@@ -312,6 +338,8 @@ function Uninstall-SelfReportClient {
         if ($legacyLogPath -ne $logPath) {
             if (-not (Remove-SelfReportPathIfExists -Label "旧日志文件" -Path $legacyLogPath)) { $ok = $false }
         }
+        if (-not (Remove-SelfReportPathIfExists -Label "官方防火墙状态" -Path (Get-Po0FirewallStatePath))) { $ok = $false }
+        if (-not (Remove-SelfReportPathIfExists -Label "LAN Worker due 状态" -Path (Get-Po0WorkerDueStatePath))) { $ok = $false }
         if (-not (Remove-SelfReportPathIfExists -Label "IP 探测状态" -Path (Get-IpCheckStatePath))) { $ok = $false }
         if (-not (Remove-SelfReportPathIfExists -Label "旧 IP 探测状态" -Path (Get-LegacyIpCheckStatePath))) { $ok = $false }
     } else {

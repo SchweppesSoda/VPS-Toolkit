@@ -84,7 +84,8 @@ function Get-ScheduledReporterTaskArgumentList {
         "-File", (Quote-TaskArg $ScriptPath),
         "-ConfigPath", (Quote-TaskArg $script:ConfigPath),
         "-LogPath", (Quote-TaskArg $script:LogPath),
-        "-RunOnce"
+        "-RunOnce",
+        "-ScheduledRun"
     )
     if ($script:TaskNotify) {
         $taskArgList += "-Notify"
@@ -229,6 +230,43 @@ function Format-LegacyScheduledReporterTaskNames {
     return ($script:LegacyTaskNames -join ", ")
 }
 
+function Test-ScheduledReporterTaskWakeInterval {
+    param($Task)
+    if (-not $Task) { return $false }
+    $triggersProperty = $Task.PSObject.Properties["Triggers"]
+    if (-not $triggersProperty) { return $true }
+    $triggers = @($triggersProperty.Value)
+    if ($triggers.Count -eq 0) { return $false }
+    $expectedSeconds = [int](Get-Po0FirewallWakeIntervalMinutes) * 60
+    foreach ($trigger in $triggers) {
+        $interval = $null
+        $repetitionProperty = $trigger.PSObject.Properties["Repetition"]
+        if ($repetitionProperty -and $repetitionProperty.Value) {
+            $intervalProperty = $repetitionProperty.Value.PSObject.Properties["Interval"]
+            if ($intervalProperty) { $interval = $intervalProperty.Value }
+        }
+        if ($null -eq $interval) {
+            $directProperty = $trigger.PSObject.Properties["RepetitionInterval"]
+            if ($directProperty) { $interval = $directProperty.Value }
+        }
+        if ($null -eq $interval) { continue }
+        try {
+            try {
+                if ($interval -is [TimeSpan]) {
+                    $parsedInterval = $interval
+                } else {
+                    $parsedInterval = [TimeSpan]::Parse([string]$interval)
+                }
+            } catch {
+                $parsedInterval = [System.Xml.XmlConvert]::ToTimeSpan([string]$interval)
+            }
+            $seconds = [int]$parsedInterval.TotalSeconds
+            if ($seconds -eq $expectedSeconds) { return $true }
+        } catch {}
+    }
+    return $false
+}
+
 function Test-ScheduledReporterTaskCurrent {
     param(
         $Task,
@@ -249,6 +287,7 @@ function Test-ScheduledReporterTaskCurrent {
     if (-not (Test-SamePath $notifyState.ScriptPath $ScriptPath)) { return $false }
     if ($notifyState.IsUnknown) { return $false }
     if ([bool]$notifyState.ActualNotify -ne [bool]$script:TaskNotify) { return $false }
+    if (-not (Test-ScheduledReporterTaskWakeInterval -Task $Task)) { return $false }
     return $true
 }
 
@@ -359,7 +398,7 @@ function Update-ScheduledReporterLauncherForExistingTask {
         $registerParams = @{
             TaskName = $script:TaskName
             Action = $action
-            Trigger = $task.Triggers
+            Trigger = (New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes (Get-Po0FirewallWakeIntervalMinutes)) -RepetitionDuration (New-TimeSpan -Days 3650))
             Description = $description
             Force = $true
         }
@@ -376,7 +415,14 @@ function Update-ScheduledReporterLauncherForExistingTask {
         }
         return "migrated"
     } else {
-        Set-ScheduledTask -TaskName $script:TaskName -Action $action | Out-Null
+        $setParams = @{
+            TaskName = $script:TaskName
+            Action = $action
+        }
+        if ($task.PSObject.Properties["Triggers"] -and $task.Triggers) {
+            $setParams.Trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes (Get-Po0FirewallWakeIntervalMinutes)) -RepetitionDuration (New-TimeSpan -Days 3650)
+        }
+        Set-ScheduledTask @setParams | Out-Null
         return "refreshed"
     }
 }
@@ -657,7 +703,11 @@ function Install-ScheduledReporter {
         Import-ScheduledReporterTaskSettings -Task $existingRecord.Task
         Load-SavedConfig
     }
-    Assert-WorkerUrl
+    if ($script:WorkerUrl) {
+        Assert-WorkerUrl
+    } elseif (-not (Test-Po0FirewallConfigured)) {
+        throw "没有配置可执行的上报通道。"
+    }
     Assert-Minutes
     $dir = Get-DefaultDataDir
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
@@ -683,7 +733,7 @@ function Install-ScheduledReporter {
     $launcher = Get-DefaultTaskLauncherPath
     Write-ScheduledReporterTaskLauncher -LauncherPath $launcher -ScriptPath $dest | Out-Null
     $action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument ("//B //Nologo " + (Quote-TaskArg $launcher))
-    $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes $script:Minutes) -RepetitionDuration (New-TimeSpan -Days 3650)
+    $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes (Get-Po0FirewallWakeIntervalMinutes)) -RepetitionDuration (New-TimeSpan -Days 3650)
     $description = "Report outbound IPv4."
     $registerParams = @{
         TaskName = $script:TaskName
@@ -706,7 +756,7 @@ function Install-ScheduledReporter {
         }
     }
     Cleanup-LegacySelfReportArtifacts | Out-Null
-    Write-Host ("已安装计划任务：{0}，每 {1} 秒执行一次。" -f $script:TaskName, (Get-IntervalSeconds))
+    Write-Host ("已安装计划任务：{0}，每 {1} 分钟唤醒；LAN Worker 仍按 {2} 秒 due。" -f $script:TaskName, (Get-Po0FirewallWakeIntervalMinutes), (Get-IntervalSeconds))
     Write-Host "脚本路径：$dest"
     Write-Host "计划任务启动文件：$launcher"
     Write-Host "配置文件：$script:ConfigPath"
@@ -715,6 +765,6 @@ function Install-ScheduledReporter {
     if ($script:SchedulePaused) {
         Write-SelfReportCompleted "计划任务已安装 / 更新，但当前保持暂停。"
     } else {
-        Write-SelfReportCompleted "计划任务已安装 / 更新：$script:TaskName；间隔：$(Get-IntervalSeconds) 秒；通知：$(Format-NotifyStatus)；脚本路径：$dest；日志路径：$script:LogPath。"
+        Write-SelfReportCompleted "计划任务已安装 / 更新：$script:TaskName；唤醒：$(Get-Po0FirewallWakeIntervalMinutes) 分钟；LAN Worker due：$(Get-IntervalSeconds) 秒；通知：$(Format-NotifyStatus)；脚本路径：$dest；日志路径：$script:LogPath。"
     }
 }

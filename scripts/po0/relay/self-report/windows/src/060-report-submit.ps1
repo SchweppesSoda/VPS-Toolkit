@@ -32,31 +32,11 @@ function Format-SelfReportTargetSuccessSummary {
     return ("PO0 目标：{0} 个" -f $count)
 }
 
-function Invoke-SelfReport {
-    param([switch]$PromptForForceOnSkip)
+function Invoke-WorkerSelfReportCore {
     Assert-WorkerUrl
-    if (-not $script:ForceReport) {
-        $wifiState = Get-WifiSsidPolicyState
-        if ($wifiState.Enabled -and -not $wifiState.ReadSucceeded) {
-            Write-SelfReportLogLine "WARN" "Wi-Fi SSID 读取失败，按 fail-open 继续上报：$($wifiState.Error)"
-        } elseif ($wifiState.Matched) {
-            if ($PromptForForceOnSkip) {
-                Write-Host "当前 Wi-Fi SSID `"$($wifiState.MatchedSsid)`" 命中跳过上报规则。"
-                if (Read-YesNoDefault "是否强制上报一次" $false) {
-                    Write-SelfReportLogLine "INFO" "手动菜单已确认强制上报，忽略 Wi-Fi SSID 跳过规则：$($wifiState.MatchedSsid)"
-                } else {
-                    Write-SelfReportSkippedForWifiSsid -State $wifiState
-                    return
-                }
-            } else {
-                Write-SelfReportSkippedForWifiSsid -State $wifiState
-                return
-            }
-        }
-    }
-    Add-Type -AssemblyName System.Web -ErrorAction SilentlyContinue
     $ip = Get-OutboundIPv4
-    $builder = [System.UriBuilder]::new($script:WorkerUrl)
+    Add-Type -AssemblyName System.Web -ErrorAction SilentlyContinue
+    $builder = New-Object System.UriBuilder -ArgumentList $script:WorkerUrl
     $query = [System.Web.HttpUtility]::ParseQueryString($builder.Query)
     $query["source"] = $script:SourceId
     $query["ip"] = $ip
@@ -75,7 +55,7 @@ function Invoke-SelfReport {
     }
     if ($content) {
         $trimmedContent = $content.TrimEnd()
-        Write-Output $trimmedContent
+        Write-Host $trimmedContent
         Write-SelfReportLogLine "RESPONSE" $trimmedContent
         $responseSummary = Get-SelfReportResponseSummary -Content $trimmedContent
     }
@@ -85,6 +65,162 @@ function Invoke-SelfReport {
         $message = "$message；$targetSummary"
     }
     $message = "$message。"
-    Write-SelfReportCompleted $message
-    Show-WindowsSelfReportNotification -Title "PO0 Outbound IP Report 已完成" -Message $message -Kind "Info"
+    return [pscustomobject]@{
+        Succeeded = $true
+        Ip = $ip
+        Message = $message
+    }
+}
+
+function Invoke-SelfReportCore {
+    param([switch]$PromptForForceOnSkip)
+
+    if ($script:Po0FirewallStatusOnly) {
+        if ($script:Po0FirewallOfficialOnly -or $script:Po0FirewallWorkerOnly) {
+            throw "-OfficialStatus 不能与 -OfficialOnly / -WorkerOnly 同时使用。"
+        }
+        $statusResult = Invoke-Po0FirewallReport -Mode "status"
+        if ($statusResult.Message) { Write-Host $statusResult.Message }
+        if (-not $statusResult.Succeeded) {
+            throw $statusResult.Message
+        }
+        return
+    }
+
+    if ($script:Po0FirewallOfficialOnly -and $script:Po0FirewallWorkerOnly) {
+        throw "-OfficialOnly 与 -WorkerOnly 不能同时使用。"
+    }
+
+    $forceThisRun = [bool]$script:Po0FirewallForce
+    if (-not $forceThisRun) {
+        $wifiState = Get-WifiSsidPolicyState
+        if ($wifiState.Enabled -and -not $wifiState.ReadSucceeded) {
+            Write-SelfReportLogLine "WARN" "Wi-Fi SSID 读取失败，按 fail-open 继续上报：$($wifiState.Error)"
+        } elseif ($wifiState.Matched) {
+            if ($PromptForForceOnSkip) {
+                Write-Host ("当前 Wi-Fi SSID ""{0}"" 命中跳过上报规则。" -f $wifiState.MatchedSsid)
+                if (Read-YesNoDefault "是否强制上报一次" $false) {
+                    $forceThisRun = $true
+                    Write-SelfReportLogLine "INFO" "手动菜单已确认强制上报，忽略 Wi-Fi SSID 跳过规则：$($wifiState.MatchedSsid)"
+                } else {
+                    Write-SelfReportSkippedForWifiSsid -State $wifiState
+                    return
+                }
+            } else {
+                Write-SelfReportSkippedForWifiSsid -State $wifiState
+                return
+            }
+        }
+    }
+
+    $officialActive = (-not $script:Po0FirewallWorkerOnly) -and (Test-Po0FirewallConfigured)
+    $workerActive = (-not $script:Po0FirewallOfficialOnly) -and [bool]$script:WorkerUrl
+    if (-not $officialActive -and -not $workerActive) {
+        throw "没有配置可执行的上报通道。"
+    }
+    if ($officialActive -and $script:Po0FirewallOfficialOnly -and -not (Test-Po0FirewallConfigured)) {
+        throw "PO0 官方防火墙未启用（默认关闭）。"
+    }
+    if ($workerActive) {
+        Assert-WorkerUrl
+    }
+    Assert-Minutes
+
+    $successCount = 0
+    $failureCount = 0
+    $skippedCount = 0
+    $officialResult = $null
+    $workerResult = $null
+
+    if ($officialActive) {
+        $officialDue = (-not $script:Po0FirewallScheduledRun) -or $forceThisRun -or (Test-Po0FirewallDue)
+        if ($officialDue) {
+            $officialResult = Invoke-Po0FirewallReport -Mode "report"
+            if ($officialResult.Succeeded) {
+                $successCount++
+            } else {
+                $failureCount++
+            }
+        } else {
+            $skippedCount++
+        }
+    }
+
+    if ($workerActive) {
+        $workerDue = (-not $script:Po0FirewallScheduledRun) -or $forceThisRun -or (Test-Po0WorkerDue)
+        if ($workerDue) {
+            try {
+                Mark-Po0WorkerAttempt
+                $workerResult = Invoke-WorkerSelfReportCore
+                if ($workerResult.Succeeded) {
+                    $successCount++
+                } else {
+                    $failureCount++
+                }
+            } catch {
+                $failureCount++
+                $workerResult = [pscustomobject]@{
+                    Succeeded = $false
+                    Ip = ""
+                    Message = "LAN Worker 通道失败。"
+                }
+                Write-SelfReportLogLine "ERROR" "LAN Worker 通道失败。"
+            }
+        } else {
+            $skippedCount++
+        }
+    }
+
+    $messages = New-Object System.Collections.Generic.List[string]
+    if ($officialResult -and $officialResult.Message) {
+        $messages.Add([string]$officialResult.Message)
+    }
+    if ($workerResult -and $workerResult.Message) {
+        $messages.Add([string]$workerResult.Message)
+    }
+
+    if ($failureCount -gt 0) {
+        if ($successCount -gt 0) {
+            $summary = "官方防火墙与 LAN Worker 上报部分完成；成功 $successCount 路，失败 $failureCount 路。"
+        } else {
+            $summary = "官方防火墙与 LAN Worker 上报均未完成。"
+        }
+        if ($messages.Count -gt 0) {
+            $summary = "$summary $($messages -join "；")"
+        }
+        throw $summary
+    }
+    if ($successCount -eq 0 -and $skippedCount -gt 0) {
+        Write-SelfReportCompleted "本次定时唤醒没有到达通道 due，未发起请求。"
+        return
+    }
+
+    if ($officialActive -and $workerActive) {
+        $completed = "官方防火墙与 LAN Worker 上报均已完成。"
+    } elseif ($officialActive) {
+        $completed = "官方防火墙上报已完成。"
+    } else {
+        $completed = "LAN Worker 上报已完成。"
+    }
+    if ($messages.Count -gt 0) {
+        $completed = "$completed $($messages -join "；")"
+    }
+    Write-SelfReportCompleted $completed
+
+
+    if ($officialResult -and $officialResult.NeedsNotify) {
+        Show-WindowsSelfReportNotification -Title "PO0 官方防火墙状态已更新" -Message "官方防火墙白名单状态已更新。" -Kind "Info"
+    }
+}
+
+function Invoke-SelfReport {
+    param([switch]$PromptForForceOnSkip)
+
+    $runMutex = $null
+    try {
+        $runMutex = Enter-Po0SelfReportMutex
+        Invoke-SelfReportCore -PromptForForceOnSkip:$PromptForForceOnSkip
+    } finally {
+        Exit-Po0SelfReportMutex -Mutex $runMutex
+    }
 }

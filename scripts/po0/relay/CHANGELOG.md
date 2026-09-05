@@ -6,6 +6,10 @@
 
 ## po0-nftables-relay-manager
 
+### 2026.09.05+build.1
+
+- 跟随 PO0 发布批次统一到 `2026.09.05+build.1`；manager 行为未变。
+
 ### 2026.08.30+build.5
 
 - 跟随 PO0 发布批次对齐到 2026.08.30+build.5；本脚本无行为变化。
@@ -225,6 +229,12 @@
 
 ## po0-lan-worker-client
 
+### 2026.09.05+build.1
+
+- 新增默认关闭的官方防火墙双通道：每个官方账号最多 5 个槽位，先 GET 读取状态，只有当前出口缺失或固定槽位不匹配时才 POST。
+- 官方 token 仅保存到权限 600 的设置文件，官方尝试固定每 600 秒一次，并与 DDNS、资源任务、WebAuth 和 Self-report 的原有计划独立。
+- 官方车道先执行且与原有车道分别记录结果；主 OpenWrt 才能通过 mwan3 绑定 wan1/wan2，普通 LAN Worker 继续使用本机默认出口。
+
 ### 2026.08.30+build.5
 
 - 跟随 PO0 发布批次对齐到 2026.08.30+build.5；LAN Worker 无行为变化。
@@ -439,6 +449,12 @@
 
 ## Egern SSH IP Report
 
+### 2026.09.05
+
+- 官方防火墙通道默认关闭；Egern 用 DIRECT 先 GET 查询当前出口、额度、白名单和固定槽位，仅缺失或槽位不符时才 POST，状态动作只读且不显示 token。
+- SSID 命中时官方和 SSH 两条车道一起跳过；强制运行只绕过本地 due/SSID guard，仍遵守官方 GET-first。官方检查固定 600 秒，与原有 SSH 上报周期/TTL 独立，失败可部分完成。
+- 指定 wan1/wan2 只属于主 OpenWrt 的 mwan3 绑定；实现参考 kelenetwork/po0fw（MIT），不绑定 Chicksure 专属服务。
+
 ### 2026-07-26
 
 - 新增 Egern 原生 `ctx.storage` 上报配置持久化，保存 PO0 目标、SSH 认证、report token、周期、SSID guard、IP 探测和通知选项；不依赖 BoxJS/Relay，换主配置后继续使用本机保存值。
@@ -455,7 +471,20 @@
 - 默认公网 IPv4 探测列表删除 12306 grip 接口，继续以 IP9 为首选并轮询其它国内接口和 `myip.ipip.net`。
 - 状态页 / Widget 优先复用 IP9、163、126、myip.ipip 等 IP 查询接口返回的归属地 / 运营商信息，拿不到时才额外查询。
 
+## po0-wan-probe（OpenWrt）
+
+### 2026.09.05+build.1
+
+- 跟随 PO0 发布批次对齐脚本版本；探针行为未变。
+- `po0-wan-probe.apk` 继续使用 `2026.08.30-r5`，不随 outbound APK 的版本 bump。
+
 ## po0-outbound-ip-report（Linux/OpenWrt）
+
+### 2026.09.05+build.1
+
+- 增加默认关闭的官方防火墙双通道：每个账号最多 5 个槽位，先 GET 读取状态，缺失或固定槽位不符才 POST；官方状态包含额度、当前出口和槽位，但不显示 token。
+- 官方尝试固定每 600 秒一次，普通 LAN Worker 上报继续使用自己的计划和 TTL；官方先执行，Linux/OpenWrt 两条结果独立，允许部分失败。
+- 访问设备命中 SSID 跳过列表时两条通道一起跳过；`--force-report` 只绕过本地 due/SSID guard。主 OpenWrt 才通过 mwan3 选择 wan1/wan2，普通 Linux 使用默认出口。
 
 ### 2026.08.30+build.5
 
@@ -697,6 +726,11 @@
 
 ## po0-outbound-ip-report（macOS）
 
+### 2026.09.05+build.1
+
+- 增加默认关闭的官方防火墙双通道；macOS 通过本机默认出口先 GET 状态，当前出口缺失或固定槽位不匹配时才 POST，官方固定 600 秒并与原有 SSH 上报周期/TTL 独立。
+- 自动 SSID 命中时官方和原有上报一起跳过；`--force-report` 只绕过本地 due/SSID guard，状态页仍只读 GET，失败可保留另一车道结果。
+
 ### 2026.08.30+build.5
 
 - 跟随 PO0 发布批次对齐到 2026.08.30+build.5；macOS 客户端无行为变化。
@@ -870,6 +904,11 @@
 - 支持 `--save-config --menu` 首次保存默认配置后打开菜单，并提供 `--install-launchd` 别名。
 
 ## po0-outbound-ip-report（Windows PowerShell）
+
+### 2026.09.05+build.1
+
+- 增加默认关闭的官方防火墙双通道；`-OfficialStatus` 只读 GET，正常运行先 GET，只有当前出口缺失或固定槽位不匹配时才 POST，账号最多 5 个槽位。
+- 官方固定每 600 秒一次并与 LAN Worker 的计划/TTL 独立；SSID 命中时两条通道一起跳过，`-ForceReport` 只绕过本地 due/SSID guard，Windows 继续使用默认出口。
 
 ### 2026.08.30+build.5
 

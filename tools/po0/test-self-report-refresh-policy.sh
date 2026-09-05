@@ -50,6 +50,8 @@ run_linux_cases() {
     # shellcheck source=/dev/null
     source "${repo_root}/scripts/po0/relay/self-report/linux/src/090-cron-schedule-management.sh"
     # shellcheck source=/dev/null
+    source "${repo_root}/scripts/po0/relay/self-report/linux/src/125-official-report.sh"
+    # shellcheck source=/dev/null
     source "${repo_root}/scripts/po0/relay/self-report/linux/src/120-schedule-status-control.sh"
 
     command -v linux_schedule_refresh_current >/dev/null 2>&1 || fail "missing linux_schedule_refresh_current"
@@ -80,6 +82,28 @@ run_linux_cases() {
 
     [[ "$(cron_begin_marker)" == "# OUTBOUND_IP_REPORT_BEGIN ${CONFIG_FILE}" ]] || fail "linux cron begin marker should be simple"
     [[ "$(cron_end_marker)" == "# OUTBOUND_IP_REPORT_END ${CONFIG_FILE}" ]] || fail "linux cron end marker should be simple"
+
+    # Official-only schedules must use the official wake interval even when
+    # the legacy Worker interval is shorter, and combined schedules must keep
+    # the scheduled-run gate for the independent Worker clock.
+    base_cmd="bash $(sh_quote "${dest}") --config $(sh_quote "${CONFIG_FILE}") --scheduled-run"
+    PO0_FIREWALL_TOKENS='pgnfw_fixture_not_real'
+    WORKER_ENABLED='0'
+    WORKER_URL=''
+    CRON_MINUTES='1'
+    official_job="$(linux_expected_cron_job "${dest}")"
+    expected_job="$(build_cron_job 10 "${base_cmd} >$(sh_quote "$(self_report_log_path)") 2>&1")"
+    [[ "${official_job}" == "${expected_job}" ]] || fail "official-only cron should use official interval and scheduled-run"
+    [[ "${official_job}" != *"--worker-only"* ]] || fail "official-only cron should not request Worker-only mode"
+
+    WORKER_ENABLED='1'
+    WORKER_URL='https://worker.invalid/report'
+    CRON_MINUTES='1'
+    combined_job="$(linux_expected_cron_job "${dest}")"
+    expected_job="$(build_cron_job 1 "${base_cmd} >$(sh_quote "$(self_report_log_path)") 2>&1")"
+    [[ "${combined_job}" == "${expected_job}" ]] || fail "combined cron should use the shorter wake interval"
+    unset PO0_FIREWALL_TOKENS WORKER_ENABLED WORKER_URL
+    CRON_MINUTES='60'
 
     run_cmd="bash $(sh_quote "${dest}") --config $(sh_quote "${CONFIG_FILE}") >$(sh_quote "$(self_report_log_path)") 2>&1"
     job="$(build_cron_job "${CRON_MINUTES}" "${run_cmd}")"
@@ -131,6 +155,8 @@ run_macos_cases() {
     source "${repo_root}/scripts/po0/relay/self-report/macos/src/050-config-device-defaults.sh"
     # shellcheck source=/dev/null
     source "${repo_root}/scripts/po0/relay/self-report/macos/src/060-worker-url-interval-state.sh"
+    # shellcheck source=/dev/null
+    source "${repo_root}/scripts/po0/relay/self-report/macos/src/078-official-firewall.sh"
     # shellcheck source=/dev/null
     source "${repo_root}/scripts/po0/relay/self-report/macos/src/080-install-and-upgrade.sh"
     # shellcheck source=/dev/null

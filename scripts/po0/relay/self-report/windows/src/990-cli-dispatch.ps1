@@ -21,6 +21,9 @@ $legacyPathShouldOpenMenu = [bool](
         -not $ResumeSchedule -and
         -not $ScheduleStatus -and
         -not $RunOnce -and
+        -not $OfficialStatus -and
+        -not $OfficialOnly -and
+        -not $WorkerOnly -and
         -not $InstallTask -and
         -not ($PSBoundParameters.ContainsKey("WorkerUrl")) -and
         [Environment]::UserInteractive
@@ -71,6 +74,12 @@ try {
     }
 
     Load-SavedConfig
+    if ($ClearPo0FirewallTokens) {
+        $script:Po0FirewallTokens = ""
+    }
+    if ($OfficialStatus -and ($OfficialOnly -or $WorkerOnly)) {
+        throw "-OfficialStatus 不能与 -OfficialOnly / -WorkerOnly 同时使用。"
+    }
     if ($Notify) {
         $script:TaskNotify = $true
         $script:Notify = $true
@@ -88,9 +97,9 @@ try {
         Set-ScheduledReporterPaused -Paused $false
     } elseif ($ScheduleStatus) {
         Show-ScheduledReporter
-    } elseif ($RunOnce) {
+    } elseif ($OfficialStatus -or $OfficialOnly -or $WorkerOnly -or $RunOnce) {
         Invoke-SelfReport
-    } elseif ($Menu -or (-not $PSBoundParameters.ContainsKey("WorkerUrl") -and -not $InstallTask -and -not $RunOnce -and [Environment]::UserInteractive)) {
+    } elseif ($Menu -or (-not $PSBoundParameters.ContainsKey("WorkerUrl") -and -not $InstallTask -and -not $RunOnce -and -not $OfficialStatus -and -not $OfficialOnly -and -not $WorkerOnly -and [Environment]::UserInteractive)) {
         Invoke-InteractiveMenu
     } elseif ($InstallTask) {
         Install-ScheduledReporter

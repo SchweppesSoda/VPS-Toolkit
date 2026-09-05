@@ -33,13 +33,17 @@
 
 ## 发布渠道
 
-PO0 nftables 五个可执行脚本的新安装和自更新默认使用 GitHub Release 发布文件：
+PO0 nftables 六个可执行脚本和两个 OpenWrt APK 的正式发布资产统一放在 GitHub Release：
 
 - `https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/nftables-relay-manager.sh`
 - `https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-lan-client.sh`
+- `https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-wan-probe.sh`
 - `https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.sh`
 - `https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report-macos.sh`
 - `https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.ps1`
+- `po0-wan-probe.apk`（OpenWrt WAN probe）
+- `po0-outbound-ip-report.apk`（OpenWrt 上报器）
+- `checksums.txt`（上述全部发布资产的 SHA-256）
 
 旧 manager、LAN Worker 和 self-report raw URL 已禁用，不再作为兼容入口。Egern 标准 raw 路径、Stash/Loon 客户端资产、Egern 历史兼容路径、离线 iplist 构建器、外部 ipdb/iplist 数据源和未纳入本阶段的通用 VPS 工具 raw URL 仍是白名单。
 
@@ -93,7 +97,7 @@ po0-lan-client --probe
 po0-lan-client --version
 ```
 
-PO0 nftables 子系统内带 `SCRIPT_VERSION`、`--version` / `--changelog` 或自更新提示的可独立部署脚本（PO0 manager、LAN Worker client、PO0 Outbound IP Report clients）统一使用 `YYYY.MM.DD+build.N` 混合版本格式。正式 PO0 Release 发布文件的脚本内部版本必须与 release tag 尾号一致：`po0-vYYYY.MM.DD.N` 对应 `YYYY.MM.DD+build.N`，例如 `po0-v2026.07.01.7` 对应 `2026.07.01+build.7`。完整历史写在 [`CHANGELOG.md`](CHANGELOG.md)。
+PO0 nftables 子系统内带 `SCRIPT_VERSION`、`--version` / `--changelog` 或自更新提示的六个可独立部署脚本（PO0 manager、LAN Worker、WAN probe、三端 PO0 Outbound IP Report）统一使用 `YYYY.MM.DD+build.N` 混合版本格式。两个 OpenWrt APK 另有各自的包版本：本轮 outbound 为 `2026.09.05-r1`，WAN probe 继续为 `2026.08.30-r5`。正式 PO0 Release 发布文件的脚本内部版本必须与 release tag 尾号一致：`po0-vYYYY.MM.DD.N` 对应 `YYYY.MM.DD+build.N`，例如 `po0-v2026.07.01.7` 对应 `2026.07.01+build.7`。完整历史写在 [`CHANGELOG.md`](CHANGELOG.md)。
 
 更新 LAN Worker 上已安装的 client：
 
@@ -510,6 +514,47 @@ non-root: ~/.local/bin/po0-lan-client
 如果 LAN Worker 查询 PO0 创建计划时出现 `--resource-task-cron-status not allowed for scope worker`，说明 PO0 上的专用受限 SSH wrapper 还没刷新到新版；在 PO0 上用新版 manager 执行 `--refresh-report-key-wrapper` 即可。这个报错只影响创建计划只读查询，不影响 pending 资源任务领取、上传和完成。
 
 配置里旧的 `PO0_SCRIPT=/root/nftables-relay-manager.sh` 继续兼容。
+
+## LAN Worker 本机官方防火墙上报
+
+LAN Worker 可以另外给“运行它的这台机器”的实际默认出口加白。它不代替访问设备、手机或下游客户端上报，也不使用 DDNS、Self-report、WebAuth 的 TTL 或 token。
+
+默认关闭。进入 `po0-lan-client --menu`，选择 `29) 配置官方防火墙 token`，输入逗号分隔的官方 token；也可以写固定槽位，例如：
+
+```text
+pgnfw_example_a,pgnfw_example_b@0
+```
+
+每个官方账号最多有 5 个槽位；`@0` 到 `@4` 是官方接口的内部槽位编号，界面显示为槽位 1 到 5。即使写成不同槽位，同一 token 也只允许配置一次，以避免并发竞态。列表会严格拒绝空项、重复项、错误格式和超过 16 个 token。token 只保存到配置目录下的 600 权限 `settings.env`，不会进入 cron/systemd 参数、进程参数、日志、通知或本地状态。
+
+查看状态时使用：
+
+```bash
+po0-lan-client --official-firewall-status
+```
+
+这是只读查询；当前出口还没有命中时只显示 `missing`，不会加白。真正上报使用 `po0-lan-client --run-official-firewall`，每个 token 都先 GET，只有当前出口缺失或固定槽位不匹配时才 POST。自动计划每 10 分钟唤醒一次，但官方通道自己的最近尝试时间固定为 600 秒；旧的 LAN Worker / Self-report 车道仍按自己的计划（通常约 1 小时）和 TTL 工作，互不挪用；一条失败也不会让另一条停止。
+
+安装本机轮询器时，即使没有 DDNS 或资源任务目标，只要已经配置官方 token，也会单独安装官方防火墙计划：
+
+```bash
+po0-lan-client --install-cron
+```
+
+官方请求由 LAN Worker 直接通过本机默认路由访问固定 HTTPS 接口。需要指定某条 WAN 时，请在主 OpenWrt 的官方 WAN 绑定配置中完成；通用 LAN Worker 不会假装把默认路由当成指定 WAN。
+
+访问设备客户端在同一轮总是先执行官方车道，再执行原有车道；两边各自记录结果，任一边失败不会取消另一边，因此可以报告“部分完成”。如果当前 Wi-Fi SSID 命中本机跳过列表，两条车道会一起跳过；`--force-report` 只绕过本机的 due/SSID 判断，仍不能跳过官方 GET-first 规则。官方状态摘要（各端支持的状态页或 Widget）只显示状态、已用/上限额度、当前出口和槽位，不显示 token；定时任务默认保持安静，手动、失败或部分完成时才按客户端设置通知。
+
+除主 OpenWrt 的官方绑定外，Linux、macOS、Windows、Egern 和普通 LAN Worker 都使用本机默认出口（Egern 为 `DIRECT`）。只有主 OpenWrt 可以在官方绑定里用 `mwan3` 明确选择 `wan1` 或 `wan2`；未指定或其它设备不会伪造指定 WAN，也不在失败时偷偷切换出口。实现参考 [kelenetwork/po0fw](https://github.com/kelenetwork/po0fw)（MIT），不是 Chicksure 专属协议。
+
+### 各端最短配置入口
+
+- LAN Worker：`po0-lan-client --menu` → `29) 配置官方防火墙 token`；只读用 `po0-lan-client --official-firewall-status`，运行用 `po0-lan-client --run-official-firewall`。
+- Linux / OpenWrt 访问设备：在 `po0-outbound-ip-report --menu` 保存 `PO0_FIREWALL_TOKENS`，或交互设置后用 `--official-status` / `--official-only`；主 OpenWrt 的 WAN 选择由 APK/LuCI 的官方绑定交给 `mwan3`。
+- macOS：`po0-outbound-ip-report-macos.sh --save-config --menu` 保存 token，查询用 `--official-status`，独立运行用 `--official-only`；请求走本机默认出口。
+- Windows：`po0-outbound-ip-report.ps1 -Menu` 进入菜单并在其中配置保存 token，查询用 `-OfficialStatus`，独立运行用 `-OfficialOnly`；计划任务仍按 Windows 默认出口。
+- Egern / 移动端：在标准 Egern YAML 的 `PO0_FIREWALL_TOKENS` 配置项保存 token，动作 `PO0 官方防火墙状态（只读）` 查看；自动上报使用 `DIRECT`，SSID guard 和通知在 Egern 本机配置。
+- 主 OpenWrt APK：LuCI 的 `PO0 Outbound IP Report` 页面配置官方 token、开关和官方 WAN 绑定；需要选出口时只填 `wan1` 或 `wan2`，由 `mwan3` 执行。
 
 ## LAN Worker Self-report
 

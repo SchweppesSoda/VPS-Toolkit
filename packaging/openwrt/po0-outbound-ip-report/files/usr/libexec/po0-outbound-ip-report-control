@@ -97,12 +97,18 @@ case "${1:-status}" in
             printf 'status=idle\n'
         fi
         ;;
-    discover-wans)
-        url="$(uci -q get po0_outbound_ip_report.main.router_probe_url 2>/dev/null || true)"
-        [ -n "${url}" ] || { printf '未配置上游路由探针。\n' >&2; exit 1; }
-        curl -4 -fsS --connect-timeout 5 --max-time 30 "${url}?wan=list"
-        ;;
-    status)
+	discover-wans)
+		url="$(uci -q get po0_outbound_ip_report.main.router_probe_url 2>/dev/null || true)"
+		[ -n "${url}" ] || { printf '未配置上游路由探针。\n' >&2; exit 1; }
+		curl -4 -fsS --connect-timeout 5 --max-time 30 "${url}?wan=list"
+		;;
+	official-status)
+		exec /usr/libexec/po0-outbound-ip-report-uci --official-status
+		;;
+	official-report)
+		exec /usr/libexec/po0-outbound-ip-report-uci --official-report
+		;;
+	status)
         print_latest_status
         ;;
     *)

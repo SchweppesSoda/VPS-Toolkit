@@ -1,6 +1,6 @@
 # Egern SSH IP Report
 
-这个模块用于 Egern 设备上报“当前出口公网 IPv4”。它不解析 DDNS，也不要求 PO0 开 HTTP；Egern 先用 `DIRECT` 轮询 IP 查询接口拿到当前出口 IPv4，再通过一次 SSH 短连接执行：
+这个模块用于 Egern 设备上报“当前出口公网 IPv4”。它不解析 DDNS，也不要求 PO0 开 HTTP；同一轮执行时，Egern 先通过 `DIRECT` 直连 PO0 官方防火墙做只读检查，必要时固定槽位加白，再按原流程通过 SSH 短连接上报 PO0/LAN Worker。
 
 ```bash
 bash /root/nftables-relay-manager.sh --ssh-ip-report <SSH_REPORT_SOURCE> <ipv4> <SSH_REPORT_TOKEN> [identity] [ttl] [cidr-prefix]
@@ -11,7 +11,7 @@ bash /root/nftables-relay-manager.sh --ssh-ip-report <SSH_REPORT_SOURCE> <ipv4> 
 ## 文件
 
 - `PO0-SSH-IP-Report.yaml`：Egern 模块，包含本机设备 ID 设置、定时、网络变化、手动执行、状态页和 Widget。
-- `po0-ssh-ip-report.js`：获取当前出口 IPv4，并通过 SSH 上报 PO0。
+- `po0-ssh-ip-report.js`：负责官方防火墙直连、当前出口 IPv4 获取、SSH 上报和状态 Widget。
 
 ## 导入
 
@@ -30,6 +30,7 @@ https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nft
 - `PO0_SCRIPT`：默认 `/root/nftables-relay-manager.sh`。
 - `SSH_REPORT_SOURCE`：来源组 ID(source-id)，例如 `<device-id>`。
 - `SSH_REPORT_TOKEN`：PO0 端生成的 SSH report token。
+- `PO0_FIREWALL_TOKENS`：可选，默认关闭。多个官方账号用英文逗号分隔，格式为 `pgnfw_...` 或 `pgnfw_...@0` 到 `@4`；同一 token 即使指定不同槽位也只能配置一次，以避免并发竞态。Egern 直接使用 `DIRECT` 请求固定官方 API；正常上报先执行 GET，当前出口缺失或槽位不对时才 POST 加白；只读状态永不 POST。配置/API 槽位从 `0` 到 `4`，界面显示为用户可读的第 `1` 到 `5` 槽。
 - `REPORT_IDENTITY`：默认 `egern`。
 - `TTL_SECONDS`：默认 `43200` 秒（12 小时）。
 - `AUTO_REPORT_INTERVAL_SECONDS`：实际 SSH 自动上报周期，默认 `3600` 秒，可设置 `600` 到 `86400` 秒；建议小于 `TTL_SECONDS` 并留出余量。
@@ -41,7 +42,7 @@ https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nft
 
 ## 本机上报配置持久化
 
-模块使用 Egern 原生 `ctx.storage` 保存 SSH 上报配置，不依赖 BoxJS、Relay 或其它常驻服务。保存内容包括 PO0 目标、SSH 密码/私钥/口令、report token、周期、SSID guard、IP 探测和通知选项；`DEVICE_ID_SETUP` 不在其中，本机设备 ID 继续使用独立 storage。
+模块使用 Egern 原生 `ctx.storage` 保存 SSH/官方上报配置，不依赖 BoxJS、Relay 或其它常驻服务。保存内容包括 PO0 目标、SSH 密码/私钥/口令、report token、`PO0_FIREWALL_TOKENS`、周期、SSID guard、IP 探测和通知选项；官方最近状态和 SSH 最近状态分开保存，运行状态不保存官方 token；`DEVICE_ID_SETUP` 不在其中，本机设备 ID 继续使用独立 storage。
 
 首次启用或从旧版迁移时：
 
@@ -111,15 +112,16 @@ source-id|host|port|user|script|token|identity|ttl
 - `schedule`：每 10 分钟轻量检查一次；实际 SSH 自动上报周期由 `AUTO_REPORT_INTERVAL_SECONDS` 控制，默认 `3600` 秒。
 - `network`：网络变化时触发一次。
 - `generic`：在 Egern 手动执行 `PO0 SSH IP Report Now`。
+- `PO0 官方防火墙状态（只读）`：逐个账号用 `DIRECT` 发 GET，显示当前出口、白名单、已用名额/总名额和固定槽位；当前出口未命中时只显示 `missing`，不会 POST。
 - `保存本机 PO0 上报配置`：校验当前模块环境变量并保存到本机 `ctx.storage`，不探测 IP、不做 SSH 上报。
 - `清除本机 PO0 上报配置`：清除本机上报配置和最近状态，保留本机设备 ID。
 - `保存本机设备 ID`：把 `DEVICE_ID_SETUP` 写入本机 `ctx.storage`，不做 SSH 上报。
 - `清除本机设备 ID`：清除本机 `ctx.storage` 里的设备 ID。
-- `PO0 SSH 上报状态` / `widget`：显示本机设备 ID、公网 IP、上报 CIDR、IP 归属地、运营商、自动上报周期、每个 PO0 target 的成功/失败、时间、TTL 和错误原因。归属地 / 运营商优先使用本次 IP 查询接口返回的数据，拿不到时才额外查询。
+- `PO0 SSH 上报状态` / `widget`：显示本机设备 ID、公网 IP、上报 CIDR、IP 归属地、运营商、自动上报周期、每个 PO0 target 的成功/失败，以及官方防火墙各账号的当前出口、白名单、`已用/上限`、当前命中条目和固定槽位。状态/Widget 的官方检查始终只读；归属地 / 运营商优先使用本次 IP 查询接口返回的数据，拿不到时才额外查询。
 
-自动触发会先校验 target 配置，再读取当前 Wi-Fi SSID；如果 `SKIP_WIFI_SSIDS` 命中，脚本只写本地跳过状态，不探测公网 IP、不 SSH、不通知，并优先保留上一轮成功状态供 Widget 查看。SSID 读取失败会 fail-open 继续正常上报。未命中 SSID guard 时，脚本会探测当前出口 IPv4，并按网络类型计算上报 CIDR：蜂窝默认 `/24`，Wi-Fi/未知固定 `/32`。如果本次上报 CIDR 和上次成功记录一致、PO0 target 配置未变化，并且距离上次成功还小于 `AUTO_REPORT_INTERVAL_SECONDS`，脚本会跳过 SSH 上报；因此只有蜂窝 `/24` 会出现“IP 变了但同一 CIDR，所以跳过 SSH”。该周期默认 `3600` 秒，可设置 `600` 到 `86400` 秒；模块定时任务每 10 分钟唤醒检查一次，所以实际执行精度以 10 分钟为粒度。建议 `TTL_SECONDS` 至少大于自动上报周期；如果 TTL 小于自动上报周期，脚本会提前续期，尽量避免白名单过期空窗。跨 `/24`、Wi-Fi/未知网络 IP 变化、target 配置变化（含 TTL、CIDR 前缀、脚本路径、用户、token 指纹等）、自动周期到达、手动执行、状态页和 Widget 刷新都会继续执行 SSH 上报。
+自动触发会先校验已配置的通道，再读取当前 Wi-Fi SSID；如果 `SKIP_WIFI_SSIDS` 命中，脚本只写本地跳过状态，官方和 SSH 两条通道都不探测/不上报/不通知，并优先保留上一轮成功状态供 Widget 查看。SSID 读取失败会 fail-open 继续正常上报。未命中 SSID guard 时，官方通道先按固定 `600` 秒独立 due 检查，GET 成功且命中时保持安静，缺失或固定槽位不符才 POST；官方失败仍会继续执行 SSH 通道。随后 SSH 通道按既有 CIDR、`AUTO_REPORT_INTERVAL_SECONDS` 和 TTL 判断；两条通道的 due 状态互不影响。指定 WAN/多 WAN 的官方绑定属于主 OpenWrt 配置，Egern 只使用本机当前 `DIRECT` 出口。
 
-手动执行成功/失败都会尽量通知；自动成功默认不通知，失败默认通知。手动执行和 Status 脚本开启 debug，SSH stderr 会写入 Egern 脚本日志；长错误会分段通知，避免只显示半截 `PO0 restricted report key denied`。
+手动执行成功/失败都会尽量通知；自动成功默认不通知，失败、部分完成或官方新增占位时才通知。官方 token 不写入日志、通知、最近状态或错误摘要；手动执行和 Status 脚本开启 debug，SSH stderr 会写入 Egern 脚本日志；长错误会分段通知，避免只显示半截 `PO0 restricted report key denied`。
 
 PO0 端如果使用专用受限 SSH 上报 key，Egern 专用 key 的 scope 应为 `egern`。被 wrapper 拒绝时，PO0 会把不含 token 的拒绝摘要写到：
 

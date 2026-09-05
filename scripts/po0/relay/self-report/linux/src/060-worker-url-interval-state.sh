@@ -76,9 +76,25 @@ validate_router_probe_url() {
     esac
 }
 
+worker_channel_requested() {
+    case "$(to_lower "${WORKER_ENABLED:-}")" in
+        0|false|no|off) return 1 ;;
+        1|true|yes|on|y) return 0 ;;
+        *) [[ -n "${WORKER_URL:-}" ]] ;;
+    esac
+}
+
 config_complete() {
-    [[ -n "${WORKER_URL}" ]] || return 1
-    validate_worker_url >/dev/null 2>&1 || return 1
+    local worker_requested=0 official_requested=0
+    if worker_channel_requested; then
+        worker_requested=1
+        validate_worker_url >/dev/null 2>&1 || return 1
+    fi
+    if declare -F official_channel_enabled >/dev/null 2>&1 && official_channel_enabled; then
+        official_requested=1
+        official_validate_tokens >/dev/null 2>&1 || return 1
+    fi
+    (( worker_requested == 1 || official_requested == 1 )) || return 1
     validate_router_probe_url >/dev/null 2>&1 || return 1
     validate_cron_minutes >/dev/null 2>&1 || return 1
 }

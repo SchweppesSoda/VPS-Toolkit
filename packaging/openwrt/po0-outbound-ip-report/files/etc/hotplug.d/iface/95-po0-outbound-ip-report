@@ -1,0 +1,111 @@
+#!/bin/sh
+set -u
+umask 077
+
+RUN_DIR='/var/run/po0-outbound-ip-report'
+HOTPLUG_LOG="${RUN_DIR}/hotplug.log"
+
+prepare_hotplug_log() {
+	[ "$(id -u 2>/dev/null || printf '1')" = '0' ] || return 1
+	if [ ! -e "$RUN_DIR" ]; then
+		mkdir -p "$RUN_DIR" 2>/dev/null || return 1
+	fi
+	run_dir_meta="$(ls -ldn "$RUN_DIR" 2>/dev/null || true)"
+	run_dir_type="$(printf '%s\n' "$run_dir_meta" | awk 'NR == 1 { print substr($1, 1, 1) }')"
+	run_dir_owner="$(printf '%s\n' "$run_dir_meta" | awk 'NR == 1 { print $3 }')"
+	[ "$run_dir_type" = 'd' ] || return 1
+	[ "$run_dir_owner" = '0' ] || return 1
+	chmod 700 "$RUN_DIR" 2>/dev/null || return 1
+	run_dir_meta="$(ls -ldn "$RUN_DIR" 2>/dev/null || true)"
+	run_dir_mode="$(printf '%s\n' "$run_dir_meta" | awk 'NR == 1 { print $1 }')"
+	[ "$run_dir_mode" = 'drwx------' ] || return 1
+	[ ! -L "$HOTPLUG_LOG" ] || return 1
+	if [ ! -e "$HOTPLUG_LOG" ]; then
+		: > "$HOTPLUG_LOG" 2>/dev/null || return 1
+	fi
+	[ -f "$HOTPLUG_LOG" ] || return 1
+	chmod 600 "$HOTPLUG_LOG" 2>/dev/null || return 1
+	log_meta="$(ls -ldn "$HOTPLUG_LOG" 2>/dev/null || true)"
+	log_mode="$(printf '%s\n' "$log_meta" | awk 'NR == 1 { print $1 }')"
+	log_owner="$(printf '%s\n' "$log_meta" | awk 'NR == 1 { print $3 }')"
+	[ "$log_mode" = '-rw-------' ] && [ "$log_owner" = '0' ]
+}
+
+[ "${ACTION:-}" = 'ifup' ] || exit 0
+wan="${INTERFACE:-}"
+case "$wan" in
+	''|*[!A-Za-z0-9_.-]*) exit 0 ;;
+esac
+overall="$(uci -q get po0_outbound_ip_report.main.enabled 2>/dev/null || printf '0')"
+official_enabled="$(uci -q get po0_outbound_ip_report.main.official_enabled 2>/dev/null || printf '0')"
+case "$overall:$official_enabled" in
+	1:1|1:true|1:yes|1:on|true:1|true:true|true:yes|true:on|yes:1|yes:true|yes:yes|yes:on|on:1|on:true|on:yes|on:on) ;;
+	*) exit 0 ;;
+esac
+
+matched='0'
+while IFS= read -r binding; do
+	[ -n "$binding" ] || continue
+	binding_enabled="$(uci -q get "po0_outbound_ip_report.${binding}.enabled" 2>/dev/null || true)"
+	case "$binding_enabled" in
+		0|false|no|off) continue ;;
+	esac
+	configured_wan="$(uci -q get "po0_outbound_ip_report.${binding}.wan" 2>/dev/null || true)"
+	[ "$configured_wan" = "$wan" ] && matched='1'
+done <<EOF
+$(uci -q show po0_outbound_ip_report 2>/dev/null | sed -n 's/^po0_outbound_ip_report\.\([^.=]*\)=official_binding$/\1/p')
+EOF
+[ "$matched" = '1' ] || exit 0
+
+# Delay briefly for PPPoE/netifd to publish the new source address. The run
+# lock in the UCI adapter coalesces multiple WAN events and manual actions.
+run_hotplug_attempt() {
+	prepare_hotplug_log || return 0
+	attempt_log="$(mktemp "$RUN_DIR/hotplug-attempt.XXXXXX" 2>/dev/null || true)"
+	[ -n "$attempt_log" ] || return 0
+	chmod 600 "$attempt_log" 2>/dev/null || {
+		rm -f "$attempt_log" 2>/dev/null || true
+		return 0
+	}
+	if /usr/libexec/po0-outbound-ip-report-uci --official-only \
+		--official-wan "$wan" >"$attempt_log" 2>&1; then
+		attempt_rc=0
+	else
+		attempt_rc=$?
+	fi
+	# Keep the persistent diagnostic bounded and replace it atomically. The
+	# runner emits only redacted, finite status rows; head also caps failures.
+	bounded_log="$(mktemp "$RUN_DIR/hotplug-bounded.XXXXXX" 2>/dev/null || true)"
+	if [ -z "$bounded_log" ]; then
+		rm -f "$attempt_log" 2>/dev/null || true
+		return "$attempt_rc"
+	fi
+	head -c 65536 "$attempt_log" >"$bounded_log" 2>/dev/null || {
+		rm -f "$attempt_log" "$bounded_log" 2>/dev/null || true
+		return "$attempt_rc"
+	}
+	chmod 600 "$bounded_log" 2>/dev/null || {
+		rm -f "$attempt_log" "$bounded_log" 2>/dev/null || true
+		return "$attempt_rc"
+	}
+	mv -f "$bounded_log" "$HOTPLUG_LOG" 2>/dev/null || {
+		rm -f "$attempt_log" "$bounded_log" 2>/dev/null || true
+		return "$attempt_rc"
+	}
+	rm -f "$attempt_log" 2>/dev/null || true
+	chmod 600 "$HOTPLUG_LOG" 2>/dev/null || true
+	return "$attempt_rc"
+}
+
+(
+	sleep 5
+	run_hotplug_attempt
+	attempt_rc=$?
+	if [ "$attempt_rc" -eq 75 ]; then
+		# A concurrent full run is expected during a WAN flap. Retry once
+		# after the short coalescing window so the event is not lost.
+		sleep 3
+		run_hotplug_attempt
+	fi
+) &
+exit 0

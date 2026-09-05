@@ -421,6 +421,7 @@ report_once() {
     ssh_args+=(-n -p "${po0_port}")
     sanitize_ssh_extra_args "${ssh_extra_args}" "DDNS ${source_key}@${po0_host}:${po0_port}"
     ssh_args+=("${SSH_EXTRA_ARGV[@]}")
+    official_preflight_before_ssh
 
     printf '上报：DDNS %s -> %s -> %s@%s:%s，来源=%s\n' "${resolve_domain}" "${ip_csv}" "${po0_user}" "${po0_host}" "${po0_port}" "${report_key}"
     if ! ssh "${ssh_args[@]}" "${po0_user}@${po0_host}" "${remote_cmd}"; then
@@ -480,6 +481,7 @@ remote_manager_call_timeout() {
     shift 6
     local remote_cmd arg
     local -a ssh_args=(-n -p "${port:-22}")
+    official_preflight_before_ssh
     [[ -n "${user}" ]] || user="root"
     [[ -n "${script}" ]] || script="${DEFAULT_PO0_SCRIPT}"
     sanitize_ssh_extra_args "${extra}" "PO0 manager ${user}@${host}:${port:-22}"

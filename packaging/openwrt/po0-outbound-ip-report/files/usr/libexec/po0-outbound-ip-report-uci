@@ -1,19 +1,367 @@
 #!/bin/sh
 set -u
 
+CONFIG_PACKAGE='po0_outbound_ip_report'
+CONFIG_FILE='/etc/config/po0_outbound_ip_report'
+ENGINE='/usr/libexec/po0-outbound-ip-report-engine'
+OFFICIAL_RUNNER='/usr/libexec/po0-official-firewall-runner'
+RUN_DIR='/var/run/po0-outbound-ip-report'
+LOCK_DIR="${RUN_DIR}/run.lock"
+
+umask 077
+
 uci_get() {
-    uci -q get "po0_outbound_ip_report.main.$1" 2>/dev/null || printf '%s' "${2:-}"
+	uci -q get "${CONFIG_PACKAGE}.${1}.${2}" 2>/dev/null || true
 }
 
-export PO0_OUTBOUND_IP_REPORT_WORKER_URL="$(uci_get worker_url '')"
-export PO0_OUTBOUND_IP_REPORT_SOURCE="$(uci_get source_id 'router-88-1')"
-export PO0_OUTBOUND_IP_REPORT_IDENTITY="$(uci_get identity 'router-88-1-via-gateway')"
-export PO0_OUTBOUND_IP_REPORT_SECRET="$(uci_get secret '')"
-export PO0_OUTBOUND_IP_REPORT_ALLOW_HTTP="$(uci_get allow_http '0')"
-export PO0_OUTBOUND_IP_REPORT_ROUTER_PROBE_URL="$(uci_get router_probe_url 'http://192.168.88.1/cgi-bin/po0-wan-probe')"
-export PO0_OUTBOUND_IP_REPORT_WANS="$(uci_get wans 'all')"
-export PO0_OUTBOUND_IP_REPORT_IP_CHECK_URLS="$(uci_get ip_check_urls '')"
-export PO0_OUTBOUND_IP_REPORT_SKIP_WIFI_SSIDS="$(uci_get skip_wifi_ssids '')"
-export PO0_OUTBOUND_IP_REPORT_INTERVAL_SECONDS="$(uci_get interval_seconds '3600')"
+secure_config_file() {
+	[ -e "$CONFIG_FILE" ] || return 0
+	[ -f "$CONFIG_FILE" ] && [ ! -L "$CONFIG_FILE" ] || return 1
+	chmod 600 "$CONFIG_FILE" 2>/dev/null || return 1
+}
 
-exec /usr/libexec/po0-outbound-ip-report-engine "$@"
+ensure_run_dir() {
+	[ "$(id -u 2>/dev/null || printf '1')" = '0' ] || return 1
+	if [ ! -e "$RUN_DIR" ]; then
+		mkdir -p "$RUN_DIR" 2>/dev/null || return 1
+	fi
+	run_dir_meta="$(ls -ldn "$RUN_DIR" 2>/dev/null || true)"
+	run_dir_type="$(printf '%s\n' "$run_dir_meta" | awk 'NR == 1 { print substr($1, 1, 1) }')"
+	run_dir_owner="$(printf '%s\n' "$run_dir_meta" | awk 'NR == 1 { print $3 }')"
+	[ "$run_dir_type" = 'd' ] || return 1
+	[ "$run_dir_owner" = '0' ] || return 1
+	chmod 700 "$RUN_DIR" 2>/dev/null || return 1
+	run_dir_meta="$(ls -ldn "$RUN_DIR" 2>/dev/null || true)"
+	run_dir_mode="$(printf '%s\n' "$run_dir_meta" | awk 'NR == 1 { print $1 }')"
+	[ "$run_dir_mode" = 'drwx------' ]
+}
+
+is_disabled() {
+	case "${1:-}" in
+		0|false|no|off) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+safe_id() {
+	[ "${#1}" -le 64 ] 2>/dev/null || return 1
+	case "${1:-}" in
+		''|*[!A-Za-z0-9_-]*) return 1 ;;
+		*) return 0 ;;
+	esac
+}
+
+safe_wan() {
+	[ "${#1}" -le 64 ] 2>/dev/null || return 1
+	case "${1:-}" in
+		''|*[!A-Za-z0-9_.-]*) return 1 ;;
+		*) return 0 ;;
+	esac
+}
+
+safe_label() {
+	[ "${#1}" -le 120 ] 2>/dev/null || return 1
+	if printf '%s' "${1:-}" | grep -Eq '[;|[:cntrl:]]'; then
+		return 1
+	fi
+	return 0
+}
+
+secure_config_file || {
+	printf 'PO0 outbound report configuration file is not secure; this run was refused.\n' >&2
+	exit 1
+}
+
+LOCK_HELD='0'
+
+cleanup_run_lock() {
+	[ "${LOCK_HELD:-0}" = '1' ] || return 0
+	if [ -d "$LOCK_DIR" ] && [ ! -L "$LOCK_DIR" ]; then
+		owner=''
+		if [ -f "$LOCK_DIR/pid" ] && [ ! -L "$LOCK_DIR/pid" ]; then
+			owner="$(sed -n '1p' "$LOCK_DIR/pid" 2>/dev/null || true)"
+		fi
+		case "$owner" in
+			''|"$$")
+				[ -z "$owner" ] || rm -f "$LOCK_DIR/pid" 2>/dev/null || true
+				rmdir "$LOCK_DIR" 2>/dev/null || true
+				;;
+		esac
+	fi
+	LOCK_HELD='0'
+}
+
+handle_lock_hup() { cleanup_run_lock; exit 129; }
+handle_lock_int() { cleanup_run_lock; exit 130; }
+handle_lock_term() { cleanup_run_lock; exit 143; }
+
+install_run_lock_traps() {
+	trap cleanup_run_lock EXIT
+	trap handle_lock_hup HUP
+	trap handle_lock_int INT
+	trap handle_lock_term TERM
+}
+
+acquire_run_lock() {
+	if ! ensure_run_dir; then
+		printf 'PO0 outbound report runtime directory is not secure; this run was refused.\n' >&2
+		return 1
+	fi
+	owner=''
+	if mkdir "$LOCK_DIR" 2>/dev/null; then
+		umask 077
+		LOCK_HELD='1'
+		install_run_lock_traps
+		if ! printf '%s\n' "$$" > "$LOCK_DIR/pid"; then
+			cleanup_run_lock
+			return 1
+		fi
+		chmod 600 "$LOCK_DIR/pid" 2>/dev/null || true
+		return 0
+	fi
+	if [ -r "$LOCK_DIR/pid" ]; then
+		owner="$(sed -n '1p' "$LOCK_DIR/pid" 2>/dev/null || true)"
+		case "$owner" in
+			''|*[!0-9]*) owner='' ;;
+		esac
+		if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
+			rm -f "$LOCK_DIR/pid" 2>/dev/null || true
+			rmdir "$LOCK_DIR" 2>/dev/null || true
+			if mkdir "$LOCK_DIR" 2>/dev/null; then
+				umask 077
+				LOCK_HELD='1'
+				install_run_lock_traps
+				if ! printf '%s\n' "$$" > "$LOCK_DIR/pid"; then
+					cleanup_run_lock
+					return 1
+				fi
+				chmod 600 "$LOCK_DIR/pid" 2>/dev/null || true
+				return 0
+			fi
+		fi
+	fi
+	printf 'PO0 outbound report is already running; this run was skipped.\n' >&2
+	return 75
+}
+
+export PO0_OUTBOUND_IP_REPORT_WORKER_URL="$(uci_get main worker_url)"
+export PO0_OUTBOUND_IP_REPORT_SOURCE="$(uci_get main source_id)"
+[ -n "$PO0_OUTBOUND_IP_REPORT_SOURCE" ] || export PO0_OUTBOUND_IP_REPORT_SOURCE='router-88-1'
+export PO0_OUTBOUND_IP_REPORT_IDENTITY="$(uci_get main identity)"
+[ -n "$PO0_OUTBOUND_IP_REPORT_IDENTITY" ] || export PO0_OUTBOUND_IP_REPORT_IDENTITY='router-88-1-via-gateway'
+export PO0_OUTBOUND_IP_REPORT_SECRET="$(uci_get main secret)"
+export PO0_OUTBOUND_IP_REPORT_ALLOW_HTTP="$(uci_get main allow_http)"
+export PO0_OUTBOUND_IP_REPORT_ROUTER_PROBE_URL="$(uci_get main router_probe_url)"
+[ -n "$PO0_OUTBOUND_IP_REPORT_ROUTER_PROBE_URL" ] || export PO0_OUTBOUND_IP_REPORT_ROUTER_PROBE_URL='http://192.168.88.1/cgi-bin/po0-wan-probe'
+export PO0_OUTBOUND_IP_REPORT_WANS="$(uci_get main wans)"
+[ -n "$PO0_OUTBOUND_IP_REPORT_WANS" ] || export PO0_OUTBOUND_IP_REPORT_WANS='all'
+export PO0_OUTBOUND_IP_REPORT_IP_CHECK_URLS="$(uci_get main ip_check_urls)"
+export PO0_OUTBOUND_IP_REPORT_SKIP_WIFI_SSIDS="$(uci_get main skip_wifi_ssids)"
+worker_enabled="$(uci_get main worker_enabled)"
+[ -n "$worker_enabled" ] || worker_enabled='1'
+official_enabled="$(uci_get main official_enabled)"
+[ -n "$official_enabled" ] || official_enabled='0'
+worker_run='1'
+official_run='1'
+official_action='report'
+force='0'
+official_wan=''
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+		--worker-only)
+			worker_run='1'
+			official_run='0'
+			shift
+			;;
+		--official-only)
+			worker_run='0'
+			official_run='1'
+			shift
+			;;
+		--official-status)
+			worker_run='0'
+			official_run='1'
+			official_action='status'
+			shift
+			;;
+		--official-report)
+			worker_run='0'
+			official_run='1'
+			official_action='report'
+			shift
+			;;
+		--force-report)
+			force='1'
+			shift
+			;;
+		--official-wan)
+			[ "$#" -ge 2 ] || { printf 'official WAN is required\n' >&2; exit 2; }
+			safe_wan "$2" || { printf 'invalid official WAN\n' >&2; exit 2; }
+			official_wan="$2"
+			shift 2
+			;;
+		'')
+			shift
+			;;
+		*)
+			printf 'unsupported reporter argument: %s\n' "$1" >&2
+			exit 2
+			;;
+	esac
+done
+
+# main.enabled controls the procd service and the WAN hotplug entry point.
+# Keep this adapter usable for LuCI/manual report and status actions even when
+# the automatic service is disabled; those callers deliberately reach this
+# adapter directly and must still perform the read-only official check.
+
+# Validate every enabled binding before dispatch. The package-local runner
+# rereads the same UCI sections; this private list is used only for duplicate
+# and per-target capacity checks, never passed through a command line.
+official_bindings=''
+official_config_error='0'
+official_ids="$(uci -q show "$CONFIG_PACKAGE" 2>/dev/null | sed -n 's/^po0_outbound_ip_report\.\([^.=]*\)=official_binding$/\1/p')"
+seen_target_wan=''
+seen_target_slot=''
+while IFS= read -r binding; do
+	[ -n "$binding" ] || continue
+	binding_enabled="$(uci_get "$binding" enabled)"
+	is_disabled "$binding_enabled" && continue
+	target="$(uci_get "$binding" target)"
+	wan="$(uci_get "$binding" wan)"
+	slot="$(uci_get "$binding" slot)"
+	label="$(uci_get "$target" label)"
+	if ! safe_id "$target" || ! safe_wan "$wan"; then
+		printf 'Invalid official binding %s; no fallback WAN will be used.\n' "$binding" >&2
+		official_config_error='1'
+		continue
+	fi
+	if ! safe_label "$label"; then
+		printf 'Official binding %s has an invalid label.\n' "$binding" >&2
+		official_config_error='1'
+		continue
+	fi
+	target_type="$(uci -q get "${CONFIG_PACKAGE}.${target}" 2>/dev/null || true)"
+	if [ "$target_type" != 'official_target' ]; then
+		printf 'Official binding %s refers to a missing target.\n' "$binding" >&2
+		official_config_error='1'
+		continue
+	fi
+	target_enabled="$(uci_get "$target" enabled)"
+	is_disabled "$target_enabled" && continue
+	token="$(uci_get "$target" token)"
+	case "$token" in
+		pgnfw_*)
+			remainder="${token#pgnfw_}"
+			case "$remainder" in
+				''|*[!A-Za-z0-9._~-]*)
+					printf 'Official target %s has an invalid token.\n' "$target" >&2
+					official_config_error='1'
+					continue
+					;;
+				esac
+			[ "${#remainder}" -le 240 ] 2>/dev/null || {
+				printf 'Official target %s has an invalid token.\n' "$target" >&2
+				official_config_error='1'
+				continue
+			}
+			;;
+		*)
+			printf 'Official target %s has no valid token.\n' "$target" >&2
+			official_config_error='1'
+			continue
+			;;
+	esac
+	case "$slot" in
+		''|[0-4])
+			;;
+		*)
+			printf 'Official binding %s has invalid slot; expected empty or 0..4.\n' "$binding" >&2
+			official_config_error='1'
+			continue
+			;;
+	esac
+	key="${target}|${wan}"
+	case ";${seen_target_wan};" in
+		*";${key};"*)
+			printf 'Duplicate official target/WAN binding: %s.\n' "$key" >&2
+			official_config_error='1'
+			continue
+			;;
+	esac
+	seen_target_wan="${seen_target_wan}${seen_target_wan:+;}${key}"
+	if [ -n "$slot" ]; then
+		key="${target}|${slot}"
+		case ";${seen_target_slot};" in
+			*";${key};"*)
+				printf 'Duplicate official target/slot binding: %s.\n' "$key" >&2
+				official_config_error='1'
+				continue
+				;;
+			esac
+		seen_target_slot="${seen_target_slot}${seen_target_slot:+;}${key}"
+	fi
+	target_count="$(printf '%s' "$official_bindings" | tr ';' '\n' | cut -d '|' -f 1 | grep -Fxc "$target" 2>/dev/null || true)"
+	case "$target_count" in
+		[5-9]|[1-9][0-9]*)
+			printf 'Official target %s cannot have more than 5 enabled bindings.\n' "$target" >&2
+			official_config_error='1'
+			continue
+			;;
+	esac
+	entry="${target}|${wan}|${slot}|${label}"
+	official_bindings="${official_bindings}${official_bindings:+;}${entry}"
+done <<EOF
+$official_ids
+EOF
+acquire_run_lock || exit $?
+rc='0'
+worker_enabled_status='disabled'
+official_enabled_status='disabled'
+# Execute the official lane first. Its result is independent: a failure here
+# must not prevent the existing Worker lane from running.
+if [ "$official_run" = '1' ]; then
+	if is_disabled "$official_enabled"; then
+		printf 'official_status=disabled\n'
+	else
+		official_enabled_status='enabled'
+		if [ "$official_config_error" = '1' ]; then
+			printf 'official_status=invalid_configuration\n' >&2
+			rc='1'
+		elif [ "$official_action" = 'status' ]; then
+			if [ -n "$official_wan" ]; then
+				"$OFFICIAL_RUNNER" status --official-wan "$official_wan" || rc='1'
+			else
+				"$OFFICIAL_RUNNER" status || rc='1'
+			fi
+		elif [ "$force" = '1' ]; then
+			if [ -n "$official_wan" ]; then
+				"$OFFICIAL_RUNNER" report --force-report --official-wan "$official_wan" || rc='1'
+			else
+				"$OFFICIAL_RUNNER" report --force-report || rc='1'
+			fi
+		else
+			if [ -n "$official_wan" ]; then
+				"$OFFICIAL_RUNNER" report --official-wan "$official_wan" || rc='1'
+			else
+				"$OFFICIAL_RUNNER" report || rc='1'
+			fi
+		fi
+	fi
+fi
+if [ "$worker_run" = '1' ]; then
+	if is_disabled "$worker_enabled"; then
+		printf 'worker_status=disabled\n'
+	else
+		worker_enabled_status='enabled'
+		if [ "$force" = '1' ]; then
+			"$ENGINE" --force-report || rc='1'
+		else
+			"$ENGINE" || rc='1'
+		fi
+	fi
+fi
+if [ "$worker_enabled_status" = 'disabled' ] && [ "$official_enabled_status" = 'disabled' ]; then
+	printf 'reporter_status=disabled\n'
+fi
+exit "$rc"

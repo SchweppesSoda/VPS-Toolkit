@@ -3,6 +3,8 @@ show_current_config() {
     print_panel_row "配置文件" "${CONFIG_FILE}"
     print_panel_row "保存状态" "$([[ -f "${CONFIG_FILE}" ]] && printf '已保存' || printf '未保存')"
     print_panel_row "LAN Worker URL" "${WORKER_URL:-未设置}"
+    print_panel_row "PO0 官方防火墙" "$(po0_firewall_masked_tokens)"
+    print_panel_row "官方状态" "$(po0_firewall_state_summary)"
     print_panel_row "来源 ID" "${SOURCE_ID:-未设置}"
     print_panel_row "设备备注" "${IDENTITY:-未设置}"
     print_panel_row "上报密钥" "$(mask_secret "${SECRET}")"
@@ -35,9 +37,16 @@ show_menu_dashboard() {
     print_panel_row "配置文件" "${CONFIG_FILE}"
     print_panel_row "保存状态" "$([[ -f "${CONFIG_FILE}" ]] && printf '已保存' || printf '未保存')"
     print_panel_row "LAN Worker URL" "${WORKER_URL:-未设置}"
+    print_panel_row "PO0 官方防火墙" "$(po0_firewall_masked_tokens)"
+    print_panel_row "官方状态" "$(po0_firewall_state_summary)"
     print_panel_row "来源 ID" "${SOURCE_ID:-未设置}"
     print_panel_row "设备备注" "${IDENTITY:-未设置}"
     print_panel_row "定时上报" "$(cron_status_summary)"
+    print_panel_row "官方 due" "$(if po0_firewall_configured; then
+        if po0_firewall_due; then printf '已到期'; else printf '未到期'; fi
+    else
+        printf '未启用'
+    fi)"
     print_panel_row "通知模式" "$(notify_status_label)"
     print_panel_row "跳过 Wi-Fi SSID" "$(skip_wifi_ssids_label)"
     print_panel_row "当前 Wi-Fi SSID" "$(current_wifi_ssid_label)"
@@ -46,9 +55,9 @@ show_menu_dashboard() {
 
 configure_interactive() {
     local secret_input cron_seconds
-    WORKER_URL="$(prompt_default "LAN Worker self-report HTTPS 接收地址（域名或 https://域名/report）" "${WORKER_URL:-https://report.example.com/report}")"
+    WORKER_URL="$(prompt_default "LAN Worker self-report HTTPS 接收地址（可空；域名或 https://域名/report）" "${WORKER_URL}")"
     WORKER_URL="$(normalize_worker_url "${WORKER_URL}")"
-    if [[ "${WORKER_URL}" == http://* ]] && ! http_allowed; then
+    if [[ -n "${WORKER_URL}" && "${WORKER_URL}" == http://* ]] && ! http_allowed; then
         if prompt_yes_no "检测到 http:// 地址。仅本地调试/旧环境才允许，是否继续允许 HTTP" "n"; then
             ALLOW_HTTP="1"
         else
@@ -56,7 +65,10 @@ configure_interactive() {
             return 1
         fi
     fi
-    validate_worker_url || return 1
+    if [[ -n "${WORKER_URL}" ]]; then
+        validate_worker_url || return 1
+    fi
+    po0_firewall_read_tokens_interactive || return 1
     SOURCE_ID="$(prompt_default "来源 ID" "${SOURCE_ID:-$(default_source_id)}")"
     IDENTITY="$(prompt_default "设备备注" "${IDENTITY}")"
     if [[ -n "${SECRET}" ]]; then
@@ -70,7 +82,7 @@ configure_interactive() {
     else
         SECRET="$(prompt_default "Self-report secret，可空" "")"
     fi
-    cron_seconds="$(prompt_default "客户端每几秒上报一次（60-$(max_interval_seconds)；必须是 60 的倍数）" "$(cron_minutes_to_seconds "${CRON_MINUTES}")")"
+    cron_seconds="$(prompt_default "客户端每几秒唤醒检查一次（60-$(max_interval_seconds)；必须是 60 的倍数）" "$(cron_minutes_to_seconds "${CRON_MINUTES}")")"
     CRON_MINUTES="$(normalize_interval_seconds_to_minutes "${cron_seconds}" "${MAX_CRON_MINUTES}")" || {
         printf '上报间隔秒数无效：请输入 60-%s 且为 60 倍数的整数。\n' "$(max_interval_seconds)" >&2
         return 1
@@ -80,9 +92,9 @@ configure_interactive() {
         IP_CHECK_URLS="$(prompt_default "完整探测 URL 列表，逗号分隔" "${IP_CHECK_URLS}")"
     fi
     prompt_skip_wifi_ssids_interactive
+    po0_reporter_validate_config || return 1
     save_config_file
 }
-
 run_once_interactive() {
     local previous_force rc
     if ! config_complete; then
@@ -99,6 +111,16 @@ run_once_interactive() {
         fi
     fi
     report_once
+}
+
+official_status_interactive() {
+    local previous_status rc
+    previous_status="${OFFICIAL_STATUS_ONLY}"
+    OFFICIAL_STATUS_ONLY="1"
+    report_once
+    rc="$?"
+    OFFICIAL_STATUS_ONLY="${previous_status}"
+    return "${rc}"
 }
 
 install_cron_interactive() {
@@ -121,29 +143,31 @@ menu_loop() {
         menu_clear_screen
         show_menu_dashboard
         print_menu_section "手动上报"
-        print_menu_pair 1 "配置并保存上报参数" 2 "立即上报一次"
+        print_menu_pair 1 "配置并保存上报参数" 2 "立即双通道上报一次"
+        print_menu_item 3 "查看官方防火墙状态（只读）"
         print_menu_section "定时上报"
-        print_menu_pair 3 "安装 / 更新定时上报" 4 "暂停 / 恢复定时上报"
-        print_menu_pair 5 "查看定时上报状态" 6 "通知 / 静默模式"
-        print_menu_item 7 "删除定时上报"
+        print_menu_pair 4 "安装 / 更新定时上报" 5 "暂停 / 恢复定时上报"
+        print_menu_pair 6 "查看定时上报状态" 7 "通知 / 静默模式"
+        print_menu_item 8 "删除定时上报"
         print_menu_section "查看"
-        print_menu_pair 8 "显示当前配置" 9 "Wi-Fi SSID 权限诊断"
+        print_menu_pair 9 "显示当前配置" 10 "Wi-Fi SSID 权限诊断"
         print_menu_section "维护"
-        print_menu_pair 10 "从 GitHub 更新脚本" 11 "删除定位权限 Helper"
-        print_menu_item 12 "卸载本客户端"
+        print_menu_pair 11 "从 GitHub 更新脚本" 12 "删除定位权限 Helper"
+        print_menu_item 13 "卸载本客户端"
         print_menu_section "退出"
         print_menu_item 0 "退出"
         print_menu_footer
-        choice="$(read_prompt "请选择操作 [0-12]: ")" || return 0
+        choice="$(read_prompt "请选择操作 [0-13]: ")" || return 0
         choice="$(trim "${choice}")"
         case "${choice}" in
             1) configure_interactive; pause_before_return ;;
             2) run_once_interactive; pause_before_return ;;
-            3) install_cron_interactive; pause_before_return ;;
-            4) toggle_schedule_interactive; pause_before_return ;;
-            5) show_cron_status; pause_before_return ;;
-            6) toggle_notify_interactive; pause_before_return ;;
-            7)
+            3) official_status_interactive; pause_before_return ;;
+            4) install_cron_interactive; pause_before_return ;;
+            5) toggle_schedule_interactive; pause_before_return ;;
+            6) show_cron_status; pause_before_return ;;
+            7) toggle_notify_interactive; pause_before_return ;;
+            8)
                 if prompt_yes_no "确认删除 PO0 Outbound IP Report 定时上报" "n"; then
                     remove_cron
                 else
@@ -151,11 +175,11 @@ menu_loop() {
                 fi
                 pause_before_return
                 ;;
-            8) show_current_config; pause_before_return ;;
-            9) show_wifi_ssid_permission_help_interactive; pause_before_return ;;
-            10) upgrade_self_from_download --reopen-menu || pause_before_return ;;
-            11) remove_macos_location_permission_helper_app_interactive; pause_before_return ;;
-            12)
+            9) show_current_config; pause_before_return ;;
+            10) show_wifi_ssid_permission_help_interactive; pause_before_return ;;
+            11) upgrade_self_from_download --reopen-menu || pause_before_return ;;
+            12) remove_macos_location_permission_helper_app_interactive; pause_before_return ;;
+            13)
                 uninstall_self_report_interactive
                 rc=$?
                 pause_before_return

@@ -185,7 +185,7 @@ launchd_plist_matches_desired() {
     else
         tmp="${TMPDIR:-/tmp}/po0-launchd-desired.$$"
     fi
-    write_launchd_plist "${tmp}" "${script}" "$(cron_minutes_to_seconds "${CRON_MINUTES}")" || {
+    write_launchd_plist "${tmp}" "${script}" "$(po0_reporter_wakeup_seconds)" || {
         rm -f "${tmp}" 2>/dev/null || true
         return 1
     }

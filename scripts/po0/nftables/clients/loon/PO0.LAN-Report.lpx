@@ -1,15 +1,16 @@
 #!name = PO0 LAN Report
-#!desc = Reports the current non-home public IPv4 to the existing PO0 LAN Worker. Home and unknown SSIDs fail closed.
+#!desc = Reports the current public IPv4 to the existing PO0 LAN Worker and, when configured, the official PO0 firewall. Scheduled official checks are every 10 minutes; home and unknown SSIDs fail closed.
 #!author = ProxyConfig
 #!system = iOS,iPadOS
 #!loon_version = 3.5.0(969)
 #!tag = Network,PO0
 #!input = po0_worker_url
 #!input = po0_worker_token
-#!arguments-desc = Set po0_worker_url to an HTTPS URL ending in /stash-report/v1 and po0_worker_token to its bearer token. Values stay in Loon persistent storage.
+#!input = PO0_FIREWALL_TOKENS
+#!arguments-desc = Set the Worker URL/token as before. Optionally set PO0_FIREWALL_TOKENS to comma-separated pgnfw_... values, with an optional @0..@4 fixed slot; the same token may only appear once even with different slot hints to avoid concurrent account races; use - to clear it. It is kept in Loon storage and never sent as a URL parameter.
 
 [Script]
-cron "*/30 * * * *" script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js,timeout=20,tag=PO0 Auto Report,argument="auto",enable=true
-network-changed script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js,timeout=20,tag=PO0 Network Changed,argument="auto",enable=true
-generic script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js,timeout=20,tag=PO0 Status,argument="status",img-url=antenna.radiowaves.left.and.right.system,enable=true
-generic script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js,timeout=20,tag=PO0 Force Report,argument="force",img-url=arrow.clockwise.circle.system,enable=true
+cron "*/10 * * * *" script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260905-v4,timeout=300,tag=PO0 Auto Report,argument="auto",enable=true
+network-changed script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260905-v4,timeout=300,tag=PO0 Network Changed,argument="auto",enable=true
+generic script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260905-v4,timeout=300,tag=PO0 Status,argument="status",img-url=antenna.radiowaves.left.and.right.system,enable=true
+generic script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260905-v4,timeout=300,tag=PO0 Force Report,argument="force",img-url=arrow.clockwise.circle.system,enable=true

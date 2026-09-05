@@ -151,7 +151,7 @@ macos_expected_cron_job() {
         run_cmd="${run_cmd} --notify"
     fi
     run_cmd="${run_cmd} >$(sh_quote "$(self_report_log_path)") 2>&1"
-    build_cron_job "${CRON_MINUTES}" "${run_cmd}"
+    build_cron_job "$(po0_reporter_wakeup_minutes)" "${run_cmd}"
 }
 
 macos_cron_refresh_current() {
@@ -218,6 +218,7 @@ show_cron_status() {
     print_panel_row "通知模式" "$(notify_status_label)"
     print_panel_row "跳过 Wi-Fi SSID" "$(skip_wifi_ssids_label)"
     print_panel_row "当前 Wi-Fi SSID" "$(current_wifi_ssid_label)"
+    print_panel_row "官方状态" "$(po0_firewall_state_summary)"
     print_panel_row "实际状态" "$(cron_state_label "${state}")"
     if [[ -n "${interval}" ]]; then
         print_panel_row "计划间隔" "${interval}"

@@ -94,9 +94,27 @@ Use each tool's own README for installation, parameters, and removal instruction
 - `tools/vps/`: offline focused checks for general VPS modules.
 - Browser tools: source and GitHub Pages deployment live in [`vps-toolkit-web`](https://github.com/SchweppesSoda/vps-toolkit-web).
 
+## PO0 Release Architecture and Boundaries
+
+A PO0 release contains six independent scripts: the manager owns PO0 nftables and controlled jobs; the LAN Worker owns LAN jobs and receiver endpoints; the WAN probe only discovers OpenWrt WAN egress; and the Linux/macOS/Windows Outbound IP Report clients run on access devices. Two OpenWrt APKs carry the WAN probe and outbound reporter integrations; their UCI, procd, LuCI, and mwan3 binding are maintained only for OpenWrt and are not imposed on ordinary clients.
+
+The official firewall is an optional, disabled-by-default second lane: GET the current egress, quota, and slot state first, then POST only when the egress is missing or a requested fixed slot does not match. Its fixed 600-second interval is independent of the existing Worker/Self-report schedules and TTLs. A local SSID skip skips both lanes; a forced report bypasses only the local due/SSID guard and never the required GET. Tokens stay in protected configuration and out of logs, arguments, and state. Only the main OpenWrt can use mwan3 to select wan1/wan2; every other endpoint uses its own default egress. Use [`scripts/po0/relay/README.md`](./scripts/po0/relay/README.md) for the user entry points and the technical document for implementation details.
+
 ## Releases and Downloads
 
-The PO0 manager, LAN Worker, and Linux/macOS/Windows Outbound IP Report executables are published through [GitHub Releases](https://github.com/SchweppesSoda/VPS-Toolkit/releases). Legacy raw executable entry points are disabled. Egern, Stash, Loon, and independent tools not included in the Release continue to use the allowed raw paths documented by their own guides.
+PO0 releases are published through [GitHub Releases](https://github.com/SchweppesSoda/VPS-Toolkit/releases); the complete asset set is fixed:
+
+- `nftables-relay-manager.sh`
+- `po0-lan-client.sh`
+- `po0-wan-probe.sh`
+- `po0-outbound-ip-report.sh`
+- `po0-outbound-ip-report-macos.sh`
+- `po0-outbound-ip-report.ps1`
+- `po0-wan-probe.apk`
+- `po0-outbound-ip-report.apk`
+- `checksums.txt`
+
+This release uses script version `2026.09.05+build.1` and tag `po0-v2026.09.05.1`; the outbound APK is `2026.09.05-r1` and the WAN probe APK remains `2026.08.30-r5`. Legacy raw executable entry points are disabled. Egern, Stash, Loon, and independent tools not included in the Release continue to use the allowed raw paths documented by their own guides.
 
 This repository no longer publishes GitHub Pages. Do not enable Pages from the repository root.
 

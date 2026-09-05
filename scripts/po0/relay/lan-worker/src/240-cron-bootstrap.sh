@@ -1,5 +1,5 @@
 install_cron_interactive() {
-    local ddns_count resource_count ddns_minutes="" resource_minutes="" script_path
+    local ddns_count resource_count official_count=0 ddns_minutes="" resource_minutes="" script_path
     ensure_config_file || return 1
     print_panel_section "本机 Worker 轮询器"
     print_panel_row "资源领取" "只检查并领取 PO0 已创建的 pending 任务；不决定资源创建周期"
@@ -8,8 +8,12 @@ install_cron_interactive() {
     print_panel_row "DDNS TTL" "在 PO0 nft manager 的“管理源 IP 白名单 -> 管理 DDNS 来源”里添加/编辑"
     resource_count="$(count_enabled_worker_targets resource)" || return 1
     ddns_count="$(count_enabled_worker_targets ddns)" || return 1
-    if (( resource_count == 0 && ddns_count == 0 )); then
-        printf '没有启用的资源任务或 DDNS resolver 目标，无法安装本机轮询器。\n' >&2
+    if [[ -n "$(trim "${PO0_FIREWALL_TOKENS:-}")" ]]; then
+        official_validate_tokens || return 1
+        official_count=1
+    fi
+    if (( resource_count == 0 && ddns_count == 0 && official_count == 0 )); then
+        printf '没有启用的资源任务、DDNS resolver 目标或官方防火墙 token，无法安装本机轮询器。\n' >&2
         return 1
     fi
     if (( resource_count > 0 )); then
@@ -61,8 +65,8 @@ install_worker_crons() {
     local resource_minutes="${2:-}"
     local script_path="${3:-}"
     local scope="${4:-all}"
-    local ddns_count resource_count ddns_label="" resource_label="" ddns_job="" resource_job="" tmp
-    local preserved_ddns=0 preserved_resource=0
+    local ddns_count resource_count official_count=0 ddns_label="" resource_label="" official_label="" ddns_job="" resource_job="" official_job="" tmp
+    local preserved_ddns=0 preserved_resource=0 preserved_official=0
     ensure_config_file || return 1
     command -v crontab >/dev/null 2>&1 || {
         printf '当前系统没有 crontab 命令。请先安装 cron，或改用 systemd timer。\n' >&2
@@ -70,8 +74,12 @@ install_worker_crons() {
     }
     ddns_count="$(count_enabled_worker_targets ddns)" || return 1
     resource_count="$(count_enabled_worker_targets resource)" || return 1
-    if (( ddns_count == 0 && resource_count == 0 )); then
-        printf '没有启用的资源任务或 DDNS resolver 目标，无法安装本机轮询器。\n' >&2
+    if [[ -n "$(trim "${PO0_FIREWALL_TOKENS:-}")" ]]; then
+        official_validate_tokens || return 1
+        official_count=1
+    fi
+    if (( ddns_count == 0 && resource_count == 0 && official_count == 0 )); then
+        printf '没有启用的资源任务、DDNS resolver 目标或官方防火墙 token，无法安装本机轮询器。\n' >&2
         return 1
     fi
     [[ -n "${script_path}" ]] || script_path="$(script_self_path)"
@@ -99,7 +107,15 @@ install_worker_crons() {
             preserved_ddns=1
         fi
     fi
-    [[ -n "${resource_job}${ddns_job}" ]] || {
+    if (( official_count > 0 )); then
+        if [[ "${scope}" == "all" || "${scope}" == "official" ]]; then
+            official_label="每 10 分钟"
+            official_job="$(build_worker_cron_job 10 "--run-official-firewall --scheduled-run" "${script_path}" "/tmp/po0-lan-official-firewall.log")"
+        elif official_job="$(managed_cron_job_for_action "--run-official-firewall" 2>/dev/null)"; then
+            preserved_official=1
+        fi
+    fi
+    [[ -n "${resource_job}${ddns_job}${official_job}" ]] || {
         printf '没有可写入的本机轮询计划。\n' >&2
         return 1
     }
@@ -109,6 +125,7 @@ install_worker_crons() {
         printf '%s\n' "$(cron_begin_marker)"
         [[ -n "${resource_job}" ]] && printf '%s\n' "${resource_job}"
         [[ -n "${ddns_job}" ]] && printf '%s\n' "${ddns_job}"
+        [[ -n "${official_job}" ]] && printf '%s\n' "${official_job}"
         printf '%s\n' "$(cron_end_marker)"
     } > "${tmp}" || return 1
     crontab "${tmp}" || {
@@ -128,6 +145,13 @@ install_worker_crons() {
             printf '已保留现有 DDNS resolver 上报计划。\n'
         else
             printf '已安装/更新 DDNS resolver 上报计划：%s解析并上报 DDNS。\n' "${ddns_label}"
+        fi
+    fi
+    if [[ -n "${official_job}" ]]; then
+        if (( preserved_official == 1 )); then
+            printf '已保留现有官方防火墙计划。\n'
+        else
+            printf '已安装/更新官方防火墙计划：%s检查本机默认出口。\n' "${official_label}"
         fi
     fi
     printf '提示：资源任务创建周期由 PO0 nft manager 控制；DDNS TTL 在 PO0 端 DDNS 来源里设置，本机只设置上报间隔。\n'

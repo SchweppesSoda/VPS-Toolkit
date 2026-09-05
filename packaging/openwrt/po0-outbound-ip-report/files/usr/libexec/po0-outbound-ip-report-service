@@ -1,29 +1,170 @@
 #!/bin/sh
 set -u
+umask 077
 
-LOG_FILE="/tmp/po0-outbound-ip-report.log"
-STATE_FILE="/tmp/po0-outbound-ip-report.state"
+BASE='/tmp/po0-outbound-ip-report'
+AUTO_LOG="${BASE}.log"
+AUTO_STATE="${BASE}.state"
+WORKER_LOG="${BASE}.worker.log"
+WORKER_STATE="${BASE}.worker.state"
+OFFICIAL_LOG="${BASE}.official.log"
+OFFICIAL_STATE="${BASE}.official.state"
+UCI_RUNNER='/usr/libexec/po0-outbound-ip-report-uci'
+OFFICIAL_INTERVAL='600'
+
+is_disabled() {
+	case "${1:-}" in
+		0|false|no|off) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+read_state_time() {
+	state="$1"
+	field="$2"
+	value=''
+	[ -r "$state" ] && value="$(sed -n "s/^${field}=//p" "$state" | head -n 1)"
+	case "$value" in
+		''|*[!0-9]*) value='0' ;;
+	esac
+	printf '%s' "$value"
+}
+
+read_finished_at() {
+	read_state_time "$1" finished_at
+}
+
+read_attempt_at() {
+	read_state_time "$1" observed_at
+}
+
+seconds_until_due() {
+	state="$1"
+	field="$2"
+	now="$3"
+	interval="$4"
+	last="$(read_state_time "$state" "$field")"
+	case "$now:$last:$interval" in
+		*[!0-9:]*|*::*|*:0) printf '0'; return 0 ;;
+	esac
+	[ "$now" -lt "$last" ] 2>/dev/null && { printf '0'; return 0; }
+	elapsed=$((now - last))
+	[ "$elapsed" -ge "$interval" ] 2>/dev/null && { printf '0'; return 0; }
+	printf '%s' "$((interval - elapsed))"
+}
+
+next_wakeup_seconds() {
+	now="$1"
+	next=''
+	if ! is_disabled "${official_enabled:-0}"; then
+		remaining="$(seconds_until_due "$OFFICIAL_STATE" observed_at "$now" "$OFFICIAL_INTERVAL")"
+		next="$remaining"
+	fi
+	if ! is_disabled "${worker_enabled:-1}"; then
+		worker_interval="$(interval_for interval_seconds 3600)"
+		remaining="$(seconds_until_due "$WORKER_STATE" finished_at "$now" "$worker_interval")"
+		if [ -z "$next" ] || [ "$remaining" -lt "$next" ] 2>/dev/null; then
+			next="$remaining"
+		fi
+	fi
+	# A missing/corrupt state is due now, but never spin in a tight loop if a
+	# state write failed. Procd reload and the iface hotplug hook can still
+	# restart/wake this process when configuration or a WAN changes.
+	case "$next" in
+		''|*[!0-9]*) next='60' ;;
+		0) next='1' ;;
+	esac
+	printf '%s' "$next"
+}
+
+interval_for() {
+	value="$(uci -q get "po0_outbound_ip_report.main.${1}" 2>/dev/null || true)"
+	case "$value" in
+		''|*[!0-9]*) value="$2" ;;
+	esac
+	[ "$value" -ge 60 ] 2>/dev/null || value='60'
+	printf '%s' "$value"
+}
+
+write_running_state() {
+	state="$1"
+	started="$2"
+	tmp="${state}.$$"
+	umask 077
+	{
+		printf 'status=running\n'
+		printf 'lane=%s\n' "$lane"
+		printf 'observed_at=%s\n' "$started"
+	} > "$tmp"
+	mv -f "$tmp" "$state"
+}
+
+run_lane() {
+	lane="$1"
+	case "$lane" in
+		worker)
+			log="$WORKER_LOG"
+			state="$WORKER_STATE"
+			command_args='--worker-only'
+			;;
+		official)
+			log="$OFFICIAL_LOG"
+			state="$OFFICIAL_STATE"
+			command_args='--official-only'
+			;;
+		*) return 2 ;;
+	esac
+	started="$(date +%s)"
+	write_running_state "$state" "$started"
+	tmp_log="${log}.$$"
+	if "$UCI_RUNNER" $command_args > "$tmp_log" 2>&1; then
+		rc='0'
+	else
+		rc="$?"
+	fi
+	mv -f "$tmp_log" "$log"
+	finished="$(date +%s)"
+	tmp_state="${state}.$$"
+	umask 077
+	{
+		printf 'status=finished\n'
+		printf 'lane=%s\n' "$lane"
+		printf 'observed_at=%s\n' "$started"
+		printf 'finished_at=%s\n' "$finished"
+		printf 'exit_code=%s\n' "$rc"
+	} > "$tmp_state"
+	mv -f "$tmp_state" "$state"
+	# Keep the legacy latest-result files available to the existing LuCI view.
+	cp -f "$log" "$AUTO_LOG"
+	cp -f "$state" "$AUTO_STATE"
+	chmod 600 "$log" "$state" "$AUTO_LOG" "$AUTO_STATE" 2>/dev/null || true
+}
 
 while :; do
-    enabled="$(uci -q get po0_outbound_ip_report.main.enabled 2>/dev/null || printf '0')"
-    [ "${enabled}" = "1" ] || exit 0
-    started="$(date +%s)"
-    if /usr/libexec/po0-outbound-ip-report-uci > "${LOG_FILE}" 2>&1; then
-        rc=0
-    else
-        rc=$?
-    fi
-    finished="$(date +%s)"
-    umask 077
-    {
-        printf 'status=finished\n'
-        printf 'observed_at=%s\n' "${started}"
-        printf 'finished_at=%s\n' "${finished}"
-        printf 'exit_code=%s\n' "${rc}"
-    } > "${STATE_FILE}"
-    interval="$(uci -q get po0_outbound_ip_report.main.interval_seconds 2>/dev/null || printf '3600')"
-    case "${interval}" in ""|*[!0-9]*) interval=3600 ;; esac
-    [ "${interval}" -ge 60 ] 2>/dev/null || interval=60
-    sleep "${interval}" &
-    wait $!
+	overall="$(uci -q get po0_outbound_ip_report.main.enabled 2>/dev/null || printf '0')"
+	case "$overall" in
+		1|true|yes|on) ;;
+		*) exit 0 ;;
+	esac
+	now="$(date +%s)"
+	worker_enabled="$(uci -q get po0_outbound_ip_report.main.worker_enabled 2>/dev/null || printf '1')"
+	official_enabled="$(uci -q get po0_outbound_ip_report.main.official_enabled 2>/dev/null || printf '0')"
+	# Run the official lane first so its actual WAN source is checked before
+	# the existing Worker lane. The lanes remain independently scheduled.
+	if ! is_disabled "$official_enabled"; then
+		last="$(read_attempt_at "$OFFICIAL_STATE")"
+		interval="$OFFICIAL_INTERVAL"
+		if [ "$last" -eq 0 ] || [ "$now" -lt "$last" ] || [ $((now - last)) -ge "$interval" ]; then
+			run_lane official
+		fi
+	fi
+	if ! is_disabled "$worker_enabled"; then
+		last="$(read_finished_at "$WORKER_STATE")"
+		interval="$(interval_for interval_seconds 3600)"
+		if [ "$last" -eq 0 ] || [ "$now" -lt "$last" ] || [ $((now - last)) -ge "$interval" ]; then
+			run_lane worker
+		fi
+	fi
+	now="$(date +%s)"
+	sleep "$(next_wakeup_seconds "$now")"
 done

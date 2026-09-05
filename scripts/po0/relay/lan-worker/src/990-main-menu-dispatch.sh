@@ -27,6 +27,9 @@ menu_loop() {
         print_menu_section "全局操作"
         print_menu_item 21 "执行全部任务"
 
+        print_menu_section "本机官方防火墙"
+        print_menu_pair 29 "配置官方防火墙 token" 30 "只读查看官方防火墙状态"
+
         print_menu_section "维护"
         print_menu_pair 22 "安装 / 更新本机轮询器" 23 "删除本机轮询器"
         print_menu_pair 24 "查看本机轮询器状态" 25 "查看脚本版本 / 本机状态"
@@ -36,7 +39,7 @@ menu_loop() {
         print_menu_section "退出"
         print_menu_item 0 "退出"
         print_menu_footer
-        read_menu_choice_or_return choice "请选择操作 [0-28]: " || return 0
+        read_menu_choice_or_return choice "请选择操作 [0-30]: " || return 0
         case "${choice}" in
             1) list_resource_stats; pause_before_return ;;
             2) show_remote_resource_task_cron_status; pause_before_return ;;
@@ -59,6 +62,8 @@ menu_loop() {
             19) toggle_target_interactive; pause_before_return ;;
             20) delete_target_interactive; pause_before_return ;;
             21) run_all_client_jobs; pause_before_return ;;
+            29) official_configure_interactive; pause_before_return ;;
+            30) official_status_once; pause_before_return ;;
             22) install_cron_interactive; pause_before_return ;;
             23) remove_cron_interactive; pause_before_return ;;
             24) show_cron_status; pause_before_return ;;
@@ -321,6 +326,26 @@ while [[ $# -gt 0 ]]; do
             ACTION="run-resource"
             shift
             ;;
+        --run-official-firewall)
+            ACTION="official-firewall"
+            shift
+            ;;
+        --official-firewall-status)
+            ACTION="official-firewall-status"
+            shift
+            ;;
+        --official-preflight-only)
+            ACTION="official-preflight"
+            shift
+            ;;
+        --scheduled-run)
+            SCHEDULED_RUN="1"
+            shift
+            ;;
+        --force|--force-report)
+            FORCE_REPORT="1"
+            shift
+            ;;
         --webauth-server)
             ACTION="webauth-server"
             shift
@@ -500,6 +525,18 @@ case "${ACTION}" in
         ;;
     run-resource)
         run_resource_targets
+        exit $?
+        ;;
+    official-firewall)
+        official_report_once
+        exit $?
+        ;;
+    official-firewall-status)
+        official_status_once
+        exit $?
+        ;;
+    official-preflight)
+        official_report_once
         exit $?
         ;;
     webauth-server)

@@ -84,6 +84,11 @@ print_cron_example() {
         "$(build_worker_cron_job "${resource_minutes}" "--run-resource" "${script_path}" "/tmp/po0-lan-resource.log")" \
         "本机 DDNS resolver 示例（${ddns_label}解析并上报 DDNS）：" \
         "$(build_worker_cron_job "${ddns_minutes}" "--run-ddns" "${script_path}" "/tmp/po0-lan-ddns.log")"
+    if official_channel_enabled; then
+        printf '%s\n' \
+            "本机官方防火墙示例（每 10 分钟只检查本机默认出口）：" \
+            "$(build_worker_cron_job 10 "--run-official-firewall --scheduled-run" "${script_path}" "/tmp/po0-lan-official-firewall.log")"
+    fi
 }
 
 managed_cron_job_for_action() {

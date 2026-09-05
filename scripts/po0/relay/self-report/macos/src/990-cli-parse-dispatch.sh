@@ -28,6 +28,9 @@ usage() {
         "  --config PATH         本地配置文件；优先级：--config / PO0_OUTBOUND_IP_REPORT_CONFIG / PO0_SELF_REPORT_CONFIG 或 SELF_REPORT_CONFIG / root 的 /etc/po0-outbound-ip-report/settings.env / XDG_CONFIG_HOME / ~/.config / ./po0-outbound-ip-report.env；旧 po0-self-report 配置仅作 fallback。" \
         "  --save-config         保存当前参数到本地配置文件；可与 --menu 组合为首次保存后打开菜单。" \
         "  --worker-url URL      LAN Worker self-report HTTPS 接收地址，例如 https://report.example.com/report；裸域名会自动补全。" \
+        "  --clear-po0-firewall-tokens 清空内存中的官方 token；与 --save-config 一起使用才持久化。" \
+        "  --official-status     只读查看官方防火墙状态；GET 失败或未命中都不会执行 POST。" \
+        "  --official-report     只执行官方防火墙通道；--worker-only 只执行 LAN Worker 通道。" \
         "  --allow-http          允许 http:// 上报；仅用于本地调试或临时旧环境。" \
         "  --notify              启用 macOS 原生通知；保存配置或安装 launchd 时会持久化。" \
         "  --no-notify           切换为静默模式；这是默认行为。" \
@@ -115,6 +118,22 @@ parse_args() {
             --worker-url|--lan-worker-url)
                 WORKER_URL="${2:-}"
                 shift 2
+                ;;
+            --clear-po0-firewall-tokens)
+                PO0_FIREWALL_TOKENS=""
+                shift
+                ;;
+            --official-status)
+                OFFICIAL_STATUS_ONLY="1"
+                shift
+                ;;
+            --official-report|--official-only)
+                OFFICIAL_ONLY="1"
+                shift
+                ;;
+            --worker-only)
+                WORKER_ONLY="1"
+                shift
                 ;;
             --allow-http)
                 ALLOW_HTTP="1"

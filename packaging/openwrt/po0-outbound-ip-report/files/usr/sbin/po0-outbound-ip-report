@@ -7,7 +7,7 @@ case "${1:-run-once}" in
         exec /usr/libexec/po0-outbound-ip-report-uci "$@"
         ;;
     --version)
-        printf '%s\n' 'po0-outbound-ip-report 2026.08.30+build.5 (OpenWrt APK)'
+        printf '%s\n' 'po0-outbound-ip-report 2026.09.05+build.1 (OpenWrt APK)'
         ;;
     --help|-h)
         printf '%s\n' \

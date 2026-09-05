@@ -11,12 +11,22 @@ try {
     $parts = @(
         "scripts\po0\relay\self-report\windows\src\000-runtime-parameters.ps1",
         "scripts\po0\relay\self-report\windows\src\010-platform-paths-logging-notification.ps1",
-        "scripts\po0\relay\self-report\windows\src\070-install-upgrade-task.ps1"
+        "scripts\po0\relay\self-report\windows\src\070-install-upgrade-task.ps1",
+        "scripts\po0\relay\self-report\windows\src\058-official-firewall.ps1"
     )
     $body = New-Object System.Collections.Generic.List[string]
     foreach ($part in $parts) {
         $path = Join-Path $repoRoot $part
-        $body.Add([System.IO.File]::ReadAllText($path, $utf8NoBom).TrimEnd())
+        $partText = [System.IO.File]::ReadAllText($path, $utf8NoBom).TrimEnd()
+        if ($part -like "*070-install-upgrade-task.ps1") {
+            $partText = $partText.Replace("New-ScheduledTaskAction", "Invoke-TestNewScheduledTaskAction")
+            $partText = $partText.Replace("New-ScheduledTaskTrigger", "Invoke-TestNewScheduledTaskTrigger")
+            $partText = $partText.Replace("Register-ScheduledTask", "Invoke-TestRegisterScheduledTask")
+            $partText = $partText.Replace("Set-ScheduledTask", "Invoke-TestSetScheduledTask")
+            $partText = $partText.Replace("Enable-ScheduledTask", "Invoke-TestEnableScheduledTask")
+            $partText = $partText.Replace("Disable-ScheduledTask", "Invoke-TestDisableScheduledTask")
+        }
+        $body.Add($partText)
     }
     $body.Add(@'
 function Fail {
@@ -88,26 +98,31 @@ function Cleanup-LegacySelfReportArtifacts {
     return $true
 }
 
-function New-ScheduledTaskAction {
+function Invoke-TestNewScheduledTaskAction {
     param([string]$Execute, [string]$Argument)
     return [pscustomobject]@{ Execute = $Execute; Arguments = $Argument }
 }
 
-function Set-ScheduledTask {
-    param([string]$TaskName, $Action)
+
+function Invoke-TestNewScheduledTaskTrigger {
+    param([switch]$Once, [datetime]$At, $RepetitionInterval, $RepetitionDuration)
+    return [pscustomobject]@{ Repetition = [pscustomobject]@{ Interval = $RepetitionInterval }; StartBoundary = $At }
+}
+function Invoke-TestSetScheduledTask {
+    param([string]$TaskName, $Action, $Trigger)
     $script:SetTaskCalled = $true
 }
 
-function Enable-ScheduledTask {
+function Invoke-TestEnableScheduledTask {
     param([string]$TaskName)
 }
 
-function Disable-ScheduledTask {
+function Invoke-TestDisableScheduledTask {
     param([string]$TaskName)
 }
 
-function Register-ScheduledTask {
-    param([string]$TaskName, $Action, $Trigger, $Settings, $Principal, [switch]$Force)
+function Invoke-TestRegisterScheduledTask {
+    param([string]$TaskName, $Action, $Trigger, $Settings, $Principal, $Description, [switch]$Force)
     $script:RegisterTaskCalled = $true
 }
 
@@ -120,6 +135,7 @@ function Ensure-DefaultSelfReportScriptInstalled {
     return $scriptPath
 }
 
+if (-not (Get-Command Invoke-TestRegisterScheduledTask -CommandType Function -ErrorAction SilentlyContinue)) { Fail "isolated Register stub was not defined" }
 if ((Update-ScheduledReporterLauncherForExistingTask) -ne "none") {
     Fail "missing task should return none"
 }

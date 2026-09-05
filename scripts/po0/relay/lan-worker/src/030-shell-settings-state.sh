@@ -186,6 +186,7 @@ save_local_settings_unlocked() {
         write_env_assignment "RESOURCE_COMPLETE_TIMEOUT_SECONDS" "${RESOURCE_COMPLETE_TIMEOUT_SECONDS}"
         write_env_assignment "RESOURCE_CONTROL_TIMEOUT_SECONDS" "${RESOURCE_CONTROL_TIMEOUT_SECONDS}"
         write_env_assignment "RESOURCE_EVENTS_KEEP" "${RESOURCE_EVENTS_KEEP}"
+        write_env_assignment "PO0_FIREWALL_TOKENS" "${PO0_FIREWALL_TOKENS}"
         write_env_assignment "REMOTE_MANAGER_TIMEOUT_SECONDS" "${REMOTE_MANAGER_TIMEOUT_SECONDS}"
         write_env_assignment "REMOTE_STATUS_TIMEOUT_SECONDS" "${REMOTE_STATUS_TIMEOUT_SECONDS}"
         write_env_assignment "SSH_CONNECT_TIMEOUT_SECONDS" "${SSH_CONNECT_TIMEOUT_SECONDS}"

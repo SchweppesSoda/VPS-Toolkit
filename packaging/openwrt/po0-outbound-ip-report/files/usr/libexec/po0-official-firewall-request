@@ -1,0 +1,145 @@
+#!/bin/sh
+set -eu
+
+API_BASE='https://124.221.69.228/api/firewall'
+
+fail() {
+	printf '%s\n' "$1" >&2
+	exit 1
+}
+
+safe_id() {
+	[ "${#1}" -le 64 ] 2>/dev/null || return 1
+	case "${1:-}" in
+		''|*[!A-Za-z0-9_-]*) return 1 ;;
+		*) return 0 ;;
+	esac
+}
+
+uci_get() {
+	uci -q get "po0_outbound_ip_report.${1}.${2}" 2>/dev/null || true
+}
+
+target="${1:-}"
+action="${2:-}"
+slot="${3:-}"
+safe_id "$target" || fail 'invalid official target id'
+case "$action" in
+	status)
+	[ "$#" -eq 2 ] || fail 'status does not accept a slot or extra argument'
+		;;
+	add)
+	[ "$#" -le 3 ] || fail 'add accepts only an optional slot'
+		;;
+	*) fail 'usage: po0-official-firewall-request <target-id> <status|add> [slot]' ;;
+esac
+case "$slot" in
+	'') ;;
+	[0-4]) ;;
+	*) fail 'official slot must be empty or 0..4' ;;
+esac
+command -v uci >/dev/null 2>&1 || fail 'uci is required'
+command -v curl >/dev/null 2>&1 || fail 'curl is required'
+
+target_type="$(uci -q get "po0_outbound_ip_report.${target}" 2>/dev/null || true)"
+[ "$target_type" = 'official_target' ] || fail 'official target does not exist'
+enabled="$(uci_get "$target" enabled)"
+case "$enabled" in
+	0|false|no|off) fail 'official target is disabled' ;;
+esac
+TOKEN="$(uci_get "$target" token)"
+case "$TOKEN" in
+	pgnfw_*)
+		remainder="${TOKEN#pgnfw_}"
+		case "$remainder" in
+			''|*[!A-Za-z0-9._~-]*) fail 'official target token is missing or invalid' ;;
+		esac
+		[ "${#remainder}" -le 240 ] 2>/dev/null || fail 'official target token is missing or invalid'
+		;;
+	*) fail 'official target token is missing or invalid' ;;
+esac
+
+url="${API_BASE}/${TOKEN}"
+request='GET'
+if [ "$action" = 'add' ]; then
+	request='POST'
+	url="${url}/add"
+	[ -n "$slot" ] && url="${url}?slot=${slot}"
+fi
+
+# Keep the token out of argv and process listings. mwan3 prints its command
+# line, so callers pass only the target id, action and optional slot. Curl's
+# raw stderr and response headers can contain the token-bearing URL; neither is
+# ever copied to caller-visible output.
+umask 077
+tmp_dir="$(mktemp -d /tmp/po0-official-request.XXXXXX 2>/dev/null || printf '')"
+[ -n "$tmp_dir" ] || fail 'official request temporary storage is unavailable'
+cleanup_tmp_dir() {
+	[ -n "${tmp_dir:-}" ] || return 0
+	[ -d "$tmp_dir" ] && [ ! -L "$tmp_dir" ] || return 0
+	rm -rf "$tmp_dir" 2>/dev/null || true
+}
+handle_hup() { cleanup_tmp_dir; exit 129; }
+handle_int() { cleanup_tmp_dir; exit 130; }
+handle_term() { cleanup_tmp_dir; exit 143; }
+trap cleanup_tmp_dir EXIT
+trap handle_hup HUP
+trap handle_int INT
+trap handle_term TERM
+body_file="$tmp_dir/body"
+header_file="$tmp_dir/headers"
+
+set +e
+http_code="$({
+	printf 'url = "%s"\n' "$url"
+	printf 'request = "%s"\n' "$request"
+} | env -u http_proxy -u https_proxy -u all_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY \
+	curl -4sS --noproxy '*' --proto '=https' --connect-timeout 5 --max-time 20 \
+		--retry 2 --retry-delay 2 --max-filesize 65536 \
+		--output "$body_file" --dump-header "$header_file" --config - -w '%{http_code}' \
+		2>/dev/null)"
+curl_rc=$?
+set -e
+
+[ -f "$header_file" ] || : > "$header_file"
+[ -f "$body_file" ] || : > "$body_file"
+header_size="$(wc -c < "$header_file" 2>/dev/null || printf '0')"
+body_size="$(wc -c < "$body_file" 2>/dev/null || printf '0')"
+case "$header_size:$body_size" in
+	*[!0-9:]*|'':*) fail 'official response size validation failed' ;;
+esac
+[ "$header_size" -le 16384 ] 2>/dev/null || fail 'official response headers exceeded the limit'
+[ "$body_size" -le 65536 ] 2>/dev/null || fail 'official response body exceeded the limit'
+
+response_contains_sensitive_data() {
+	file="$1"
+	# A compromised or misconfigured upstream must not be able to reflect the
+	# request credential or its URL into helper-visible output.  Curl stderr is
+	# already suppressed; check both private response files before returning a
+	# body to the runner.
+	if grep -Fqi -- "$TOKEN" "$file" ||
+		grep -Fqi -- "$url" "$file" ||
+		grep -Fqi -- "$API_BASE" "$file" ||
+		grep -Fqi -- 'authorization' "$file"; then
+		return 0
+	fi
+	return 1
+}
+
+case "$http_code" in
+	2[0-9][0-9])
+		if response_contains_sensitive_data "$body_file" ||
+			response_contains_sensitive_data "$header_file"; then
+			fail 'official response contained sensitive request data'
+		fi
+		cat "$body_file"
+		printf '\n'
+		exit 0
+		;;
+esac
+if [ "$curl_rc" -ne 0 ]; then
+	printf 'official request failed (curl exit %s)\n' "$curl_rc" >&2
+else
+	printf 'official request failed (HTTP %s)\n' "${http_code:-unknown}" >&2
+fi
+exit 1

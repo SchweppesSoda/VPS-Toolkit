@@ -8,6 +8,12 @@
     [string[]]$IpCheckUrls = @(),
     [string[]]$SkipWifiSsids = @(),
     [switch]$ForceReport,
+    [switch]$OfficialStatus,
+    [Alias("OfficialReport")]
+    [switch]$OfficialOnly,
+    [switch]$WorkerOnly,
+    [switch]$ScheduledRun,
+    [switch]$ClearPo0FirewallTokens,
     [switch]$InstallTask,
     [switch]$RunOnce,
     [int]$Minutes = $(if ($env:PO0_OUTBOUND_IP_REPORT_MINUTES) { [int]$env:PO0_OUTBOUND_IP_REPORT_MINUTES } elseif ($env:PO0_SELF_REPORT_MINUTES) { [int]$env:PO0_SELF_REPORT_MINUTES } elseif ($env:MINUTES) { [int]$env:MINUTES } else { 60 }),
@@ -31,10 +37,11 @@ $ErrorActionPreference = "Stop"
 $ReleaseDownloadBaseUrl = $(if ($env:PO0_RELEASE_DOWNLOAD_BASE_URL) { $env:PO0_RELEASE_DOWNLOAD_BASE_URL } else { "https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download" })
 $DownloadUrl = $(if ($env:PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL) { $env:PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL } elseif ($env:PO0_SELF_REPORT_PS_DOWNLOAD_URL) { $env:PO0_SELF_REPORT_PS_DOWNLOAD_URL } else { "$ReleaseDownloadBaseUrl/po0-outbound-ip-report.ps1" })
 $ScriptName = "po0-outbound-ip-report"
-$ScriptVersion = "2026.08.30+build.5"
-$ScriptReleaseDate = "2026-08-30"
+$ScriptVersion = "2026.09.05+build.1"
+$ScriptReleaseDate = "2026-09-05"
 # CHANGELOG_BEGIN
-# - 跟随 PO0 发布批次对齐到 2026.08.30+build.5；Windows 客户端无行为变化。
+# - 增加默认关闭的 PO0 官方防火墙双通道；每个官方账号最多 5 个槽位，按 GET-first 决定是否 POST。
+# - 官方 token 仅通过权限 600 的配置文件或交互菜单管理，官方检查固定 600 秒并与普通上报独立。
 # CHANGELOG_END
 $PanelValueColumn = 24
 $MenuRightColumn = 46

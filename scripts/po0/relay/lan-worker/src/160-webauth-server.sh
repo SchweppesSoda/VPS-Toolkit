@@ -57,9 +57,10 @@ run_webauth_server() {
     listen_port="${WEBAUTH_LISTEN##*:}"
     [[ -n "${listen_host}" && "${listen_host}" != "${WEBAUTH_LISTEN}" ]] || listen_host="127.0.0.1"
     [[ "${listen_port}" =~ ^[0-9]+$ ]] || listen_port="8787"
+    official_prepare_python_preflight_env
     export PO0_WEBAUTH_TARGETS="${targets}"
     printf 'WebAuth server listening on %s:%s; PO0 has no HTTP listener.\n' "${listen_host}" "${listen_port}"
-    "${py}" - "${listen_host}" "${listen_port}" <<'PY'
+    env -u PO0_FIREWALL_TOKENS "${py}" - "${listen_host}" "${listen_port}" <<'PY'
 import concurrent.futures
 import errno
 import http.server
@@ -74,6 +75,10 @@ import time
 
 listen_host, listen_port = sys.argv[1], int(sys.argv[2])
 SSH_BIN = shutil.which("ssh") or "ssh"
+OFFICIAL_CLIENT = os.environ.get("PO0_LAN_CLIENT_PATH", "")
+OFFICIAL_CONFIG = os.environ.get("PO0_LAN_CLIENT_CONFIG_FILE", "")
+OFFICIAL_SETTINGS = os.environ.get("PO0_LAN_CLIENT_SETTINGS_FILE", "")
+BASH_BIN = shutil.which("bash") or "bash"
 DISCONNECT_ERRNOS = {errno.EPIPE}
 if hasattr(errno, "ECONNRESET"):
     DISCONNECT_ERRNOS.add(errno.ECONNRESET)
@@ -306,6 +311,31 @@ TARGETS = parse_targets(os.environ.get('PO0_WEBAUTH_TARGETS', ''))
 if not TARGETS:
     raise SystemExit('missing PO0_WEBAUTH_TARGETS')
 
+def official_preflight():
+    if not OFFICIAL_CLIENT or not OFFICIAL_CONFIG or not OFFICIAL_SETTINGS:
+        return False
+    command = [
+        BASH_BIN,
+        OFFICIAL_CLIENT,
+        "--config", OFFICIAL_CONFIG,
+        "--settings-file", OFFICIAL_SETTINGS,
+        "--official-preflight-only",
+    ]
+    child_env = os.environ.copy()
+    child_env.pop("PO0_FIREWALL_TOKENS", None)
+    try:
+        result = subprocess.run(
+            command,
+            env=child_env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=40,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
 def report_target(target, ip, identity, note):
     ttl = normalized_ttl(target.get('ttl'), 43200)
     expires_at = str(int(time.time()) + max(60, ttl))
@@ -338,6 +368,10 @@ def report_one(target, ip, identity, note):
     return label, False, str(result.stderr or result.stdout or result.returncode).strip()
 
 def report_all(ip, identity, note):
+    # Complete the optional host-local lane before starting any downstream
+    # SSH reports.  Its result is deliberately ignored here: WebAuth's
+    # existing HTTP response remains governed only by its own SSH targets.
+    official_preflight()
     ok = []
     failed = []
     max_workers = min(len(TARGETS), 8)

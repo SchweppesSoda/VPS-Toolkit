@@ -9,6 +9,11 @@ function Load-SavedConfig {
     if (-not $raw.Trim()) { return }
     $cfg = $raw | ConvertFrom-Json
 
+    $tokenProperty = $cfg.PSObject.Properties["PO0_FIREWALL_TOKENS"]
+    if (-not $script:Po0FirewallTokensEnvironmentSet -and $tokenProperty -and $null -ne $tokenProperty.Value) {
+        $script:Po0FirewallTokens = [string]$tokenProperty.Value
+    }
+
     if (-not $PSBoundParameters.ContainsKey("WorkerUrl") -and -not $env:PO0_OUTBOUND_IP_REPORT_WORKER_URL -and -not $env:PO0_LAN_WORKER_URL -and -not $env:WORKER_URL -and $cfg.WorkerUrl) {
         $script:WorkerUrl = [string]$cfg.WorkerUrl
     }
@@ -64,6 +69,54 @@ function Normalize-DefaultLogPath {
     } catch {}
 }
 
+function Set-Po0ClientConfigAcl {
+    param([string]$Path)
+    if (-not $Path -or -not (Test-Path -LiteralPath $Path)) {
+        throw "配置文件不存在，无法设置权限。"
+    }
+    $acl = Get-Acl -LiteralPath $Path
+    $acl.SetAccessRuleProtection($true, $false)
+    foreach ($existing in @($acl.Access)) {
+        [void]$acl.RemoveAccessRule($existing)
+    }
+    $identities = @(
+        ([System.Security.Principal.WindowsIdentity]::GetCurrent()).User,
+        (New-Object -TypeName System.Security.Principal.SecurityIdentifier -ArgumentList "S-1-5-32-544"),
+        (New-Object -TypeName System.Security.Principal.SecurityIdentifier -ArgumentList "S-1-5-18")
+    )
+    foreach ($identity in $identities) {
+        $rule = New-Object System.Security.AccessControl.FileSystemAccessRule -ArgumentList @(
+            $identity,
+            [System.Security.AccessControl.FileSystemRights]::FullControl,
+            [System.Security.AccessControl.AccessControlType]::Allow
+        )
+        [void]$acl.AddAccessRule($rule)
+    }
+    Set-Acl -LiteralPath $Path -AclObject $acl
+}
+
+function Write-Po0ClientConfigAtomic {
+    param(
+        [string]$Path,
+        [string]$Json
+    )
+    $dir = Split-Path -Parent $Path
+    if ($dir -and -not (Test-Path -LiteralPath $dir)) {
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    }
+    $tmp = "{0}.{1}.{2}.tmp" -f $Path, $PID, ([guid]::NewGuid().ToString("N"))
+    $utf8Bom = New-Object System.Text.UTF8Encoding($true)
+    try {
+        [System.IO.File]::WriteAllText($tmp, $Json, $utf8Bom)
+        Set-Po0ClientConfigAcl -Path $tmp
+        Move-Item -LiteralPath $tmp -Destination $Path -Force
+    } finally {
+        if (Test-Path -LiteralPath $tmp) {
+            Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 function Save-ClientConfig {
     Assert-Minutes
     $dir = Split-Path -Parent $script:ConfigPath
@@ -71,6 +124,7 @@ function Save-ClientConfig {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
     }
     $config = [ordered]@{
+        PO0_FIREWALL_TOKENS = $script:Po0FirewallTokens
         WorkerUrl = $script:WorkerUrl
         SourceId = $script:SourceId
         Identity = $script:Identity
@@ -85,7 +139,8 @@ function Save-ClientConfig {
         SchedulePaused = [bool]$script:SchedulePaused
         Notify = [bool]$script:TaskNotify
     }
-    $config | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $script:ConfigPath -Encoding UTF8
+    $json = $config | ConvertTo-Json -Depth 4
+    Write-Po0ClientConfigAtomic -Path $script:ConfigPath -Json $json
     Write-SelfReportCompleted "配置已保存：$script:ConfigPath"
 }
 
@@ -113,6 +168,12 @@ self-report 接收服务。访问设备不直接连接 PO0。
   -ConfigPath PATH    本地配置文件；默认 outbound-ip-report.json，旧 self-report.json 仅作 fallback。
   -SaveConfig         保存当前参数到本地配置文件，不安装计划任务。
   -RunOnce            从参数或已保存配置立即上报一次，不进入交互菜单。
+  -OfficialStatus     只读查看官方防火墙状态；GET 失败或未命中都不会执行 POST。
+  -OfficialOnly       只执行官方防火墙通道；不影响已保存的 LAN Worker 配置。
+  -WorkerOnly         只执行 LAN Worker 通道；跳过官方防火墙通道。
+  -ClearPo0FirewallTokens 清空内存中的官方 token；与 -SaveConfig 一起使用才持久化。
+                      token 只从 PO0_FIREWALL_TOKENS 环境变量、配置文件或交互菜单读取，
+                      不接受任何把 token 值放入命令行的参数。
   -WorkerUrl URL      LAN Worker self-report HTTPS 接收地址；裸域名会自动补全。
   -AllowHttp          允许 http:// 上报；仅用于本地调试或临时旧环境。
   -SourceId ID        写入 PO0 client_ip 记录的来源 ID。默认: 计算机名。

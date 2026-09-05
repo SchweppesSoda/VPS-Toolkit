@@ -2,7 +2,7 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-outbound-ip-report-openwrt"
-SCRIPT_VERSION="2026.08.30+build.5"
+SCRIPT_VERSION="2026.09.05+build.1"
 WORKER_URL="${PO0_OUTBOUND_IP_REPORT_WORKER_URL:-}"
 SOURCE_ID="${PO0_OUTBOUND_IP_REPORT_SOURCE:-router-88-1}"
 IDENTITY="${PO0_OUTBOUND_IP_REPORT_IDENTITY:-router-88-1-via-gateway}"
@@ -101,4 +101,15 @@ self_report_append_response_target_success() {
 
 report_detail_enabled() {
     return 1
+}
+
+# The OpenWrt package runs the official-firewall lane through its UCI-aware
+# runner. Keep the generated Worker engine explicitly disabled for that lane
+# so one scheduled pass can never issue the official request twice.
+official_channel_enabled() {
+    return 1
+}
+
+official_report_once() {
+    return 0
 }

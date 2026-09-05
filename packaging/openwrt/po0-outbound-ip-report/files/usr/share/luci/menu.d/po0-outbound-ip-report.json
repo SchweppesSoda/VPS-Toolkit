@@ -1,10 +1,10 @@
 {
   "admin/services/po0-outbound-ip-report": {
-    "title": "PO0 出口上报",
+    "title": "PO0 出口上报与官方防火墙",
     "order": 92,
     "action": {
       "type": "view",
-      "path": "po0/outbound-ip-report-v5"
+      "path": "po0/outbound-ip-report-v6"
     },
     "depends": {
       "acl": [ "po0-outbound-ip-report" ],

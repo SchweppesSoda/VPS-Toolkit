@@ -63,7 +63,11 @@ function Get-IntervalSeconds {
 
 function Test-ClientConfigComplete {
     try {
-        Assert-WorkerUrl
+        if ($script:WorkerUrl) {
+            Assert-WorkerUrl
+        } elseif (-not (Test-Po0FirewallConfigured)) {
+            throw "没有配置可执行的上报通道。"
+        }
         Assert-Minutes
         return $true
     } catch {

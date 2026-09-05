@@ -1,0 +1,380 @@
+#!/bin/sh
+set -u
+
+CONFIG_PACKAGE='po0_outbound_ip_report'
+HELPER='/usr/libexec/po0-official-firewall-request'
+MWAN3='/usr/sbin/mwan3'
+CONFIG_FILE='/etc/config/po0_outbound_ip_report'
+ACTION="${1:-report}"
+SELECTED=''
+WAN_FILTER=''
+shift || true
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+		--force-report)
+			# Scheduling is handled by the caller; keep this compatibility
+			# flag while retaining the mandatory read-only gate below.
+			shift
+			;;
+		--official-wan)
+			[ "$#" -ge 2 ] || { printf 'official WAN is required\n' >&2; exit 2; }
+			WAN_FILTER="$2"
+			shift 2
+			;;
+		'')
+			shift
+			;;
+		*)
+			[ -z "$SELECTED" ] || { printf 'too many official binding selectors\n' >&2; exit 2; }
+			SELECTED="$1"
+			shift
+			;;
+	esac
+done
+
+case "$ACTION" in
+	status|report) : ;;
+	*) printf 'unsupported official action\n' >&2; exit 2 ;;
+esac
+
+case "$WAN_FILTER" in
+	''|*[!A-Za-z0-9_.-]*)
+		[ -z "$WAN_FILTER" ] || { printf 'invalid official WAN\n' >&2; exit 2; }
+		;;
+esac
+[ "${#WAN_FILTER}" -le 64 ] 2>/dev/null || { printf 'invalid official WAN\n' >&2; exit 2; }
+
+safe_id() {
+	[ "${#1}" -le 64 ] 2>/dev/null || return 1
+	case "${1:-}" in
+		''|*[!A-Za-z0-9_-]*) return 1 ;;
+		*) return 0 ;;
+	esac
+}
+
+safe_wan() {
+	[ "${#1}" -le 64 ] 2>/dev/null || return 1
+	case "${1:-}" in
+		''|*[!A-Za-z0-9_.-]*) return 1 ;;
+		*) return 0 ;;
+	esac
+}
+
+uci_get() {
+	uci -q get "${CONFIG_PACKAGE}.${1}.${2}" 2>/dev/null || true
+}
+
+safe_text() {
+	printf '%s' "${1:-}" | tr '\r\n\t' '   '
+}
+
+json_value() {
+	value="$(printf '%s' "$1" | jsonfilter -e "@.${2}" 2>/dev/null || true)"
+	[ -n "$value" ] && printf '%s' "$value"
+}
+
+json_current_ip() {
+	value="$(json_value "$1" 'currentIp')"
+	printf '%s' "$value" | sed 's|\\/|/|g'
+}
+
+json_limit() {
+	value="$(json_value "$1" 'limit')"
+	case "$value" in
+		[1-5]) printf '%s' "$value" ;;
+		*) return 1 ;;
+	esac
+}
+
+json_whitelist() {
+	values="$(printf '%s' "$1" | jsonfilter -e '@.whitelist[*].ip' 2>/dev/null || true)"
+	if [ -n "$values" ]; then
+		printf '%s\n' "$values" | sed '/^$/d' | sed 's|\\/|/|g' | tr '\n' ';' | sed 's/;$//'
+	fi
+}
+
+valid_ipv4_cidr24() {
+	value="${1:-}"
+	case "$value" in
+		*/24) value="${value%/24}" ;;
+		*) return 1 ;;
+	esac
+	case "$value" in
+		''|*[!0-9.]*) return 1 ;;
+	esac
+	old_ifs="$IFS"
+	IFS='.'
+	set -- $value
+	IFS="$old_ifs"
+	[ "$#" -eq 4 ] || return 1
+	for octet in "$@"; do
+		case "$octet" in
+			''|*[!0-9]*) return 1 ;;
+		esac
+		[ "$octet" -le 255 ] 2>/dev/null || return 1
+	done
+}
+
+official_response_valid() {
+	response="$1"
+	[ "$(json_value "$response" 'enabled')" = 'true' ] || return 1
+	current_value="$(json_current_ip "$response")"
+	valid_ipv4_cidr24 "$current_value" || return 1
+	limit_value="$(json_limit "$response")" || return 1
+	# Use jsonfilter's type query on the root key. A raw-body regex could be
+	# fooled by a nested object containing a field named "whitelist".
+	whitelist_type="$(printf '%s' "$response" |
+		jsonfilter -t '@["whitelist"]' 2>/dev/null || true)"
+	[ "$whitelist_type" = 'array' ] || return 1
+	whitelist_values="$(printf '%s' "$response" | jsonfilter -e '@.whitelist[*].ip' 2>/dev/null || true)"
+	ip_count='0'
+	seen_slots=''
+	index='0'
+	while [ "$index" -lt 16 ]; do
+		whitelist_value="$(json_value "$response" "whitelist[${index}].ip")"
+		[ -n "$whitelist_value" ] || break
+		whitelist_value="$(printf '%s' "$whitelist_value" | sed 's|\\/|/|g')"
+		valid_ipv4_cidr24 "$whitelist_value" || return 1
+		whitelist_slot="$(json_value "$response" "whitelist[${index}].slot")"
+		case "$whitelist_slot" in
+			''|null)
+				;;
+			[0-4])
+				case ";${seen_slots};" in
+					*";${whitelist_slot};"*) return 1 ;;
+				esac
+				seen_slots="${seen_slots}${seen_slots:+;}${whitelist_slot}"
+				;;
+			*) return 1 ;;
+		esac
+		ip_count=$((ip_count + 1))
+		index=$((index + 1))
+	done
+	# The aggregate query detects entries beyond the indexed validation loop
+	# and rejects sparse/malformed arrays without copying response text.
+	aggregate_ip_count='0'
+	while IFS= read -r whitelist_value; do
+		[ -n "$whitelist_value" ] || continue
+		aggregate_ip_count=$((aggregate_ip_count + 1))
+	done <<EOF
+$whitelist_values
+EOF
+	[ "$ip_count" -eq "$aggregate_ip_count" ] 2>/dev/null || return 1
+	[ "$ip_count" -le "$limit_value" ] 2>/dev/null || return 1
+}
+
+is_whitelisted() {
+	response="$1"
+	current="$2"
+	wanted_slot="${3:-}"
+	index='0'
+	[ -n "$current" ] || return 1
+	while [ "$index" -lt 16 ]; do
+		ip="$(json_value "$response" "whitelist[${index}].ip")"
+		[ -n "$ip" ] || break
+		ip="$(printf '%s' "$ip" | sed 's|\\/|/|g')"
+		if [ "$ip" = "$current" ]; then
+			[ -n "$wanted_slot" ] || return 0
+			entry_slot="$(json_value "$response" "whitelist[${index}].slot")"
+			[ "$entry_slot" = "$wanted_slot" ] && return 0
+		fi
+		index=$((index + 1))
+	done
+	return 1
+}
+
+binding_list() {
+	uci -q show "$CONFIG_PACKAGE" 2>/dev/null | sed -n 's/^po0_outbound_ip_report\.\([^.=]*\)=official_binding$/\1/p'
+}
+
+binding_exists() {
+	printf '%s\n' "$1" | grep -Fqx "$2"
+}
+
+emit_row() {
+	# LuCI accepts this key/value format. API response text is never copied
+	# directly into the page, and target tokens are never emitted.
+	printf 'entry_target=%s\n' "$(safe_text "$target")"
+	printf 'entry_label=%s\n' "$(safe_text "$label")"
+	printf 'entry_wan=%s\n' "$(safe_text "$wan")"
+	printf 'entry_slot=%s\n' "$(safe_text "$slot")"
+	printf 'entry_enabled=%s\n' "$(safe_text "$enabled")"
+	printf 'entry_current_ip=%s\n' "$(safe_text "$current")"
+	printf 'entry_whitelist=%s\n' "$(safe_text "$whitelist")"
+	printf 'entry_used=%s\n' "$(safe_text "$used")"
+	printf 'entry_limit=%s\n' "$(safe_text "$limit")"
+	printf 'entry_status=%s\n' "$(safe_text "$status")"
+	printf 'entry_checked_at=%s\n' "$(safe_text "$checked_at")"
+	[ -n "$message" ] && printf 'entry_message=%s\n' "$(safe_text "$message")"
+	printf '\n'
+}
+
+run_helper() {
+	mode="$1"
+	stderr_file="${TMP_DIR}/stderr.$$"
+	response=''
+	if [ "$mode" = 'status' ]; then
+		if response="$("$MWAN3" use "$wan" "$HELPER" "$target" status 2>"$stderr_file")"; then
+			RUN_RC='0'
+		else
+			RUN_RC="$?"
+		fi
+	elif response="$("$MWAN3" use "$wan" "$HELPER" "$target" add "$slot" 2>"$stderr_file")"; then
+		RUN_RC='0'
+	else
+		RUN_RC="$?"
+	fi
+	RUN_ERR="官方请求失败（退出码 ${RUN_RC}）。"
+	rm -f "$stderr_file"
+}
+
+process_binding() {
+	binding="$1"
+	target="$(uci_get "$binding" target)"
+	label="$(uci_get "$target" label)"
+	wan="$(uci_get "$binding" wan)"
+	slot="$(uci_get "$binding" slot)"
+	enabled="$(uci_get "$binding" enabled)"
+	[ -z "$WAN_FILTER" ] || [ "$wan" = "$WAN_FILTER" ] || return 0
+	[ -n "$enabled" ] || enabled='1'
+	current=''
+	whitelist=''
+	used='0'
+	limit='5'
+	status='unknown'
+	message=''
+	checked_at="$(date +%s)"
+
+	if [ "$enabled" = '0' ] || [ "$enabled" = 'false' ] || [ "$enabled" = 'no' ] || [ "$enabled" = 'off' ]; then
+		status='disabled'
+		emit_row
+		return 0
+	fi
+	if ! safe_id "$target" || ! safe_wan "$wan" || [ ! -x "$MWAN3" ]; then
+		status='error'
+		message='指定 WAN 或 mwan3 不可用，未回退到默认出口。'
+		emit_row
+		FAILURES=$((FAILURES + 1))
+		return 0
+	fi
+	target_enabled="$(uci_get "$target" enabled)"
+	case "$target_enabled" in
+		0|false|no|off)
+			status='disabled'
+			emit_row
+			return 0
+			;;
+	esac
+	case "$slot" in
+		''|[0-4]) : ;;
+		*)
+			status='error'
+			message='固定槽位必须为空或 0..4。'
+			emit_row
+			FAILURES=$((FAILURES + 1))
+			return 0
+			;;
+	esac
+
+	# Every mutating run first performs a read-only check. --force-report only
+	# bypasses scheduling/due checks; it never bypasses this safety check.
+	run_helper status
+	if [ "$RUN_RC" != '0' ]; then
+		status='error'
+		message="${RUN_ERR:-官方只读检查失败，未执行加白。}"
+		FAILURES=$((FAILURES + 1))
+		emit_row
+		return 0
+	fi
+	if ! official_response_valid "$response"; then
+		status='error'
+		message='官方只读响应未通过协议校验。'
+		FAILURES=$((FAILURES + 1))
+		emit_row
+		return 0
+	fi
+	current="$(json_current_ip "$response")"
+	whitelist="$(json_whitelist "$response")"
+	limit="$(json_limit "$response")"
+	used='0'
+	[ -z "$whitelist" ] || used="$(printf '%s' "$whitelist" | awk -F ';' '{print NF}')"
+	if is_whitelisted "$response" "$current" "$slot"; then
+		status='already_present'
+		if [ "$ACTION" = 'status' ] || [ "$ACTION" = 'report' ]; then
+			emit_row
+			return 0
+		fi
+	else
+		status='missing'
+	fi
+	if [ "$ACTION" = 'status' ]; then
+		# A reachable, protocol-valid account with a non-whitelisted current
+		# IP is a normal status result, not a failed status read.
+		emit_row
+		return 0
+	fi
+
+	run_helper add
+	if [ "$RUN_RC" = '0' ]; then
+		if ! official_response_valid "$response"; then
+			status='error'
+			message='官方上报响应未通过协议校验。'
+			FAILURES=$((FAILURES + 1))
+			emit_row
+			return 0
+		fi
+		current="$(json_current_ip "$response")"
+		whitelist="$(json_whitelist "$response")"
+		limit="$(json_limit "$response")"
+		used='0'
+		[ -z "$whitelist" ] || used="$(printf '%s' "$whitelist" | awk -F ';' '{print NF}')"
+		if is_whitelisted "$response" "$current" "$slot"; then
+			status='success'
+			message=''
+		else
+			status='error'
+			message='官方响应未确认当前出口已在白名单。'
+			FAILURES=$((FAILURES + 1))
+		fi
+	else
+		status='error'
+		[ -n "$message" ] && message="$message; ${RUN_ERR:-官方上报失败。}" || message="${RUN_ERR:-官方上报失败。}"
+		FAILURES=$((FAILURES + 1))
+	fi
+	emit_row
+}
+
+[ -r "$CONFIG_FILE" ] || { printf '官方上报配置不存在。\n' >&2; exit 1; }
+BINDINGS="$(binding_list)"
+if [ -n "$SELECTED" ]; then
+	safe_id "$SELECTED" || { printf 'invalid official binding id\n' >&2; exit 2; }
+	binding_exists "$BINDINGS" "$SELECTED" || { printf 'official binding does not exist\n' >&2; exit 1; }
+	BINDINGS="$SELECTED"
+fi
+TMP_DIR="$(mktemp -d /tmp/po0-official.XXXXXX 2>/dev/null || printf '')"
+[ -n "$TMP_DIR" ] || { printf '无法创建临时目录。\n' >&2; exit 1; }
+cleanup_tmp_dir() {
+	[ -n "${TMP_DIR:-}" ] || return 0
+	[ -d "$TMP_DIR" ] && [ ! -L "$TMP_DIR" ] || return 0
+	rm -rf "$TMP_DIR" 2>/dev/null || true
+}
+handle_hup() { cleanup_tmp_dir; exit 129; }
+handle_int() { cleanup_tmp_dir; exit 130; }
+handle_term() { cleanup_tmp_dir; exit 143; }
+trap cleanup_tmp_dir EXIT
+trap handle_hup HUP
+trap handle_int INT
+trap handle_term TERM
+FAILURES=0
+if [ -z "$BINDINGS" ]; then
+	printf 'message=没有配置官方 WAN 绑定。\n'
+	[ "$ACTION" = 'status' ] && exit 0
+	exit 1
+fi
+while IFS= read -r binding; do
+	[ -n "$binding" ] || continue
+	process_binding "$binding"
+done <<EOF
+$BINDINGS
+EOF
+[ "$FAILURES" -eq 0 ]

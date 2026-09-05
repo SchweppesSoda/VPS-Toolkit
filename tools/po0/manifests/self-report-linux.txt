@@ -12,6 +12,7 @@ scripts/po0/relay/self-report/linux/src/090-cron-schedule-management.sh
 scripts/po0/relay/self-report/linux/src/100-self-report-log-display.sh
 scripts/po0/relay/self-report/linux/src/110-uninstall-actions.sh
 scripts/po0/relay/self-report/linux/src/120-schedule-status-control.sh
+scripts/po0/relay/self-report/linux/src/125-official-report.sh
 scripts/po0/relay/self-report/linux/src/130-report-submit.sh
 scripts/po0/relay/self-report/linux/src/140-menu-actions.sh
 scripts/po0/relay/self-report/linux/src/990-cli-parse-dispatch.sh

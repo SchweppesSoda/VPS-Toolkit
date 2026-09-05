@@ -73,6 +73,7 @@ apply_env_overrides() {
     [[ -n "${PO0_SELF_REPORT_NOTIFY+x}" ]] && NOTIFY="${PO0_SELF_REPORT_NOTIFY}"
     [[ -n "${ENV_NOTIFY}" ]] && NOTIFY="${ENV_NOTIFY}"
     [[ "${ENV_SKIP_WIFI_SSIDS_SET}" == "1" ]] && SKIP_WIFI_SSIDS="${ENV_SKIP_WIFI_SSIDS}"
+    [[ "${ENV_FIREWALL_TOKENS_SET}" == "1" ]] && PO0_FIREWALL_TOKENS="${ENV_FIREWALL_TOKENS}"
     [[ -n "${PO0_OUTBOUND_IP_REPORT_SKIP_WIFI_SSIDS+x}" ]] && SKIP_WIFI_SSIDS="${PO0_OUTBOUND_IP_REPORT_SKIP_WIFI_SSIDS}"
     # Canonical aliases win when both old and new environment variables are present.
     [[ -n "${PO0_OUTBOUND_IP_REPORT_WORKER_URL+x}" ]] && WORKER_URL="${PO0_OUTBOUND_IP_REPORT_WORKER_URL}"
@@ -259,6 +260,7 @@ save_config_file() {
         write_env_assignment "SCHEDULE_PAUSED" "${SCHEDULE_PAUSED}"
         write_env_assignment "NOTIFY" "${NOTIFY}"
         write_env_assignment "SKIP_WIFI_SSIDS" "${SKIP_WIFI_SSIDS}"
+        write_env_assignment "PO0_FIREWALL_TOKENS" "${PO0_FIREWALL_TOKENS}"
     } > "${tmp}" || {
         umask "${old_umask}"
         rm -f "${tmp}" 2>/dev/null || true

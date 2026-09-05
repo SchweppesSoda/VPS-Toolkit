@@ -130,9 +130,9 @@ LAN Worker / 外部脚本已经通过 --ddns-report 上报
 
 ## 0.3 发布与构建边界
 
-PO0 nftables 五个可执行脚本的正式发布渠道是 GitHub Release asset。旧 manager、LAN Worker 和 self-report raw URLs are disabled，不再作为兼容入口；新安装、自更新和 LAN Worker manager mirror 都应使用 Release asset 或显式 override URL。Egern canonical raw path、Egern legacy compatibility path、离线 iplist 构建器、外部 ipdb/iplist 数据源和未纳入本阶段的通用 VPS 工具 raw URL 是白名单。
+PO0 nftables 六个可执行脚本的正式发布渠道是 GitHub Release asset；同时发布 `po0-wan-probe.apk` 和 `po0-outbound-ip-report.apk` 两个 OpenWrt APK。旧 manager、LAN Worker 和 self-report raw URLs are disabled，不再作为兼容入口；新安装、自更新和 LAN Worker manager mirror 都应使用 Release asset 或显式 override URL。Egern canonical raw path、Egern legacy compatibility path、离线 iplist 构建器、外部 ipdb/iplist 数据源和未纳入本阶段的通用 VPS 工具 raw URL 是白名单。
 
-`tools/po0/build-po0-assets.ps1` / `.sh` 按 `tools/po0/manifests/*.txt` 拼接 manager、LAN Worker、Linux self-report、macOS self-report 和 Windows PowerShell self-report 五个 release staging 单文件。构建必须显式控制编码和 LF：Bash/manifest/checksum 使用 UTF-8 no BOM，含中文的 Windows PowerShell `.ps1` 使用 UTF-8 BOM，避免 Windows PowerShell 5 按系统代码页解析失败。Release tag `po0-vYYYY.MM.DD.N` 上传五个脚本和 `checksums.txt`。Release workflow 先创建 draft，上传完整 asset set，下载回校验 checksum 后再 publish/latest；已存在 draft 可补齐缺失 asset，但已发布 release 只校验不修改，缺失或 checksum 不一致都必须打新 tag。CI/release 以 `tools/po0/check-po0-assets.sh` 为 authority；`tools/po0/check-po0-assets.ps1` 是 Windows 本地等价验证入口。两个检查入口都会确认本批次五个 asset 版本与预期 tag 对齐，并对三端 PO0 Outbound IP Report asset 做 SSID 本地跳过 release gate：必须有 canonical `PO0_OUTBOUND_IP_REPORT_*SSID` 环境入口、CLI/配置入口、HTTP 上报前 guard、跳过日志摘要，并禁止新增 `PO0_SELF_REPORT_*SSID` 或 `SELF_REPORT_*SSID` legacy alias。
+`tools/po0/build-po0-assets.ps1` / `.sh` 按 `tools/po0/manifests/*.txt` 拼接 manager、LAN Worker、Linux self-report、macOS self-report 和 Windows PowerShell self-report 六个 release staging 单文件。构建必须显式控制编码和 LF：Bash/manifest/checksum 使用 UTF-8 no BOM，含中文的 Windows PowerShell `.ps1` 使用 UTF-8 BOM，避免 Windows PowerShell 5 按系统代码页解析失败。Release tag `po0-vYYYY.MM.DD.N` 上传完整 9 个资产：六个脚本、两个 OpenWrt APK 和 `checksums.txt`；checksum 文件列出其余 8 个资产的 SHA-256。六个脚本的内部版本必须统一为 `YYYY.MM.DD+build.N`，其中 `N` 与 release tag 尾号一致。Release workflow 先创建 draft，上传完整 asset set，下载回校验 checksum 后再 publish/latest；已存在 draft 可补齐缺失 asset，但已发布 release 只校验不修改，缺失或 checksum 不一致都必须打新 tag。CI/release 以 `tools/po0/check-po0-assets.sh` 为 authority；`tools/po0/check-po0-assets.ps1` 是 Windows 本地等价验证入口。两个检查入口都会确认本批次六个脚本版本与预期 tag 对齐，并对三端 PO0 Outbound IP Report asset 做 SSID 本地跳过 release gate：必须有 canonical `PO0_OUTBOUND_IP_REPORT_*SSID` 环境入口、CLI/配置入口、HTTP 上报前 guard、跳过日志摘要，并禁止新增 `PO0_SELF_REPORT_*SSID` 或 `SELF_REPORT_*SSID` legacy alias。
 ## 1. 定位与边界
 
 `nftables-relay-manager.sh` 是面向 PO0 或其它专用中转机场景的交互式 Bash 管理脚本。它集中管理：
@@ -907,6 +907,32 @@ https://raw.githubusercontent.com/nmgliangwei/qqwry.ipdb/main/qqwry.ipdb
 PO0 的基础 IPDB 格式校验使用常见的 `od`、`dd`、`grep` 检查文件头、元数据长度、关键字段和数据区，不要求预先安装 Python 包。系统已有 Python 时会追加严格 JSON 元数据校验；真正查询归属地仍需要菜单中的 `ipip-ipdb` 解析依赖。
 
 Worker 的 `resource-stats.tsv` 每个 PO0 端点只保留一行累计统计，不会按任务无限追加。PO0 的任务文件保留全部活动任务和最近 500 条终态记录，管理员可以在菜单中查看结果，或把失败/执行中的任务重新排队。
+
+#### 官方防火墙双车道状态机
+
+官方防火墙不是现有 LAN Worker / Self-report 的替代品，而是默认关闭的第二车道。一次访问设备运行的状态机是：
+
+```text
+触发
+  -> 本地 due / Wi-Fi SSID guard
+  -> 取得本机运行锁
+  -> 官方车道 due（固定 600 秒）
+       -> 当前出口探测
+       -> 对每个官方账号先 GET 状态
+       -> 当前出口缺失，或固定槽位不匹配时才 POST
+       -> 保存官方状态
+  -> 原有车道 due（自己的计划，通常约 1 小时）
+       -> 探测出口并按原协议上报
+  -> 合并两条车道的结果
+```
+
+官方账号的槽位上限由接口限制为 5 个；token 的 `@0` 到 `@4` 是内部槽位，界面显示为 1 到 5。状态 GET 必须先于任何 POST；状态页/只读模式只执行 GET。强制运行只绕过本机 due/SSID guard，不能绕过 GET-first，也不能把槽位检查改成无条件加白。官方结果和原有车道结果分别记录，官方失败不能阻止原有车道，原有车道失败也不能撤销已经完成的官方检查，因此允许部分完成。
+
+SSID guard 位于两条车道真正探测之前：命中时一次运行整体跳过，不上传 SSID；读取 SSID 失败按 fail-open 继续。官方状态文件只保存最近状态、额度、当前出口、白名单/槽位和最近尝试时间，不保存 token。token 只能从权限受限配置或交互设置读取，不放进命令行、计划任务、日志、通知或错误摘要。
+
+外层运行锁保证同一客户端不会并发执行两条车道；官方状态的 `last_attempt_at` / 600 秒 due 与普通车道的状态文件、TTL、计划完全独立。任一状态写入失败都只让所属车道失败，并在合并结果中保留另一车道的结果。测试只使用本地 fixture 或 mock，不访问真实官方 API。
+
+WAN 选择也不跨车道共享：Linux、macOS、Windows、Egern 和普通 LAN Worker 使用本机默认出口（Egern 使用 DIRECT）。只有主 OpenWrt 的官方绑定可以在 UCI 中声明 wan1/wan2，并由 `mwan3 use <wan>` 选择该出口；绑定缺失或不可用时失败，不回退到另一个 WAN，也不修改其它客户端的默认路由。OpenWrt outbound APK 的普通上报与官方绑定分别走各自既有路径。
 
 ### 5.6.1 PO0 manager HTTP 更新镜像
 

@@ -2,6 +2,7 @@ report_resource_failure() {
     local task_id="$1" worker_id="$2" reason="$3" host="$4" port="$5" user="$6" script="$7" token="$8" extra="$9"
     local remote_cmd
     local -a ssh_args=(-n -p "${port}")
+    official_preflight_before_ssh
     sanitize_ssh_extra_args "${extra}" "resource fail ${user}@${host}:${port}"
     ssh_args+=("${SSH_EXTRA_ARGV[@]}")
     remote_cmd="bash $(sh_quote "${script}") --resource-task-fail $(sh_quote "${task_id}") $(sh_quote "${worker_id}") $(sh_quote "${reason}") $(sh_quote "${token}")"
@@ -37,6 +38,7 @@ run_resource_endpoint() {
     local processed=0 failed=0 max_per_run upload_timeout complete_timeout control_timeout upload_rc complete_rc claim_rc
     local -a ssh_args=(-p "${port}")
     local -a control_ssh_args=(-n -p "${port}")
+    official_preflight_before_ssh
     worker_id="$(sanitize_field "${WORKER_ID}")"
     worker_id="${worker_id// /_}"
     endpoint_id="$(resource_endpoint_id_for "${host}" "${port}" "${user}")"
@@ -237,6 +239,9 @@ run_resource_targets() {
 
 run_all_client_jobs() {
     local failed=0
+    # The optional official lane belongs to this LAN Worker host.  Run it
+    # first, but keep its result independent from the existing worker lanes.
+    official_report_once || failed=1
     run_resource_targets || failed=1
     run_config_targets || failed=1
     return "${failed}"

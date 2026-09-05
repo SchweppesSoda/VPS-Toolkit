@@ -67,7 +67,11 @@ validate_worker_url() {
 }
 
 config_complete() {
-    [[ -n "${WORKER_URL}" ]] || return 1
+    if command -v po0_reporter_validate_config >/dev/null 2>&1; then
+        po0_reporter_validate_config >/dev/null 2>&1
+        return "$?"
+    fi
+    [[ -n "${WORKER_URL:-}" ]] || return 1
     validate_worker_url >/dev/null 2>&1 || return 1
     validate_cron_minutes >/dev/null 2>&1 || return 1
 }
@@ -109,6 +113,22 @@ cron_minutes_to_seconds() {
     local minutes="${1:-}"
     [[ "${minutes}" =~ ^[0-9]+$ && "${minutes}" -ge 1 ]] || minutes="60"
     printf '%s\n' "$((10#${minutes} * 60))"
+}
+
+po0_reporter_wakeup_minutes() {
+    local minutes="${CRON_MINUTES:-60}"
+    [[ "${minutes}" =~ ^[0-9]+$ && "${minutes}" -ge 1 ]] || minutes="60"
+    if command -v po0_firewall_configured >/dev/null 2>&1; then
+        if po0_firewall_configured && (( 10#${minutes} > 10 )); then
+            printf '10\n'
+            return 0
+        fi
+    fi
+    printf '%s\n' "$((10#${minutes}))"
+}
+
+po0_reporter_wakeup_seconds() {
+    cron_minutes_to_seconds "$(po0_reporter_wakeup_minutes)"
 }
 
 max_interval_seconds() {

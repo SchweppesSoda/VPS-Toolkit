@@ -125,9 +125,27 @@ cron_status_summary() {
 }
 
 linux_expected_cron_job() {
-    local script="$1" run_cmd
-    run_cmd="bash $(sh_quote "${script}") --config $(sh_quote "${CONFIG_FILE}") >$(sh_quote "$(self_report_log_path)") 2>&1"
-    build_cron_job "${CRON_MINUTES}" "${run_cmd}"
+    local script="$1" run_cmd wake_minutes official_minutes
+    local worker_requested=0 official_requested=0
+    wake_minutes="${CRON_MINUTES}"
+    run_cmd="bash $(sh_quote "${script}") --config $(sh_quote "${CONFIG_FILE}")"
+    if worker_channel_requested; then
+        worker_requested=1
+    fi
+    if declare -F official_channel_enabled >/dev/null 2>&1 && official_channel_enabled; then
+        official_requested=1
+    fi
+    if (( official_requested == 1 )); then
+        official_minutes="$(official_interval_minutes)"
+        if (( worker_requested == 1 && CRON_MINUTES < official_minutes )); then
+            wake_minutes="${CRON_MINUTES}"
+        else
+            wake_minutes="${official_minutes}"
+        fi
+        run_cmd="${run_cmd} --scheduled-run"
+    fi
+    run_cmd="${run_cmd} >$(sh_quote "$(self_report_log_path)") 2>&1"
+    build_cron_job "${wake_minutes}" "${run_cmd}"
 }
 
 linux_schedule_refresh_current() {
@@ -165,6 +183,7 @@ show_cron_status() {
     elif [[ "${consistency}" == "legacy" ]]; then
         print_panel_row "状态提示" "旧版定时任务仍在使用 po0-self-report，执行安装 / 更新定时上报可迁移"
     fi
+    print_panel_row "官方状态" "$(official_state_summary)"
     [[ -n "${job}" ]] && print_panel_row "当前命令" "${job}"
     show_recent_self_report_log
 }

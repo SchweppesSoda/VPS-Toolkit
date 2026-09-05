@@ -354,6 +354,11 @@ print_dashboard() {
     print_panel_row "WebAuth" "${webauth} 个目标，监听 ${WEBAUTH_LISTEN}"
     print_panel_row "本机轮询器" "$(cron_status_summary)"
 
+    print_panel_section "本机官方防火墙"
+    print_panel_row "配置" "$(official_tokens_summary)"
+    print_panel_row "最近状态" "$(official_state_summary)"
+    print_panel_row "出口范围" "只上报本机默认路由，不替下游客户端上报"
+
     print_panel_section "最近 DDNS 统计"
     print_panel_row "汇总" "成功=${DASH_SUCCESS_TOTAL} 失败=${DASH_FAIL_TOTAL} 最近=${DASH_LAST_AT:-无} 状态=${DASH_LAST_STATUS:-无} IP=${DASH_LAST_IP_CSV:-无}"
     [[ -n "${DASH_LAST_ERROR}" && "${DASH_LAST_ERROR}" != "无" ]] && print_panel_row "最近错误" "${DASH_LAST_ERROR}"
