@@ -114,7 +114,7 @@ PO0 正式版本通过 [GitHub Releases](https://github.com/SchweppesSoda/VPS-To
 - `po0-outbound-ip-report.apk`
 - `checksums.txt`
 
-本轮脚本版本为 `2026.09.05+build.3`，tag 为 `po0-v2026.09.05.3`；outbound APK 为 `2026.09.05-r1`，WAN probe APK 继续为 `2026.08.30-r5`。旧版 raw 可执行入口已禁用；Egern、Stash、Loon 和未纳入 Release 的独立工具仍按各自文档使用允许的 raw 路径。
+本轮脚本版本为 `2026.09.05+build.4`，tag 为 `po0-v2026.09.05.4`；outbound APK 为 `2026.09.05-r2`，WAN probe APK 继续为 `2026.08.30-r5`。旧版 raw 可执行入口已禁用；Egern、Stash、Loon 和未纳入 Release 的独立工具仍按各自文档使用允许的 raw 路径。
 
 本仓库不再发布 GitHub Pages，也不应从仓库根目录启用 Pages。
 

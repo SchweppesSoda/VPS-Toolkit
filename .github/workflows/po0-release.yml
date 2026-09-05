@@ -51,9 +51,19 @@ jobs:
           (
             cd .tmp/po0-check-assets
             rm -f checksums.txt
-            find . -maxdepth 1 -type f -printf '%f\n' | sort | while IFS= read -r asset; do
+            find . -maxdepth 1 -type f ! -name checksums.txt -printf '%f\n' | sort | while IFS= read -r asset; do
               printf '%s  %s\n' "$(sha256sum "${asset}" | awk '{print $1}')" "${asset}"
             done > checksums.txt
+            checksum_lines="$(wc -l < checksums.txt)"
+            [[ "${checksum_lines}" -eq 8 ]] || {
+              echo "::error::checksums.txt must contain exactly 8 asset hashes"
+              exit 1
+            }
+            ! grep -Fq 'checksums.txt' checksums.txt || {
+              echo "::error::checksums.txt must not contain a self-hash entry"
+              exit 1
+            }
+            sha256sum -c checksums.txt
           )
 
       - name: Publish complete asset set

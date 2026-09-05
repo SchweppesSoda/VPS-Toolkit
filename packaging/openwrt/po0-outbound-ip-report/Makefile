@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=po0-outbound-ip-report
 PKG_VERSION:=2026.09.05
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 PKGARCH:=all
 
 include $(INCLUDE_DIR)/package.mk

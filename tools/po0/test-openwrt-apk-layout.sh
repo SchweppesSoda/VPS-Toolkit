@@ -72,11 +72,11 @@ done
 for package in po0-outbound-ip-report; do
     grep -Fq 'PKGARCH:=all' "${repo_root}/packaging/openwrt/${package}/Makefile"
     grep -Fq 'PKG_VERSION:=2026.09.05' "${repo_root}/packaging/openwrt/${package}/Makefile"
-    grep -Fq 'PKG_RELEASE:=1' "${repo_root}/packaging/openwrt/${package}/Makefile"
+    grep -Fq 'PKG_RELEASE:=2' "${repo_root}/packaging/openwrt/${package}/Makefile"
     grep -Fq "$(printf '$(TOPDIR)/po0-assets')" "${repo_root}/packaging/openwrt/${package}/Makefile"
-    grep -Fq 'SCRIPT_VERSION="2026.09.05+build.3"' \
+    grep -Fq 'SCRIPT_VERSION="2026.09.05+build.4"' \
         "${repo_root}/packaging/openwrt/${package}/runtime-header.sh"
-    grep -Fq 'po0-outbound-ip-report 2026.09.05+build.3 (OpenWrt APK)' \
+    grep -Fq 'po0-outbound-ip-report 2026.09.05+build.4 (OpenWrt APK)' \
         "${repo_root}/packaging/openwrt/${package}/files/usr/sbin/po0-outbound-ip-report"
 done
 

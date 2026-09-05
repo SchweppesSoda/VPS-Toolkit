@@ -2,10 +2,10 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-nftables-relay-manager"
-SCRIPT_VERSION="2026.09.05+build.3"
+SCRIPT_VERSION="2026.09.05+build.4"
 SCRIPT_RELEASE_DATE="2026-09-05"
 # CHANGELOG_BEGIN
-# - CI ACL 测试跨平台适配；本脚本功能沿用 2026.09.05+build.2。
+# - 修复发布包校验清单，避免整包校验失败；本脚本功能沿用 2026.09.05+build.3。
 # CHANGELOG_END
 CONF_DIR="${PO0_CONF_DIR:-/etc/nftables.d}"
 MAIN_CONF="/etc/nftables.conf"
