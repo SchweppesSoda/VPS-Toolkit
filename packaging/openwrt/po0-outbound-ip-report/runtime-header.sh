@@ -2,7 +2,7 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-outbound-ip-report-openwrt"
-SCRIPT_VERSION="2026.09.05+build.5"
+SCRIPT_VERSION="2026.09.05+build.6"
 WORKER_URL="${PO0_OUTBOUND_IP_REPORT_WORKER_URL:-}"
 SOURCE_ID="${PO0_OUTBOUND_IP_REPORT_SOURCE:-router-88-1}"
 IDENTITY="${PO0_OUTBOUND_IP_REPORT_IDENTITY:-router-88-1-via-gateway}"
@@ -23,6 +23,11 @@ trim() {
     value="${value%"${value##*[![:space:]]}"}"
     printf '%s' "${value}"
 }
+
+# The UCI adapter selects the Worker lane before launching this engine.
+worker_channel_requested() { return 0; }
+
+digits_only() { printf '%s' "$1" | tr -cd '0-9'; }
 
 to_lower() {
     printf '%s' "$1" | tr '[:upper:]' '[:lower:]'

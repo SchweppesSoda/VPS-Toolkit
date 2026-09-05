@@ -123,9 +123,40 @@ list_enabled_mwan3_wans() {
     [[ "${found}" == "1" ]]
 }
 
+gateway_source_mode() {
+    [[ "${PO0_OUTBOUND_IP_REPORT_PROBE_MODE:-}" == source ]]
+}
+
+gateway_wan_source() {
+    local wan="$1" source=''
+    case "$wan" in
+        wan1) source="${PO0_OUTBOUND_IP_REPORT_SOURCE_WAN1:-}" ;;
+        wan2) source="${PO0_OUTBOUND_IP_REPORT_SOURCE_WAN2:-}" ;;
+        *) return 1 ;;
+    esac
+    [[ "$source" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || return 1
+    ip -o -4 address show | awk -v wanted="$source" '
+        { split($4, address, "/"); if (address[1] == wanted) found = 1 }
+        END { exit !found }
+    ' || return 1
+    printf '%s\n' "$source"
+}
+
 resolve_report_wans() {
     local selection rest wan
     selection="$(normalize_wan_selection_list "${WANS:-}")"
+    if gateway_source_mode && [[ -z "$selection" || "$selection" == all ]]; then
+        local found=0 source=''
+        for wan in wan1 wan2; do
+            case "$wan" in
+                wan1) source="${PO0_OUTBOUND_IP_REPORT_SOURCE_WAN1:-}" ;;
+                wan2) source="${PO0_OUTBOUND_IP_REPORT_SOURCE_WAN2:-}" ;;
+            esac
+            if [[ -n "$source" ]]; then printf '%s\n' "$wan"; found=1; fi
+        done
+        [[ "$found" == 1 ]]
+        return $?
+    fi
     if [[ -n "${ROUTER_PROBE_URL:-}" && ( -z "${selection}" || "${selection}" == "all" ) ]]; then
         list_upstream_router_wans
         return $?
@@ -155,6 +186,7 @@ router_probe_http_get() {
 prepare_router_probe_batch() {
     local selection raw first_name
     ROUTER_PROBE_BATCH_RAW=""
+    gateway_source_mode && return 0
     [[ -n "${ROUTER_PROBE_URL:-}" ]] || return 0
     selection="$(normalize_wan_selection_list "${WANS:-}")"
     [[ -z "${selection}" || "${selection}" == "all" ]] || return 0
@@ -249,12 +281,61 @@ wan_scoped_report_token() {
     printf '%s-%s\n' "${base}" "${suffix}"
 }
 
+# Resolve each probe through the configured real DNS service. Only answer
+# addresses following a Name record are accepted, never the resolver address.
+gateway_probe_resolve() {
+    local url="$1" authority host port dns raw address addresses=''
+    dns="${PO0_OUTBOUND_IP_REPORT_PROBE_DNS_SERVER:-192.168.88.1}"
+    [[ "$dns" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || return 1
+    printf '%s\n' "$dns" | awk -F. '{ for (i=1;i<=4;i++) if ($i+0>255) exit 1 }' || return 1
+    case "$url" in
+        https://*) authority="${url#https://}"; port=443 ;;
+        http://*) authority="${url#http://}"; port=80 ;;
+        *) return 1 ;;
+    esac
+    authority="${authority%%[/?#]*}"
+    host="${authority%%:*}"
+    if [[ "$authority" == *:* ]]; then port="${authority#*:}"; fi
+    [[ "$host" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ && "$port" =~ ^[0-9]{1,5}$ ]] || return 1
+    (( 10#$port >= 1 && 10#$port <= 65535 )) || return 1
+    if [[ "$host" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+        is_public_ipv4 "$host" || return 1
+        printf '%s:%s:%s\n' "$host" "$port" "$host"
+        return 0
+    fi
+    command -v nslookup >/dev/null 2>&1 || return 1
+    raw="$(nslookup -type=A "$host" "$dns" 2>/dev/null)" || return 1
+    while IFS= read -r address; do
+        [[ -n "$address" ]] || continue
+        is_public_ipv4 "$address" || return 1
+        case ",$addresses," in *",$address,"*) continue ;; esac
+        addresses="${addresses:+${addresses},}${address}"
+    done < <(printf '%s\n' "$raw" | awk '
+        /^[[:space:]]*Name:[[:space:]]*/ { answer=1; next }
+        answer && /^[[:space:]]*Address([[:space:]]+[0-9]+)?:[[:space:]]*/ {
+            sub(/^[^:]*:[[:space:]]*/, ""); split($0, fields, /[[:space:]]+/); print fields[1]
+        }
+    ')
+    [[ -n "$addresses" ]] || return 1
+    printf '%s:%s:%s\n' "$host" "$port" "$addresses"
+}
+
 fetch_url_no_proxy() {
-    local url="$1" bind_device="${2:-}"
+    local url="$1" bind_device="${2:-}" resolved
+    local -a source_options=()
+    if gateway_source_mode; then
+        [[ -n "$bind_device" ]] || return 1
+        if ! resolved="$(gateway_probe_resolve "$url")"; then
+            printf '公网 IP 探测真实 DNS 解析失败，未使用默认 DNS 或其它出口。\n' >&2
+            return 1
+        fi
+        # A redirect could introduce another hostname resolved by Fake-IP DNS.
+        source_options=(--resolve "$resolved" --max-redirs 0)
+    fi
     if command -v curl >/dev/null 2>&1; then
         if [[ -n "${bind_device}" ]]; then
             env -u http_proxy -u https_proxy -u all_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY \
-                curl -4 -fsSL --noproxy '*' --interface "${bind_device}" --connect-timeout 10 --max-time 20 "${url}"
+                curl -4 -fsSL "${source_options[@]}" --noproxy '*' --interface "${bind_device}" --connect-timeout 10 --max-time 20 "${url}"
         else
             env -u http_proxy -u https_proxy -u all_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY \
                 curl -4 -fsSL --noproxy '*' --connect-timeout 10 --max-time 20 "${url}"
@@ -338,7 +419,11 @@ detect_outbound_ipv4() {
         url="${url_array[$idx]}"
         url="$(trim "${url}")"
         [[ -n "${url}" ]] || continue
-        raw="$(fetch_url_no_proxy "${url}" "${bind_device}" 2>/dev/null || true)"
+        if gateway_source_mode; then
+            raw="$(fetch_url_no_proxy "${url}" "${bind_device}")" || continue
+        else
+            raw="$(fetch_url_no_proxy "${url}" "${bind_device}" 2>/dev/null || true)"
+        fi
         ip="$(extract_first_public_ipv4 "${raw}" 2>/dev/null || true)"
         if [[ -n "${ip}" ]]; then
             write_ip_check_index "${count}" "$(((idx + 1) % count))"

@@ -39,25 +39,34 @@ function firstNonEmpty(values) {
   return "";
 }
 
-function firewallRawValue(args) {
-  const explicit = args && Object.prototype.hasOwnProperty.call(args, FIREWALL_TOKENS_KEY)
-    ? args[FIREWALL_TOKENS_KEY]
-    : undefined;
-  if (String(explicit === undefined ? "" : explicit).trim() === "-") {
-    writeStore(FIREWALL_TOKENS_KEY, "");
-    return "";
-  }
-  const fromArgument = firstNonEmpty([
-    args.PO0_FIREWALL_TOKENS,
-    args.po0_firewall_tokens,
-    args.firewall_tokens,
+function firewallInput(args) {
+  return firstNonEmpty([
+    args.PO0_FIREWALL_TOKENS, args.po0_firewall_tokens, args.firewall_tokens,
+    readStore(FIREWALL_TOKENS_KEY),
   ]);
-  const fromStore = firstNonEmpty([readStore(FIREWALL_TOKENS_KEY)]);
-  if (fromArgument) {
-    if (fromArgument !== fromStore) writeStore(FIREWALL_TOKENS_KEY, fromArgument);
-    return fromArgument;
+}
+
+function saveLocalFirewall(args, clear) {
+  const input = clear ? "" : firewallInput(args);
+  const tokens = input === "-" ? "" : input;
+  parseFirewallTokens(tokens);
+  if (!writeJSON(STORE_KEY + ".official-config", { version: 1, tokens })) throw new Error("无法保存本机官方配置");
+  return tokens;
+}
+
+function firewallRawValue(args) {
+  // Module parameters may arrive from iCloud. A saved device choice wins;
+  // only the explicit save/clear actions can replace it, including a clear.
+  const saved = readStore(STORE_KEY + ".official-config");
+  if (saved !== null && saved !== undefined && String(saved).trim() !== "") {
+    let local;
+    try { local = JSON.parse(saved); } catch (_) { throw new Error("本机官方配置损坏，请重新保存"); }
+    if (!local || local.version !== 1 || typeof local.tokens !== "string") throw new Error("本机官方配置格式错误");
+    return local.tokens;
   }
-  return fromStore;
+  const input = firewallInput(args);
+  if (!input) return "";
+  return saveLocalFirewall(args, input === "-");
 }
 
 function parseFirewallTokens(raw) {
@@ -492,7 +501,11 @@ function finish(mode, ok, message, state, meta) {
 async function runUnlocked() {
   const args = parseArgument();
   const mode = $script.type === "tile" ? "status" : String(args.mode || "auto").toLowerCase();
-  if (["auto", "status", "force"].indexOf(mode) < 0) throw new Error("不支持的模式：" + mode);
+  if (mode === "save-official" || mode === "clear-official") {
+    saveLocalFirewall(args, mode === "clear-official");
+    return finish("force", true, mode === "clear-official" ? "已清除本机官方配置；同步参数不会自动恢复它" : "已保存本机官方 Token 和槽位；后续同步参数不会覆盖", readJSON(STORE_KEY, {}), {});
+  }
+  if (["auto", "status", "force", "save-official", "clear-official"].indexOf(mode) < 0) throw new Error("不支持的模式：" + mode);
   let state = readJSON(STORE_KEY, {});
   if (!state || typeof state !== "object" || Array.isArray(state)) state = {};
   const now = Date.now();
@@ -560,10 +573,11 @@ async function runUnlocked() {
 async function run() {
   const args = parseArgument();
   const mode = $script.type === "tile" ? "status" : String(args.mode || "auto").toLowerCase();
-  if (["auto", "status", "force"].indexOf(mode) < 0) throw new Error("不支持的模式：" + mode);
+  if (["auto", "status", "force", "save-official", "clear-official"].indexOf(mode) < 0) throw new Error("不支持的模式：" + mode);
 
   // A status request with no configured official channel has no report-side
   // work and keeps the historical read-only/no-write behavior.
+  if (mode === "save-official" || mode === "clear-official") return runUnlocked();
   const needsLock = mode !== "status" || parseFirewallTokens(firewallRawValue(args)).length > 0;
   if (!needsLock) return await runUnlocked();
 

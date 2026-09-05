@@ -15,7 +15,7 @@
 - Release 发布文件 `nftables-relay-manager.sh` 运行在 PO0，负责 nftables、白名单、资源任务创建、restricted key wrapper 和资源导入。
 - `po0-lan-client.sh` 的源码位于 `scripts/po0/relay/lan-worker/src/`，运行在 LAN Worker，负责轮询领取任务、DDNS、自上报接收、WebAuth 接收和本机轮询器。
 - 官方防火墙上报是默认关闭的独立第二车道：每个官方账号最多 5 个槽位，先 GET 读取状态，缺失或固定槽位不匹配才 POST；官方固定 600 秒，必须与 DDNS、资源任务和普通 Self-report 的计划/TTL 分开维护。
-- 访问设备命中本地 SSID 跳过规则时，官方和普通上报两条车道一起跳过；强制上报只绕过本机 due/SSID guard，不能绕过官方 GET。主 OpenWrt 的适配器用 mwan3 绑定 wan1/wan2；旁路 OpenWrt 可用 official_source_wan1/official_source_wan2 绑定本机 IPv4，并由上游对官方 API 目的地址配置对应 WAN-only 分流。GET 与 POST 必须使用同一源地址，旁路网关透明代理必须绕过官方 API 目的 IP，不能重新发起请求丢失所选源地址；地址缺失或选定 WAN 故障时不回退。其它客户端使用默认出口；token 不得进入日志、命令参数、通知或状态，测试不得访问真实官方 API。
+- 访问设备命中本地 SSID 跳过规则时，官方和普通上报两条车道一起跳过；强制上报只绕过本机 due/SSID guard，不能绕过官方 GET。主 OpenWrt 的适配器用 mwan3 绑定 wan1/wan2；旁路 OpenWrt 用 official_source_wan1/official_source_wan2 映射专用本机 IPv4（88.2 部署为 .250/.251），真实 WAN IP 探测和官方 GET/POST 都绑定相应源地址；上游 mwan3 按源地址配置对应 WAN-only 分流，旁路网关透明代理绕过这些专用源地址，不能重新发起请求丢失所选源地址。LAN Worker 提交使用本机正常网络并遵循 OpenClash，不绑定或强制直连。探测 DNS 使用 UCI probe_dns_server 对应 PO0_OUTBOUND_IP_REPORT_PROBE_DNS_SERVER（默认 192.168.88.1）的普通 53 端口解析真实 IPv4，不硬编码探测服务器 IP；source 模式迁移须删除旧 router_probe_url 和 direct_probe_resolve，不恢复主路由旧 HTTP CGI；地址缺失或选定 WAN 故障时不回退。其它客户端使用默认出口；token 不得进入日志、命令参数、通知或状态，测试不得访问真实官方 API。
 - LAN Worker 的 DDNS resolver 上报计划和资源任务领取计划必须分开；资源任务只领取 PO0 已创建的 pending 任务，不复用 DDNS TTL / 上报频率作为资源轮询逻辑。
 - Egern 模块只做当前出口 IPv4 的 SSH report，不做 DDNS。
 - Egern 的 SSID 跳过只允许作为本地 guard：仅 schedule/network 自动触发命中时跳过本次公网 IP 探测和 SSH 上报；手动运行、状态页和 Widget 刷新视为强制继续；SSID 只写入 Egern 本地状态 / 日志 / Widget，不新增 PO0、LAN Worker 或 `--ssh-ip-report` 协议字段。

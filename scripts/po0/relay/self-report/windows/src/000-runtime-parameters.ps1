@@ -37,10 +37,10 @@ $ErrorActionPreference = "Stop"
 $ReleaseDownloadBaseUrl = $(if ($env:PO0_RELEASE_DOWNLOAD_BASE_URL) { $env:PO0_RELEASE_DOWNLOAD_BASE_URL } else { "https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download" })
 $DownloadUrl = $(if ($env:PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL) { $env:PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL } elseif ($env:PO0_SELF_REPORT_PS_DOWNLOAD_URL) { $env:PO0_SELF_REPORT_PS_DOWNLOAD_URL } else { "$ReleaseDownloadBaseUrl/po0-outbound-ip-report.ps1" })
 $ScriptName = "po0-outbound-ip-report"
-$ScriptVersion = "2026.09.05+build.5"
+$ScriptVersion = "2026.09.05+build.6"
 $ScriptReleaseDate = "2026-09-05"
 # CHANGELOG_BEGIN
-# - OpenWrt APK 支持旁路网关选择官方 WAN 出口；本脚本行为未变。
+# - 对齐本轮双通道界面与本机槽位配置发布版本；本脚本行为未变。
 # CHANGELOG_END
 $PanelValueColumn = 24
 $MenuRightColumn = 46

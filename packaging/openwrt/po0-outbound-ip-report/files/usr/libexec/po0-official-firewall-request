@@ -126,15 +126,34 @@ esac
 [ "$header_size" -le 16384 ] 2>/dev/null || fail 'official response headers exceeded the limit'
 [ "$body_size" -le 65536 ] 2>/dev/null || fail 'official response body exceeded the limit'
 
+redact_response_token() {
+	# The official API includes its token in successful JSON responses.
+	# Replace literal occurrences before returning the body to the runner.
+	# POSIX shell expansion keeps the credential out of child-process argv.
+	remaining="$(cat "$body_file")"
+	redacted=''
+	while :; do
+		case "$remaining" in
+			*"$TOKEN"*)
+				redacted="${redacted}${remaining%%"$TOKEN"*}[redacted]"
+				remaining="${remaining#*"$TOKEN"}"
+				;;
+			*)
+				printf '%s' "${redacted}${remaining}" > "$body_file"
+				return 0
+				;;
+		esac
+	done
+}
+
 response_contains_sensitive_data() {
 	file="$1"
-	# A compromised or misconfigured upstream must not be able to reflect the
-	# request credential or its URL into helper-visible output.  Curl stderr is
-	# already suppressed; check both private response files before returning a
-	# body to the runner.
-	if grep -Fqi -- "$TOKEN" "$file" ||
-		grep -Fqi -- "$url" "$file" ||
-		grep -Fqi -- "$API_BASE" "$file" ||
+	response_data="$(cat "$file")"
+	case "$response_data" in
+		*"$TOKEN"*) return 0 ;;
+	esac
+	# Headers and unexpected request URLs must still stay private.
+	if grep -Fqi -- "$API_BASE" "$file" ||
 		grep -Fqi -- 'authorization' "$file"; then
 		return 0
 	fi
@@ -143,6 +162,7 @@ response_contains_sensitive_data() {
 
 case "$http_code" in
 	2[0-9][0-9])
+		redact_response_token
 		if response_contains_sensitive_data "$body_file" ||
 			response_contains_sensitive_data "$header_file"; then
 			fail 'official response contained sensitive request data'

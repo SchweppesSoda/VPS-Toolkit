@@ -289,6 +289,11 @@ curl-stderr-token)
 	printf 'curl diagnostic token=%s\n' "${PO0_TEST_TOKEN:-redacted}" >&2
 	emit "${healthy}" 200
 	;;
+curl-echo-token)
+	response="$healthy"
+	[ "$request" != 'GET' ] || response="$missing"
+	emit "{\"token\":\"${PO0_TEST_TOKEN:-redacted}\",\"echo\":\"${PO0_TEST_TOKEN:-redacted}\",${response#\{}" 200
+	;;
 curl-echo-sensitive)
 	emit_sensitive "{\"enabled\":true,\"currentIp\":\"203.0.113.0/24\",\"limit\":5,\"whitelist\":[],\"echo\":\"${PO0_TEST_TOKEN:-redacted}\",\"url\":\"https://124.221.69.228/api/firewall/${PO0_TEST_TOKEN:-redacted}\"}"
 	;;
@@ -508,6 +513,21 @@ run_helper_sensitive_case() {
 	fi
 }
 
+run_helper_token_case() {
+	# Normal official responses include the credential alongside the status.
+	run_helper curl-echo-token target1 status
+	assert_rc 0 'normal token-bearing response was rejected'
+	assert_stdout_has '"token":"[redacted]"'
+	assert_stdout_has '"echo":"[redacted]"'
+	assert_curl_sequence 'GET'
+	assert_no_token
+	run_runner curl-echo-token report binding1
+	assert_rc 0 'token-bearing GET/POST failed'
+	assert_stdout_line 'entry_status=success'
+	assert_curl_sequence 'GET POST'
+	assert_no_token
+}
+
 run_source_ip_cases() {
 	source_wan1='192.168.88.2'
 	source_wan2='192.168.88.3'
@@ -536,6 +556,14 @@ run_source_ip_cases() {
 	assert_mwan_sequence 'status'
 	assert_no_token
 }
+
+if [ "${PO0_TEST_ONLY:-}" = 'helper-token' ]; then
+	run_helper_token_case
+	run_helper_sensitive_case
+	printf 'PASS: official response token redaction and GET/POST checks passed.\n'
+	exit 0
+fi
+run_helper_token_case
 
 if [ "${PO0_TEST_ONLY:-}" = 'source-ip' ]; then
 	run_source_ip_cases

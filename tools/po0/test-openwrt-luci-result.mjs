@@ -15,9 +15,9 @@ if (source.includes('ui.addNotification'))
 if (source.includes("fs.exec(CONTROL, [ 'test' ])") || source.includes("fs.exec(CONTROL, [ 'test-force' ])"))
     throw new Error('PO0 LuCI manual tests must not block one RPC request');
 for (const expectedSource of [
-    "'test-start'",
-    "'test-force-start'",
-    "[ 'test-status' ]",
+    "channel + '-report'",
+    "'worker-force-report'",
+    "channel + '-progress'",
     'po0-result-card',
     '允许明文 HTTP（不推荐）'
 ]) {
@@ -75,4 +75,10 @@ const legacyResult = formatRecentResult(raw.replace(/^finished_at=.*\n/m, ''));
 if (legacyResult.text.includes('任务完成时间：') || legacyResult.text.includes('执行耗时：'))
     throw new Error('legacy state without finished_at must not fabricate completion time or duration');
 
+const direct = formatRecentResult(raw.replaceAll('上游路由器 WAN', 'WAN'));
+if (!direct.text.includes('wan1：成功') || !direct.text.includes('wan2：成功'))
+    throw new Error('direct gateway results lost per-WAN status');
+const normalizeToken = Function('_', `${source.slice(start, end)}\nreturn normalizeOfficialToken;`)(globalThis._);
+if (normalizeToken('https://124.221.69.228/api/firewall/pgnfw_example/add') !== 'pgnfw_example')
+    throw new Error('full official URL was not normalized');
 console.log('OpenWrt LuCI result formatting tests passed.');

@@ -21,20 +21,31 @@ grep -Fq "form.TableSection, 'official_binding'" "${ui}" || fail "official bindi
 grep -Fq "'worker_enabled'" "${ui}" || fail "independent Worker switch is missing"
 grep -Fq "'official_enabled'" "${ui}" || fail "official switch is missing"
 grep -Fq "'official_source_' + wan" "${ui}" || fail "gateway WAN source settings are missing"
-grep -Fq "官方自动通道固定每 600 秒检查一次" "${ui}" || fail "official fixed interval explanation is missing"
 if grep -Fq "official_interval_seconds" "${ui}"; then
 	fail "LuCI must not expose a free-form official interval"
 fi
 grep -Fq "String(slot - 1)" "${ui}" || fail "UI does not map slot 1-5 to backend slot 0-4"
 grep -Fq "'official-status'" "${ui}" || fail "read-only official status action is missing"
-grep -Fq "'official-report'" "${ui}" || fail "explicit official report action is missing"
-grep -Fq "o.cfgvalue = function()" "${ui}" || fail "official token field may echo a saved token"
-grep -Fq "不会显示已保存内容" "${ui}" || fail "official token redaction explanation is missing"
+grep -Fq "channel + '-report'" "${ui}" || fail "explicit official report action is missing"
 grep -Fq "pgnfw[_-][A-Za-z0-9._~-]+" "${ui}" || fail "official token redaction does not cover the full token character set"
-grep -Fq "主路由的 PO0 官方 WAN 绑定不套用 SSID 跳过" "${ui}" || fail "SSID scope explanation is missing"
 grep -Fq "PO0 官方防火墙状态" "${ui}" || fail "official status table heading is missing"
 grep -Fq "status === 'missing'" "${ui}" || fail "normal missing status is not rendered as a distinct state"
 grep -Fq "当前出口尚未加白" "${ui}" || fail "missing status summary is missing"
+
+grep -Fq "o.password = false" "${ui}" || fail "tokens must be visible in configuration"
+grep -Fq "s.tab('worker'" "${ui}" || fail "Worker channel tab is missing"
+grep -Fq "s.tab('official'" "${ui}" || fail "official channel tab is missing"
+grep -Fq "保存并立即上报" "${ui}" || fail "consistent save/report action is missing"
+grep -Fq "必须包含 pgnfw_ 前缀" "${ui}" || fail "full token explanation is missing"
+
+grep -Fq "'probe_dns_server'" "${ui}" || fail "real DNS server setting is missing"
+grep -Fq "o.default = '192.168.88.1'" "${ui}" || fail "probe DNS default must use the upstream router"
+grep -Fq "'192.168.88.250' : '192.168.88.251'" "${ui}" || fail "dedicated WAN source examples are missing"
+grep -Fq "提交使用本机正常网络，遵循 OpenClash 规则" "${ui}" || fail "Worker submission routing explanation is missing"
+if grep -Eq 'direct_probe_resolve|103\.217\.192\.99' "${ui}"; then
+    fail "LuCI must not restore static probe server resolution"
+fi
+
 
 if command -v node >/dev/null 2>&1; then
 	node --check "${ui}"

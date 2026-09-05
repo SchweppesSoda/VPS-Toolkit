@@ -3,9 +3,14 @@
 'require form';
 'require fs';
 'require uci';
+'require rpc';
+
+var commitReporter = rpc.declare({ object: 'uci', method: 'commit', params: [ 'config' ], reject: true });
 
 var CONTROL = '/usr/libexec/po0-outbound-ip-report-control';
+var channelActionRunning = false;
 var RESULT_CSS = [
+	'.po0-report-page [data-tab-active="false"]{display:none!important;}',
 	'.po0-result-card{border:1px solid rgba(127,127,127,.22);border-left:4px solid #5e72e4;border-radius:14px;padding:16px 18px;background:rgba(127,127,127,.06);box-shadow:0 8px 24px rgba(0,0,0,.06);transition:border-color .2s ease,background .2s ease;}',
 	'.po0-result-head{display:flex;align-items:center;gap:12px;}',
 	'.po0-result-icon{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:#5e72e4;color:#fff;font-weight:700;flex:0 0 28px;}',
@@ -40,25 +45,26 @@ var RESULT_CSS = [
 
 var ResultSection = form.NamedSection.extend({
 	render: function() {
+		var channel = this.channel || 'worker';
 		return Promise.resolve(E('div', { 'class': 'cbi-section po0-result-section' }, [
 			E('style', {}, [ RESULT_CSS ]),
 			E('h3', {}, [ _('操作结果') ]),
 			E('div', {
-				'id': 'po0-action-result',
+				'id': 'po0-' + channel + '-action-result',
 				'class': 'po0-result-card is-neutral',
 				'role': 'status',
 				'aria-live': 'polite',
 				'aria-busy': 'false'
 			}, [
 				E('div', { 'class': 'po0-result-head' }, [
-					E('span', { 'id': 'po0-result-icon', 'class': 'po0-result-icon', 'aria-hidden': 'true' }, [ 'i' ]),
+					E('span', { 'id': 'po0-' + channel + '-result-icon', 'class': 'po0-result-icon', 'aria-hidden': 'true' }, [ 'i' ]),
 					E('div', { 'class': 'po0-result-heading' }, [
-						E('strong', { 'id': 'po0-result-title', 'class': 'po0-result-title' }, [ _('等待操作') ]),
-						E('span', { 'id': 'po0-result-meta', 'class': 'po0-result-meta' }, [ _('尚未执行任何操作') ])
+						E('strong', { 'id': 'po0-' + channel + '-result-title', 'class': 'po0-result-title' }, [ _('等待操作') ]),
+						E('span', { 'id': 'po0-' + channel + '-result-meta', 'class': 'po0-result-meta' }, [ _('尚未执行任何操作') ])
 					])
 				]),
-				E('div', { 'id': 'po0-result-body', 'class': 'po0-result-body' }, [
-					E('div', { 'class': 'po0-result-line' }, [ _('读取 WAN、测试上报或查看最近结果后，反馈会显示在这里。') ])
+				E('div', { 'id': 'po0-' + channel + '-result-body', 'class': 'po0-result-body' }, [
+					E('div', { 'class': 'po0-result-line' }, [ _('本通道的执行进度和结果会显示在这里。') ])
 				])
 			])
 		]));
@@ -244,7 +250,7 @@ function renderOfficialStatus(raw) {
 		box.removeChild(box.firstChild);
 	if (!parsed.rows.length) {
 		box.appendChild(E('p', { 'class': 'po0-muted' }, [
-			parsed.message || _('尚未读取官方状态。点击“只读检查官方状态”查看每个 WAN 的出口和白名单。')
+			parsed.message || _('尚未读取官方状态。点击“保存并查询白名单”查看每个 WAN 的出口和白名单。')
 		]));
 		return parsed;
 	}
@@ -287,7 +293,7 @@ var OfficialStatusSection = form.NamedSection.extend({
 		return Promise.resolve(E('div', { 'class': 'cbi-section po0-official-status-section' }, [
 			E('h3', {}, [ _('PO0 官方防火墙状态') ]),
 			E('p', { 'class': 'po0-official-help' }, [
-				_('这里显示每个官方目标绑定的 WAN、当前出口 IPv4、白名单和 5 个名额的使用情况。主路由上的官方 WAN 绑定不套用客户端 SSID 跳过；SSID 只影响手机、电脑等本机上报。')
+				_('这里显示每个官方目标绑定的 WAN、当前出口 IPv4、白名单和 5 个名额的使用情况。同一目标最多 5 个槽位；这里展示实际出口、槽位和最近执行结果。')
 			]),
 			E('div', { 'id': 'po0-official-status', 'class': 'po0-official-status', 'aria-live': 'polite' }, [
 				E('p', { 'class': 'po0-muted' }, [ _('尚未读取官方状态。') ])
@@ -323,8 +329,8 @@ function formatDuration(totalSeconds) {
 	return _('%s 秒').format(remainder);
 }
 
-function showActionResult(title, message, level) {
-	var node = document.getElementById('po0-action-result');
+function showActionResult(channel, title, message, level) {
+	var node = document.getElementById('po0-' + channel + '-action-result');
 	if (!node)
 		return;
 
@@ -335,10 +341,10 @@ function showActionResult(title, message, level) {
 		neutral: [ 'is-neutral', 'i' ]
 	};
 	var state = states[level] || states.neutral;
-	var titleNode = document.getElementById('po0-result-title');
-	var metaNode = document.getElementById('po0-result-meta');
-	var iconNode = document.getElementById('po0-result-icon');
-	var bodyNode = document.getElementById('po0-result-body');
+	var titleNode = document.getElementById('po0-' + channel + '-result-title');
+	var metaNode = document.getElementById('po0-' + channel + '-result-meta');
+	var iconNode = document.getElementById('po0-' + channel + '-result-icon');
+	var bodyNode = document.getElementById('po0-' + channel + '-result-body');
 
 	node.className = 'po0-result-card ' + state[0];
 	node.setAttribute('aria-busy', level === 'working' ? 'true' : 'false');
@@ -362,7 +368,7 @@ function formatRecentResult(raw) {
 	var observed = raw.match(/^observed_at=([0-9]+)$/m);
 	var finished = raw.match(/^finished_at=([0-9]+)$/m);
 	var exitCode = raw.match(/^exit_code=([0-9]+)$/m);
-	var successPattern = /PO0 Outbound IP Report 已完成：上游路由器 WAN ([^的\r\n]+)的公网出口 IPv4 ([0-9.]+) 已被 LAN Worker 接收[^\r\n]*/g;
+	var successPattern = /PO0 Outbound IP Report 已完成：(?:上游路由器 )?WAN ([^的\r\n]+)的公网出口 IPv4 ([0-9.]+) 已被 LAN Worker 接收[^\r\n]*/g;
 	var failurePattern = /PO0 Outbound IP Report 未完成：([^\r\n]+)/g;
 	var summaryMatch = raw.match(/WAN 上报结束：成功 ([0-9]+) 条，失败 ([0-9]+) 条/);
 	var lines = [];
@@ -433,54 +439,6 @@ function waitFor(milliseconds) {
 	});
 }
 
-function pollManualResult(deadline, failures) {
-	return fs.exec(CONTROL, [ 'test-status' ]).then(function(res) {
-		var raw = res.stdout || res.stderr || '';
-		var result = formatRecentResult(raw);
-
-		if (result.running) {
-			if (Date.now() >= deadline) {
-				showActionResult(
-					_('测试仍在后台运行'),
-					_('已等待 180 秒。任务没有被取消，请稍后点击“查看最近结果”。'),
-					'working');
-				return;
-			}
-			showActionResult(result.title, result.text, result.level);
-			return waitFor(1500).then(function() {
-				return pollManualResult(deadline, 0);
-			});
-		}
-
-		showActionResult(result.title, result.text, result.level);
-	}).catch(function(err) {
-		if (failures < 2 && Date.now() < deadline) {
-			showActionResult(_('正在读取测试结果'), _('状态读取暂时失败，正在自动重试……'), 'working');
-			return waitFor(2000).then(function() {
-				return pollManualResult(deadline, failures + 1);
-			});
-		}
-		showActionResult(_('读取测试结果失败'), err.message || err, 'error');
-	});
-}
-
-function startManualTest(force) {
-	showActionResult(
-		force ? _('正在启动强制测试') : _('正在启动测试上报'),
-		_('任务将在后台执行，页面会自动读取进度，不会再等待一个长时间 XHR。'),
-		'working');
-
-	return fs.exec(CONTROL, [ force ? 'test-force-start' : 'test-start' ]).then(function(res) {
-		if (res.code !== 0) {
-			showActionResult(_('无法启动测试'), res.stderr || res.stdout || _('控制程序返回错误。'), 'error');
-			return;
-		}
-		return pollManualResult(Date.now() + 180000, 0);
-	}).catch(function(err) {
-		showActionResult(_('无法启动测试'), err.message || err, 'error');
-	});
-}
-
 function officialActionSummary(parsed, action) {
 	var rows = parsed.rows || [];
 	var ok = rows.filter(function(row) {
@@ -505,264 +463,196 @@ function officialActionSummary(parsed, action) {
 	return parsed.message || _('官方状态读取完成，但没有配置可显示的绑定。');
 }
 
-function runOfficialAction(action) {
-	var isReport = action === 'official-report';
-	showActionResult(
-		isReport ? _('正在执行官方上报') : _('正在读取官方状态'),
-		isReport
-			? _('本次为手动执行；自动通道启用后按计划运行。只读检查不会修改白名单。')
-			: _('只读取当前官方状态，不修改白名单。'),
-		'working');
-	return fs.exec(CONTROL, [ action ]).then(function(res) {
-		var raw = res.stdout || res.stderr || '';
-		var parsed = renderOfficialStatus(raw);
-		if (res.code !== 0) {
-			showActionResult(
-				isReport ? _('官方上报失败') : _('读取官方状态失败'),
-				redactOfficialText(parsed.message || _('后端命令返回错误；请查看服务日志。')),
-				'error');
+function channelResult(channel, raw, code) {
+	if (channel === 'worker') return formatRecentResult(raw);
+	var parsed = renderOfficialStatus(raw);
+	var running = /^status=running$/m.test(raw);
+	var failed = code !== 0 || /^exit_code=[1-9]/m.test(raw) || parsed.rows.some(function(row) { return row.status === 'error'; });
+	return {
+		title: running ? _('官方上报中') : parsed.rows.length ? _('官方防火墙结果') : _('官方防火墙'),
+		text: running ? _('正在查询当前出口，必要时加入白名单。') : officialActionSummary(parsed, 'official-report'),
+		level: running ? 'working' : failed ? 'error' : parsed.rows.length ? 'success' : 'neutral',
+		running: running
+	};
+}
+
+function showChannelResult(channel, raw, code) {
+	var result = channelResult(channel, raw, code || 0);
+	showActionResult(channel, result.title, result.text, result.level);
+	return result;
+}
+
+function pollChannelResult(channel, deadline) {
+	return fs.exec(CONTROL, [ channel + '-progress' ]).then(function(res) {
+		var result = showChannelResult(channel, (res.stdout || '') + '\n' + (res.stderr || ''), res.code);
+		if (result.running && Date.now() < deadline)
+			return waitFor(1500).then(function() { return pollChannelResult(channel, deadline); });
+		if (result.running)
+			showActionResult(channel, _('任务仍在运行'), _('稍后点击本通道的“最近结果”查看。'), 'working');
+	}).catch(function(err) { showActionResult(channel, _('读取结果失败'), err.message || err, 'error'); });
+}
+
+function saveReporter(map) {
+	return map.save().then(function() { return commitReporter('po0_outbound_ip_report'); }).then(function() {
+        return Promise.all(['worker','official'].map(function(channel) { return refreshChannelResult(channel).catch(function() {}); }));
+    });
+}
+
+function runChannelAction(map, channel, action) {
+    if (channelActionRunning) {
+        showActionResult(channel, _('已有操作正在执行'), _('请等当前上报或查询完成后，再操作这个通道。'), 'working');
+        return Promise.resolve();
+    }
+    channelActionRunning = true;
+	showActionResult(channel, _('正在保存并执行'), _('本次只操作当前通道。'), 'working');
+	return saveReporter(map).then(function() { showActionResult(channel, _('正在执行'), _('正在处理本通道的请求。'), 'working'); return fs.exec(CONTROL, [ action ]); }).then(function(res) {
+		var raw = (res.stdout || '') + '\n' + (res.stderr || '');
+		if (action === 'official-status') {
+			var parsed = renderOfficialStatus(raw);
+			showActionResult(channel, _('官方状态'), officialActionSummary(parsed, action), res.code ? 'error' : 'neutral');
 			return;
 		}
-		showActionResult(
-			isReport ? _('官方上报完成') : _('官方状态读取完成'),
-			officialActionSummary(parsed, action),
-			'success');
-	}).catch(function(err) {
-		showActionResult(
-			isReport ? _('官方上报失败') : _('读取官方状态失败'),
-			redactOfficialText(err && err.message ? err.message : _('无法调用控制程序。')),
-			'error');
+		if (res.code) {
+			showActionResult(channel, _('无法执行上报'), redactOfficialText(raw), 'error');
+			return;
+		}
+		showChannelResult(channel, raw, res.code);
+		return pollChannelResult(channel, Date.now() + 180000);
+	}).catch(function(err) { showActionResult(channel, _('配置未保存或操作失败'), err.message || err, 'error'); }).finally(function() { channelActionRunning = false; });
+}
+
+function refreshChannelResult(channel) {
+	return fs.exec(CONTROL, [ channel + '-result' ]).then(function(res) {
+		showChannelResult(channel, (res.stdout || '') + '\n' + (res.stderr || ''), res.code);
 	});
 }
 
-function refreshOfficialStatus() {
-	return fs.exec(CONTROL, [ 'official-status' ]).then(function(res) {
-		var raw = res.stdout || res.stderr || '';
-		if (res.code === 0)
-			renderOfficialStatus(raw);
-		else
-			renderOfficialStatus('message=' + redactOfficialText(_('官方状态暂时不可用；请使用“只读检查官方状态”重试。')));
-	}).catch(function() {
-		renderOfficialStatus('message=' + _('官方状态暂时不可用；请使用“只读检查官方状态”重试。'));
-	});
+function normalizeOfficialToken(value) {
+	var text = String(value == null ? '' : value).trim();
+	var match = text.match(/^https:\/\/124\.221\.69\.228\/api\/firewall\/(pgnfw_[A-Za-z0-9._~-]{1,240})(?:\/add)?(?:\?slot=[0-4])?$/);
+	return match ? match[1] : text;
 }
+
 
 return view.extend({
-	render: function() {
-		return uci.load('po0_outbound_ip_report').then(function() {
-		var m = new form.Map('po0_outbound_ip_report', _('PO0 出口 IP 上报'),
-			_('现有 LAN Worker 上报与 PO0 官方防火墙上报在同一页面独立配置。'));
-		var s = m.section(form.NamedSection, 'main', 'reporter', _('上报设置'));
-		s.anonymous = true;
-		s.tab('basic', _('基础设置'));
-		s.tab('advanced', _('高级设置'));
+ render: function() {
+  return uci.load('po0_outbound_ip_report').then(function() {
+   var m = new form.Map('po0_outbound_ip_report', _('PO0 出口上报'),
+    _('选择要使用的通道：自建防火墙经 LAN Worker 上报；官方防火墙直接向 PO0 加白。两者可单独使用，也可同时使用。'));
+   var common = m.section(form.NamedSection, 'main', 'reporter', _('自动上报'));
+   var o = common.option(form.Flag, 'enabled', _('启用自动上报服务'));
+   o.default = '0'; o.rmempty = false;
+   o.description = _('只控制后台定时任务。关闭后，两个通道仍可手动上报或查询。');
+   var s = m.section(form.NamedSection, 'main', 'reporter', _('上报通道'));
+   s.tab('worker', _('自建防火墙 · LAN Worker'));
+   s.tab('official', _('PO0 官方防火墙'));
+   s.tab('network', _('出口与探测'));
+   function field(tab, type, key, title, description) {
+    var item = s.taboption(tab, type, key, _(title));
+    if (description) item.description = _(description);
+    return item;
+   }
+   function resultSection(channel) {
+    var result = s.taboption(channel, form.SectionValue, '_' + channel + '_result', ResultSection, 'main', 'reporter');
+    result.subsection.channel = channel;
+   }
+   function actions(channel) {
+    var button = field(channel, form.Button, '_' + channel + '_report', '保存并立即上报', '使用当前填写的配置，只上报本通道；无需开启自动上报。');
+    button.inputstyle = 'apply';
+    button.onclick = function() { return runChannelAction(m, channel, channel + '-report'); };
+    if (channel === 'official') {
+     button = field(channel, form.Button, '_official_check', '保存并查询白名单', '只查询，不新增或替换白名单槽位。');
+     button.onclick = function() { return runChannelAction(m, channel, 'official-status'); };
+    } else {
+     button = field(channel, form.Button, '_worker_force', '忽略 SSID，保存并上报', '本次手动执行忽略下方的 Wi-Fi 跳过条件。');
+     button.onclick = function() { return runChannelAction(m, channel, 'worker-force-report'); };
+    }
+    button = field(channel, form.Button, '_' + channel + '_recent', '最近结果', '读取本通道最近一次手动或自动执行记录。');
+    button.onclick = function() { return refreshChannelResult(channel); };
+    resultSection(channel);
+   }
+   o = field('worker', form.Flag, 'worker_enabled', '自动上报到 LAN Worker', '需要同时开启页面上方的自动上报服务。');
+   o.default = '1'; o.rmempty = false;
+   o = field('worker', form.Value, 'worker_url', 'LAN Worker 地址', '提交使用本机正常网络，遵循 OpenClash 规则；提交的公网 IP 由下方所选 WAN 独立探测。');
+   o.placeholder = 'https://report.example.com/report'; o.rmempty = true;
+   o = field('worker', form.Value, 'secret', 'LAN Worker 共享密钥');
+   o.password = false; o.rmempty = true;
+   o = field('worker', form.Value, 'source_id', '来源 ID', '用于标识这台设备；多 WAN 上报会自动追加 WAN 名称。');
+   o.default = 'router-88-2'; o.rmempty = false;
+   field('worker', form.Value, 'identity', '备注');
+   o = field('worker', form.Value, 'wans', '上报哪些 WAN', '填写 wan1、wan2、wan1;wan2 或 all。出口对应关系在“出口与探测”中设置。');
+   o.default = 'all'; o.value('wan1','WAN1'); o.value('wan2','WAN2'); o.value('wan1;wan2', _('WAN1 和 WAN2')); o.value('all', _('全部'));
+   o = field('worker', form.Value, 'interval_seconds', '自动上报间隔（秒）');
+   o.datatype = 'uinteger'; o.default = '3600'; o.rmempty = false;
+   field('worker', form.Value, 'skip_wifi_ssids', '跳过 Wi-Fi SSID', '英文分号分隔；只影响本通道，路由器上的官方 WAN 上报不使用 SSID 条件。');
+   o = field('worker', form.Flag, 'allow_http', '允许明文 HTTP（不推荐）', '仅 LAN Worker 地址使用 http:// 时需要。');
+   o.default = '0';
+   actions('worker');
 
-		var o = s.taboption('basic', form.Flag, 'enabled', _('启用 procd 定时上报'));
-		o.default = '0';
-		o.rmempty = false;
-		o.description = _('总开关；关闭后现有 LAN Worker 和 PO0 官方两条自动通道都暂停。');
+   o = field('official', form.Flag, 'official_enabled', '自动上报到官方防火墙', '需要同时开启页面上方的自动上报服务；每 10 分钟查询，缺失或槽位不匹配时才加白。');
+   o.default = '0'; o.rmempty = false;
+   var targets = s.taboption('official', form.SectionValue, '_official_targets', form.TableSection, 'official_target', null, _('官方目标与 Token')).subsection;
+   targets.anonymous = true; targets.addremove = true; targets.sortable = true;
+   targets.description = _('每个目标对应 PO0 防火墙页面的一份完整 Token。输入 pgnfw_xxxx 整段，必须包含 pgnfw_ 前缀；也可粘贴完整加白链接。Token 在这里直接显示。');
+   o = targets.option(form.Value, 'label', _('目标名称')); o.rmempty = false;
+   o = targets.option(form.Flag, 'enabled', _('启用目标')); o.default = '1'; o.rmempty = false;
+   o = targets.option(form.Value, 'token', _('完整官方 Token'));
+   o.password = false; o.rmempty = true; o.placeholder = 'pgnfw_xxxxxxxxx';
+   o.description = _('例如链接 /api/firewall/pgnfw_xxxx/add 中，应复制 pgnfw_xxxx，不包含 /add。');
+   o.validate = function(section_id, value) {
+    var token = normalizeOfficialToken(value);
+    if (!token && uci.get('po0_outbound_ip_report', section_id, 'enabled') === '0') return true;
+    return /^pgnfw_[A-Za-z0-9._~-]{1,240}$/.test(token) || _('请输入完整的 pgnfw_ 开头 Token，或粘贴官方加白链接。');
+   };
+   o.write = function(section_id, value) { return uci.set('po0_outbound_ip_report', section_id, 'token', normalizeOfficialToken(value)); };
+   var bindings = s.taboption('official', form.SectionValue, '_official_bindings', form.TableSection, 'official_binding', null, _('出口与槽位')).subsection;
+   bindings.anonymous = true; bindings.addremove = true; bindings.sortable = true;
+   bindings.description = _('每行指定一个目标使用的出口。单线启用一行，双线启用两行；同一目标的不同设备或 WAN 请分配不同固定槽位，避免相互覆盖。');
+   o = bindings.option(form.Flag, 'enabled', _('启用')); o.default = '1'; o.rmempty = false;
+   o = bindings.option(form.ListValue, 'target', _('目标')); o.rmempty = false;
+   o.renderWidget = function(section_id, option_index, cfgvalue) {
+    this.keylist = []; this.vallist = [];
+    var option = this;
+    (uci.sections('po0_outbound_ip_report', 'official_target') || []).forEach(function(target) { option.value(target['.name'], target.label || target['.name']); });
+    return form.ListValue.prototype.renderWidget.apply(this, arguments);
+   };
+   o = bindings.option(form.Value, 'wan', _('出口')); o.value('wan1','WAN1'); o.value('wan2','WAN2'); o.rmempty = false;
+   o = bindings.option(form.ListValue, 'slot', _('槽位')); o.value('', _('自动（可能被轮换）'));
+   for (var slot = 1; slot <= 5; slot++) o.value(String(slot - 1), _('固定槽位 %s').format(slot));
+   o.description = _('界面槽位 1–5 对应 API 的 0–4；更换槽位可能替换该位置已有的网段。');
+   actions('official');
+   s.taboption('official', form.SectionValue, '_official_status', OfficialStatusSection, 'main', 'reporter');
 
-		o = s.taboption('basic', form.Flag, 'worker_enabled', _('启用 LAN Worker 上报'));
-		o.default = '1';
-		o.rmempty = false;
-		o.description = _('只控制现有 LAN Worker 通道；不影响 PO0 官方防火墙通道。');
-
-		o = s.taboption('basic', form.Flag, 'official_enabled', _('启用 PO0 官方防火墙上报'));
-		o.default = '0';
-		o.rmempty = false;
-		o.description = _('与 LAN Worker 上报独立；主路由上的每个官方 WAN 绑定会从指定 WAN 发出请求。官方自动通道固定每 600 秒检查一次。');
-
-		o = s.taboption('basic', form.Value, 'worker_url', _('LAN Worker URL'));
-		o.placeholder = 'https://report.example.com/report';
-		o.rmempty = true;
-		o.description = _('现有通道使用；只启用 PO0 官方上报时可以留空。');
-
-		o = s.taboption('basic', form.Value, 'source_id', _('来源 ID'));
-		o.default = 'router-88-1';
-		o.rmempty = false;
-
-		o = s.taboption('basic', form.Value, 'identity', _('身份标签'));
-		o.default = 'router-88-1-via-gateway';
-
-		o = s.taboption('basic', form.Value, 'interval_seconds', _('上报间隔（秒）'));
-		o.datatype = 'uinteger';
-		o.default = '3600';
-		o.rmempty = false;
-		o.description = _('只控制现有 LAN Worker 自动上报间隔；PO0 官方通道固定每 600 秒检查一次。');
-
-		o = s.taboption('advanced', form.Value, 'secret', _('共享密钥'));
-		o.password = true;
-		o.rmempty = true;
-
-		o = s.taboption('advanced', form.Flag, 'allow_http', _('允许明文 HTTP（不推荐）'));
-		o.default = '0';
-		o.description = _('仅当 Worker URL 以 http:// 开头时才需要开启。HTTP 会明文传输上报数据；使用 https:// 时请保持关闭。');
-
-		o = s.taboption('advanced', form.Value, 'router_probe_url', _('主路由探针 URL'));
-		o.default = 'http://192.168.88.1/cgi-bin/po0-wan-probe';
-		o.rmempty = true;
-		o.description = _('供现有 LAN Worker 通道读取上游 WAN；官方通道按下方 WAN 绑定选择实际请求出口。');
-
-		var wanOption = s.taboption('advanced', form.Value, 'wans', _('WAN 选择'));
-		wanOption.default = 'all';
-		wanOption.description = _('使用 all，或用英文分号分隔 wan1;wan2。');
-
-		o = s.taboption('advanced', form.Value, 'ip_check_urls', _('公网 IP 探测 URL'));
-		o.placeholder = 'https://ip9.com.cn/get';
-		o.description = _('仅未使用上游路由探针时生效；多个 URL 用英文逗号分隔。');
-
-		o = s.taboption('advanced', form.Value, 'skip_wifi_ssids', _('跳过 Wi-Fi SSID'));
-		o.description = _('多个 SSID 用英文分号分隔；只影响当前设备上的客户端上报。主路由的 PO0 官方 WAN 绑定不套用 SSID 跳过。');
-
-		var officialTargets = uci.sections('po0_outbound_ip_report', 'official_target') || [];
-		[ 'wan1', 'wan2' ].forEach(function(wan) {
-			var source = s.taboption('advanced', form.Value, 'official_source_' + wan, _('官方 %s 本机源地址（可选）').format(wan.toUpperCase()));
-			source.datatype = 'ip4addr';
-			source.rmempty = true;
-			source.placeholder = wan === 'wan1' ? '192.168.88.2' : '192.168.88.3';
-			source.description = _('在旁路网关运行时填写用于此 WAN 分流的本机 IPv4；上游需将该地址的官方请求固定到对应 WAN，故障时不切换。安装在双 WAN 主路由时留空。');
-		});
-
-		var officialTargetSection = m.section(form.TableSection, 'official_target', _('PO0 官方目标'));
-		officialTargetSection.anonymous = true;
-		officialTargetSection.addremove = true;
-		officialTargetSection.sortable = true;
-		officialTargetSection.description = _('每行代表一个官方账号或小鸡目标。token 只保存到本机配置，不在页面回显；已有 token 留空即可保留。');
-
-		o = officialTargetSection.option(form.Value, 'label', _('目标名称'));
-		o.rmempty = false;
-		o.placeholder = _('例如：新加坡小鸡');
-
-		o = officialTargetSection.option(form.Flag, 'enabled', _('启用'));
-		o.default = '1';
-		o.rmempty = false;
-
-		o = officialTargetSection.option(form.Value, 'token', _('官方 token'));
-		o.password = true;
-		o.rmempty = true;
-		o.placeholder = _('已保存；留空保持不变');
-		o.description = _('不会显示已保存内容；只有输入新值并保存才会替换。');
-		o.cfgvalue = function() {
-			return '';
-		};
-		o.write = function(section_id, value) {
-			value = String(value == null ? '' : value).trim();
-			if (!value)
-				return Promise.resolve();
-			return uci.set('po0_outbound_ip_report', section_id, 'token', value);
-		};
-
-		var officialBindingSection = m.section(form.TableSection, 'official_binding', _('PO0 官方 WAN 绑定'));
-		officialBindingSection.anonymous = true;
-		officialBindingSection.addremove = true;
-		officialBindingSection.sortable = true;
-		officialBindingSection.description = _('只启用 WAN1 或 WAN2 的绑定即可单线上报；两条都启用即可双线上报。每个绑定最多占用官方 5 个白名单名额中的一个。');
-
-		o = officialBindingSection.option(form.Flag, 'enabled', _('启用'));
-		o.default = '1';
-		o.rmempty = false;
-
-		o = officialBindingSection.option(form.ListValue, 'target', _('官方目标'));
-		o.rmempty = false;
-		if (officialTargets.length) {
-			officialTargets.forEach(function(section) {
-				var id = section['.name'];
-				var label = String(section.label || '').trim();
-				if (!label)
-					label = id;
-				o.value(id, label);
-			});
-		} else {
-			o.value('', _('请先添加官方目标'));
-		}
-
-		o = officialBindingSection.option(form.Value, 'wan', _('逻辑 WAN'));
-		o.rmempty = false;
-		o.value('wan1', 'WAN1');
-		o.value('wan2', 'WAN2');
-		o.placeholder = 'wan1';
-		o.description = _('旁路网关使用高级设置中的对应本机源地址；未填写时使用本机逻辑 WAN。');
-
-		o = officialBindingSection.option(form.ListValue, 'slot', _('固定槽位'));
-		o.value('', _('自动选择'));
-		for (var slot = 1; slot <= 5; slot++)
-			o.value(String(slot - 1), _('槽位 %s').format(slot));
-		o.default = '';
-		o.description = _('留空由官方接口按默认规则处理；固定槽位 1-5 便于 WAN1/WAN2 长期一一对应。');
-
-		m.section(OfficialStatusSection, 'main', 'reporter', _('PO0 官方状态'));
-
-		var actions = m.section(form.NamedSection, 'main', 'reporter', _('手动操作'));
-		actions.anonymous = true;
-
-		o = actions.option(form.Button, '_discover', _('读取 WAN 列表'));
-		o.inputstyle = 'apply';
-		o.description = _('只读取上游探针，不修改当前 WAN 选择。');
-		o.onclick = function() {
-			showActionResult(_('正在读取 WAN'), _('正在连接上游路由探针……'), 'working');
-			return fs.exec(CONTROL, [ 'discover-wans' ]).then(function(res) {
-				var raw = (res.stdout || '').trim();
-				var wans = raw ? raw.split(/\s+/) : [];
-				var selection = wanOption.formvalue('main') || wanOption.cfgvalue('main') || 'all';
-				if (!wans.length) {
-					showActionResult(_('WAN 读取失败'), res.stderr || _('上游探针没有返回 WAN。'), 'error');
-					return;
-				}
-				showActionResult(
-					_('WAN 读取成功'),
-					_('发现 %d 个 WAN：%s\n当前选择：%s\n本次读取没有修改配置。')
-						.format(wans.length, wans.join('、'), selection),
-					'success');
-			}).catch(function(err) {
-				showActionResult(_('WAN 读取失败'), err.message || err, 'error');
-			});
-		};
-
-		o = actions.option(form.Button, '_test', _('立即测试上报'));
-		o.inputstyle = 'apply';
-		o.description = _('使用已保存的 UCI 配置启动后台测试；修改字段后请先保存并应用。');
-		o.onclick = function() {
-			return startManualTest(false);
-		};
-
-		o = actions.option(form.Button, '_test_force', _('忽略 SSID 立即上报'));
-		o.inputstyle = 'apply';
-		o.description = _('仅用于手动测试；本次忽略 Wi-Fi SSID 跳过列表。');
-		o.onclick = function() {
-			return startManualTest(true);
-		};
-
-		o = actions.option(form.Button, '_status', _('查看最近结果'));
-		o.onclick = function() {
-			showActionResult(_('正在读取结果'), _('正在读取最近一次自动或手动上报记录……'), 'working');
-			return fs.exec(CONTROL, [ 'status' ]).then(function(res) {
-				var result = formatRecentResult(res.stdout || res.stderr || '');
-				showActionResult(result.title, result.text, result.level);
-			}).catch(function(err) {
-				showActionResult(_('读取最近结果失败'), err.message || err, 'error');
-			});
-		};
-
-		o = actions.option(form.Button, '_official_status', _('只读检查官方状态'));
-		o.inputstyle = 'apply';
-		o.description = _('只读取每个官方 WAN 绑定的当前出口、白名单和名额，不执行加白。');
-		o.onclick = function() {
-			return runOfficialAction('official-status');
-		};
-
-	o = actions.option(form.Button, '_official_report', _('立即官方上报'));
-		o.inputstyle = 'apply';
-		o.description = _('本次为手动执行；自动通道启用后按计划运行。只读检查不会修改白名单。');
-		o.onclick = function() {
-			return runOfficialAction('official-report');
-		};
-
-		m.section(ResultSection, 'main', 'reporter', _('操作结果'));
-		return m.render().then(function(node) {
-			renderOfficialStatus('');
-			window.setTimeout(refreshOfficialStatus, 0);
-			return node;
-		});
-		});
-	}
+   o = field('network', form.ListValue, 'probe_mode', '公网 IP 获取方式');
+   o.value('source', _('本机按源地址直连探测（旁路网关）'));
+   o.value('local', _('本机 WAN 接口探测（主路由）'));
+   o.value('router', _('主路由 HTTP 探针（兼容）'));
+   o.default = 'source'; o.rmempty = false;
+   o.description = _('旁路网关自行探测真实 WAN 公网 IP，无需主路由 HTTP 服务。探测和官方查询/加白走所选 WAN 直连；提交到 LAN Worker 遵循本机 OpenClash 规则。');
+   ['wan1','wan2'].forEach(function(wan) {
+    var source = field('network', form.Value, 'official_source_' + wan, wan.toUpperCase() + ' 本机源地址', '一次配置 WAN 与本机专用 IPv4 的对应关系，用于真实 IP 探测和官方请求。上游按源地址固定到对应 WAN，透明代理须绕过这些源地址；不影响 LAN Worker 提交。');
+    source.datatype = 'ip4addr'; source.rmempty = true;
+    source.placeholder = wan === 'wan1' ? '192.168.88.250' : '192.168.88.251';
+   });
+   o = field('network', form.Value, 'router_probe_url', '主路由探针地址');
+   o.depends('probe_mode','router'); o.placeholder = 'http://192.168.88.1/cgi-bin/po0-wan-probe'; o.rmempty = true;
+   o = field('network', form.Value, 'ip_check_urls', '公网 IP 查询地址', '英文逗号分隔。源地址模式使用所选 WAN 直连探测；域名通过下方 DNS 服务器获取真实 IPv4。');
+   o.depends('probe_mode','source'); o.depends('probe_mode','local'); o.placeholder = 'https://ip9.com.cn/get';
+   o = field('network', form.Value, 'probe_dns_server', '探测 DNS 服务器', '向此服务器的 53 端口查询探测域名真实 IPv4，避免使用 Fake-IP；无需固定探测服务器 IP。');
+   o.depends('probe_mode','source'); o.datatype = 'ip4addr'; o.default = '192.168.88.1'; o.rmempty = false;
+   o = field('network', form.Button, '_discover', '查看可用 WAN');
+   o.onclick = function() {
+    return saveReporter(m).then(function() { return fs.exec(CONTROL,['discover-wans']); }).then(function(res) {
+     showActionResult('worker', _('可用 WAN'), res.stdout || res.stderr || _('未发现可用 WAN'), res.code ? 'error' : 'neutral');
+    });
+   };
+   return m.render().then(function(node) {
+    node.classList.add('po0-report-page');
+    window.setTimeout(function() {
+     refreshChannelResult('worker'); refreshChannelResult('official');
+    }, 0);
+    return node;
+   });
+  });
+ }
 });

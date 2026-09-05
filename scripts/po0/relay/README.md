@@ -97,7 +97,7 @@ po0-lan-client --probe
 po0-lan-client --version
 ```
 
-PO0 nftables 子系统内带 `SCRIPT_VERSION`、`--version` / `--changelog` 或自更新提示的六个可独立部署脚本（PO0 manager、LAN Worker、WAN probe、三端 PO0 Outbound IP Report）统一使用 `YYYY.MM.DD+build.N` 混合版本格式。本轮脚本版本为 `2026.09.05+build.5`。两个 OpenWrt APK 另有各自的包版本：本轮 outbound 为 `2026.09.05-r3`，WAN probe 继续为 `2026.08.30-r5`。正式 PO0 Release 发布文件的脚本内部版本必须与 release tag 尾号一致：`po0-vYYYY.MM.DD.N` 对应 `YYYY.MM.DD+build.N`，例如 `po0-v2026.07.01.7` 对应 `2026.07.01+build.7`。完整历史写在 [`CHANGELOG.md`](CHANGELOG.md)。
+PO0 nftables 子系统内带 `SCRIPT_VERSION`、`--version` / `--changelog` 或自更新提示的六个可独立部署脚本（PO0 manager、LAN Worker、WAN probe、三端 PO0 Outbound IP Report）统一使用 `YYYY.MM.DD+build.N` 混合版本格式。本轮脚本版本为 `2026.09.05+build.6`。两个 OpenWrt APK 另有各自的包版本：本轮 outbound 为 `2026.09.05-r4`，WAN probe 继续为 `2026.08.30-r5`。正式 PO0 Release 发布文件的脚本内部版本必须与 release tag 尾号一致：`po0-vYYYY.MM.DD.N` 对应 `YYYY.MM.DD+build.N`，例如 `po0-v2026.07.01.7` 对应 `2026.07.01+build.7`。完整历史写在 [`CHANGELOG.md`](CHANGELOG.md)。
 
 更新 LAN Worker 上已安装的 client：
 
@@ -547,6 +547,23 @@ po0-lan-client --install-cron
 
 Linux、macOS、Windows、Egern 和普通 LAN Worker 使用本机默认出口（Egern 为 `DIRECT`）。OpenWrt APK 的官方绑定可选择 `wan1`、`wan2`，或同时启用两条绑定：安装在双 WAN 主路由时使用本机 `mwan3`；安装在旁路网关时使用高级设置中的 `official_source_wan1` / `official_source_wan2` 本机 IPv4，由上游固定分流到对应 WAN。GET 与 POST 使用相同源地址，未分配的源地址会拒绝请求。实现参考 [kelenetwork/po0fw](https://github.com/kelenetwork/po0fw)（MIT），不是 Chicksure 专属协议。
 
+### 官方 Token、槽位与本机配置
+
+Token 必须包含 `pgnfw_` 前缀：官方链接 `https://124.221.69.228/api/firewall/pgnfw_xxxx/add` 中应复制 `pgnfw_xxxx` 整段。OpenWrt 页面显示完整 Token，也接受直接粘贴该链接；Token 字段不填写 `@槽位`，槽位在出口绑定中单独选择。
+
+官方接口的固定槽位为 `0..4`，页面显示为槽位 `1..5`；其它客户端使用 `pgnfw_xxxx@0` 到 `@4`。同一目标的不同设备或 WAN 应手动分配不同固定槽位：本机设备 ID 不会自动转换成官方槽位，也没有跨设备自动分配功能。
+
+- Egern：运行“保存本机 PO0 上报配置”后，Token 和槽位随配置保存在本机 `ctx.storage`。定时、网络变化和普通手动上报优先使用该配置，不受同步环境变量影响；设备 ID 继续独立保存。
+- Stash：已保存的官方配置使用本机专用存储，运行时不会被同步模块参数覆盖。修改 `/save-official` 对应的 `argument` 后访问 `http://po0-report.invalid/save-official`，只保存本机 Token/槽位；访问 `/clear-official` 清除，均不上报。
+- Loon：修改插件输入后执行 `Save Local Official Settings`；清除用 `Clear Local Official Settings`。正常上报使用本机专用存储中的 Token/槽位。
+- Windows、macOS：Token 和 `@槽位` 保存在各自客户端本地配置中。它们支持固定槽位，但不会按其它设备的 ID 自动分配槽位。
+
+OpenWrt 页面按“自建防火墙 · LAN Worker”和“PO0 官方防火墙”分组，每个通道拥有自己的自动开关、保存并上报和最近结果。自动开关不阻止明确的手动上报/查询，手动上报只执行所选通道。
+
+旁路网关在“出口与探测”选择“本机按源地址直连探测”，一次配置 WAN1/WAN2 对应的本机专用 IPv4。真实 WAN IP 探测和官方 GET/POST 都使用对应源地址，绕过 OpenClash；上游仅按源地址固定到对应 WAN-only 策略，所选 WAN 故障时不回退。向 LAN Worker 提交探测结果时使用本机正常网络，遵循 OpenClash 规则，不绑定这些专用源地址。
+
+“探测 DNS 服务器”默认填写 `192.168.88.1`：向主路由普通 DNS 53 端口查询探测域名的真实 IPv4，避免使用 Fake-IP，无需硬编码 IP9 等服务的服务器 IP。源地址模式不再依赖主路由 HTTP 探针，配置迁移会删除旧探针地址和固定解析设置；运行时忽略旧探针地址。主路由 HTTP 探针仍供其它部署作为兼容选项。
+
 ### 各端最短配置入口
 
 - LAN Worker：`po0-lan-client --menu` → `29) 配置官方防火墙 token`；只读用 `po0-lan-client --official-firewall-status`，运行用 `po0-lan-client --run-official-firewall`。
@@ -554,7 +571,7 @@ Linux、macOS、Windows、Egern 和普通 LAN Worker 使用本机默认出口（
 - macOS：`po0-outbound-ip-report-macos.sh --save-config --menu` 保存 token，查询用 `--official-status`，独立运行用 `--official-only`；请求走本机默认出口。
 - Windows：`po0-outbound-ip-report.ps1 -Menu` 进入菜单并在其中配置保存 token，查询用 `-OfficialStatus`，独立运行用 `-OfficialOnly`；计划任务仍按 Windows 默认出口。
 - Egern / 移动端：在标准 Egern YAML 的 `PO0_FIREWALL_TOKENS` 配置项保存 token，动作 `PO0 官方防火墙状态（只读）` 查看；自动上报使用 `DIRECT`，SSID guard 和通知在 Egern 本机配置。
-- OpenWrt APK：在 LuCI 的 `PO0 Outbound IP Report` 页面配置官方 token、开关和 WAN 绑定。仅启用 WAN1 或 WAN2 行即可单线上报；两行都启用即可双线上报。旁路网关 88.2 可将高级设置中的 WAN1 源地址设为 `192.168.88.2`、WAN2 设为本机已有的 `192.168.88.3`；88.1 必须把这两个源地址到官方服务器 `124.221.69.228:443` 的请求分别固定到 `wan1_only` / `wan2_only`，所选 WAN 故障时不可切换。88.2 的透明代理还需绕过官方服务器 IP；OpenClash 可将 `124.221.69.228/32` 加入 `openclash_custom_localnetwork_ipv4.list`。配置、token、定时任务及状态均留在 88.2；主路由只负责转发。
+- OpenWrt APK：在 LuCI 的 `PO0 Outbound IP Report` 页面配置官方 token、开关和 WAN 绑定。仅启用 WAN1 或 WAN2 行即可单线上报；两行都启用即可双线上报。旁路网关 88.2 先分配专用本机地址 `192.168.88.250` / `192.168.88.251`，分别填作 WAN1 / WAN2 源地址；88.1 的 mwan3 按这两个源地址分别固定到 `wan1_only` / `wan2_only`，不限定目的服务器，所选 WAN 故障时不可切换。88.2 的 OpenClash 须绕过这两个专用源地址发出的探测和官方请求。配置、Token、定时任务及状态均留在 88.2；88.1 只提供 DNS 和 WAN 转发，完成迁移后无需运行 `po0-wan-probe` HTTP 服务。
 
 ## LAN Worker Self-report
 

@@ -1,14 +1,15 @@
 name: PO0 LAN Worker 上报（正式）
 desc: |-
-  默认保留现有 LAN Worker；可另外设置 PO0_FIREWALL_TOKENS（逗号分隔，可写 token@0..4；同一 token 即使写不同槽位也只能出现一次；填 - 可清空）启用官方防火墙通道。
+  默认保留 LAN Worker；官方 Token 必须填写 pgnfw_xxxx 整段，支持 pgnfw_xxxx@0 到 @4（界面槽位 1–5）。同一目标的不同设备请使用不同槽位。
   官方通道每 10 分钟只读检查，必要时直连加白；LAN Worker 的 IP/网络变化和一小时续期规则保持原样。
   两路在同一次唤醒中按“官方先、Worker 后”执行，例行成功安静；Tile 只显示脱敏状态。
   点击状态 Tile 或访问 http://po0-report.invalid/status 只读检查（不会加白）；访问 /report-now 才是手动上报，仍会先 GET 再按需加白。
-  使用前替换两处相同 JSON 中的 worker_url、source_id、secret；官方 token 会保存在 Stash 持久化存储。
+  Worker 按原方式填写参数；官方配置保存后按本机值运行，同步来的模块参数不会覆盖本机 Token/槽位。
+  修改本机官方配置：在 /save-official 对应 argument 中填写完整 Token（可带 @槽位），再访问 http://po0-report.invalid/save-official；清除用 /clear-official。
 
 script-providers:
   po0-stash-report-worker-v2:
-    url: https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/stash/po0-stash-report.js?rev=20260905-v5
+    url: https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/stash/po0-stash-report.js?rev=20260905-v6
     interval: 86400
   po0-stash-status-tile-v2:
     interval: 86400
@@ -81,3 +82,14 @@ http:
       type: request
       timeout: 90
       argument: '{"mode":"status","worker_url":"https://CHANGE_ME/stash-report/v1","source_id":"iphone-stash","secret":"CHANGE_ME_BEARER","selected_proxy":"DIRECT","PO0_FIREWALL_TOKENS":""}'
+
+    - match: ^http://po0-report\.invalid/save-official$
+      name: po0-stash-report-worker-v2
+      type: request
+      timeout: 10
+      argument: '{"mode":"save-official","PO0_FIREWALL_TOKENS":""}'
+    - match: ^http://po0-report\.invalid/clear-official$
+      name: po0-stash-report-worker-v2
+      type: request
+      timeout: 10
+      argument: '{"mode":"clear-official"}'

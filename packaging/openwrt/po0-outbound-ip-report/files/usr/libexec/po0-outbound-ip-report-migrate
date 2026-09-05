@@ -49,6 +49,21 @@ if ! uci -q get po0_outbound_ip_report.main.official_enabled >/dev/null 2>&1; th
 	changed=1
 fi
 
+# Source mode resolves and probes on this gateway. Do not restore a retired
+# upstream CGI or a fixed probe server address during package upgrades.
+if [ "$(uci -q get po0_outbound_ip_report.main.probe_mode 2>/dev/null || true)" = 'source' ]; then
+    for option in router_probe_url direct_probe_resolve; do
+        if uci -q get "po0_outbound_ip_report.main.${option}" >/dev/null 2>&1; then
+            uci -q delete "po0_outbound_ip_report.main.${option}" || exit 1
+            changed=1
+        fi
+    done
+    if [ -z "$(uci -q get po0_outbound_ip_report.main.probe_dns_server 2>/dev/null || true)" ]; then
+        uci set po0_outbound_ip_report.main.probe_dns_server='192.168.88.1' || exit 1
+        changed=1
+    fi
+fi
+
 # The official channel cadence is a package safety constant. Remove the old
 # free-form option so an upgrade cannot leave a misleading setting behind.
 if uci -q get po0_outbound_ip_report.main.official_interval_seconds >/dev/null 2>&1; then

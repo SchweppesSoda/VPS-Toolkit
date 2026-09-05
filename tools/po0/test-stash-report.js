@@ -342,7 +342,7 @@ async function testStrictDuplicateSlotsAndTokenPersistence() {
     argument: reportArgument("force", { PO0_FIREWALL_TOKENS: token }),
     officialGets: [{ body: officialBody([{ ip: "1.1.1.1/24", slot: 0 }, { ip: "2.2.2.2/24", slot: 0 }]) }],
   });
-  assert.strictEqual(result.store.get(FIREWALL_KEY), token);
+  assert.strictEqual(JSON.parse(result.store.get(STORE_KEY + ".official-config")).tokens, token);
   assert.deepStrictEqual(result.requests.map((entry) => entry.method), ["get", "get"]);
   assert.ok(!result.requests.some((entry) => entry.method === "post"));
   assert.ok(!JSON.stringify(result.store.get(STORE_KEY)).includes(token));
@@ -354,10 +354,10 @@ async function testStrictDuplicateSlotsAndTokenPersistence() {
   assert.ok(!invalid.logs.join("\n").includes("bad-token"));
 
   const cleared = await execute({
-    argument: reportArgument("status", { PO0_FIREWALL_TOKENS: "-" }),
+    argument: reportArgument("clear-official", { PO0_FIREWALL_TOKENS: "-" }),
     store: { [FIREWALL_KEY]: token },
   });
-  assert.strictEqual(cleared.store.get(FIREWALL_KEY), "");
+  assert.strictEqual(JSON.parse(cleared.store.get(STORE_KEY + ".official-config")).tokens, "");
   assert.deepStrictEqual(cleared.requests, []);
 }
 
@@ -437,7 +437,7 @@ async function testParallelOfficialAccountsPreserveLaneOrder() {
 function testOverrideContract() {
   assert.match(override, /PO0_FIREWALL_TOKENS/);
   assert.ok(override.includes("cron: '*/10 * * * *'"));
-  assert.match(override, /20260905-v5/);
+  assert.match(override, /20260905-v6/);
   assert.match(override, /官方先、Worker 后/);
   assert.match(override, /直连加白/);
   assert.match(override, /"PO0_FIREWALL_TOKENS":""/);
@@ -446,7 +446,7 @@ function testOverrideContract() {
   assert.ok(override.includes("match: ^http://po0-report\\.invalid/report-now"));
   assert.strictEqual((override.match(/timeout: 90/g) || []).length, 3);
   assert.strictEqual((sshOverride.match(/timeout: 90/g) || []).length, 3);
-  assert.doesNotMatch(override, /pgnfw_[A-Za-z0-9._~-]+/);
+  assert.ok(override.includes("pgnfw_xxxx"));
   assert.ok(sshOverride.includes("match: ^http://po0-ssh-report\\.invalid/status"));
   assert.ok(sshOverride.includes("argument: '{\"mode\":\"status\""));
   assert.ok(sshOverride.includes("match: ^http://po0-ssh-report\\.invalid/report-now"));
@@ -454,7 +454,31 @@ function testOverrideContract() {
   assert.doesNotMatch(sshOverride, /pgnfw_[A-Za-z0-9._~-]+/);
 }
 
+function testLocalSlotSurvivesSync() {
+  const store = new Map();
+  const sandbox = {
+    $persistentStore: { read: key => store.has(key) ? store.get(key) : null, write: (value, key) => { store.set(key, value); return true; } },
+  };
+  vm.createContext(sandbox);
+  const start = source.indexOf('function firewallInput(');
+  const end = source.indexOf('function parseFirewallTokens(');
+  const parseEnd = source.indexOf('\nfunction ', end + 10);
+  const functions = source.slice(start, parseEnd);
+  const prefix = `const STORE_ID = 'device-test'; const LEGACY_ID = 'PO0_FIREWALL_TOKENS'; const MAX_ID = 16;`;
+  const renamed = functions.replaceAll('STORE_KEY', 'STORE_ID').replaceAll('FIREWALL_TOKENS_KEY', 'LEGACY_ID').replaceAll('MAX_FIREWALL_TOKENS', 'MAX_ID');
+  vm.runInContext(prefix + `
+    function readStore(k) { return $persistentStore.read(k); }
+    function writeJSON(k,v) { return $persistentStore.write(JSON.stringify(v),k); }
+    function firstNonEmpty(v) { return v.find(x => x !== null && x !== undefined && String(x).trim()) || ''; }
+  ` + renamed, sandbox);
+  vm.runInContext("saveLocalFirewall({PO0_FIREWALL_TOKENS:'pgnfw_this_device@0'}, false)", sandbox);
+  assert.equal(vm.runInContext("firewallRawValue({PO0_FIREWALL_TOKENS:'pgnfw_synced_device@4'})", sandbox), 'pgnfw_this_device@0');
+  vm.runInContext("saveLocalFirewall({}, true)", sandbox);
+  assert.equal(vm.runInContext("firewallRawValue({PO0_FIREWALL_TOKENS:'pgnfw_synced_device@4'})", sandbox), '');
+}
+
 (async () => {
+  testLocalSlotSurvivesSync();
   await testOfficialGetFirstAndFixedSlot();
   await testHitAndGetFailureNeverPost();
   await testStatusMissingIsSuccessAndReadOnly();

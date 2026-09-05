@@ -59,8 +59,8 @@ openwrt_wan_l3_device() {
 detect_outbound_ipv4() {
     printf 'detect:%s\n' "${1:-}" >> "${call_log}"
     case "${1:-}" in
-        pppoe-wan1) printf '203.0.113.11\n' ;;
-        pppoe-wan2)
+        pppoe-wan1|192.168.88.2) printf '203.0.113.11\n' ;;
+        pppoe-wan2|192.168.88.3)
             [[ "${FAIL_WAN2:-0}" == "1" ]] && return 1
             printf '198.51.100.22\n'
             ;;
@@ -149,5 +149,25 @@ grep -Fxq 'submit:router-wan1:203.0.113.11' "${call_log}" || fail "wan1 should s
 if grep -q '^submit:router-wan2:' "${call_log}"; then
     fail "failed WAN should not be submitted"
 fi
+
+# Source-address mode works on a gateway without local WAN interfaces or HTTP probe.
+FAIL_WAN2=0
+PO0_OUTBOUND_IP_REPORT_PROBE_MODE=source
+PO0_OUTBOUND_IP_REPORT_SOURCE_WAN1=192.168.88.2
+PO0_OUTBOUND_IP_REPORT_SOURCE_WAN2=192.168.88.3
+ip() {
+ printf '%s\n' '3: br-lan inet 192.168.88.2/24' '3: br-lan inet 192.168.88.3/32'
+}
+: > "$call_log"
+WANS=all
+report_once >/dev/null
+grep -Fxq 'detect:192.168.88.2' "$call_log" || fail 'gateway WAN1 did not bind its source'
+grep -Fxq 'detect:192.168.88.3' "$call_log" || fail 'gateway WAN2 did not bind its source'
+! grep -q '^router-detect:' "$call_log" || fail 'gateway still used upstream HTTP probe'
+WANS=wan2
+PO0_OUTBOUND_IP_REPORT_SOURCE_WAN2=192.168.88.99
+: > "$call_log"
+if report_once >/dev/null 2>&1; then fail 'unassigned gateway source was accepted'; fi
+[ ! -s "$call_log" ] || fail 'invalid source fell back to another route'
 
 printf 'Linux/OpenWrt multi-WAN report tests passed.\n'

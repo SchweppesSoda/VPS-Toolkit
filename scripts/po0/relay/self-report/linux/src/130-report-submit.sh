@@ -236,7 +236,14 @@ worker_report_once() {
             report_source="$(normalize_report_token "${SOURCE_ID}" "$(default_source_id)")"
             report_identity="$(normalize_report_token "${IDENTITY}" "${report_source}")"
         else
-            if [[ -n "${ROUTER_PROBE_URL}" ]]; then
+            if gateway_source_mode; then
+                l3_device="$(gateway_wan_source "$wan")" || {
+                    self_report_incomplete "WAN ${wan} 没有已配置且属于本机的源地址；未使用其它出口。"
+                    failure_count=$((failure_count + 1))
+                    continue
+                }
+                label="WAN ${wan}"
+            elif [[ -n "${ROUTER_PROBE_URL}" ]]; then
                 l3_device=""
                 label="上游路由器 WAN ${wan}"
             else

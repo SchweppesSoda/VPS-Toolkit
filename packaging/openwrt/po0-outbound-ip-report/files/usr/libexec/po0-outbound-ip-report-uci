@@ -153,6 +153,21 @@ export PO0_OUTBOUND_IP_REPORT_SECRET="$(uci_get main secret)"
 export PO0_OUTBOUND_IP_REPORT_ALLOW_HTTP="$(uci_get main allow_http)"
 export PO0_OUTBOUND_IP_REPORT_ROUTER_PROBE_URL="$(uci_get main router_probe_url)"
 [ -n "$PO0_OUTBOUND_IP_REPORT_ROUTER_PROBE_URL" ] || export PO0_OUTBOUND_IP_REPORT_ROUTER_PROBE_URL='http://192.168.88.1/cgi-bin/po0-wan-probe'
+unset PO0_OUTBOUND_IP_REPORT_PROBE_RESOLVE PO0_OUTBOUND_IP_REPORT_PROBE_MODE PO0_OUTBOUND_IP_REPORT_PROBE_DNS_SERVER PO0_OUTBOUND_IP_REPORT_SOURCE_WAN1 PO0_OUTBOUND_IP_REPORT_SOURCE_WAN2
+probe_mode="$(uci_get main probe_mode)"
+case "$probe_mode" in
+ source)
+  export PO0_OUTBOUND_IP_REPORT_ROUTER_PROBE_URL=''
+  export PO0_OUTBOUND_IP_REPORT_PROBE_MODE='source'
+  export PO0_OUTBOUND_IP_REPORT_SOURCE_WAN1="$(uci_get main official_source_wan1)"
+  export PO0_OUTBOUND_IP_REPORT_SOURCE_WAN2="$(uci_get main official_source_wan2)"
+  export PO0_OUTBOUND_IP_REPORT_PROBE_DNS_SERVER="$(uci_get main probe_dns_server)"
+  [ -n "$PO0_OUTBOUND_IP_REPORT_PROBE_DNS_SERVER" ] || export PO0_OUTBOUND_IP_REPORT_PROBE_DNS_SERVER='192.168.88.1'
+  ;;
+ local) export PO0_OUTBOUND_IP_REPORT_ROUTER_PROBE_URL='';;
+ ''|router) :;;
+ *) printf '公网 IP 获取方式无效。\n' >&2; exit 2;;
+esac
 export PO0_OUTBOUND_IP_REPORT_WANS="$(uci_get main wans)"
 [ -n "$PO0_OUTBOUND_IP_REPORT_WANS" ] || export PO0_OUTBOUND_IP_REPORT_WANS='all'
 export PO0_OUTBOUND_IP_REPORT_IP_CHECK_URLS="$(uci_get main ip_check_urls)"
@@ -166,8 +181,16 @@ official_run='1'
 official_action='report'
 force='0'
 official_wan=''
+manual_worker='0'
+manual_official='0'
 while [ "$#" -gt 0 ]; do
 	case "$1" in
+		--worker-report)
+			worker_run='1'
+			official_run='0'
+			manual_worker='1'
+			shift
+			;;
 		--worker-only)
 			worker_run='1'
 			official_run='0'
@@ -179,12 +202,14 @@ while [ "$#" -gt 0 ]; do
 			shift
 			;;
 		--official-status)
+			manual_official='1'
 			worker_run='0'
 			official_run='1'
 			official_action='status'
 			shift
 			;;
 		--official-report)
+			manual_official='1'
 			worker_run='0'
 			official_run='1'
 			official_action='report'
@@ -223,6 +248,7 @@ official_config_error='0'
 official_ids="$(uci -q show "$CONFIG_PACKAGE" 2>/dev/null | sed -n 's/^po0_outbound_ip_report\.\([^.=]*\)=official_binding$/\1/p')"
 seen_target_wan=''
 seen_target_slot=''
+if [ "$official_run" = '1' ]; then
 while IFS= read -r binding; do
 	[ -n "$binding" ] || continue
 	binding_enabled="$(uci_get "$binding" enabled)"
@@ -314,6 +340,7 @@ while IFS= read -r binding; do
 done <<EOF
 $official_ids
 EOF
+fi
 acquire_run_lock || exit $?
 rc='0'
 worker_enabled_status='disabled'
@@ -321,7 +348,7 @@ official_enabled_status='disabled'
 # Execute the official lane first. Its result is independent: a failure here
 # must not prevent the existing Worker lane from running.
 if [ "$official_run" = '1' ]; then
-	if is_disabled "$official_enabled"; then
+	if is_disabled "$official_enabled" && [ "$manual_official" != '1' ]; then
 		printf 'official_status=disabled\n'
 	else
 		official_enabled_status='enabled'
@@ -350,7 +377,7 @@ if [ "$official_run" = '1' ]; then
 	fi
 fi
 if [ "$worker_run" = '1' ]; then
-	if is_disabled "$worker_enabled"; then
+	if is_disabled "$worker_enabled" && [ "$manual_worker" != '1' ]; then
 		printf 'worker_status=disabled\n'
 	else
 		worker_enabled_status='enabled'

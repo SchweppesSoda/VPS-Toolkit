@@ -20,7 +20,7 @@ PO0_MANUAL_REPORT_COMMAND=/bin/echo \
 grep -Fqx 'status=finished' "${state_file}"
 grep -Fqx 'observed_at=1700000000' "${state_file}"
 grep -Fqx 'exit_code=0' "${state_file}"
-grep -Fqx -- '--force-report' "${log_file}"
+grep -Fqx -- '--worker-report --force-report' "${log_file}"
 
 printf 'status=running\nobserved_at=1700000001\n' > "${state_file}"
 PO0_MANUAL_STATE_FILE="${state_file}" \
@@ -32,5 +32,14 @@ PO0_MANUAL_REPORT_COMMAND=/bin/false \
 grep -Fqx 'status=finished' "${state_file}"
 grep -Fqx 'observed_at=1700000001' "${state_file}"
 grep -Fqx 'exit_code=1' "${state_file}"
+
+PO0_MANUAL_STATE_FILE="${state_file}" \
+PO0_MANUAL_LOG_FILE="${log_file}" \
+PO0_MANUAL_PID_FILE="${pid_file}" \
+PO0_MANUAL_REPORT_COMMAND=/bin/echo \
+    sh "${runner}" official
+
+grep -Fqx 'lane=official' "${state_file}"
+grep -Fqx -- '--official-report' "${log_file}"
 
 printf 'OpenWrt asynchronous manual runner tests passed.\n'

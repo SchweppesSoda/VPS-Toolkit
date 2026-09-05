@@ -7,10 +7,13 @@
 #!input = po0_worker_url
 #!input = po0_worker_token
 #!input = PO0_FIREWALL_TOKENS
-#!arguments-desc = Set the Worker URL/token as before. Optionally set PO0_FIREWALL_TOKENS to comma-separated pgnfw_... values, with an optional @0..@4 fixed slot; the same token may only appear once even with different slot hints to avoid concurrent account races; use - to clear it. It is kept in Loon storage and never sent as a URL parameter.
+#!arguments-desc = Set the Worker URL/token as before. Optionally set PO0_FIREWALL_TOKENS to comma-separated pgnfw_... values, with an optional @0..@4 fixed slot; the same token may only appear once even with different slot hints to avoid concurrent account races; use - to clear it. Paste the complete pgnfw_ token. Each device keeps its own saved token/slot; synced input changes do not overwrite it. After editing inputs, run Save Local Official Settings on that device. Slot @0..@4 corresponds to slots 1..5; assign different devices different slots.
 
 [Script]
-cron "*/10 * * * *" script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260905-v4,timeout=300,tag=PO0 Auto Report,argument="auto",enable=true
-network-changed script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260905-v4,timeout=300,tag=PO0 Network Changed,argument="auto",enable=true
-generic script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260905-v4,timeout=300,tag=PO0 Status,argument="status",img-url=antenna.radiowaves.left.and.right.system,enable=true
-generic script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260905-v4,timeout=300,tag=PO0 Force Report,argument="force",img-url=arrow.clockwise.circle.system,enable=true
+cron "*/10 * * * *" script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260905-v6,timeout=300,tag=PO0 Auto Report,argument="auto",enable=true
+network-changed script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260905-v6,timeout=300,tag=PO0 Network Changed,argument="auto",enable=true
+generic script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260905-v6,timeout=300,tag=PO0 Status,argument="status",img-url=antenna.radiowaves.left.and.right.system,enable=true
+generic script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260905-v6,timeout=300,tag=PO0 Force Report,argument="force",img-url=arrow.clockwise.circle.system,enable=true
+
+generic script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260905-v6,timeout=10,tag=Save Local Official Settings,argument="save-official",img-url=square.and.arrow.down.system,enable=true
+generic script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260905-v6,timeout=10,tag=Clear Local Official Settings,argument="clear-official",img-url=trash.system,enable=true

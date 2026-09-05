@@ -488,7 +488,7 @@ async function testParallelOfficialAccountsPreserveLaneOrder() {
 function testPluginContract() {
   const plugin = fs.readFileSync(pluginPath, "utf8");
   const declarations = plugin.split(/\r?\n/).filter((line) => /^(?:cron|network-changed|generic)\b/.test(line));
-  assert.strictEqual(declarations.length, 4);
+  assert.strictEqual(declarations.length, 6);
   assert.strictEqual(declarations.filter((line) => /^network-changed\b/.test(line)).length, 1);
   assert.strictEqual(declarations.filter((line) => /^cron\b/.test(line) && /argument="auto"/.test(line)).length, 1);
   assert.strictEqual(declarations.filter((line) => /^network-changed\b/.test(line) && /argument="auto"/.test(line)).length, 1);
@@ -503,7 +503,31 @@ function testPluginContract() {
   assert.ok(declarations.every((line) => line.includes(`script-path=${scriptRawUrl}`)));
 }
 
+function testLocalSlotSurvivesSync() {
+  const store = new Map();
+  const sandbox = {
+    $persistentStore: { read: key => store.has(key) ? store.get(key) : null, write: (value, key) => { store.set(key, value); return true; } },
+  };
+  vm.createContext(sandbox);
+  const start = source.indexOf('function firewallInput(');
+  const end = source.indexOf('function parseFirewallTokens(');
+  const parseEnd = source.indexOf('\nfunction ', end + 10);
+  const functions = source.slice(start, parseEnd);
+  const prefix = `const STORE_ID = 'device-test'; const LEGACY_ID = 'PO0_FIREWALL_TOKENS'; const MAX_ID = 16;`;
+  const renamed = functions.replaceAll('PO0_STORE_KEY', 'STORE_ID').replaceAll('PO0_FIREWALL_TOKENS_KEY', 'LEGACY_ID').replaceAll('PO0_MAX_FIREWALL_TOKENS', 'MAX_ID');
+  vm.runInContext(prefix + `
+    function readStore(k) { return $persistentStore.read(k); }
+    function writeJSON(k,v) { return $persistentStore.write(JSON.stringify(v),k); }
+    function firstNonEmpty(v) { return v.find(x => x !== null && x !== undefined && String(x).trim()) || ''; }
+  ` + renamed, sandbox);
+  vm.runInContext("saveLocalFirewall({PO0_FIREWALL_TOKENS:'pgnfw_this_device@0'}, false)", sandbox);
+  assert.equal(vm.runInContext("firewallRawValue({PO0_FIREWALL_TOKENS:'pgnfw_synced_device@4'})", sandbox), 'pgnfw_this_device@0');
+  vm.runInContext("saveLocalFirewall({}, true)", sandbox);
+  assert.equal(vm.runInContext("firewallRawValue({PO0_FIREWALL_TOKENS:'pgnfw_synced_device@4'})", sandbox), '');
+}
+
 (async () => {
+  testLocalSlotSurvivesSync();
   await testSuccessfulAwayReport();
   await testPluginPersistentCredentials();
   await testHomeAndUnknownFailClosed();

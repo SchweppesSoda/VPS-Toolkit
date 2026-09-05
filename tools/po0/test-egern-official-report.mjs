@@ -845,7 +845,22 @@ async function testOfficialTokenPersistsOnlyInConfigurationAndClearKeepsSsh() {
   assert.equal(await storage.get(OFFICIAL_STORAGE_KEY), null);
 }
 
+async function testSavedSlotSurvivesSyncedEnvironment() {
+  const token = 'pgnfw_device_local_mock';
+  const storage = createStorage({
+    [CONFIG_STORAGE_KEY]: JSON.stringify({ version: 1, values: { PO0_FIREWALL_TOKENS: token + '@0' } }),
+    'po0-ssh-ip-report:device-id': 'this-iphone',
+  });
+  const run = createContext({ storage, env: { PO0_FIREWALL_TOKENS: 'pgnfw_other_device_mock@4', DEVICE_ID_SETUP: 'other-ipad' } });
+  await runEgernReport(run.ctx);
+  assert.equal(run.calls.get[0].url, API_BASE + '/' + token);
+  assert.equal(run.calls.post[0].url, API_BASE + '/' + token + '/add?slot=0');
+  assert.equal(await storage.get('po0-ssh-ip-report:device-id'), 'this-iphone');
+  assert.equal(JSON.parse(await storage.get(CONFIG_STORAGE_KEY)).values.PO0_FIREWALL_TOKENS, token + '@0');
+}
+
 const tests = [
+  testSavedSlotSurvivesSyncedEnvironment,
   testHitUsesDirectGetOnlyAndStaysQuiet,
   testOfficialOnlyIgnoresSshSchemaDefaults,
   testMissingReportsWithFixedSlotAndNotifiesUpdate,

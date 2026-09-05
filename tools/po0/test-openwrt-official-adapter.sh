@@ -48,7 +48,7 @@ shift
 case "$command" in
     show)
         case "$PO0_TEST_SCENARIO" in
-            unique|duplicate-wan|duplicate-slot|both|disabled|malicious-target|malicious-wan|malicious-label|malicious-token)
+            unique|duplicate-wan|duplicate-slot|both|disabled|lane-disabled|malicious-target|malicious-wan|malicious-label|malicious-token)
                 printf '%s\n' \
                     'po0_outbound_ip_report.binding1=official_binding' \
                     'po0_outbound_ip_report.binding2=official_binding'
@@ -82,7 +82,7 @@ case "$command" in
                     printf '0\n'
                 fi
                 ;;
-            po0_outbound_ip_report.main.official_enabled) printf '1\n' ;;
+            po0_outbound_ip_report.main.official_enabled) [ "$PO0_TEST_SCENARIO" != lane-disabled ] && printf '1\n' || printf '0\n' ;;
             po0_outbound_ip_report.main.wans) printf 'all\n' ;;
             po0_outbound_ip_report.binding1|po0_outbound_ip_report.binding2) printf 'official_binding\n' ;;
             po0_outbound_ip_report.binding1.enabled|po0_outbound_ip_report.binding2.enabled) printf '1\n' ;;
@@ -290,5 +290,13 @@ for scenario in malicious-target malicious-wan malicious-label malicious-token; 
     assert_file_not_has 'pgnfw_' "$stdout_log" "$scenario leaked token to stdout"
     assert_file_not_has 'pgnfw_' "$stderr_log" "$scenario leaked token to stderr"
 done
+
+run_adapter lane-disabled 0 --official-report
+assert_eq '0' "$RUN_RC" 'explicit official report was blocked by its automatic switch'
+assert_file_has 'official' "$runner_log" 'manual official did not dispatch'
+run_adapter malicious-token 0 --worker-report
+assert_eq '0' "$RUN_RC" 'Worker manual report was blocked by unrelated official config'
+assert_file_has 'worker' "$runner_log" 'manual Worker did not dispatch'
+assert_file_not_has 'official' "$runner_log" 'Worker manual report also ran official'
 
 printf 'PASS: OpenWrt official adapter mock checks passed.\n'

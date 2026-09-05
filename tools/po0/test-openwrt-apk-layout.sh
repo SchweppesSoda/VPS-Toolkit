@@ -72,11 +72,11 @@ done
 for package in po0-outbound-ip-report; do
     grep -Fq 'PKGARCH:=all' "${repo_root}/packaging/openwrt/${package}/Makefile"
     grep -Fq 'PKG_VERSION:=2026.09.05' "${repo_root}/packaging/openwrt/${package}/Makefile"
-    grep -Fq 'PKG_RELEASE:=3' "${repo_root}/packaging/openwrt/${package}/Makefile"
+    grep -Fq 'PKG_RELEASE:=4' "${repo_root}/packaging/openwrt/${package}/Makefile"
     grep -Fq "$(printf '$(TOPDIR)/po0-assets')" "${repo_root}/packaging/openwrt/${package}/Makefile"
-    grep -Fq 'SCRIPT_VERSION="2026.09.05+build.5"' \
+    grep -Fq 'SCRIPT_VERSION="2026.09.05+build.6"' \
         "${repo_root}/packaging/openwrt/${package}/runtime-header.sh"
-    grep -Fq 'po0-outbound-ip-report 2026.09.05+build.5 (OpenWrt APK)' \
+    grep -Fq 'po0-outbound-ip-report 2026.09.05+build.6 (OpenWrt APK)' \
         "${repo_root}/packaging/openwrt/${package}/files/usr/sbin/po0-outbound-ip-report"
 done
 
@@ -143,9 +143,9 @@ if rg -n "LOCK_DIR='/tmp|/tmp/po0-outbound-ip-report.run.lock|>>/tmp/po0-outboun
     printf 'OpenWrt official runtime must not use pre-creatable /tmp locks or logs.\n' >&2
     exit 1
 fi
-grep -Fq 'outbound-ip-report-v7' \
+grep -Fq 'outbound-ip-report-v8' \
     "${repo_root}/packaging/openwrt/po0-outbound-ip-report/Makefile"
-grep -Fq 'po0/outbound-ip-report-v7' \
+grep -Fq 'po0/outbound-ip-report-v8' \
     "${repo_root}/packaging/openwrt/po0-outbound-ip-report/files/usr/share/luci/menu.d/po0-outbound-ip-report.json"
 grep -Fq -- '--run-once)' \
     "${repo_root}/scripts/po0/relay/self-report/linux/src/990-cli-parse-dispatch.sh"
@@ -191,5 +191,8 @@ if rg -n 'official_interval_seconds' \
     printf 'Official interval must remain a fixed service constant, not a free-form setting.\n' >&2
     exit 1
 fi
+
+bash "${repo_root}/tools/po0/test-openwrt-runtime.sh"
+bash "${repo_root}/tools/po0/test-openwrt-reporter-migration.sh"
 
 printf 'OpenWrt APK layout tests passed.\n'

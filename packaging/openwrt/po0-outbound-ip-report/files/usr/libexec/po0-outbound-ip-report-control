@@ -1,118 +1,78 @@
 #!/bin/sh
 set -u
-
-MANUAL_RUNNER="/usr/libexec/po0-outbound-ip-report-manual-runner"
-MANUAL_STATE_FILE="/tmp/po0-outbound-ip-report-manual.state"
-MANUAL_LOG_FILE="/tmp/po0-outbound-ip-report-manual.log"
-MANUAL_PID_FILE="/tmp/po0-outbound-ip-report-manual.pid"
-AUTO_STATE_FILE="/tmp/po0-outbound-ip-report.state"
-AUTO_LOG_FILE="/tmp/po0-outbound-ip-report.log"
-
-manual_running() {
-    [ -s "${MANUAL_PID_FILE}" ] || return 1
-    pid="$(cat "${MANUAL_PID_FILE}" 2>/dev/null || true)"
-    [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null
-}
-
+BASE='/tmp/po0-outbound-ip-report'
+MANUAL_RUNNER='/usr/libexec/po0-outbound-ip-report-manual-runner'
+action="${1:-status}"
+lane='worker'
+case "$action" in official-*) lane='official';; esac
+STATE="${BASE}.${lane}.manual.state"
+LOG="${BASE}.${lane}.manual.log"
+PID="${BASE}.${lane}.manual.pid"
+AUTO_STATE="${BASE}.${lane}.state"
+AUTO_LOG="${BASE}.${lane}.log"
 print_pair() {
-    state_file="$1"
-    log_file="$2"
-    [ -r "${state_file}" ] && cat "${state_file}"
-    [ -r "${log_file}" ] && cat "${log_file}"
+ [ ! -r "$1" ] || cat "$1"
+ printf '
+'
+ [ ! -r "$2" ] || cat "$2"
 }
-
-write_start_failure() {
-    started="$1"
-    message="$2"
-    umask 077
-    printf '%s\n' "${message}" > "${MANUAL_LOG_FILE}"
-    {
-        printf 'status=finished\n'
-        printf 'observed_at=%s\n' "${started}"
-        printf 'finished_at=%s\n' "$(date +%s)"
-        printf 'exit_code=1\n'
-    } > "${MANUAL_STATE_FILE}"
+stamp() {
+ value=$(sed -n 's/^observed_at=//p' "$1" 2>/dev/null | head -n 1)
+ case "$value" in ''|*[!0-9]*) value=0;; esac
+ printf '%s' "$value"
 }
-
 start_manual() {
-    force="${1:-0}"
-    if manual_running; then
-        print_pair "${MANUAL_STATE_FILE}" "${MANUAL_LOG_FILE}"
-        return 0
-    fi
-
-    rm -f "${MANUAL_PID_FILE}"
-    started="$(date +%s)"
-    umask 077
-    {
-        printf 'status=running\n'
-        printf 'observed_at=%s\n' "${started}"
-    } > "${MANUAL_STATE_FILE}"
-    : > "${MANUAL_LOG_FILE}"
-
-    if [ "${force}" = "1" ]; then
-        if ! /sbin/start-stop-daemon -S -b -m -p "${MANUAL_PID_FILE}" -x "${MANUAL_RUNNER}" -- --force-report; then
-            write_start_failure "${started}" '无法启动后台测试任务。'
-            return 1
-        fi
-    elif ! /sbin/start-stop-daemon -S -b -m -p "${MANUAL_PID_FILE}" -x "${MANUAL_RUNNER}"; then
-        write_start_failure "${started}" '无法启动后台测试任务。'
-        return 1
-    fi
-
-    cat "${MANUAL_STATE_FILE}"
+ if [ -s "$PID" ]; then
+  pid=$(cat "$PID")
+  case "$pid" in ''|*[!0-9]*) :;; *) if kill -0 "$pid" 2>/dev/null; then print_pair "$STATE" "$LOG"; return 0; fi;; esac
+ fi
+ umask 077
+ printf 'status=running
+lane=%s
+observed_at=%s
+' "$lane" "$(date +%s)" > "$STATE"
+ : > "$LOG"
+ /sbin/start-stop-daemon -S -b -m -p "$PID" -x "$MANUAL_RUNNER" -- "$lane" "${1:-0}" || {
+  printf 'status=finished
+lane=%s
+exit_code=1
+' "$lane" > "$STATE"
+  printf '无法启动后台上报。
+' > "$LOG"
+  return 1
+ }
+ cat "$STATE"
 }
-
-state_timestamp() {
-    file="$1"
-    [ -r "${file}" ] || { printf '0'; return; }
-    value="$(sed -n 's/^observed_at=//p' "${file}" | head -n 1)"
-    case "${value}" in ''|*[!0-9]*) value=0 ;; esac
-    printf '%s' "${value}"
-}
-
-print_latest_status() {
-    manual_at="$(state_timestamp "${MANUAL_STATE_FILE}")"
-    auto_at="$(state_timestamp "${AUTO_STATE_FILE}")"
-    if [ "${manual_at}" -gt 0 ] && [ "${manual_at}" -ge "${auto_at}" ]; then
-        print_pair "${MANUAL_STATE_FILE}" "${MANUAL_LOG_FILE}"
-    elif [ "${auto_at}" -gt 0 ]; then
-        print_pair "${AUTO_STATE_FILE}" "${AUTO_LOG_FILE}"
-    else
-        printf 'status=idle\n'
-    fi
-}
-
-case "${1:-status}" in
-    test-start)
-        start_manual 0
-        ;;
-    test-force-start)
-        start_manual 1
-        ;;
-    test-status)
-        if [ -r "${MANUAL_STATE_FILE}" ]; then
-            print_pair "${MANUAL_STATE_FILE}" "${MANUAL_LOG_FILE}"
-        else
-            printf 'status=idle\n'
-        fi
-        ;;
-	discover-wans)
-		url="$(uci -q get po0_outbound_ip_report.main.router_probe_url 2>/dev/null || true)"
-		[ -n "${url}" ] || { printf '未配置上游路由探针。\n' >&2; exit 1; }
-		curl -4 -fsS --connect-timeout 5 --max-time 30 "${url}?wan=list"
-		;;
-	official-status)
-		exec /usr/libexec/po0-outbound-ip-report-uci --official-status
-		;;
-	official-report)
-		exec /usr/libexec/po0-outbound-ip-report-uci --official-report
-		;;
-	status)
-        print_latest_status
-        ;;
-    *)
-        printf 'unsupported action\n' >&2
-        exit 2
-        ;;
+case "$action" in
+ worker-report|test-start) start_manual 0;;
+ worker-force-report|test-force-start) start_manual 1;;
+ official-report) start_manual 0;;
+ worker-progress|official-progress|test-status)
+  if [ -r "$STATE" ]; then print_pair "$STATE" "$LOG"; else printf 'status=idle
+'; fi;;
+ worker-result|official-result|status)
+  if [ "$(stamp "$STATE")" -gt 0 ] && [ "$(stamp "$STATE")" -ge "$(stamp "$AUTO_STATE")" ]; then
+   print_pair "$STATE" "$LOG"
+  elif [ -r "$AUTO_STATE" ]; then print_pair "$AUTO_STATE" "$AUTO_LOG"
+  else printf 'status=idle
+'; fi;;
+ official-status) exec /usr/libexec/po0-outbound-ip-report-uci --official-status;;
+ discover-wans)
+  mode=$(uci -q get po0_outbound_ip_report.main.probe_mode || printf 'router')
+  if [ "$mode" = source ]; then
+   for wan in wan1 wan2; do
+    [ -z "$(uci -q get "po0_outbound_ip_report.main.official_source_$wan")" ] || printf '%s
+' "$wan"
+   done
+  elif [ "$mode" = local ]; then
+   uci -q show mwan3 | sed -n 's/^mwan3\.\([^.=]*\)=interface$/\1/p'
+  else
+   url=$(uci -q get po0_outbound_ip_report.main.router_probe_url || true)
+   [ -n "$url" ] || { printf '请填写主路由探针地址。
+' >&2; exit 1; }
+   curl -4 -fsS --connect-timeout 5 --max-time 30 "$url?wan=list"
+  fi;;
+ reload) exec /etc/init.d/po0-outbound-ip-report restart;;
+ *) printf '未知操作。
+' >&2; exit 2;;
 esac

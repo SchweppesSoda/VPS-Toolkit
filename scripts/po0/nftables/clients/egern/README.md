@@ -57,6 +57,8 @@ https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nft
 
 密码、私钥和 Token 会以字符串形式保存在 Egern 本机持久化 storage，不写入本仓库，也不通过 PO0/LAN Worker 上传。删除 Egern、清除其应用数据或主动运行清除脚本后需要重新保存；不要把 Egern storage 当作凭据备份。
 
+官方固定槽位也属于本机已保存配置。另一台设备同步来的 `PO0_FIREWALL_TOKENS`（包括 `@槽位`）不会在定时、网络变化或普通手动上报时覆盖它；只有再次运行“保存本机 PO0 上报配置”才会更新。不同设备应自行选择不同的官方槽位，`{device}` 只用于自建上报身份，不负责分配官方槽位。
+
 ## 本机设备 ID
 
 Egern 配置会通过 iCloud 同步，模块环境变量不适合直接写每台设备不同的 `source-id`。模块支持在本机 `ctx.storage` 保存设备 ID，并在上报时展开 `SSH_REPORT_TARGETS` 里的 `{device}`。
