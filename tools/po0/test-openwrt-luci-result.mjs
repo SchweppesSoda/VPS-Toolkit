@@ -82,3 +82,69 @@ const normalizeToken = Function('_', `${source.slice(start, end)}\nreturn normal
 if (normalizeToken('https://124.221.69.228/api/firewall/pgnfw_example/add') !== 'pgnfw_example')
     throw new Error('full official URL was not normalized');
 console.log('OpenWrt LuCI result formatting tests passed.');
+
+// rpcd checks ubus method access and UCI config write access independently.
+// Exercise the real page RPC declaration and save function under both checks.
+const aclPath = path.join(repoRoot, 'packaging', 'openwrt', 'po0-outbound-ip-report', 'files', 'usr', 'share', 'rpcd', 'acl.d', 'po0-outbound-ip-report.json');
+const reporterAcl = JSON.parse(fs.readFileSync(aclPath, 'utf8'))['po0-outbound-ip-report'];
+const configName = 'po0_outbound_ip_report';
+const declaration = source.match(/^var commitReporter = (rpc\.declare\([^\n]+\));$/m)?.[1];
+const saveStart = source.indexOf('function saveReporter(map) {');
+const saveEnd = source.indexOf('\nfunction runChannelAction', saveStart);
+if (!declaration || saveStart < 0 || saveEnd < 0)
+    throw new Error('reporter save implementation not found');
+for (const mode of ['read', 'write']) {
+    if (JSON.stringify(reporterAcl[mode].uci) !== JSON.stringify([configName]))
+        throw new Error(`reporter ${mode} UCI access must name only its own config`);
+}
+if (JSON.stringify(reporterAcl.write.ubus.uci) !== JSON.stringify(['commit']))
+    throw new Error('reporter must grant only the missing commit method');
+
+async function exerciseSave(acl, { saveFails = false, overrideConfig } = {}) {
+    const events = [];
+    const rpc = {
+        declare(spec) {
+            return async function(...args) {
+                const params = Object.fromEntries(spec.params.map((key, index) => [key, args[index]]));
+                if (overrideConfig !== undefined) params.config = overrideConfig;
+                events.push({ object: spec.object, method: spec.method, params });
+                if (!acl.write.ubus?.[spec.object]?.includes(spec.method))
+                    throw new Error('ubus method access denied');
+                if (!acl.write.uci?.includes(params.config))
+                    throw new Error('UCI config write access denied');
+            };
+        }
+    };
+    const commit = Function('rpc', `return ${declaration};`)(rpc);
+    const save = Function('commitReporter', 'refreshChannelResult',
+        `${source.slice(saveStart, saveEnd)}; return saveReporter;`)(
+        commit, async channel => { events.push(`cached-result:${channel}`); });
+    let failure;
+    try {
+        await save({ save: async () => {
+            events.push('form-save');
+            if (saveFails) throw new Error('form validation failed');
+        } });
+    } catch (err) { failure = err.message; }
+    return { events, failure };
+}
+const saved = await exerciseSave(reporterAcl);
+const expectedEvents = ['form-save', {
+    object: 'uci', method: 'commit', params: { config: configName }
+}, 'cached-result:worker', 'cached-result:official'];
+if (saved.failure || JSON.stringify(saved.events) !== JSON.stringify(expectedEvents))
+    throw new Error('save must commit exactly the reporter config before reading cached results');
+const withoutCommit = structuredClone(reporterAcl);
+delete withoutCommit.write.ubus.uci;
+const deniedMethod = await exerciseSave(withoutCommit);
+if (deniedMethod.failure !== 'ubus method access denied' || deniedMethod.events.length !== 2)
+    throw new Error('legacy ACL must reproduce commit access denied before result refresh');
+for (const config of ['network', 'firewall', '*', '']) {
+    const deniedConfig = await exerciseSave(reporterAcl, { overrideConfig: config });
+    if (deniedConfig.failure !== 'UCI config write access denied' || deniedConfig.events.length !== 2)
+        throw new Error('commit method permission must not permit other UCI configs');
+}
+const invalidForm = await exerciseSave(reporterAcl, { saveFails: true });
+if (invalidForm.failure !== 'form validation failed' || invalidForm.events.length !== 1)
+    throw new Error('failed form validation must not commit or read results');
+console.log('OpenWrt LuCI narrow-ACL save regression tests passed.');

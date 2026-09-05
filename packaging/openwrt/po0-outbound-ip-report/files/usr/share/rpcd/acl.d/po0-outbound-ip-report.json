@@ -7,7 +7,7 @@
     },
     "write": {
       "uci": [ "po0_outbound_ip_report" ],
-      "ubus": { "file": [ "exec" ], "service": [ "set" ] }
+      "ubus": { "file": [ "exec" ], "service": [ "set" ], "uci": [ "commit" ] }
     }
   }
 }
