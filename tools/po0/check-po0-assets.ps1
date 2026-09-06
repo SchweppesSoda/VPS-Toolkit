@@ -10,9 +10,9 @@ if (-not $OutputDir) {
 }
 
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.09.06+build.1" }
+$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.09.06+build.2" }
 $ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-09-06" }
-$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.09.06.1" }
+$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.09.06.2" }
 
 function ConvertTo-RepoRelativePath {
     param([string]$Path)
@@ -804,6 +804,7 @@ function Test-VersionsMatchTag {
     $tag = $env:GITHUB_REF_NAME
     if (-not $tag) { return }
     if ($env:GITHUB_REF_TYPE -eq "branch" -or $env:GITHUB_REF -like "refs/heads/*") { return }
+    $tag = $tag -replace '^po0-scripts-v', 'po0-v'
     if ($tag -ne $ExpectedPo0ReleaseTag) {
         throw "GITHUB_REF_NAME $tag does not match expected PO0 release tag $ExpectedPo0ReleaseTag"
     }
@@ -1027,6 +1028,8 @@ Invoke-BashToolScript "tools/po0/test-manager-client-ip-cidr-prefix.sh"
 Invoke-BashToolScript "tools/po0/test-manager-nft-atomic-reload.sh"
 Invoke-BashToolScript "tools/po0/test-manager-resource-upload.sh"
 Invoke-BashToolScript "tools/po0/test-debian-reinstall-grub.sh"
+& node (Join-Path $RepoRoot "tools/po0/test-release-version-tags.mjs") | Out-Host
+if ($LASTEXITCODE -ne 0) { throw "Release version tag checks failed." }
 Write-Host "Checking node tools/po0/test-loon-report.js"
 & node (Join-Path $RepoRoot "tools/po0/test-loon-report.js") | Out-Host
 if ($LASTEXITCODE -ne 0) {

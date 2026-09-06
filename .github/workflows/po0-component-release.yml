@@ -40,10 +40,6 @@ jobs:
       - name: Build and check scripts
         if: steps.plan.outputs.component == 'scripts'
         shell: bash
-        env:
-          GITHUB_REF_NAME: ${{ steps.plan.outputs.canonical_tag }}
-          GITHUB_REF: refs/tags/${{ steps.plan.outputs.canonical_tag }}
-          GITHUB_REF_TYPE: tag
         run: bash tools/po0/check-po0-assets.sh .tmp/po0-component-scripts
 
       - name: Prepare script release

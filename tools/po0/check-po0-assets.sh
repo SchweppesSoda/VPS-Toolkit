@@ -5,9 +5,9 @@ command -v rg >/dev/null 2>&1 || { printf 'ripgrep (rg) is required for PO0 refe
 
 repo_root="$(cd "$(git rev-parse --show-toplevel)" && pwd -P)"
 asset_dir="${1:-${repo_root}/.tmp/po0-check-assets-bash}"
-expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.09.06+build.1}"
+expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.09.06+build.2}"
 expected_po0_release_date="${PO0_EXPECTED_RELEASE_DATE:-2026-09-06}"
-expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.09.06.1}"
+expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.09.06.2}"
 
 manifest_entries() {
     local manifest="$1"
@@ -766,6 +766,7 @@ check_versions_match_tag() {
     if [[ "${ref_type}" == "branch" || "${ref}" == refs/heads/* ]]; then
         return 0
     fi
+    if [[ "${tag}" == po0-scripts-v* ]]; then tag="po0-v${tag#po0-scripts-v}"; fi
     [[ "${tag}" == "${expected_po0_release_tag}" ]] || {
         printf 'GITHUB_REF_NAME %s does not match expected PO0 release tag %s\n' "${tag}" "${expected_po0_release_tag}" >&2
         exit 1
@@ -833,6 +834,7 @@ bash "${repo_root}/tools/po0/test-manager-client-ip-cidr-prefix.sh"
 bash "${repo_root}/tools/po0/test-manager-nft-atomic-reload.sh"
 bash "${repo_root}/tools/po0/test-manager-resource-upload.sh"
 bash "${repo_root}/tools/po0/test-debian-reinstall-grub.sh"
+node "${repo_root}/tools/po0/test-release-version-tags.mjs"
 node "${repo_root}/tools/po0/test-egern-ssid-guard.mjs"
 node "${repo_root}/tools/po0/test-egern-official-report.mjs"
 node "${repo_root}/tools/po0/test-loon-report.js"

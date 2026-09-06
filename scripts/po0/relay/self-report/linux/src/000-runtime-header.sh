@@ -4,7 +4,7 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_OUTBOUND_IP_REPORT_DOWNLOAD_URL:-${PO0_SELF_REPORT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report.sh}}"
 SCRIPT_NAME="po0-outbound-ip-report"
-SCRIPT_VERSION="2026.09.06+build.1"
+SCRIPT_VERSION="2026.09.06+build.2"
 SCRIPT_RELEASE_DATE="2026-09-06"
 # CHANGELOG_BEGIN
 # - 主菜单统一为 7 个入口，两个通道采用相同操作：编辑、名称、自动开关、立即上报、状态、清除。
