@@ -386,11 +386,30 @@ function officialNowIso() {
 }
 
 function parseOfficialTokenItem(value) {
-  const item = String(value ?? '').trim();
-  if (!item || /[\r\n]/.test(item)) {
+  const row = String(value ?? '').trim();
+  if (!row || /[\r\n]/.test(row)) {
     throw new Error('PO0 官方防火墙 token 配置包含空项或换行。');
   }
 
+  const [item, name, ...options] = row.split('|').map(part => part.trim());
+  const settings = {};
+  for (const option of options) {
+    if (!option) continue;
+    if (/^ttl\s*=/i.test(option) || /^\d+$/.test(option)) {
+      throw new Error('官方目标不支持 TTL 参数；定时周期请写 interval=秒数，不能作为白名单有效期。');
+    }
+    const match = /^(interval|timer)=(.+)$/.exec(option);
+    if (!match) throw new Error('官方目标可选参数只支持 interval=60..86400 和 timer=true/false。');
+    const [, key, raw] = match;
+    if (Object.prototype.hasOwnProperty.call(settings, key)) throw new Error('官方目标可选参数不能重复。');
+    if (key === 'interval') {
+      if (!/^\d+$/.test(raw) || Number(raw) < 60 || Number(raw) > 86400) throw new Error('官方目标定时周期必须为 60..86400 秒。');
+      settings.interval = Number(raw);
+    } else {
+      if (!/^(true|false)$/.test(raw)) throw new Error('官方目标定时开关必须为 timer=true 或 timer=false。');
+      settings.timer = raw === 'true';
+    }
+  }
   let token = item;
   let slot = null;
   const at = item.indexOf('@');
@@ -409,7 +428,14 @@ function parseOfficialTokenItem(value) {
   if (!/^pgnfw_[A-Za-z0-9._~-]{1,240}$/.test(token)) {
     throw new Error('PO0 官方防火墙 token 配置无效：请使用 pgnfw_...。');
   }
-  return { token, slot };
+  return { token, slot, name, ...settings };
+}
+
+function officialTokenWithoutName(item) {
+  const options = [];
+  if (item.interval !== undefined) options.push('interval=' + item.interval);
+  if (item.timer !== undefined) options.push('timer=' + item.timer);
+  return item.token + (item.slot === null ? '' : '@' + item.slot) + (options.length ? '||' + options.join('|') : '');
 }
 
 function parseOfficialTokens(raw) {
@@ -417,7 +443,9 @@ function parseOfficialTokens(raw) {
   if (!value) return [];
 
   const seen = new Set();
-  const tokens = value.split(/[,;，；\s]+/).filter(Boolean).map((item) => parseOfficialTokenItem(item));
+  // Extended rows preserve spaces in names; bare legacy lists still accept whitespace.
+  const tokens = value.split(/[,;，；\r\n]+/).flatMap(row => row.includes('|') ? [row.trim()] : row.split(/\s+/))
+    .filter(Boolean).map((item) => parseOfficialTokenItem(item));
   for (const item of tokens) {
     // A token identifies one official account; slot hints are not separate accounts.
     const key = item.token;
@@ -549,6 +577,13 @@ async function officialDirectRequest(ctx, item, operation) {
 
 function officialSafeError(error) {
   const text = String(error?.message || '');
+  if ([
+    '官方目标不支持 TTL 参数；定时周期请写 interval=秒数，不能作为白名单有效期。',
+    '官方目标可选参数只支持 interval=60..86400 和 timer=true/false。',
+    '官方目标可选参数不能重复。',
+    '官方目标定时周期必须为 60..86400 秒。',
+    '官方目标定时开关必须为 timer=true 或 timer=false。',
+  ].includes(text)) return text;
   if (text === '官方防火墙网络请求失败。' || text === 'Egern HTTP 能力不可用。') return text;
   const http = text.match(/^官方防火墙请求失败（HTTP (\d{3})）。$/);
   if (http) return `官方防火墙请求失败（HTTP ${http[1]}）。`;
@@ -1191,6 +1226,15 @@ async function storedReportConfig(ctx) {
 
 async function saveReportConfig(ctx, env) {
   const values = persistableEnvValues(env);
+  if (String(values.PO0_FIREWALL_TOKENS || '').includes('|')) {
+    const items = parseOfficialTokens(values.PO0_FIREWALL_TOKENS);
+    // Persist names separately so legacy name-only edits can rename/clear them
+    // without changing credentials, fixed slots or per-account timer options.
+    const names = items.map((item, index) => officialAccountLabel(env, item, index));
+    values.PO0_FIREWALL_TOKENS = items.map(officialTokenWithoutName).join('\n');
+    if (names.some(Boolean)) values.PO0_FIREWALL_NAMES = names.join(';');
+    else delete values.PO0_FIREWALL_NAMES;
+  }
   const savedAt = new Date().toISOString();
   const saved = await storageSet(ctx, CONFIG_STORAGE_KEY, JSON.stringify({
     version: CONFIG_STORAGE_VERSION,
@@ -1468,6 +1512,7 @@ function sanitizeOfficialEntry(entry = {}) {
     slot: Number.isInteger(entry.slot) ? entry.slot : null,
     fixedSlot: Number.isInteger(entry.fixedSlot) ? entry.fixedSlot : null,
     status: String(entry.status || 'error'),
+    lastAttemptAt: entry.lastAttemptAt === undefined ? undefined : String(entry.lastAttemptAt || ''),
     currentIp: officialCidr24(entry.currentIp) || '',
     used: Number.isInteger(entry.used) ? entry.used : 0,
     limit: Number.isInteger(entry.limit) ? entry.limit : 0,
@@ -1523,24 +1568,27 @@ async function storedOfficialState(ctx) {
 function isNetworkChangeRun(ctx) {
   return /network|网络变化/i.test(scriptLabel(ctx));
 }
-function officialIntervalSeconds(env) {
-  const value = Number(env?.OFFICIAL_INTERVAL_SECONDS ?? DEFAULT_OFFICIAL_INTERVAL_SECONDS);
+function officialIntervalSeconds(env, item = {}) {
+  const value = Number(item.interval ?? env?.OFFICIAL_INTERVAL_SECONDS ?? DEFAULT_OFFICIAL_INTERVAL_SECONDS);
   if (!Number.isInteger(value) || value < 60 || value > 86400) throw new Error('官方定时周期必须为 60..86400 秒');
   return value;
 }
-function officialIsDue(ctx, state, env = {}) {
+function officialTimerEnabled(env, item = {}) {
+  return boolEnv(env.OFFICIAL_TIMER_ENABLED, true) && item.timer !== false;
+}
+function officialIsDue(ctx, state, env = {}, item = {}) {
   if (!isAutomaticReportRun(ctx) || isNetworkChangeRun(ctx)) return true;
-  if (!boolEnv(env.OFFICIAL_TIMER_ENABLED, true)) return false;
+  if (!officialTimerEnabled(env, item)) return false;
   const last = Date.parse(String(state?.lastAttemptAt || ''));
   if (!Number.isFinite(last)) return true;
   const age = officialNowMs() - last;
-  return age < 0 || age >= officialIntervalSeconds(env) * 1000;
+  return age < 0 || age >= officialIntervalSeconds(env, item) * 1000;
 }
 
 function officialStateFromEntries(entries, mode, now, previous, skipped = false) {
   const cleanEntries = entries.map(sanitizeOfficialEntry);
   const failures = cleanEntries.filter((entry) => entry.status === 'error').length;
-  const successes = cleanEntries.length - failures;
+  const successes = cleanEntries.filter(entry => /^(hit|updated|missing)$/.test(entry.status)).length;
   const first = cleanEntries.find((entry) => entry.currentIp) || cleanEntries[0] || {};
   const state = {
     version: 1,
@@ -1582,7 +1630,12 @@ async function runOfficialFirewall(ctx, env, mode = 'report') {
   }
   if (items.length === 0) return { active: false, ok: true, state: previous, skipped: false, needsNotification: false };
 
-  if (mode === 'report' && !officialIsDue(ctx, previous, env)) {
+  const previousEntries = items.map(item => {
+    const entry = previous?.entries.find(entry => entry.accountKey === shortHash(item.token) && entry.fixedSlot === item.slot);
+    return entry ? { ...entry, lastAttemptAt: entry.lastAttemptAt ?? previous.lastAttemptAt } : null;
+  });
+  const due = items.map((item, index) => mode !== 'report' || officialIsDue(ctx, previousEntries[index], env, item));
+  if (!due.some(Boolean)) {
     const dueState = previous
       ? { ...previous, skipped: true, status: 'due-skipped', checkedAt: officialNowIso() }
       : officialStateFromEntries([], mode, officialNowIso(), previous, true);
@@ -1613,11 +1666,22 @@ async function runOfficialFirewall(ctx, env, mode = 'report') {
       limit: previous?.limit || 0,
       successCount: 0,
       failureCount: 0,
-      entries: [],
+      entries: items.map((item, index) => sanitizeOfficialEntry({
+        ...previousEntries[index], accountKey: shortHash(item.token), fixedSlot: item.slot,
+        lastAttemptAt: due[index] ? now : previousEntries[index]?.lastAttemptAt || '',
+      })),
     }));
   }
 
   const runOfficialAccount = async (item, index) => {
+    if (!due[index]) return {
+      entry: sanitizeOfficialEntry({ ...previousEntries[index],
+        accountKey: shortHash(item.token), name: officialAccountName(env, index),
+        ordinal: index + 1, slot: item.slot, fixedSlot: item.slot,
+        status: previousEntries[index]?.status || 'pending',
+        lastAttemptAt: previousEntries[index]?.lastAttemptAt || '',
+      }), needsNotification: false,
+    };
     const entry = {
       accountKey: shortHash(item.token),
       name: officialAccountName(env, index),
@@ -1625,6 +1689,7 @@ async function runOfficialFirewall(ctx, env, mode = 'report') {
       slot: item.slot,
       fixedSlot: item.slot,
       status: 'error',
+      lastAttemptAt: mode === 'report' ? now : String(previousEntries[index]?.lastAttemptAt || ''),
       currentIp: '',
       used: 0,
       limit: 0,
@@ -1668,9 +1733,9 @@ async function runOfficialFirewall(ctx, env, mode = 'report') {
   // its own strict GET -> optional POST sequence, and Promise.all preserves
   // configured order for state/UI output. Worker SSH starts only afterwards.
   const results = await Promise.all(items.map((item, index) => runOfficialAccount(item, index)));
-  for (const result of results) {
+  for (const [index, result] of results.entries()) {
     entries.push(result.entry);
-    if (result.entry.status === 'error') {
+    if (due[index] && result.entry.status === 'error') {
       try { logMessage(ctx, 'error', '官方防火墙账号 #' + result.entry.ordinal + ' 失败', result.entry.error); } catch (_) {}
     }
   }
@@ -2222,42 +2287,53 @@ function parseOfficialNames(value) {
   return raw === '-' ? [] : raw.replace(/\r\n?/g, '\n').split(/[,;，；\n]/).map(name => name.trim());
 }
 
+function officialAccountLabel(env, item, index) {
+  const name = item.name || parseOfficialNames(env.PO0_FIREWALL_NAMES)[index] || '';
+  return name === '-' ? '' : name;
+}
+
 function officialAccountName(env, index) {
-  return parseOfficialNames(env.PO0_FIREWALL_NAMES)[index] || ('官方账号 ' + (index + 1));
+  let item = {};
+  try { item = parseOfficialTokens(env.PO0_FIREWALL_TOKENS)[index] || {}; } catch (_) {}
+  return officialAccountLabel(env, item, index) || ('官方账号 ' + (index + 1));
 }
 
 function officialDisplayEnv(env, runtimeEnv) {
-  if (!String(runtimeEnv?.PO0_FIREWALL_NAMES || '').trim()) return env;
+  if (!String(runtimeEnv?.PO0_FIREWALL_NAMES || '').trim() && !String(runtimeEnv?.PO0_FIREWALL_TOKENS || '').includes('|')) return env;
   try {
     const accounts = parseOfficialTokens(env.PO0_FIREWALL_TOKENS);
     const moduleAccounts = String(runtimeEnv.PO0_FIREWALL_TOKENS || '').trim()
       ? parseOfficialTokens(runtimeEnv.PO0_FIREWALL_TOKENS) : accounts;
-    const moduleNames = parseOfficialNames(runtimeEnv.PO0_FIREWALL_NAMES);
-    const savedNames = parseOfficialNames(env.PO0_FIREWALL_NAMES);
-    // Names are display-only. Match token identities so synced ordering/slots never
-    // rename a different local account or replace its saved reporting configuration.
+    const moduleNames = moduleAccounts.map((item, index) => officialAccountLabel(runtimeEnv, item, index));
+    // Sync can update display names only, matched by token; reporting continues
+    // using saved local slots, intervals and timer switches until an explicit save.
     const names = accounts.map((account, index) => {
       const moduleIndex = moduleAccounts.findIndex(item => item.token === account.token);
-      return moduleIndex >= 0 ? moduleNames[moduleIndex] || '' : savedNames[index] || '';
+      const clear = moduleAccounts[moduleIndex]?.name === '-' || String(runtimeEnv.PO0_FIREWALL_NAMES || '').trim() === '-';
+      return moduleIndex >= 0 && clear ? '' : moduleNames[moduleIndex] || officialAccountLabel(env, account, index);
     });
-    return { ...env, PO0_FIREWALL_NAMES: names.join(';') };
+    return { ...env, PO0_FIREWALL_TOKENS: accounts.map(officialTokenWithoutName).join('\n'), PO0_FIREWALL_NAMES: names.join(';') };
   } catch (_) { return env; }
 }
 
 function officialSavedNameRows(env) {
-  return widgetOfficialEntries(null, env).map(entry => '官方目标：' + entry.name + ' · ' + (officialDisplaySlot(entry.fixedSlot) ? '固定槽位 #' + officialDisplaySlot(entry.fixedSlot) : '自动槽位'));
+  let items;
+  try { items = parseOfficialTokens(env.PO0_FIREWALL_TOKENS); } catch (_) { return []; }
+  return items.map((item, index) => '官方目标：' + officialAccountName(env, index) + ' · ' + (officialDisplaySlot(item.slot) ? '固定槽位 #' + officialDisplaySlot(item.slot) : '自动槽位')
+    + ' · 定时' + (officialTimerEnabled(env, item) ? ' ' + officialIntervalSeconds(env, item) + ' 秒' : '关闭') + ' · 网络变化检查');
 }
 
 function officialNamesForSave(stored, runtime, tokens) {
-  if (String(runtime.PO0_FIREWALL_NAMES || '').trim()) {
-    return parseOfficialNames(runtime.PO0_FIREWALL_NAMES).join(';');
-  }
-  const oldTokens = String(stored.PO0_FIREWALL_TOKENS || '').split(/[,;，；\s]+/).filter(Boolean);
-  const oldNames = parseOfficialNames(stored.PO0_FIREWALL_NAMES);
-  return parseOfficialTokens(tokens).map(item => {
-    const index = oldTokens.findIndex(old => old.split('@')[0] === item.token);
-    return index < 0 ? '' : oldNames[index] || '';
-  }).join(';');
+  let oldTokens = [];
+  try { oldTokens = parseOfficialTokens(stored.PO0_FIREWALL_TOKENS); } catch (_) {}
+  const explicitNames = String(runtime.PO0_FIREWALL_NAMES || '').trim();
+  const names = parseOfficialTokens(tokens).map((item, index) => {
+    if (item.name) return item.name === '-' ? '' : item.name;
+    if (explicitNames) return parseOfficialNames(explicitNames)[index] || '';
+    const oldIndex = oldTokens.findIndex(old => old.token === item.token);
+    return oldIndex < 0 ? '' : officialAccountLabel(stored, oldTokens[oldIndex], oldIndex);
+  });
+  return names.some(Boolean) ? names.join(';') : '';
 }
 
 function localChannelAction(ctx) {

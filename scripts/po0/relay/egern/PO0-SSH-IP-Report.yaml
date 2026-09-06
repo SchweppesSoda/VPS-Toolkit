@@ -1,5 +1,5 @@
 name: PO0 防火墙上报
-description: 为当前出口添加防火墙白名单。自建防火墙填写上报目标，官方防火墙填写 Token；可单独启用，也可一起上报。“启用 / 停用自动上报”只控制定时和网络变化，保留配置；“PO0 防火墙上报状态”刷新时强制上报两个已配置通道并显示结果；单独上报请运行对应通道的“强制上报”。标有“后台自动”的两项由 Egern 自动触发，不是手动查看入口。
+description: 为当前出口添加防火墙白名单。自建防火墙填写上报目标，官方防火墙填写 Token、槽位和名称；可单独启用，也可一起上报。“启用 / 停用自动上报”只控制定时和网络变化，保留配置；“PO0 防火墙上报状态”刷新时强制上报两个已配置通道并显示结果；单独上报请运行对应通道的“强制上报”。标有“后台自动”的两项由 Egern 自动触发，不是手动查看入口。
 author: SchweppesSoda
 icon: network
 
@@ -39,18 +39,18 @@ env_schema:
     options: ["true", "false"]
     default_value: "true"
     name: "【官方防火墙】启用定时兜底"
-    description: "关闭后仍响应网络变化；保存官方设置后生效。"
+    description: "关闭后所有官方账号停止定时，但仍响应网络变化；保存官方设置后生效。"
   OFFICIAL_INTERVAL_SECONDS:
     default_value: "600"
     name: "【官方防火墙】定时周期秒数"
-    description: "60..86400 秒，默认 600；只影响定时，网络变化立即检查。保存官方设置后生效。"
+    description: "60..86400 秒，默认 600；作为所有官方账号的默认周期，目标行内 interval 可覆盖。只影响定时，网络变化立即检查；保存后生效。"
   PO0_FIREWALL_TOKENS:
-    name: 【官方防火墙】Token / 槽位
-    description: "仅保存到官方配置：填写后运行“保存本机 PO0 官方防火墙配置”。网络变化立即检查；可选定时默认 600 秒，周期可调整。默认关闭。多个官方账号可用逗号、分号、空格或换行分隔（兼容中文逗号、分号），格式为 pgnfw_... 或 pgnfw_...@0 到 @4；同一 token 即使指定不同槽位也只能配置一次，以避免并发竞态。每个账号最多占用一个固定槽位。配置/API 槽位为 0..4，界面显示为第 1..5 槽。Egern 直接用 DIRECT 请求官方 API，先 GET 检查，当前出口缺失或槽位不对时才 POST 加白。强制上报、普通状态页和 Widget 刷新均执行此流程；只有“PO0 官方防火墙状态（只读）”不加白。"
+    name: 【官方防火墙】上报目标（Token / 槽位 / 名称）
+    description: "每个目标写为 pgnfw_...@0|名称|interval=600|timer=true；名称和参数均可省略，名称可含空格；多条用换行、逗号或分号分隔（兼容中文标点）。@0..@4 对应第 1..5 槽；同一 Token 只能出现一次。interval 为此账号的定时秒数（60..86400），未填沿用上方默认；timer=false 只关闭此账号定时，网络变化仍检查。官方定时总开关关闭时所有账号停止定时。名称仅本地显示；不支持 TTL，填写 ttl= 或裸数字有效期会报错，不会忽略。旧 pgnfw_... / pgnfw_...@0 列表兼容空格分隔。填写后运行“保存本机 PO0 官方防火墙配置”，此前保存的凭据、槽位和周期不会被同步参数覆盖。先 DIRECT GET 检查，缺失或固定槽位不符才 POST。Token 留空且无本机保存值时通道未配置。"
 
   PO0_FIREWALL_NAMES:
-    name: 【官方防火墙】目标名称
-    description: "小组件和状态页显示此名称，修改后刷新生效。多个名称按 Token 顺序用逗号、分号或换行分隔，名称内可含空格。Token 留空时对应本机已保存账号顺序；运行“保存本机 PO0 官方防火墙配置”可持久保存，只改名称无需重填 Token。空白沿用本机名称，填 - 清空名称。"
+    name: 【官方防火墙】目标名称（兼容旧配置）
+    description: "推荐把名称写在上报目标的第二列；此项继续兼容旧配置，目标行内非空名称优先。小组件和状态页显示此名称，修改后刷新生效。多个名称按 Token 顺序用逗号、分号或换行分隔，名称内可含空格。Token 留空时对应本机已保存账号顺序；运行“保存本机 PO0 官方防火墙配置”可持久保存，只改名称无需重填 Token。空白沿用本机名称，填 - 清空名称。"
 
   # ── 通用参数 ──
   SKIP_WIFI_SSIDS:
@@ -84,100 +84,100 @@ scriptings:
 # ── 通用 · 查看与手动操作 ──
   - generic:
       name: 查看本机上报设置
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260906-network-timers"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260907-official-targets"
       update_interval: 86400
       timeout: 10
       debug: true
   - generic:
       name: PO0 防火墙上报状态
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260906-network-timers"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260907-official-targets"
       update_interval: 86400
       timeout: 90
       debug: true
 # ── 自建防火墙 · 保存 / 开关 / 上报 / 清除 ──
   - generic:
       name: 保存本机 PO0 自建防火墙配置
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260906-network-timers"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260907-official-targets"
       update_interval: 86400
       timeout: 10
       debug: true
   - generic:
       name: 启用自建防火墙自动上报
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260906-network-timers"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260907-official-targets"
       update_interval: 86400
       timeout: 10
       debug: true
   - generic:
       name: 停用自建防火墙自动上报
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260906-network-timers"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260907-official-targets"
       update_interval: 86400
       timeout: 10
       debug: true
   - generic:
       name: 仅自建防火墙强制上报
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260906-network-timers"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260907-official-targets"
       update_interval: 86400
       timeout: 90
       debug: true
   - generic:
       name: 清除本机自建防火墙配置
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260906-network-timers"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260907-official-targets"
       update_interval: 86400
       timeout: 10
       debug: true
 # ── 官方防火墙 · 保存 / 开关 / 上报 / 状态 / 清除 ──
   - generic:
       name: 保存本机 PO0 官方防火墙配置
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260906-network-timers"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260907-official-targets"
       update_interval: 86400
       timeout: 10
       debug: true
   - generic:
       name: 启用官方防火墙自动上报
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260906-network-timers"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260907-official-targets"
       update_interval: 86400
       timeout: 10
       debug: true
   - generic:
       name: 停用官方防火墙自动上报
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260906-network-timers"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260907-official-targets"
       update_interval: 86400
       timeout: 10
       debug: true
   - generic:
       name: 仅官方防火墙强制上报
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260906-network-timers"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260907-official-targets"
       update_interval: 86400
       timeout: 90
       debug: true
   - generic:
       name: PO0 官方防火墙状态（只读）
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260906-network-timers"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260907-official-targets"
       update_interval: 86400
       timeout: 90
       debug: true
   - generic:
       name: 清除本机 PO0 官方防火墙 Token
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260906-network-timers"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260907-official-targets"
       update_interval: 86400
       timeout: 10
       debug: true
 # ── 本机维护 ──
   - generic:
       name: 保存本机设备 ID
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260906-network-timers"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260907-official-targets"
       update_interval: 86400
       timeout: 10
       debug: true
   - generic:
       name: 清除本机设备 ID
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260906-network-timers"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260907-official-targets"
       update_interval: 86400
       timeout: 10
       debug: true
   - generic:
       name: 清除本机全部 PO0 上报配置
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260906-network-timers"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260907-official-targets"
       update_interval: 86400
       timeout: 10
       debug: true
@@ -185,13 +185,13 @@ scriptings:
   - schedule:
       name: PO0 防火墙定时上报（后台自动）
       cron: "* * * * *"
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260906-network-timers"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260907-official-targets"
       update_interval: 86400
       timeout: 90
       debug: false
   - network:
       name: PO0 防火墙网络变化上报（后台自动）
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260906-network-timers"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260907-official-targets"
       update_interval: 86400
       timeout: 90
       debug: false

@@ -1020,6 +1020,8 @@ iphone-us|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_U
 
 如果使用 PO0 专用受限 SSH 上报 key，Egern 专用 key 的 scope 应为 `egern`。wrapper 拒绝时会把不含 token 的摘要写入 `/etc/nftables.d/po0-report-key-denied.log`，也可以用 `--refresh-report-key-wrapper` 刷新 wrapper，再用 `--show-report-key-denials 80` 查看最近记录。Egern 手动执行和 Status 脚本开启 debug，SSH stderr 会写入脚本日志；长错误会分段通知。
 
+Egern 官方目标在 PO0_FIREWALL_TOKENS 中同时兼容旧 Token 列表和 `Token@slot|name|interval=N|timer=true/false` 行。扩展行按换行 / 逗号 / 分号分隔以保留名称空格，纯 Token 行继续按空白分隔。保存时名称拆入 PO0_FIREWALL_NAMES，Token 行保留槽位和定时选项，使旧名称单独修改 / 清空仍有效；行内名称优先并按 Token 身份匹配。每账号独立持久化 lastAttemptAt；缺少字段的旧状态回退到通道 lastAttemptAt，新增 / 换槽账号立即检查；只读状态不改变这些时间，某账号的检查不得推进其它账号的周期。全局官方定时开关优先于各行 timer；网络和手动入口绕过定时 due，保留自动开关与 SSID guard。interval 仅用于本地调度，不向 API 发送；TTL、未知或重复选项明确拒绝。
+
 Egern 上报锁覆盖 schedule、network、手动和 Widget 刷新。锁占用时不重复请求；所有原生 generic 手动入口根据 ctx.script.name 识别并返回 Widget DSL，使用上一轮状态并标记正在上报，没有缓存时显示等待提示。存储异常同样返回可渲染提示，不写覆盖原锁或结果。只注册一个 Widget；全部强制上报合并到“PO0 防火墙上报状态”，默认 YAML 移除旧“PO0 SSH 上报状态”和“强制上报 PO0 防火墙”重复项。旧名仅保留 JS 路由兼容。旧 HTTP 设备 ID 拦截不再由默认模块注册，原生设备 ID 保存 / 清除继续保留；旧自定义 HTTP 拦截兼容，无匹配请求时不得进入上报流程。默认模块共 16 个 generic 手动入口和 2 个标有“后台自动”的 schedule / network 入口，后台不要求可视返回；仅选中未配置通道时返回提示，保存 / 清除的存储异常由外层入口转为可渲染结果。自动状态从当前配置和当前 Wi-Fi 计算，两条通道复用相同显示逻辑；SSID guard 不改变持久开关，缓存结果与本次是否上报分别展示。官方显示名称优先采用当前模块的非空名称，按 Token 身份与本机账号匹配，未填模块 Token 时按本机顺序；未填名称或无法匹配时沿用本机名称，不修改已保存的 Token / 槽位 / 上报参数。显式保存后名称进入本机配置，空白保留，单独 - 清空。自建组件与设置总览标签统一使用 sourceId，identity 只参与原上报协议和审计；组件不再展示自建 TTL，目标 TTL 解析与提交保留。普通状态页和 Widget 都必须绕过 SSH unchanged/due 检查，连续刷新仍实际执行 SSH；官方保持 GET-first 和必要的 POST。最近结果通过非凭据账号摘要和固定槽位匹配，换 Token / 槽位或旧缓存无法确认归属时显示待检查，不按账号位置套用成功状态。targetValue 先遍历目标全部别名，再遍历 env 默认值，文本空列和 JSON 缺省一致；目标值不被默认覆盖。
 
 ### 5.7 高级渲染调试

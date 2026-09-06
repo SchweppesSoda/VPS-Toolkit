@@ -1388,7 +1388,124 @@ async function testNetworkChangesBypassOptionalTimer() {
   delete globalThis.__PO0_EGERN_TEST_NOW;
 }
 
+
+async function testInlineOfficialTargetsPersistAndMatchNames() {
+  const storage = createStorage();
+  const env = { PO0_FIREWALL_TOKENS: 'pgnfw_inline_one@0 | 家庭账号 | interval=600 | timer=true\npgnfw_inline_two@2|Office Firewall|timer=false|interval=900' };
+  const save = createContext({ storage, env, trigger: '保存本机 PO0 官方防火墙配置' });
+  const result = await runEgernReport(save.ctx);
+  assert.match(visibleText(result), /家庭账号/);
+  assert.match(visibleText(result), /Office Firewall/);
+  assert.match(visibleText(result), /定时关闭/);
+  assert.equal(save.calls.get.length + save.calls.post.length, 0);
+  let values = JSON.parse(await storage.get(CONFIG_STORAGE_KEY)).values;
+  assert.equal(values.PO0_FIREWALL_NAMES, '家庭账号;Office Firewall');
+  assert.equal(values.PO0_FIREWALL_TOKENS, 'pgnfw_inline_one@0||interval=600|timer=true\npgnfw_inline_two@2||interval=900|timer=false');
+  const synced = createContext({ storage, trigger: 'PO0 防火墙上报状态', widgetFamily: 'systemLarge',
+    env: { PO0_FIREWALL_TOKENS: 'pgnfw_inline_two@4|Office New|interval=60|timer=true\npgnfw_inline_one@3|家庭新名|timer=false' },
+    httpGet(url) { return response(officialPayload({ whitelist: [{ ip: '203.0.113.10/24', slot: url.endsWith('one') ? 0 : 2 }] })); },
+  });
+  const widget = await runEgernReport(synced.ctx);
+  assert.match(visibleText(widget), /家庭新名/); assert.match(visibleText(widget), /Office New/);
+  assert.equal(synced.calls.get.length, 2); assert.equal(synced.calls.post.length, 0);
+  assert.deepEqual(JSON.parse(await storage.get(CONFIG_STORAGE_KEY)).values, values, 'sync only changes display, never saved credentials/slots/timers');
+  for (const entry of await officialStateOf(storage).then(state => state.entries)) assert(!visibleText(entry).includes('pgnfw_'));
+  const clear = createContext({ storage, trigger: '保存本机 PO0 官方防火墙配置', env: { PO0_FIREWALL_TOKENS: '', PO0_FIREWALL_NAMES: '-' } });
+  await runEgernReport(clear.ctx);
+  assert.equal(JSON.parse(await storage.get(CONFIG_STORAGE_KEY)).values.PO0_FIREWALL_NAMES, undefined);
+  assert.equal(JSON.parse(await storage.get(CONFIG_STORAGE_KEY)).values.PO0_FIREWALL_TOKENS, values.PO0_FIREWALL_TOKENS);
+  const rename = createContext({ storage, trigger: '保存本机 PO0 官方防火墙配置', env: { PO0_FIREWALL_TOKENS: '', PO0_FIREWALL_NAMES: '甲;乙' } });
+  await runEgernReport(rename.ctx);
+  const reorder = createContext({ storage, trigger: '保存本机 PO0 官方防火墙配置', env: { PO0_FIREWALL_TOKENS: 'pgnfw_inline_two@3||interval=1200;pgnfw_inline_one@0||timer=false' } });
+  await runEgernReport(reorder.ctx);
+  values = JSON.parse(await storage.get(CONFIG_STORAGE_KEY)).values;
+  assert.equal(values.PO0_FIREWALL_NAMES, '乙;甲', 'blank inline names follow account identity');
+}
+
+async function testInlineOfficialTargetValidation() {
+  for (const [row, expected] of [
+    ['pgnfw_invalid@0|家庭|ttl=43200', /不支持 TTL/],
+    ['pgnfw_invalid@0|家庭|43200', /不支持 TTL/],
+    ['pgnfw_invalid@0|家庭|interval=59', /60\.\.86400/],
+    ['pgnfw_invalid@0|家庭|interval=86401', /60\.\.86400/],
+    ['pgnfw_invalid@0|家庭|timer=maybe', /timer=true 或 timer=false/],
+    ['pgnfw_invalid@0|家庭|interval=600|interval=900', /不能重复/],
+    ['pgnfw_invalid@0|家庭|foo=bar', /只支持/],
+    ['pgnfw_invalid@0|家庭\npgnfw_invalid@2|重复', /重复/],
+  ]) {
+    const fixture = createContext({ env: { PO0_FIREWALL_TOKENS: row }, trigger: '保存本机 PO0 官方防火墙配置' });
+    const result = await runEgernReport(fixture.ctx);
+    assert.match(visibleText(result), expected);
+    assert.doesNotMatch(visibleText(result), /pgnfw_invalid/);
+    assert.equal(fixture.calls.get.length + fixture.calls.post.length, 0);
+    assert.equal(await fixture.storage.get(CONFIG_STORAGE_KEY), null);
+  }
+  const run = createContext({ env: { PO0_FIREWALL_TOKENS: 'pgnfw_invalid|家庭|ttl=43200' } });
+  assert.match(visibleText(await runEgernReport(run.ctx)), /不支持 TTL/);
+  assert.equal(run.calls.get.length + run.calls.post.length, 0);
+}
+
+async function testPerAccountOfficialTimersAndReadonlyState() {
+  const storage = createStorage();
+  const env = { PO0_FIREWALL_TOKENS: 'pgnfw_fast|快|interval=600\npgnfw_slow|慢|interval=900\npgnfw_network|切网|timer=false' };
+  const initial = 1000000000;
+  const hit = () => response(officialPayload({ whitelist: [{ ip: '203.0.113.10/24', slot: null }] }));
+  async function runAt(seconds, trigger = 'schedule', overrides = {}) {
+    globalThis.__PO0_EGERN_TEST_NOW = initial + seconds * 1000;
+    const run = createContext({ storage, env: { ...env, ...overrides }, trigger, httpGet: hit });
+    await runEgernReport(run.ctx);
+    return run.calls.get.map(call => call.url.slice(API_BASE.length + 1));
+  }
+  assert.deepEqual(await runAt(0), ['pgnfw_fast', 'pgnfw_slow']);
+  assert.equal((await officialStateOf(storage)).entries[2].lastAttemptAt, '', 'an unchecked timer-disabled account has no attempt time');
+  assert.equal((await officialStateOf(storage)).successCount, 2, 'unchecked accounts must not count as successful checks');
+  assert.deepEqual(await runAt(600), ['pgnfw_fast']);
+  const before = (await officialStateOf(storage)).entries.map(entry => entry.lastAttemptAt);
+  assert.deepEqual(await runAt(700, 'PO0 官方防火墙状态（只读）'), ['pgnfw_fast', 'pgnfw_slow', 'pgnfw_network']);
+  assert.deepEqual((await officialStateOf(storage)).entries.map(entry => entry.lastAttemptAt), before, 'readonly must not reset any account timer');
+  assert.deepEqual(await runAt(900), ['pgnfw_slow'], 'fast account must not delay the slow account');
+  assert.deepEqual(await runAt(1200), ['pgnfw_fast']);
+  assert.deepEqual(await runAt(1201, 'network'), ['pgnfw_fast', 'pgnfw_slow', 'pgnfw_network']);
+  const values = JSON.parse(await storage.get(CONFIG_STORAGE_KEY)).values;
+  await storage.set(CONFIG_STORAGE_KEY, JSON.stringify({ version: 1, values: { ...values, OFFICIAL_TIMER_ENABLED: 'false' } }));
+  assert.deepEqual(await runAt(3000), [], 'channel timer switch disables all account timers');
+  assert.deepEqual(await runAt(3001, 'network'), ['pgnfw_fast', 'pgnfw_slow', 'pgnfw_network']);
+  assert.deepEqual(await runAt(3002, 'generic manual now'), ['pgnfw_fast', 'pgnfw_slow', 'pgnfw_network']);
+}
+
+
+async function testLegacyAccountTimesAndNewTarget() {
+  const storage = createStorage();
+  const env = { PO0_FIREWALL_TOKENS: 'pgnfw_existing@0|已有|interval=900' };
+  globalThis.__PO0_EGERN_TEST_NOW = 1000000000;
+  await runEgernReport(createContext({ storage, env }).ctx);
+  const legacy = await officialStateOf(storage);
+  for (const entry of legacy.entries) delete entry.lastAttemptAt;
+  await storage.set(OFFICIAL_STORAGE_KEY, JSON.stringify(legacy));
+  globalThis.__PO0_EGERN_TEST_NOW += 600000;
+  const early = createContext({ storage, env, trigger: 'schedule' });
+  await runEgernReport(early.ctx);
+  assert.equal(early.calls.get.length, 0, 'legacy entries inherit the previous channel attempt time');
+  const save = createContext({ storage, trigger: '保存本机 PO0 官方防火墙配置', env: { PO0_FIREWALL_TOKENS: env.PO0_FIREWALL_TOKENS + '\npgnfw_added@2|新增|interval=900' } });
+  await runEgernReport(save.ctx);
+  const added = createContext({ storage, trigger: 'schedule', httpPost(url, options) {
+    assert.equal(url, API_BASE + '/pgnfw_added/add?slot=2');
+    assert.equal(options.body, undefined, 'local name/timer settings must not be sent to the API');
+    return response(officialPayload({ whitelist: [{ ip: '203.0.113.10/24', slot: 2 }] }));
+  } });
+  await runEgernReport(added.ctx);
+  assert.deepEqual(added.calls.get.map(call => call.url), [API_BASE + '/pgnfw_added'], 'new target must not wait for another account timer');
+  globalThis.__PO0_EGERN_TEST_NOW += 300000;
+  const existing = createContext({ storage, trigger: 'schedule' });
+  await runEgernReport(existing.ctx);
+  assert.deepEqual(existing.calls.get.map(call => call.url), [API_BASE + '/pgnfw_existing']);
+}
+
 const tests = [
+  testLegacyAccountTimesAndNewTarget,
+  testInlineOfficialTargetsPersistAndMatchNames,
+  testInlineOfficialTargetValidation,
+  testPerAccountOfficialTimersAndReadonlyState,
   testNetworkChangesBypassOptionalTimer,
   testEveryPublishedManualActionReturnsVisibleResult,
   testScopedNativeForceWithoutSelectedConfigIsVisible,
