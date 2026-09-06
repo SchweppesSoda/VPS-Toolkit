@@ -1127,8 +1127,105 @@ async function testExplicitAutomaticActionsAreIdempotent() {
   }
 }
 
+
+async function testUiRefreshForcesBothConfiguredLanes() {
+  for (const scenario of [
+    { trigger: 'PO0 防火墙上报状态' },
+    { trigger: 'PO0 SSH 上报状态' },
+    ...['systemSmall', 'systemMedium', 'systemLarge'].map(widgetFamily => ({ trigger: 'PO0 防火墙上报状态', widgetFamily })),
+    { trigger: 'schedule', widgetFamily: 'systemMedium' },
+  ]) {
+    const values = { PO0_FIREWALL_TOKENS: 'pgnfw_ui_force@0', SSH_REPORT_TARGETS: 'phone|po0.example.com||||ssh-ui-force|audit-note|7200', PO0_PASSWORD: 'mock-password', IP_CHECK_URLS: 'https://example.com/ip', SKIP_WIFI_SSIDS: 'HomeWiFi', WORKER_AUTO_ENABLED: 'false', OFFICIAL_AUTO_ENABLED: 'false' };
+    const storage = createStorage({ [CONFIG_STORAGE_KEY]: JSON.stringify({ version: 1, values }) });
+    let whitelist = [];
+    const commands = [];
+    const fixture = createContext({ ...scenario, storage, ssid: 'HomeWiFi', env: { PO0_FIREWALL_TOKENS: '' },
+      httpGet(url) { return url.includes('/api/firewall/') ? response(officialPayload({ whitelist })) : response({ ip: '203.0.113.10', country: 'Test', isp: 'Test' }); },
+      httpPost() { whitelist = [{ ip: '203.0.113.10/24', slot: 0 }]; return response(officialPayload({ whitelist })); },
+      sshConnect() { return { async exec(command) { commands.push(command); return { code: 0, stdout: 'SSH OK' }; }, async close() {} }; },
+    });
+    for (let refresh = 1; refresh <= 2; refresh++) {
+      const widget = await runEgernReport(fixture.ctx);
+      assert.equal(fixture.calls.ssh, refresh, 'every UI refresh must report SSH despite a recent success, disabled automatic switches, and matching SSID');
+      assert.equal(widget.type, 'widget');
+      assert.doesNotMatch(visibleText(widget), /TTL/, 'self-hosted TTL does not belong in the widget');
+      assert.equal((await stateOf(storage)).ok, true);
+    }
+    assert.equal(fixture.calls.get.filter(call => call.url.includes('/api/firewall/')).length, 2);
+    assert.equal(fixture.calls.post.length, 1, 'official refresh keeps GET-first and posts only when needed');
+    assert(commands.every(command => command.includes("'7200'") && command.includes("'audit-note'")), 'hiding TTL/remark in the widget must not change the SSH protocol');
+  }
+}
+
+async function testNamesOnlySaveAndWidgetReload() {
+  for (const trigger of ['保存本机 PO0 官方防火墙配置', '保存本机 PO0 上报配置']) {
+    const values = { PO0_FIREWALL_TOKENS: 'pgnfw_name_one@0,pgnfw_name_two@3', PO0_FIREWALL_NAMES: '旧家庭;旧办公室', OFFICIAL_AUTO_ENABLED: 'false', WORKER_AUTO_ENABLED: 'false', SKIP_WIFI_SSIDS: 'HomeWiFi' };
+    const storage = createStorage({ [CONFIG_STORAGE_KEY]: JSON.stringify({ version: 1, values }) });
+    const httpGet = url => response(officialPayload({ whitelist: [{ ip: '203.0.113.10/24', slot: url.endsWith('two') ? 3 : 0 }] }));
+    const save = createContext({ trigger, storage, env: { PO0_FIREWALL_TOKENS: '', PO0_FIREWALL_NAMES: '家庭防火墙;Office Firewall' } });
+    const result = await runEgernReport(save.ctx);
+    const saved = JSON.parse(await storage.get(CONFIG_STORAGE_KEY)).values;
+    assert.equal(saved.PO0_FIREWALL_NAMES, '家庭防火墙;Office Firewall', 'editing only names must work with the saved tokens');
+    for (const key of ['PO0_FIREWALL_TOKENS', 'OFFICIAL_AUTO_ENABLED', 'WORKER_AUTO_ENABLED', 'SKIP_WIFI_SSIDS']) assert.equal(saved[key], values[key]);
+    assert.match(visibleText(result), /家庭防火墙/);
+    assert.match(visibleText(result), /Office Firewall/);
+    assert.equal(save.calls.get.length + save.calls.post.length + save.calls.ssh, 0);
+    for (const family of ['systemSmall', 'systemMedium', 'systemLarge']) {
+      const refresh = createContext({ trigger: 'PO0 防火墙上报状态', widgetFamily: family, storage, httpGet, env: { PO0_FIREWALL_TOKENS: '' } });
+      const widget = await runEgernReport(refresh.ctx);
+      assert.equal(widget.type, 'widget');
+      assert.match(visibleText(widget), /家庭防火墙/);
+      if (family !== 'systemSmall') assert.match(visibleText(widget), /Office Firewall/);
+      assert.doesNotMatch(visibleText(widget), /旧家庭|旧办公室|pgnfw_/);
+      assert.deepEqual(refresh.calls.get.map(call => call.url), [API_BASE + '/pgnfw_name_one', API_BASE + '/pgnfw_name_two']);
+    }
+    const clear = createContext({ trigger, storage, env: { PO0_FIREWALL_TOKENS: '', PO0_FIREWALL_NAMES: '-' } });
+    await runEgernReport(clear.ctx);
+    const cleared = JSON.parse(await storage.get(CONFIG_STORAGE_KEY)).values;
+    assert.equal(cleared.PO0_FIREWALL_NAMES, undefined);
+    assert.equal(cleared.PO0_FIREWALL_TOKENS, values.PO0_FIREWALL_TOKENS);
+    const view = createContext({ trigger: 'PO0 防火墙上报状态', widgetFamily: 'systemMedium', storage, httpGet, env: { PO0_FIREWALL_TOKENS: '' } });
+    assert.match(visibleText(await runEgernReport(view.ctx)), /官方账号 1/);
+  }
+}
+
+async function testModuleNamesReachWidgetWithoutReplacingReportConfig() {
+  const values = { PO0_FIREWALL_TOKENS: 'pgnfw_widget_one@0,pgnfw_widget_two@3', PO0_FIREWALL_NAMES: '本机家庭;本机办公室', PO0_PASSWORD: 'mock-password', SSH_REPORT_TARGETS: 'phone-sg|sg.example.com||||ssh-one|审计备注甲|7200,phone-us|us.example.com||||ssh-two|审计备注乙|14400', IP_CHECK_URLS: 'https://example.com/ip' };
+  for (const family of ['systemSmall', 'systemMedium', 'systemLarge']) {
+    for (const scenario of [
+      { env: { PO0_FIREWALL_TOKENS: '', PO0_FIREWALL_NAMES: '家庭防火墙;Office Firewall' }, names: ['家庭防火墙', 'Office Firewall'] },
+      { env: { PO0_FIREWALL_TOKENS: 'pgnfw_widget_two@1,pgnfw_widget_one@4', PO0_FIREWALL_NAMES: 'Office Firewall;家庭防火墙' }, names: ['家庭防火墙', 'Office Firewall'] },
+      { env: { PO0_FIREWALL_TOKENS: 'pgnfw_unrelated@2', PO0_FIREWALL_NAMES: '不属于此账号' }, names: ['本机家庭', '本机办公室'] },
+      { env: { PO0_FIREWALL_TOKENS: 'invalid', PO0_FIREWALL_NAMES: '不能确认账号' }, names: ['本机家庭', '本机办公室'] },
+    ]) {
+      const config = JSON.stringify({ version: 1, values });
+      const storage = createStorage({ [CONFIG_STORAGE_KEY]: config });
+      const commands = [];
+      const refresh = createContext({ trigger: 'PO0 防火墙上报状态', widgetFamily: family, storage, env: scenario.env,
+        httpGet(url) { return url.includes('/api/firewall/') ? response(officialPayload({ whitelist: [{ ip: '203.0.113.10/24', slot: url.endsWith('one') ? 0 : 3 }] })) : response({ ip: '203.0.113.50' }); },
+        sshConnect() { return { async exec(command) { commands.push(command); return { code: 0, stdout: 'SSH OK' }; }, async close() {} }; },
+      });
+      const widget = await runEgernReport(refresh.ctx);
+      const visible = visibleText(widget);
+      assert.equal(widget.type, 'widget');
+      assert(visible.includes(scenario.names[0]), 'the module display name must reach the actual widget');
+      assert(visible.includes('phone-sg'), 'self-hosted widget label must be the first-column source ID');
+      if (family !== 'systemSmall') { assert(visible.includes(scenario.names[1])); assert(visible.includes('phone-us')); }
+      assert.doesNotMatch(visible, /审计备注甲|审计备注乙|pgnfw_|不属于此账号|不能确认账号/);
+      assert.equal(await storage.get(CONFIG_STORAGE_KEY), config, 'rendering a name must not rewrite saved configuration');
+      assert.deepEqual(refresh.calls.get.filter(call => call.url.includes('/api/firewall/')).map(call => call.url), [API_BASE + '/pgnfw_widget_one', API_BASE + '/pgnfw_widget_two']);
+      assert.equal(refresh.calls.post.length, 0, 'display-only changes must not replace saved fixed slots');
+      assert(commands[0].includes("'phone-sg'") && commands[0].includes("'审计备注甲'"), 'source ID and audit remark retain their original protocol roles');
+      await storage.set(REPORT_LOCK_KEY, JSON.stringify({ owner: 'another-run', expiresAt: Date.now() + 60000 }));
+      const busy = await runEgernReport(refresh.ctx);
+      assert(visibleText(busy).includes(scenario.names[0]), 'busy fallback must display the same current name');
+      assert(visibleText(busy).includes('phone-sg'));
+    }
+  }
+}
+
 async function testSettingsShowEffectiveTtlForEveryTarget() {
-  const values = { PO0_PASSWORD: 'mock-password', TTL_SECONDS: '3600', SSH_REPORT_TARGETS: 'one|one.example.com||||mock-one|one|7200,two|two.example.com||||mock-two|two|14400' };
+  const values = { PO0_PASSWORD: 'mock-password', TTL_SECONDS: '3600', SSH_REPORT_TARGETS: 'one|one.example.com||||mock-one|不是来源甲|7200,two|two.example.com||||mock-two|不是来源乙|14400' };
   const storage = createStorage({ [CONFIG_STORAGE_KEY]: JSON.stringify({ version: 1, values }) });
   const fixture = createContext({ trigger: '查看本机上报设置', storage });
   const result = await runEgernReport(fixture.ctx);
@@ -1139,6 +1236,9 @@ async function testSettingsShowEffectiveTtlForEveryTarget() {
 }
 
 const tests = [
+  testUiRefreshForcesBothConfiguredLanes,
+  testNamesOnlySaveAndWidgetReload,
+  testModuleNamesReachWidgetWithoutReplacingReportConfig,
   testSettingsShowEffectiveTtlForEveryTarget,
   testEgernWidgetBindingsStayCompatible,
   testWidgetBusyAndStorageErrorsAlwaysRender,

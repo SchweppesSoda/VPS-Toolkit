@@ -37,6 +37,10 @@ for (const family of ['systemSmall', 'systemMedium', 'systemLarge']) {
     assert(visible.some(t => t.startsWith('家庭防火墙')), 'saved official name must display despite an old cached name');
     assert(!visible.includes('旧名称'));
     assert(!visible.includes('旧备注'));
+    assert(visible.some(text => /^sg(?: \+\d+)?$/.test(text)));
+    assert(!visible.some(text => text.includes('TTL')));
+    assert(!visible.includes('新加坡') && !visible.includes('美国'), 'audit remarks must not replace source IDs');
+    if (family !== 'systemSmall') assert(visible.includes('us'));
     assert(!visible.some(t => t.includes('0/1')));
     if (family !== 'systemSmall') assert(visible.includes('办公室'), 'medium/large must show both configured official names');
     for (const node of nodes(widget).filter(n => n.type === 'text')) {
@@ -55,6 +59,12 @@ for (const family of ['systemSmall', 'systemMedium', 'systemLarge']) {
     previews.push({ name: scenario.name, family, widget });
   }
 }
+
+for (const names of ['家庭防火墙,Office Firewall', '家庭防火墙，Office Firewall', '家庭防火墙；Office Firewall', '家庭防火墙\nOffice Firewall']) {
+  assert.deepEqual(widgetOfficialEntries(null, { ...env, PO0_FIREWALL_NAMES: names }).map(entry => entry.name), ['家庭防火墙', 'Office Firewall']);
+}
+assert.deepEqual(widgetOfficialEntries(null, { ...env, PO0_FIREWALL_NAMES: ';Office Firewall' }).map(entry => entry.name), ['官方账号 1', 'Office Firewall']);
+assert.deepEqual(widgetOfficialEntries(null, { ...env, PO0_FIREWALL_NAMES: '-' }).map(entry => entry.name), ['官方账号 1', '官方账号 2']);
 
 const reordered = widgetOfficialEntries(state, { ...env, PO0_FIREWALL_TOKENS: 'pgnfw_two@2,pgnfw_one@0', PO0_FIREWALL_NAMES: '办公室;家庭防火墙' });
 assert.deepEqual(reordered.map(x => [x.name, x.used]), [['办公室', 2], ['家庭防火墙', 1]]);
@@ -77,7 +87,11 @@ for (const raw of [
   JSON.stringify([{ sourceId: 'custom', host: 'target.example.com', port: 2222, user: 'reporter', script: '/root/target.sh', token: 'target-token', identity: 'target-name', ttl: 7200 }]),
   JSON.stringify([{ source: 'custom', po0Host: 'target.example.com', port: 2222, username: 'reporter', po0Script: '/root/target.sh', reportToken: 'target-token', identity: 'target-name', ttlSeconds: 7200 }]),
 ]) {
-  const [target] = parseTargets({ ...legacy, SSH_REPORT_TARGETS: raw });
+  const targetEnv = { ...legacy, SSH_REPORT_TARGETS: raw };
+  const [target] = parseTargets(targetEnv);
+  const visible = texts(widgetFromState(null, ctx('systemMedium'), '', targetEnv));
+  assert(visible.includes('custom'));
+  assert(!visible.includes('target-name'));
   assert.deepEqual([target.sourceId, target.host, target.port, target.username, target.script, target.token, target.identity, target.ttlSeconds], ['custom', 'target.example.com', 2222, 'reporter', '/root/target.sh', 'target-token', 'target-name', 7200]);
 }
 assert.equal(parseTargets({ ...legacy, SSH_REPORT_TARGETS: 'phone|target.example.com||||token' })[0].ttlSeconds, 3600, 'omitted TTL may inherit legacy default');

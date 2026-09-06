@@ -809,17 +809,18 @@ function widgetTargets(state, env, deviceId) {
   } catch (_) { return previous; }
 }
 
-function widgetOfficialEntries(state, env) {
+function widgetOfficialEntries(state, env, runtimeEnv = {}) {
+  const displayEnv = officialDisplayEnv(env, runtimeEnv);
   if (!officialTokensConfigured(env)) return [];
   const previous = Array.isArray(state?.official?.entries) ? state.official.entries : [];
   try {
     return parseOfficialTokens(env.PO0_FIREWALL_TOKENS).map((item, index) => ({
       ...(previous.find(entry => entry.accountKey === shortHash(item.token) && entry.fixedSlot === item.slot) || (state?.official?.status === 'config-error' ? previous[0] : {}) || {}),
       ordinal: index + 1,
-      name: officialAccountName(env, index),
+      name: officialAccountName(displayEnv, index),
       fixedSlot: item.slot,
     }));
-  } catch (_) { return previous.map((entry, index) => ({ ...entry, name: officialAccountName(env, index) })); }
+  } catch (_) { return previous.map((entry, index) => ({ ...entry, name: officialAccountName(displayEnv, index) })); }
 }
 
 function widgetAutoState(configured, enabled, ssidMatched) {
@@ -839,7 +840,7 @@ function widgetLane(title, auto, entries, official, ctx, env) {
     iconNode(auto.icon, auto.color, 11), widgetText(auto.text, 11, auto.color),
   ], 3)];
   shown.forEach(entry => {
-    const name = official ? entry.name : (entry.identity && entry.identity !== 'egern' ? entry.identity : entry.sourceId || entry.host);
+    const name = official ? entry.name : entry.sourceId || entry.host;
     const success = official ? entry.status === 'hit' || entry.status === 'updated' : entry.ok === true;
     const failed = official ? entry.status === 'error' : entry.ok === false;
     const result = official ? success ? '已加白' : entry.status === 'missing' ? '未加白' : failed ? '失败' : '待检查'
@@ -848,7 +849,7 @@ function widgetLane(title, auto, entries, official, ctx, env) {
     const suffix = entries.length > limit && entry === shown[shown.length - 1] ? ` +${entries.length - limit}` : '';
     children.push(widgetRow([
       { ...widgetText((name || '目标') + suffix, metrics.bodySize, WIDGET_COLORS.text, 'medium'), flex: 1 },
-      ...(family === 'large' ? [widgetText(official ? '#' + (officialDisplaySlot(entry.fixedSlot) || '自动') + ' · ' + (entry.used ?? '?') + '/' + (entry.limit ?? 5) : 'TTL ' + formatDurationSeconds(entry.ttlSeconds), 11, WIDGET_COLORS.dim)] : []),
+      ...(family === 'large' && official ? [widgetText('#' + (officialDisplaySlot(entry.fixedSlot) || '自动') + ' · ' + (entry.used ?? '?') + '/' + (entry.limit ?? 5), 11, WIDGET_COLORS.dim)] : []),
       widgetText(result, 12, color),
     ]));
   });
@@ -859,7 +860,7 @@ function widgetLane(title, auto, entries, official, ctx, env) {
     const detail = entries.length > 1 || family === 'large'
       ? `${entries.length} 个${official ? '账号 · 检查 10分钟' : '目标 · 周期 ' + formatDurationSeconds(autoReportIntervalSeconds(env))}`
       : official ? (first ? `固定槽位 ${fixed ? '#' + fixed : '自动'} · 名额 ${first.used ?? '?'}/${first.limit ?? 5}` : '检查周期 10 分钟')
-      : (first ? `TTL ${formatDurationSeconds(first.ttlSeconds)} · 周期 ${formatDurationSeconds(autoReportIntervalSeconds(env))}` : 'TTL 在每条目标内设置');
+      : `自动周期 ${formatDurationSeconds(autoReportIntervalSeconds(env))}`;
     children.push(widgetText(detail, 11, WIDGET_COLORS.dim));
   }
   return { type: 'stack', direction: 'column', alignItems: 'start', gap: metrics.cardGap, flex: family === 'medium' ? 1 : 0, children };
@@ -867,7 +868,7 @@ function widgetLane(title, auto, entries, official, ctx, env) {
 
 function officialReadOnlyWidget(state, ctx, env) {
   const metrics = widgetMetrics(ctx);
-  const entries = widgetOfficialEntries(state, env);
+  const entries = widgetOfficialEntries(state, env, ctx?.env);
   const lines = ['本次只查询，不新增白名单。'];
   for (const entry of entries) {
     lines.push(entry.name + ' · ' + officialStatusText(entry));
@@ -889,7 +890,7 @@ function widgetFromState(state, ctx, deviceId = '', env = ctx?.env || {}) {
   const ssid = currentWifiSsidFromNetwork(ctx, network);
   const ssidMatched = Boolean(ssid && normalizeSsidSkipList(env.SKIP_WIFI_SSIDS).includes(ssid));
   const targets = widgetTargets(state, env, deviceId);
-  const entries = widgetOfficialEntries(state, env);
+  const entries = widgetOfficialEntries(state, env, ctx?.env);
   const workerAuto = widgetAutoState(workerConfigRequested(env), boolEnv(env.WORKER_AUTO_ENABLED, true), ssidMatched);
   const officialAuto = widgetAutoState(officialTokensConfigured(env), boolEnv(env.OFFICIAL_AUTO_ENABLED, true), ssidMatched);
   const worker = widgetLane('自建', workerAuto, targets, false, ctx, env);
@@ -1424,7 +1425,7 @@ function effectiveAutoRefreshAfterSeconds(env, targets) {
 }
 
 async function shouldSkipUnchangedAutoReport(ctx, env, targets, ip, reportedCidr) {
-  if (isManualRun(ctx) || isWidgetRun(ctx)) return { skip: false };
+  if (isManualRun(ctx) || isWidgetRun(ctx) || isStatusRun(ctx)) return { skip: false };
 
   const previous = parseStoredState(await storageGet(ctx, STORAGE_KEY));
   if (!previous || !previous.ok || stateReportedCidr(previous) !== reportedCidr) return { skip: false };
@@ -2030,7 +2031,7 @@ async function handleScopedConfigSaveScript(ctx, runtimeEnv, storedValues, devic
   try {
     let candidate;
     if (officialOnly) {
-      const input = String(runtimeEnv.PO0_FIREWALL_TOKENS || '').trim();
+      const input = String(runtimeEnv.PO0_FIREWALL_TOKENS || '').trim() || String(storedValues?.PO0_FIREWALL_TOKENS || '').trim();
       if (!input) throw new Error('请填写官方 Token；清除请使用独立的清除官方 Token 操作。');
       parseOfficialTokens(input);
       candidate = { ...(storedValues || {}), PO0_FIREWALL_TOKENS: input };
@@ -2050,7 +2051,7 @@ async function handleScopedConfigSaveScript(ctx, runtimeEnv, storedValues, devic
     }
     await saveReportConfig(ctx, candidate);
     notify(ctx, 'PO0 Egern Config', title + '已保存');
-    return widgetPanel(REPORT_TITLE, [title + '已保存。', '另一通道的已保存参数保持不变；本次只保存，不发起上报。'], true, ctx);
+    return widgetPanel(REPORT_TITLE, [title + '已保存。', ...(officialOnly ? officialSavedNameRows(candidate) : []), '另一通道的已保存参数保持不变；本次只保存，不发起上报。'], true, ctx);
   } catch (error) {
     return widgetPanel(REPORT_TITLE, [title + '未保存。', redactError(error, { ...(storedValues || {}), ...runtimeEnv })], false, ctx);
   }
@@ -2059,6 +2060,7 @@ async function handleScopedConfigSaveScript(ctx, runtimeEnv, storedValues, devic
 async function handleReportConfigSaveScript(ctx, runtimeEnv, storedValues, deviceId) {
   try {
     const candidate = reportConfigSaveCandidate(storedValues, runtimeEnv);
+    if (officialTokensConfigured(candidate)) candidate.PO0_FIREWALL_NAMES = officialNamesForSave(storedValues || {}, runtimeEnv, candidate.PO0_FIREWALL_TOKENS);
     const channels = validateReportChannels(candidate, deviceId);
     if (!channels.anyRequested || !channels.anyValid) {
       throw channels.officialError || channels.workerError || new Error('至少配置一个可用的 PO0 上报通道。');
@@ -2078,6 +2080,7 @@ async function handleReportConfigSaveScript(ctx, runtimeEnv, storedValues, devic
     return widgetPanel(REPORT_TITLE, [
       `设备: ${deviceDisplayName(deviceId)}`,
       `已保存: ${summary}`,
+      ...officialSavedNameRows(candidate),
       '密码、私钥和 Token 仅写入本机 ctx.storage；运行状态不保存 Token。',
       '后续更换 Egern 配置时无需重新填写。',
     ], true, ctx);
@@ -2192,17 +2195,43 @@ function officialUpdateSummary(result) {
     .join('；');
 }
 
+function parseOfficialNames(value) {
+  const raw = String(value || '').trim();
+  return raw === '-' ? [] : raw.replace(/\r\n?/g, '\n').split(/[,;，；\n]/).map(name => name.trim());
+}
+
 function officialAccountName(env, index) {
-  return String(env.PO0_FIREWALL_NAMES || '').replace(/\r/g, '').split(/[;；\n]/)[index]?.trim() || `官方账号 ${index + 1}`;
+  return parseOfficialNames(env.PO0_FIREWALL_NAMES)[index] || ('官方账号 ' + (index + 1));
+}
+
+function officialDisplayEnv(env, runtimeEnv) {
+  if (!String(runtimeEnv?.PO0_FIREWALL_NAMES || '').trim()) return env;
+  try {
+    const accounts = parseOfficialTokens(env.PO0_FIREWALL_TOKENS);
+    const moduleAccounts = String(runtimeEnv.PO0_FIREWALL_TOKENS || '').trim()
+      ? parseOfficialTokens(runtimeEnv.PO0_FIREWALL_TOKENS) : accounts;
+    const moduleNames = parseOfficialNames(runtimeEnv.PO0_FIREWALL_NAMES);
+    const savedNames = parseOfficialNames(env.PO0_FIREWALL_NAMES);
+    // Names are display-only. Match token identities so synced ordering/slots never
+    // rename a different local account or replace its saved reporting configuration.
+    const names = accounts.map((account, index) => {
+      const moduleIndex = moduleAccounts.findIndex(item => item.token === account.token);
+      return moduleIndex >= 0 ? moduleNames[moduleIndex] || '' : savedNames[index] || '';
+    });
+    return { ...env, PO0_FIREWALL_NAMES: names.join(';') };
+  } catch (_) { return env; }
+}
+
+function officialSavedNameRows(env) {
+  return widgetOfficialEntries(null, env).map(entry => '官方目标：' + entry.name + ' · ' + (officialDisplaySlot(entry.fixedSlot) ? '固定槽位 #' + officialDisplaySlot(entry.fixedSlot) : '自动槽位'));
 }
 
 function officialNamesForSave(stored, runtime, tokens) {
-  if (Object.prototype.hasOwnProperty.call(runtime, 'PO0_FIREWALL_NAMES') && String(runtime.PO0_FIREWALL_NAMES).trim()) {
-    const names = String(runtime.PO0_FIREWALL_NAMES).trim();
-    return names === '-' ? '' : names;
+  if (String(runtime.PO0_FIREWALL_NAMES || '').trim()) {
+    return parseOfficialNames(runtime.PO0_FIREWALL_NAMES).join(';');
   }
   const oldTokens = String(stored.PO0_FIREWALL_TOKENS || '').split(/[,;，；\s]+/).filter(Boolean);
-  const oldNames = String(stored.PO0_FIREWALL_NAMES || '').replace(/\r/g, '').split(/[;；\n]/);
+  const oldNames = parseOfficialNames(stored.PO0_FIREWALL_NAMES);
   return parseOfficialTokens(tokens).map(item => {
     const index = oldTokens.findIndex(old => old.split('@')[0] === item.token);
     return index < 0 ? '' : oldNames[index] || '';
@@ -2252,8 +2281,8 @@ async function handleLocalChannelAction(ctx, env, action) {
     '自建上报周期：' + autoReportIntervalSeconds(next) + ' 秒（不是白名单 TTL）',
     '官方防火墙：' + (officialTokensConfigured(next) ? boolEnv(next.OFFICIAL_AUTO_ENABLED, true) ? '自动上报启用' : '自动上报停用（配置保留）' : '未配置'),
     '官方周期固定 600 秒；TTL 由官方服务管理。',
-    '官方目标名称：' + (next.PO0_FIREWALL_NAMES || '按账号编号显示'),
-    ...widgetTargets(null, next, await storedDeviceId(ctx)).map(target => (target.identity !== 'egern' ? target.identity : target.sourceId) + ' · 生效 TTL ' + target.ttlSeconds + ' 秒'),
+    ...officialSavedNameRows(officialDisplayEnv(next, ctx?.env)),
+    ...widgetTargets(null, next, await storedDeviceId(ctx)).map(target => target.sourceId + ' · 生效 TTL ' + target.ttlSeconds + ' 秒'),
     'SSID 跳过：' + (next.SKIP_WIFI_SSIDS || '未设置') + '；匹配时同时跳过两个自动上报通道。',
     '定时 / 网络变化共用两个通道；手动操作仍沿用原有强制上报规则。',
   ].filter(Boolean);

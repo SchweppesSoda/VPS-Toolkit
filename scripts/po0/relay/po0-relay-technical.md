@@ -979,7 +979,7 @@ PO0 写 entries.tsv：source_type=ssh_report
 Egern 把最近状态写入 ctx.storage，Widget 读取显示
 ```
 
-Egern 同时用版本化 key `po0-ssh-ip-report:config:v1` 在本机 `ctx.storage` 持久化 SSH 上报配置。保存对象只接受模块白名单字段，`DEVICE_ID_SETUP` 与独立的本机设备 ID 不混入其中。读取时只要该 key 存在，storage 就是运行时唯一配置源；`ctx.env` 在“保存本机 PO0 自建防火墙配置”（兼容旧动作“保存本机自建 PO0 / 通用设置”）中只合并非官方字段，在“保存本机 PO0 官方防火墙配置”中只合并官方 Token；历史“保存本机 PO0 上报配置”动作保留兼容。新入口分别校验本通道并保留另一通道的已保存参数，避免更换主配置后空值或 schema 默认值覆盖旧凭据。尚无 storage 配置时，完整的旧版 `ctx.env` 会自动 bootstrap；不完整的 schedule/network 任务静默返回 `missing-config`，不进行 HTTP、SSH、通知或状态写入，手动/状态/Widget 才显示设置提示。因此 PO0 模块可默认启用而不会在未配置设备上周期报错。
+Egern 同时用版本化 key `po0-ssh-ip-report:config:v1` 在本机 `ctx.storage` 持久化 SSH 上报配置。保存对象只接受模块白名单字段，`DEVICE_ID_SETUP` 与独立的本机设备 ID 不混入其中。读取时只要该 key 存在，storage 就是上报参数的唯一配置源；`ctx.env` 在“保存本机 PO0 自建防火墙配置”（兼容旧动作“保存本机自建 PO0 / 通用设置”）中只合并非官方字段，在“保存本机 PO0 官方防火墙配置”中只合并官方 Token / 名称；Token 输入留空时沿用本机 Token，允许独立保存名称，结果回显名称和槽位；历史“保存本机 PO0 上报配置”动作保留兼容。新入口分别校验本通道并保留另一通道的已保存参数，避免更换主配置后空值或 schema 默认值覆盖旧凭据。尚无 storage 配置时，完整的旧版 `ctx.env` 会自动 bootstrap；不完整的 schedule/network 任务静默返回 `missing-config`，不进行 HTTP、SSH、通知或状态写入，手动/状态/Widget 才显示设置提示。因此 PO0 模块可默认启用而不会在未配置设备上周期报错。
 
 单 PO0 命令等价于：
 
@@ -1006,7 +1006,7 @@ iphone-us|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_U
 
 如果使用 PO0 专用受限 SSH 上报 key，Egern 专用 key 的 scope 应为 `egern`。wrapper 拒绝时会把不含 token 的摘要写入 `/etc/nftables.d/po0-report-key-denied.log`，也可以用 `--refresh-report-key-wrapper` 刷新 wrapper，再用 `--show-report-key-denials 80` 查看最近记录。Egern 手动执行和 Status 脚本开启 debug，SSH stderr 会写入脚本日志；长错误会分段通知。
 
-Egern 上报锁覆盖 schedule、network、手动和 Widget 刷新。锁占用时不重复请求；Widget / 状态入口必须返回 Widget DSL，使用上一轮状态并标记正在上报，没有缓存时显示等待提示。存储异常同样返回可渲染提示，不写覆盖原锁或结果。只注册一个 Widget，保留旧 generic script name 供已有自定义绑定使用。自动状态从当前配置和当前 Wi-Fi 计算，两条通道复用相同显示逻辑；SSID guard 不改变持久开关，缓存结果与本次是否上报分别展示。官方名称从当前本机配置读取，避免缓存名滞后。最近结果通过非凭据账号摘要和固定槽位匹配，换 Token / 槽位或旧缓存无法确认归属时显示待检查，不按账号位置套用成功状态。targetValue 先遍历目标全部别名，再遍历 env 默认值，文本空列和 JSON 缺省一致；目标值不被默认覆盖。
+Egern 上报锁覆盖 schedule、network、手动和 Widget 刷新。锁占用时不重复请求；Widget / 状态入口必须返回 Widget DSL，使用上一轮状态并标记正在上报，没有缓存时显示等待提示。存储异常同样返回可渲染提示，不写覆盖原锁或结果。只注册一个 Widget，保留旧 generic script name 供已有自定义绑定使用。自动状态从当前配置和当前 Wi-Fi 计算，两条通道复用相同显示逻辑；SSID guard 不改变持久开关，缓存结果与本次是否上报分别展示。官方显示名称优先采用当前模块的非空名称，按 Token 身份与本机账号匹配，未填模块 Token 时按本机顺序；未填名称或无法匹配时沿用本机名称，不修改已保存的 Token / 槽位 / 上报参数。显式保存后名称进入本机配置，空白保留，单独 - 清空。自建组件与设置总览标签统一使用 sourceId，identity 只参与原上报协议和审计；组件不再展示自建 TTL，目标 TTL 解析与提交保留。普通状态页和 Widget 都必须绕过 SSH unchanged/due 检查，连续刷新仍实际执行 SSH；官方保持 GET-first 和必要的 POST。最近结果通过非凭据账号摘要和固定槽位匹配，换 Token / 槽位或旧缓存无法确认归属时显示待检查，不按账号位置套用成功状态。targetValue 先遍历目标全部别名，再遍历 env 默认值，文本空列和 JSON 缺省一致；目标值不被默认覆盖。
 
 ### 5.7 高级渲染调试
 
