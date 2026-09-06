@@ -58,16 +58,14 @@ bash "${repo_root}/tools/po0/test-openwrt-official-adapter.sh"
 bash "${repo_root}/tools/po0/test-openwrt-service.sh"
 bash "${repo_root}/tools/po0/test-openwrt-luci-official-ui.sh"
 
-expected_reporter_version="$(sed -n 's/^SCRIPT_VERSION="\([^"]*\)"/\1/p' "${repo_root}/scripts/po0/relay/self-report/linux/src/000-runtime-header.sh")"
-[[ "${expected_reporter_version}" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}\+build\.[0-9]+$ ]] || { printf 'Invalid reporter source version.\n' >&2; exit 1; }
+expected_apk_runtime_version="$(sed -n 's/^SCRIPT_VERSION="\([^"]*\)"/\1/p' "${repo_root}/packaging/openwrt/po0-outbound-ip-report/runtime-header.sh")"
+[[ "${expected_apk_runtime_version}" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}\+build\.[0-9]+$ ]] || { printf 'Invalid APK runtime version.\n' >&2; exit 1; }
 for package in po0-outbound-ip-report; do
     grep -Fq 'PKGARCH:=all' "${repo_root}/packaging/openwrt/${package}/Makefile"
     grep -Fq 'PKG_VERSION:=2026.09.05' "${repo_root}/packaging/openwrt/${package}/Makefile"
     grep -Fq 'PKG_RELEASE:=4' "${repo_root}/packaging/openwrt/${package}/Makefile"
     grep -Fq "$(printf '$(TOPDIR)/po0-assets')" "${repo_root}/packaging/openwrt/${package}/Makefile"
-    grep -Fq "SCRIPT_VERSION=\"${expected_reporter_version}\"" \
-        "${repo_root}/packaging/openwrt/${package}/runtime-header.sh"
-    grep -Fq "po0-outbound-ip-report ${expected_reporter_version} (OpenWrt APK)" \
+    grep -Fq "po0-outbound-ip-report ${expected_apk_runtime_version} (OpenWrt APK)" \
         "${repo_root}/packaging/openwrt/${package}/files/usr/sbin/po0-outbound-ip-report"
 done
 
@@ -145,6 +143,8 @@ runtime_test="$(mktemp "${TMPDIR:-/tmp}/po0-openwrt-runtime.XXXXXX")"
 trap 'rm -f "${runtime_test}"' EXIT
 bash "${repo_root}/tools/po0/build-openwrt-reporter-runtime.sh" "${runtime_test}"
 bash -n "${runtime_test}"
+grep -Fq "SCRIPT_VERSION=\"${expected_apk_runtime_version}\"" "${runtime_test}"
+[[ "$(sh "${repo_root}/packaging/openwrt/po0-outbound-ip-report/files/usr/sbin/po0-outbound-ip-report" --version)" == "po0-outbound-ip-report ${expected_apk_runtime_version} (OpenWrt APK)" ]]
 grep -Fq 'report_once' "${runtime_test}"
 if grep -Eq 'menu_loop|install_cron|remove_cron|upgrade_self_from_download|uninstall_self_report_interactive' "${runtime_test}"; then
     printf 'OpenWrt APK runtime must not contain menu, cron, self-update, or uninstall actions.\n' >&2
