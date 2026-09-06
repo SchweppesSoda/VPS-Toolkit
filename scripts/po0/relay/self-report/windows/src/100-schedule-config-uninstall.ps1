@@ -49,15 +49,19 @@ function Show-ClientConfig {
     Write-PanelRow "配置文件" $script:ConfigPath
     Write-PanelRow "保存状态" $(if (Test-Path -LiteralPath $script:ConfigPath) { "已保存" } else { "未保存" })
     Write-PanelSection "自建 PO0 · LAN Worker"
+    Write-PanelRow "目标名称" $(if ($script:WorkerName) { $script:WorkerName } else { "LAN Worker" })
+    Write-PanelRow "自建自动上报" (Get-ChannelAutoLabel worker)
     Write-PanelRow "LAN Worker URL" $(if ($script:WorkerUrl) { $script:WorkerUrl } else { "未设置" })
     Write-PanelRow "来源 ID" $script:SourceId
     Write-PanelRow "设备备注" $script:Identity
-    Write-PanelRow "上报密钥" (Get-MaskedSecret $script:Secret)
+    Write-PanelRow "上报密钥" $(if ($script:Secret) { $script:Secret } else { "未设置" })
     Write-PanelRow "HTTP 上报" $(if ($script:AllowHttp) { "已显式允许" } else { "默认拒绝" })
     Write-PanelRow "放行时长" "由 LAN Worker 接收端控制，默认 43200 秒"
     Write-PanelRow "自建上报间隔" ("每 {0} 秒（安装定时上报时使用）" -f (Get-IntervalSeconds))
     Write-PanelSection "PO0 官方防火墙"
-    Write-PanelRow "官方 Token" (Get-Po0FirewallTokenSummary)
+    Write-PanelRow "官方目标名称" $(if ($script:Po0FirewallNames) { $script:Po0FirewallNames } else { "按账号编号显示" })
+    Write-PanelRow "官方自动上报" (Get-ChannelAutoLabel official)
+    Write-PanelRow "官方 Token" $(if ($script:Po0FirewallTokens) { $script:Po0FirewallTokens } else { "未设置" })
     Write-PanelRow "官方状态" (Get-Po0FirewallDashboardSummary)
     Write-PanelRow "下次检查" (Get-Po0FirewallDueSummary)
     Write-PanelRow "官方检查周期" "固定 600 秒"
@@ -72,39 +76,6 @@ function Show-ClientConfig {
     } else {
         Write-PanelRow "首选 IP 探测" $script:IpCheckUrl
     }
-}
-
-function Show-ClientDashboard {
-    Write-Title "PO0 Outbound IP Report Client"
-    Write-PanelSection "脚本信息"
-    Write-PanelRow "脚本名称" $ScriptName
-    Write-PanelRow "版本" $ScriptVersion
-    Write-PanelRow "构建标识" (Get-ScriptBuildLabel)
-    Write-PanelRow "发布日期" $ScriptReleaseDate
-    Write-PanelRow "当前脚本" $(if ($PSCommandPath) { $PSCommandPath } else { "未知" })
-    Write-PanelRow "默认安装路径" (Get-DefaultScriptPath)
-    Write-PanelRow "下载 URL" $DownloadUrl
-
-    Write-PanelSection "当前状态"
-    Write-PanelRow "配置文件" $script:ConfigPath
-    Write-PanelRow "保存状态" $(if (Test-Path -LiteralPath $script:ConfigPath) { "已保存" } else { "未保存" })
-    Write-PanelSection "自建 PO0 · LAN Worker"
-    Write-PanelRow "LAN Worker URL" $(if ($script:WorkerUrl) { $script:WorkerUrl } else { "未设置" })
-    Write-PanelRow "来源 ID" $script:SourceId
-    Write-PanelRow "设备备注" $script:Identity
-    Write-PanelRow "运行日志" (Get-DefaultLogPath)
-    Write-PanelRow "放行时长" "由 LAN Worker 接收端控制，默认 43200 秒"
-    Write-PanelRow "自建上报间隔" ("每 {0} 秒（安装计划任务时使用）" -f (Get-IntervalSeconds))
-    Write-PanelSection "PO0 官方防火墙"
-    Write-PanelRow "官方 Token" (Get-Po0FirewallTokenSummary)
-    Write-PanelRow "官方状态" (Get-Po0FirewallDashboardSummary)
-    Write-PanelRow "下次检查" (Get-Po0FirewallDueSummary)
-    Write-PanelRow "官方检查周期" "固定 600 秒"
-    Write-PanelSection "通用设置与定时任务"
-    Write-PanelRow "跳过 Wi-Fi SSID" (Format-WifiSsidPolicyList -Ssids $script:SkipWifiSsids)
-    Write-PanelRow "当前 Wi-Fi SSID" (Format-CurrentWifiSsidStatus)
-    Write-NotifyStatusRows
-    Write-PanelRow "计划任务" (Get-ScheduledReporterSummary)
 }
 
 function Set-ClientConfigInteractive {
@@ -159,14 +130,18 @@ function Set-CommonConfigInteractive {
 
 function Set-OfficialConfigInteractive {
     Write-PanelSection "PO0 官方防火墙参数"
-    Write-Host "官方检查周期固定为 600 秒。Token 可带 @0..4 指定槽位，输入不回显。"
+    Write-Host "官方检查周期固定为 600 秒。Token 可带 @0..4 指定槽位；逗号、分号、空格或换行均可分隔。"
+    $previousTokens = $script:Po0FirewallTokens
     Read-Po0FirewallTokensInteractive
+    Sync-OfficialAccountNames $previousTokens
     Save-ClientConfig
 }
 
 function Clear-OfficialConfigInteractive {
     if (Read-YesNoDefault "确认清除已保存的官方防火墙 Token" $false) {
         $script:Po0FirewallTokens = ""
+        $script:Po0FirewallNames = ""
+        $script:OfficialAutoEnabled = $false
         Save-ClientConfig
     }
 }
@@ -189,6 +164,8 @@ function Install-ScheduledReporterInteractive {
         $script:Minutes = Convert-IntervalSecondsToMinutes $seconds
     }
     $script:TaskNotify = Read-YesNoDefault "自动上报完成/失败后弹出 Windows 通知" $script:TaskNotify
+    Save-ClientConfig
+    Write-Host "两个已配置且启用的通道共用此计划，各自按自己的间隔执行。"
     Install-ScheduledReporter
 }
 

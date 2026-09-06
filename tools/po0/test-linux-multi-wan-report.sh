@@ -24,9 +24,6 @@ source "${repo_root}/scripts/po0/relay/self-report/linux/src/050-config-device-d
 source "${repo_root}/scripts/po0/relay/self-report/linux/src/060-worker-url-interval-state.sh"
 # shellcheck source=/dev/null
 source "${repo_root}/scripts/po0/relay/self-report/linux/src/070-outbound-ip-detection.sh"
-if declare -f router_probe_http_get | grep -Eq -- '--noproxy|env -u .*proxy'; then
-    fail "router probe requests must not manage proxy behavior"
-fi
 eval "$(declare -f list_enabled_mwan3_wans | sed '1s/list_enabled_mwan3_wans/list_enabled_mwan3_wans_impl/')"
 # shellcheck source=/dev/null
 source "${repo_root}/scripts/po0/relay/self-report/linux/src/130-report-submit.sh"
@@ -91,8 +88,6 @@ WORKER_URL="https://report.example.com/report"
 SOURCE_ID="router"
 IDENTITY="router"
 SECRET=""
-ROUTER_PROBE_URL=""
-ROUTER_PROBE_BATCH_RAW=""
 
 WANS="saved"
 WANS_CLI_SEEN="0"
@@ -117,28 +112,6 @@ WANS="all"
 report_once >/dev/null
 grep -Fxq 'submit:router-wan1:203.0.113.11' "${call_log}" || fail "--wan all should submit wan1"
 grep -Fxq 'submit:router-wan2:198.51.100.22' "${call_log}" || fail "--wan all should submit wan2"
-
-list_upstream_router_wans() {
-    printf '%s\n' wan1 wan2
-}
-prepare_router_probe_batch() { ROUTER_PROBE_BATCH_RAW=""; }
-detect_outbound_ipv4_via_router() {
-    printf 'router-detect:%s\n' "$1" >> "${call_log}"
-    case "$1" in
-        wan1) printf '203.0.113.11\n' ;;
-        wan2) printf '198.51.100.22\n' ;;
-        *) return 1 ;;
-    esac
-}
-: > "${call_log}"
-ROUTER_PROBE_URL="http://192.168.88.1/cgi-bin/po0-wan-probe"
-WANS="all"
-report_once >/dev/null
-grep -Fxq 'router-detect:wan1' "${call_log}" || fail "router probe mode should request wan1"
-grep -Fxq 'router-detect:wan2' "${call_log}" || fail "router probe mode should request wan2"
-grep -Fxq 'submit:router-wan1:203.0.113.11' "${call_log}" || fail "router probe wan1 should be submitted"
-grep -Fxq 'submit:router-wan2:198.51.100.22' "${call_log}" || fail "router probe wan2 should be submitted"
-ROUTER_PROBE_URL=""
 
 : > "${call_log}"
 FAIL_WAN2="1"

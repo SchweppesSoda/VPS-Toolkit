@@ -4,10 +4,13 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_OUTBOUND_IP_REPORT_DOWNLOAD_URL:-${PO0_SELF_REPORT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report.sh}}"
 SCRIPT_NAME="po0-outbound-ip-report"
-SCRIPT_VERSION="2026.09.05+build.9"
-SCRIPT_RELEASE_DATE="2026-09-05"
+SCRIPT_VERSION="2026.09.06+build.1"
+SCRIPT_RELEASE_DATE="2026-09-06"
 # CHANGELOG_BEGIN
-# - 参数菜单和状态按自建 PO0、官方防火墙、通用设置分区，分别保存；官方周期固定 600 秒。
+# - 主菜单统一为 7 个入口，两个通道采用相同操作：编辑、名称、自动开关、立即上报、状态、清除。
+# - 本机配置可核对完整 Token / 密钥，官方输入支持逗号、分号、空格和多行；目标名称只在本机显示。
+# - 自动上报共用一个计划，可单独停用任意通道并保留配置；SSID 命中时一起跳过，原周期和协议保留。
+# - 移除已退役的主路由 HTTP 探针入口，保留本机默认路由和多 WAN 探测。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24
@@ -40,8 +43,6 @@ IP_CHECK_URL="https://ip9.com.cn/get"
 IP_CHECK_URLS=""
 WANS=""
 WANS_CLI_SEEN="0"
-ROUTER_PROBE_URL=""
-ROUTER_PROBE_BATCH_RAW=""
 INSTALL_PATH=""
 INSTALL_PATH_EXPLICIT="0"
 INSTALL_CRON=""

@@ -241,6 +241,13 @@ official_mark_success() {
     official_write_state_v2 success "$OFFICIAL_STATE_RECORDS" 1 1
 }
 
+official_normalize_tokens() {
+    local raw="${1:-}"
+    raw="${raw//，/,}"
+    raw="${raw//；/,}"
+    printf '%s' "${raw}" | tr ',;[:space:]' '\n' | awk 'NF { printf "%s%s", sep, $0; sep="," } END { printf "\n" }'
+}
+
 official_validate_token() {
     local value="${1:-}"
     # Keep the token usable as one URL path component and safe in diagnostics.
@@ -268,7 +275,7 @@ official_parse_token_item() {
 }
 
 official_tokens_count() {
-    local raw="$(trim "${PO0_FIREWALL_TOKENS:-}")" item count=0
+    local raw="$(official_normalize_tokens "${PO0_FIREWALL_TOKENS:-}")" item count=0
     [[ -n "${raw}" ]] || { printf '0\n'; return 0; }
     raw="${raw},"
     while [[ "${raw}" == *,* ]]; do
@@ -285,12 +292,8 @@ official_channel_enabled() {
 }
 
 official_validate_tokens() {
-    local raw="$(trim "${PO0_FIREWALL_TOKENS:-}")" item count=0 key seen=";"
+    local raw="$(official_normalize_tokens "${PO0_FIREWALL_TOKENS:-}")" item count=0 key seen=";"
     [[ -n "${raw}" ]] || return 1
-    [[ "${raw}" != ,* && "${raw}" != *, && "${raw}" != *,,* ]] || {
-        printf '官方防火墙 token 列表包含空项。\n' >&2
-        return 1
-    }
     raw="${raw},"
     while [[ "${raw}" == *,* ]]; do
         item="${raw%%,*}"
@@ -318,7 +321,7 @@ official_validate_tokens() {
 
 official_tokens_summary() {
     local raw item count=0 invalid=0 slot slots="" seen_slots=";"
-    raw="$(trim "${PO0_FIREWALL_TOKENS:-}")"
+    raw="$(official_normalize_tokens "${PO0_FIREWALL_TOKENS:-}")"
     [[ -n "${raw}" ]] || { printf '未配置'; return 0; }
     raw="${raw},"
     while [[ "${raw}" == *,* ]]; do
@@ -812,6 +815,7 @@ official_report_token() {
     OFFICIAL_ITEM_WHITELIST=""
     OFFICIAL_ITEM_SLOT="$slot"
     local marker="官方账号 ${ordinal}"
+    if declare -F official_account_name >/dev/null; then marker="$(official_account_name "$ordinal")"; fi
     slot_label=""
     if [[ -n "${slot}" ]]; then
         slot_label="$((10#${slot} + 1))"
@@ -945,7 +949,7 @@ official_state_summary() {
                 slot_label="自动"
                 [[ -n "$slot" ]] && slot_label="$((10#$slot + 1))"
                 [[ -n "$details" ]] && details="$details；"
-                details="$details账号 $ordinal：状态=$item_status；当前出口=$current_text；白名单=${friendly:-无}；已用=$used/$limit；固定槽位=$slot_label"
+                details="$details$(if declare -F official_account_name >/dev/null; then official_account_name "$ordinal"; else printf "账号 %s" "$ordinal"; fi)：状态=$item_status；当前出口=$current_text；白名单=${friendly:-无}；已用=$used/$limit；固定槽位=$slot_label"
                 ;;
         esac
     done < "$state"
@@ -986,7 +990,7 @@ official_status_once_inner() {
         printf '%s\n' "${OFFICIAL_RESULT_MESSAGE}" >&2
         return 1
     }
-    raw="${PO0_FIREWALL_TOKENS}"
+    raw="$(official_normalize_tokens "${PO0_FIREWALL_TOKENS}")"
     raw="${raw},"
     while [[ "${raw}" == *,* ]]; do
         item="${raw%%,*}"
@@ -1057,7 +1061,7 @@ official_report_once() {
         printf '%s\n' "${OFFICIAL_RESULT_MESSAGE}" >&2
         return 1
     }
-    raw="${PO0_FIREWALL_TOKENS}"
+    raw="$(official_normalize_tokens "${PO0_FIREWALL_TOKENS}")"
     raw="${raw},"
     while [[ "${raw}" == *,* ]]; do
         item="${raw%%,*}"

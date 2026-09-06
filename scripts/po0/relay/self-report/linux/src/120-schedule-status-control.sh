@@ -142,8 +142,8 @@ linux_expected_cron_job() {
         else
             wake_minutes="${official_minutes}"
         fi
-        run_cmd="${run_cmd} --scheduled-run"
     fi
+    run_cmd="${run_cmd} --scheduled-run"
     run_cmd="${run_cmd} >$(sh_quote "$(self_report_log_path)") 2>&1"
     build_cron_job "${wake_minutes}" "${run_cmd}"
 }

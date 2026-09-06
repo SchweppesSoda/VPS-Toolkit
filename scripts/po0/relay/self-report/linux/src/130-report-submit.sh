@@ -206,7 +206,6 @@ worker_report_once() {
     local http_code success_message label total=0 success_count=0 failure_count=0
     local curl_args=()
     validate_worker_url || { self_report_incomplete "LAN Worker URL 未通过检查。"; return 1; }
-    validate_router_probe_url || { self_report_incomplete "上游路由器 WAN 探针 URL 未通过检查。"; return 1; }
     command -v curl >/dev/null 2>&1 || {
         echo "缺少 curl，无法上报到 LAN Worker。" >&2
         self_report_incomplete "缺少 curl，无法发起上报。"
@@ -217,10 +216,9 @@ worker_report_once() {
         self_report_incomplete "WAN 选择配置无效。"
         return 1
     }
-    prepare_router_probe_batch
     wan_targets="$(resolve_report_wans)" || {
-        if [[ -n "${ROUTER_PROBE_URL}" ]]; then
-            self_report_incomplete "上游路由器探针没有返回可用 WAN。"
+        if gateway_source_mode; then
+            self_report_incomplete "未配置可用的 WAN 源地址；请检查 official_source_wan1/official_source_wan2。"
         else
             self_report_incomplete "--wan all 需要 OpenWrt、ubus、uci 和至少一个已启用的 mwan3 WAN。"
         fi
@@ -243,9 +241,6 @@ worker_report_once() {
                     continue
                 }
                 label="WAN ${wan}"
-            elif [[ -n "${ROUTER_PROBE_URL}" ]]; then
-                l3_device=""
-                label="上游路由器 WAN ${wan}"
             else
                 l3_device="$(openwrt_wan_l3_device "${wan}")" || {
                     printf 'OpenWrt WAN %s 不存在、未启用或没有可用的三层设备。\n' "${wan}" >&2
@@ -257,11 +252,7 @@ worker_report_once() {
             report_source="$(wan_scoped_report_token "${SOURCE_ID}" "${wan}" "$(default_source_id)")"
             report_identity="$(wan_scoped_report_token "${IDENTITY}" "${wan}" "${report_source}")"
         fi
-        if [[ -n "${ROUTER_PROBE_URL}" && -n "${wan}" ]]; then
-            ip="$(detect_outbound_ipv4_via_router "${wan}")"
-        else
-            ip="$(detect_outbound_ipv4 "${l3_device}")"
-        fi || {
+        ip="$(detect_outbound_ipv4 "${l3_device}")" || {
             printf '未能通过%s探测到公网出口 IPv4。\n' "${label}" >&2
             failure_count=$((failure_count + 1))
             continue
@@ -325,6 +316,14 @@ report_once() {
     fi
     if [[ "${mode}" != "worker" ]] && declare -F official_channel_enabled >/dev/null 2>&1 && official_channel_enabled; then
         official_enabled=1
+    fi
+    if [[ "${SCHEDULED_RUN:-0}" == 1 ]]; then
+        case "${WORKER_AUTO_ENABLED:-1}" in 0|false|no|off) worker_enabled=0 ;; esac
+        case "${OFFICIAL_AUTO_ENABLED:-1}" in 0|false|no|off) official_enabled=0 ;; esac
+        if (( worker_enabled == 0 && official_enabled == 0 )); then
+            self_report_completed "自动上报通道均已停用，本轮跳过。"
+            return 0
+        fi
     fi
     if (( worker_enabled == 0 && official_enabled == 0 )); then
         self_report_incomplete "未启用任何上报通道。"

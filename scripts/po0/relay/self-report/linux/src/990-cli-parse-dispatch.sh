@@ -34,7 +34,6 @@ usage() {
         "  --wan NAME            OpenWrt 逻辑 WAN 接口；可重复，分别绑定接口探测和上报。" \
         "  --wan all             上报全部已启用的 mwan3 WAN；每条 WAN 使用独立来源 ID。" \
         "  --clear-wans          清空 WAN 选择，恢复按默认路由只上报一个出口。" \
-        "  --router-probe-url URL 上游 OpenWrt 内网 CGI 探针；客户端留在网关并读取各 WAN 公网 IP。" \
         "  普通 Linux 官方 token 通过权限 600 的 settings.env 中 PO0_FIREWALL_TOKENS 配置，格式为 token@0..4，可用逗号分隔；不从命令行读取。" \
         "  普通 Linux 官方通道固定使用本机默认出口；指定 WAN / 多 WAN 的官方上报由主 OpenWrt 官方绑定配置负责。" \
         "  --official-status      只读检查 PO0 官方防火墙；绝不执行加白。" \
@@ -151,10 +150,6 @@ parse_args() {
                 WANS_CLI_SEEN="1"
                 shift
                 ;;
-            --router-probe-url)
-                ROUTER_PROBE_URL="${2:-}"
-                shift 2
-                ;;
             --official-status)
                 SHOW_OFFICIAL_STATUS="1"
                 shift
@@ -256,12 +251,11 @@ SKIP_WIFI_SSIDS="$(normalize_wifi_ssid_skip_list "${SKIP_WIFI_SSIDS:-}")"
 normalize_legacy_default_install_path
 if [[ "${SHOW_VERSION}" != "1" && "${SHOW_CHANGELOG}" != "1" && "${UPGRADE_SELF}" != "1" ]]; then
     # Official-only/status operations must remain independent from the
-    # optional LAN Worker lane.  In particular, an old malformed Worker
-    # interval or WAN/router-probe setting must not block a read-only official
+    # optional LAN Worker lane. In particular, an old malformed Worker
+    # interval or WAN setting must not block a read-only official
     # check or an official-only scheduled invocation.
     if [[ "${SHOW_OFFICIAL_STATUS}" != "1" && "${REPORT_MODE}" != "official" ]]; then
         validate_wan_selection || exit 1
-        validate_router_probe_url || exit 1
         apply_interval_seconds_override || exit 1
     fi
 fi

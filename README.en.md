@@ -96,7 +96,7 @@ Use each tool's own README for installation, parameters, and removal instruction
 
 ## PO0 Release Architecture and Boundaries
 
-A PO0 release contains six independent scripts: the manager owns PO0 nftables and controlled jobs; the LAN Worker owns LAN jobs and receiver endpoints; the WAN probe only discovers OpenWrt WAN egress; and the Linux/macOS/Windows Outbound IP Report clients run on access devices. Two OpenWrt APKs carry the WAN probe and outbound reporter integrations; their UCI, procd, LuCI, and mwan3 binding are maintained only for OpenWrt and are not imposed on ordinary clients.
+A PO0 release contains five independent scripts: the manager owns PO0 nftables and controlled jobs; the LAN Worker owns LAN jobs and receiver endpoints; and the Linux/macOS/Windows Outbound IP Report clients run on access devices. The OpenWrt APK carries the outbound reporter integration; its UCI, procd, LuCI, and mwan3 binding are maintained only for OpenWrt and are not imposed on ordinary clients.
 
 The official firewall is an optional, disabled-by-default second lane: GET the current egress, quota, and slot state first, then POST only when the egress is missing or a requested fixed slot does not match. Its fixed 600-second interval is independent of the existing Worker/Self-report schedules and TTLs. A local SSID skip skips both lanes; a forced report bypasses only the local due/SSID guard and never the required GET. Tokens stay in protected configuration and out of logs, arguments, and state. Only the main OpenWrt can use mwan3 to select wan1/wan2; every other endpoint uses its own default egress. Use [`scripts/po0/relay/README.md`](./scripts/po0/relay/README.md) for the user entry points and the technical document for implementation details.
 
@@ -106,11 +106,9 @@ PO0 releases are published through [GitHub Releases](https://github.com/Schweppe
 
 - `nftables-relay-manager.sh`
 - `po0-lan-client.sh`
-- `po0-wan-probe.sh`
 - `po0-outbound-ip-report.sh`
 - `po0-outbound-ip-report-macos.sh`
 - `po0-outbound-ip-report.ps1`
-- `po0-wan-probe.apk`
 - `po0-outbound-ip-report.apk`
 - `checksums.txt`
 

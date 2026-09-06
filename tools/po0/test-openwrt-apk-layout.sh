@@ -4,9 +4,6 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 
 required=(
-    packaging/openwrt/po0-wan-probe/Makefile
-    packaging/openwrt/po0-wan-probe/files/etc/config/po0_wan_probe
-    packaging/openwrt/po0-wan-probe/files/usr/libexec/po0-wan-probe-control
     packaging/openwrt/po0-outbound-ip-report/Makefile
     packaging/openwrt/po0-outbound-ip-report/runtime-manifest.txt
     packaging/openwrt/po0-outbound-ip-report/runtime-header.sh
@@ -35,7 +32,6 @@ for file in "${required[@]}"; do
 done
 
 for file in \
-    packaging/openwrt/po0-wan-probe/files/usr/libexec/po0-wan-probe-control \
     packaging/openwrt/po0-outbound-ip-report/files/etc/init.d/po0-outbound-ip-report \
     packaging/openwrt/po0-outbound-ip-report/files/usr/sbin/po0-outbound-ip-report \
     packaging/openwrt/po0-outbound-ip-report/files/usr/libexec/po0-outbound-ip-report-uci \
@@ -61,13 +57,6 @@ bash "${repo_root}/tools/po0/test-official-firewall-core.sh"
 bash "${repo_root}/tools/po0/test-openwrt-official-adapter.sh"
 bash "${repo_root}/tools/po0/test-openwrt-service.sh"
 bash "${repo_root}/tools/po0/test-openwrt-luci-official-ui.sh"
-
-for package in po0-wan-probe; do
-    grep -Fq 'PKGARCH:=all' "${repo_root}/packaging/openwrt/${package}/Makefile"
-    grep -Fq 'PKG_VERSION:=2026.08.30' "${repo_root}/packaging/openwrt/${package}/Makefile"
-    grep -Fq 'PKG_RELEASE:=5' "${repo_root}/packaging/openwrt/${package}/Makefile"
-    grep -Fq "$(printf '$(TOPDIR)/po0-assets')" "${repo_root}/packaging/openwrt/${package}/Makefile"
-done
 
 expected_reporter_version="$(sed -n 's/^SCRIPT_VERSION="\([^"]*\)"/\1/p' "${repo_root}/scripts/po0/relay/self-report/linux/src/000-runtime-header.sh")"
 [[ "${expected_reporter_version}" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}\+build\.[0-9]+$ ]] || { printf 'Invalid reporter source version.\n' >&2; exit 1; }

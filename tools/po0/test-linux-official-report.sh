@@ -82,7 +82,6 @@ TOKEN_C='pgnfw_test_gamma_not_real'
 PO0_FIREWALL_TOKENS="${TOKEN_A}@0,${TOKEN_B}@1"
 OFFICIAL_STATE_FILE="${tmp_dir}/official.state"
 FORCE_REPORT='1'
-ROUTER_PROBE_URL=''
 PO0_OUTBOUND_IP_REPORT_OFFICIAL_NOW='1000'
 SCENARIO='baseline'
 request_log="${tmp_dir}/requests.log"
@@ -206,7 +205,7 @@ run_report
 assert_file_eq 'a|status| b|status|' "${request_log}" 'GET failure incorrectly triggered POST'
 
 # One failed token must not stop later tokens; the aggregate is partial.
-PO0_FIREWALL_TOKENS="${TOKEN_A}@0,${TOKEN_B}@1,${TOKEN_C}@3"
+PO0_FIREWALL_TOKENS=" ,${TOKEN_A}@0 ;"$'\n\t'"${TOKEN_B}@1，${TOKEN_C}@3； "
 SCENARIO='get-fail-b'
 run_report
 [[ "${RUN_RC}" -ne 0 ]] || fail 'partial report returned success'
@@ -372,7 +371,6 @@ unset PO0_OUTBOUND_IP_REPORT_OFFICIAL_NOW
 # Malformed/ambiguous values fail closed without exposing their contents.
 for bad_tokens in \
     'pgnfw_bad;$(touch /tmp/po0-test-owned)' \
-    $'pgnfw_bad\npgnfw_other' \
     "${TOKEN_A}@5" \
     "${TOKEN_A}@0,${TOKEN_A}@0" \
     "${TOKEN_A}@0,${TOKEN_A}@1" \
@@ -394,7 +392,6 @@ IDENTITY='test-device'
 skip_report_for_wifi_ssid_if_needed() { return 1; }
 normalize_wan_selection_list() { printf '%s\n' "$1"; }
 validate_wan_selection() { return 0; }
-prepare_router_probe_batch() { return 0; }
 resolve_report_wans() { printf '__default__\n'; }
 detect_outbound_ipv4() { printf '192.0.2.10\n'; }
 default_source_id() { printf 'test-device\n'; }
@@ -448,6 +445,30 @@ run_wrapper() {
 run_wrapper
 assert_eq '0' "${RUN_RC}" 'combined wrapper failed'
 assert_file_eq 'official|a|status| worker' "${order_log}" 'official lane was not executed before Worker'
+
+# Automatic switches are independent of credentials and of manual report selection.
+SCHEDULED_RUN=1
+FORCE_REPORT=1
+WORKER_AUTO_ENABLED=0
+OFFICIAL_AUTO_ENABLED=1
+run_wrapper
+assert_eq '0' "$RUN_RC" 'paused Worker should not fail official'
+assert_file_eq 'official|a|status|' "$order_log" 'Worker automatic pause was ignored'
+WORKER_AUTO_ENABLED=1
+OFFICIAL_AUTO_ENABLED=0
+run_wrapper
+assert_eq '0' "$RUN_RC" 'paused official should not fail Worker'
+assert_file_eq 'worker' "$order_log" 'official automatic pause was ignored'
+WORKER_AUTO_ENABLED=0
+run_wrapper
+assert_eq '0' "$RUN_RC" 'both paused should return quietly'
+[[ ! -s "$order_log" ]] || fail 'both paused ran a lane'
+SCHEDULED_RUN=0
+run_wrapper
+assert_file_eq 'official|a|status| worker' "$order_log" 'manual run must ignore automatic pauses'
+WORKER_AUTO_ENABLED=1
+OFFICIAL_AUTO_ENABLED=1
+FORCE_REPORT=0
 
 SCENARIO='get-fail-a'
 run_wrapper

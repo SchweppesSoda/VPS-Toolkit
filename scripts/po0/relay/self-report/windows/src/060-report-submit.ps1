@@ -115,6 +115,14 @@ function Invoke-SelfReportCore {
 
     $officialActive = (-not $script:Po0FirewallWorkerOnly) -and (Test-Po0FirewallConfigured)
     $workerActive = (-not $script:Po0FirewallOfficialOnly) -and [bool]$script:WorkerUrl
+    if ($script:Po0FirewallScheduledRun) {
+        $workerActive = $workerActive -and $script:WorkerAutoEnabled
+        $officialActive = $officialActive -and $script:OfficialAutoEnabled
+        if (-not $officialActive -and -not $workerActive) {
+            Write-SelfReportCompleted "自动上报通道均已停用，本轮跳过。"
+            return
+        }
+    }
     if (-not $officialActive -and -not $workerActive) {
         throw "没有配置可执行的上报通道。"
     }

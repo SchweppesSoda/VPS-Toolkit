@@ -74,13 +74,8 @@ install_cron() {
         fi
     fi
     run_cmd="bash $(sh_quote "${script}") --config $(sh_quote "${CONFIG_FILE}")"
-    if (( official_requested == 1 )); then
-        # The single scheduled entry runs the wrapper in normal mode.  The
-        # wrapper executes official first and lets each lane apply its own
-        # due gate; putting options after redirection would make them shell
-        # arguments, so append the flag before the log redirection.
-        run_cmd="${run_cmd} --scheduled-run"
-    fi
+    # Always mark scheduled invocations, including Worker-only installations.
+    run_cmd="${run_cmd} --scheduled-run"
     run_cmd="${run_cmd} >$(sh_quote "$(self_report_log_path)") 2>&1"
     job="$(build_cron_job "${wake_minutes}" "${run_cmd}")"
     if schedule_paused; then

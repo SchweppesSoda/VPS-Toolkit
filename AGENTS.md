@@ -8,14 +8,14 @@
 - `scripts/vps/`：通用 VPS 工具，包括 inventory 驱动的代理栈部署、已有机器接管与按配置复刻、SSH 加固、Fail2ban、3x-ui、ForwardX、REALITY finder。
 - Web 静态工具已迁出到 `SchweppesSoda/vps-toolkit-web`；本仓不再维护 `web/`，也不要从本仓根目录启用 GitHub Pages。
 - `tools/` 只放离线构建工具。`tools/po0/` 维护 PO0 Release 发布文件构建、manifest 和检查脚本；运行在客户端、Worker 或访问设备上的脚本应放到对应 `scripts/po0/relay/*/src/` 或明确的客户端目录。
-- PO0 Release 脚本由 `tools/po0/build-po0-assets.ps1` / `.sh` 按 `tools/po0/manifests/` 生成；manifest 覆盖 manager、LAN Worker、OpenWrt WAN probe、Linux self-report、macOS self-report、Windows self-report 六个模块化源码树。OpenWrt APK 由 25.12 SDK 使用 `packaging/openwrt/` 定义构建。
+- PO0 Release 脚本由 `tools/po0/build-po0-assets.ps1` / `.sh` 按 `tools/po0/manifests/` 生成；manifest 覆盖 manager、LAN Worker、Linux self-report、macOS self-report、Windows self-report 五个模块化源码树。OpenWrt APK 由 25.12 SDK 使用 `packaging/openwrt/` 定义构建。
 
 ## PO0 职责边界
 
 - Release 发布文件 `nftables-relay-manager.sh` 运行在 PO0，负责 nftables、白名单、资源任务创建、restricted key wrapper 和资源导入。
 - `po0-lan-client.sh` 的源码位于 `scripts/po0/relay/lan-worker/src/`，运行在 LAN Worker，负责轮询领取任务、DDNS、自上报接收、WebAuth 接收和本机轮询器。
 - 官方防火墙上报是默认关闭的独立第二车道：每个官方账号最多 5 个槽位，先 GET 读取状态，缺失或固定槽位不匹配才 POST；官方固定 600 秒，必须与 DDNS、资源任务和普通 Self-report 的计划/TTL 分开维护。
-- 访问设备命中本地 SSID 跳过规则时，官方和普通上报两条车道一起跳过；强制上报只绕过本机 due/SSID guard，不能绕过官方 GET。主 OpenWrt 的适配器用 mwan3 绑定 wan1/wan2；旁路 OpenWrt 用 official_source_wan1/official_source_wan2 映射专用本机 IPv4（88.2 部署为 .250/.251），真实 WAN IP 探测和官方 GET/POST 都绑定相应源地址；上游 mwan3 按源地址配置对应 WAN-only 分流，旁路网关透明代理绕过这些专用源地址，不能重新发起请求丢失所选源地址。LAN Worker 提交使用本机正常网络并遵循 OpenClash，不绑定或强制直连。探测 DNS 使用 UCI probe_dns_server 对应 PO0_OUTBOUND_IP_REPORT_PROBE_DNS_SERVER（默认 192.168.88.1）的普通 53 端口解析真实 IPv4，不硬编码探测服务器 IP；source 模式迁移须删除旧 router_probe_url 和 direct_probe_resolve，不恢复主路由旧 HTTP CGI；地址缺失或选定 WAN 故障时不回退。其它客户端使用默认出口；token 不得进入日志、命令参数、通知或状态，测试不得访问真实官方 API。
+- 支持读取 SSID 的访问设备命中本地 SSID 跳过规则时，官方和普通上报两条车道一起跳过；Stash 公开 JS 接口没有当前 SSID，不把代理 ssid-policy 当成脚本读取接口，也不声称 Stash 已支持配置 SSID 跳过名单；强制上报只绕过本机 due/SSID guard，不能绕过官方 GET。主 OpenWrt 的适配器用 mwan3 绑定 wan1/wan2；旁路 OpenWrt 用 official_source_wan1/official_source_wan2 映射专用本机 IPv4（88.2 部署为 .250/.251），真实 WAN IP 探测和官方 GET/POST 都绑定相应源地址；上游 mwan3 按源地址配置对应 WAN-only 分流，旁路网关透明代理绕过这些专用源地址，不能重新发起请求丢失所选源地址。LAN Worker 提交使用本机正常网络并遵循 OpenClash，不绑定或强制直连。探测 DNS 使用 UCI probe_dns_server 对应 PO0_OUTBOUND_IP_REPORT_PROBE_DNS_SERVER（默认 192.168.88.1）的普通 53 端口解析真实 IPv4，不硬编码探测服务器 IP；source 模式迁移须删除旧 router_probe_url 和 direct_probe_resolve，不恢复主路由旧 HTTP CGI；地址缺失或选定 WAN 故障时不回退。其它客户端使用默认出口；token 不得进入运行日志、命令参数、通知或自动运行状态。按用户明确要求，Windows/macOS/Linux 主动打开的本机配置页和编辑入口必须显示完整已保存 Token / Worker 密钥，官方 Token 输入可见并支持多行，不能用运行日志脱敏规则阻止用户核对本机配置。测试不得访问真实官方 API。
 - LAN Worker 的 DDNS resolver 上报计划和资源任务领取计划必须分开；资源任务只领取 PO0 已创建的 pending 任务，不复用 DDNS TTL / 上报频率作为资源轮询逻辑。
 - Egern 模块只做当前出口 IPv4 的 SSH report，不做 DDNS。
 - Egern 的 SSID 跳过只允许作为本地 guard：仅 schedule/network 自动触发命中时跳过本次公网 IP 探测和 SSH 上报；手动运行、状态页和 Widget 刷新视为强制继续；SSID 只写入 Egern 本地状态 / 日志 / Widget，不新增 PO0、LAN Worker 或 `--ssh-ip-report` 协议字段。
@@ -28,7 +28,7 @@
 
 ## 发布与构建
 
-- PO0 正式下载源是 GitHub Release：六个脚本 `nftables-relay-manager.sh`、`po0-lan-client.sh`、`po0-wan-probe.sh`、`po0-outbound-ip-report.sh`、`po0-outbound-ip-report-macos.sh`、`po0-outbound-ip-report.ps1`，两个 APK `po0-wan-probe.apk`、`po0-outbound-ip-report.apk`，以及覆盖全部资产的 `checksums.txt`。
+- PO0 正式下载源是 GitHub Release：五个脚本 `nftables-relay-manager.sh`、`po0-lan-client.sh`、`po0-outbound-ip-report.sh`、`po0-outbound-ip-report-macos.sh`、`po0-outbound-ip-report.ps1`，一个 APK `po0-outbound-ip-report.apk`，以及覆盖全部资产的 `checksums.txt`。
 - `Self-report` 是 LAN Worker `/report` 协议、server 功能和历史兼容名；三端访问设备客户端的默认命令、脚本文件、配置和日志统一使用 `po0-outbound-ip-report*` / `PO0 Outbound IP Report`，系统调度器可见名称、launchd label 和 cron marker 使用不带 `PO0` 的 `Outbound IP Report` / `outbound-ip-report` / `OUTBOUND_IP_REPORT_*`。旧 `po0-self-report*` 和旧 `PO0` 调度器名称只做 legacy 配置读取、旧路径自愈迁移、旧任务清理、旧 env / CLI alias 和历史说明；更新或自愈成功后应迁移并删除默认旧名残留，不再保留默认旧命令 shim。
 - 三端访问设备客户端的 SSID 跳过只允许作为本地 guard：命中时本机跳过并写日志摘要，不上传 SSID，不新增 LAN Worker `/report` 或 PO0 协议字段；SSID 列表用英文分号分隔并精确匹配；读取失败必须继续正常上报；手动运行命中时询问是否强制继续；不要为 SSID 新增 `PO0_SELF_REPORT_*` 或 `SELF_REPORT_*` legacy alias。
 - macOS 访问设备客户端必须兼容系统自带 Bash 3.2；在 `set -u` 环境下不要用空 Bash 数组解析可选列表，例如 `local -a items` / `read -r -a items` / `"${items[@]}"`，SSID 列表解析应使用 Bash 3.2 安全的字符串循环，并保留对应 release gate。
@@ -40,7 +40,7 @@
 - 每种 Release 都按本次选定范围 draft 原子发布：完整上传相应资产及精确覆盖它们的 `checksums.txt`，回下载校验通过后再公开。已存在 draft 只允许补齐缺失 asset；已有资产 checksum 不同、或正式 release 缺资产时必须失败并用新 tag，禁止覆盖正式资产。
 - Latest 供脚本安装 / 自更新使用，只允许脚本或整包 release 更新；旧版本晚完成不能让 Latest 倒退。APK 使用独立 tag 的版本化下载地址，不使用 `releases/latest/download/*.apk`。
 - 旧 manager、LAN Worker 和 self-report raw URL 已禁用，不再作为兼容入口；不要重新新增这些 raw 可执行脚本路径。Egern 标准 raw 路径是 `scripts/po0/nftables/clients/egern/`；`scripts/po0/relay/egern/` 只作为历史兼容路径暂时保留，不能作为新安装推荐入口。
-- Egern YAML/JS、Loon LPX/JS、Stash 客户端脚本、离线 iplist 构建器、外部 ipdb/iplist 数据源和未纳入本阶段的通用 VPS 脚本 raw 下载源是白名单；PO0 六个可执行脚本的新安装、自更新和 manager mirror 上游应使用 Release 发布文件。raw URL 检查应使用精确路径白名单，不能用 `reinstall` 等宽泛子串放行。
+- Egern YAML/JS、Loon LPX/JS、Stash 客户端脚本、离线 iplist 构建器、外部 ipdb/iplist 数据源和未纳入本阶段的通用 VPS 脚本 raw 下载源是白名单；PO0 五个可执行脚本的新安装、自更新和 manager mirror 上游应使用 Release 发布文件。raw URL 检查应使用精确路径白名单，不能用 `reinstall` 等宽泛子串放行。
 - Linux/OpenWrt、macOS、Windows 三端访问设备客户端自更新后，应先检测 cron / launchd / Windows 计划任务是否已指向标准脚本路径；只有入口漂移、缺失或迁移旧任务时才刷新，不要每次自更新都无条件重写定时入口。
 - 模块化后优先修改 `scripts/po0/relay/manager/src/`、`scripts/po0/relay/lan-worker/src/`、`scripts/po0/relay/self-report/` 和对应 manifest；不要手改由构建器生成的 Release staging 单文件。`tools/po0/check-po0-assets.sh` 是 CI/release authority；`tools/po0/check-po0-assets.ps1` 是 Windows 本地等价检查入口，二者都必须确认 manifest 覆盖、raw URL 策略、Egern legacy sync、Windows 标准安装路径、版本/tag 对齐、三端 SSID 本地跳过 guard，以及 macOS `--show-wifi-ssid` / `--diagnose-wifi-ssid` / `--request-location-permission` / `--delete-location-permission-helper` / `--open-location-services` 诊断入口、Helper App 定位授权 / CoreWLAN fallback、安全删除 Helper、无裸 `osascript` 授权 helper。
 - Windows 上运行 `tools/po0/check-po0-assets.ps1` 时，Bash 子检查应优先使用 Git Bash；不要误用 Windows 自带 WSL `bash.exe` stub。Bash 入口调用 `pwsh` 检查 Windows 脚本时，要先把 Git Bash/MSYS 路径转换成 Windows 路径，避免 `/d/Users/...` 被 `pwsh` 解析成 `D:\d\Users\...`。
@@ -48,6 +48,13 @@
 - Bash / PowerShell PO0 checker 的本地默认构建目录必须相互隔离；Release workflow 需要显式传入固定 `.tmp/po0-check-assets`，因为后续发布步骤从该目录读取资产。checker 新接入的专项测试也必须使用仓库 `.tmp/` 下的唯一临时目录，避免并行门禁互相清理。
 - `.github/workflows/po0-check.yml` 的路径过滤必须覆盖整个 `scripts/po0/nftables/clients/**` 和已接入门禁的 `scripts/po0/reinstall/**`，不能退回只监听 Egern。
 - 构建器必须显式控制编码和 LF：Bash/manifest/checksum 使用 UTF-8 no BOM；含中文的 Windows PowerShell `.ps1` 使用 UTF-8 BOM，避免 Windows PowerShell 5 按系统代码页解析失败。
+
+## 访问设备客户端的通道设置
+
+- Windows / macOS / Linux 主菜单和两个通道子菜单维持相同编号与语义；本机目标名称不能改变 source-id、identity 或请求协议。
+- 自动开关与凭据分开保存；缺少新开关的旧配置按原行为执行。停用只影响自动触发，手动仍可运行；安装一次共享计划，不为官方另装一个任务。菜单保存配置后仅更新已经存在的计划，不自动创建新计划。
+- Egern / Loon / Stash 的保存、清除、自动开关按通道隔离；清除后保留本机停用记录，不能被同步参数自动复活。配置总览不访问网络。
+- 统一界面不能伪造 TTL 能力：Egern SSH 可提交 TTL，桌面 / Loon / Stash 经 Worker 的 TTL 由接收端控制；官方保留固定 600 秒检查和现有 API 参数。
 
 ## 交互脚本规则
 

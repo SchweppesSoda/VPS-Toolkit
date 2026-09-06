@@ -10,9 +10,9 @@ if (-not $OutputDir) {
 }
 
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.09.05+build.9" }
-$ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-09-05" }
-$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.09.05.9" }
+$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.09.06+build.1" }
+$ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-09-06" }
+$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.09.06.1" }
 
 function ConvertTo-RepoRelativePath {
     param([string]$Path)
@@ -523,7 +523,7 @@ function Test-MacOsWifiSsidDiagnostic {
     if ($raw -notmatch 'request_macos_location_permission\(\)' -or $raw -notmatch 'ensure_macos_location_permission_helper_app\(\)' -or $raw -notmatch 'macos_location_helper_wifi_ssid\(\)') {
         throw "macOS asset lacks Location Services authorization request helper."
     }
-    if ($raw -notmatch '\[0-16\]' -or $raw -notmatch '13\) show_wifi_ssid_permission_help_interactive; pause_before_return ;;' -or $raw -notmatch '15\) remove_macos_location_permission_helper_app_interactive; pause_before_return ;;') {
+    if ($raw -notmatch 'client_maintenance_menu\(\)' -or $raw -notmatch 'max_choice=4' -or $raw -notmatch '请选择 \[0-\$max_choice\]' -or $raw -notmatch '7\) client_maintenance_menu;' -or $raw -notmatch '3\).*then show_wifi_ssid_permission_help_interactive;' -or $raw -notmatch '4\).*then remove_macos_location_permission_helper_app_interactive;') {
         throw "macOS asset lacks Wi-Fi SSID diagnostic menu/range/case wiring."
     }
     if ($raw -notmatch 'remove_macos_location_permission_helper_app\(\)' -or $raw -notmatch 'remove_macos_location_permission_helper_app_interactive\(\)') {
@@ -744,7 +744,6 @@ function Test-VersionsConsistent {
     $assets = @(
         "nftables-relay-manager.sh",
         "po0-lan-client.sh",
-        "po0-wan-probe.sh",
         "po0-outbound-ip-report.sh",
         "po0-outbound-ip-report-macos.sh",
         "po0-outbound-ip-report.ps1"
@@ -768,7 +767,6 @@ function Test-AssetInventory {
         "checksums.txt",
         "nftables-relay-manager.sh",
         "po0-lan-client.sh",
-        "po0-wan-probe.sh",
         "po0-outbound-ip-report-macos.sh",
         "po0-outbound-ip-report.ps1",
         "po0-outbound-ip-report.sh"
@@ -818,7 +816,6 @@ function Test-VersionsMatchTag {
     foreach ($asset in @(
         "nftables-relay-manager.sh",
         "po0-lan-client.sh",
-        "po0-wan-probe.sh",
         "po0-outbound-ip-report.sh",
         "po0-outbound-ip-report-macos.sh"
     )) {
@@ -853,11 +850,6 @@ Test-ManifestCoverage `
     -Name "lan-worker" `
     -ManifestPath (Join-Path $RepoRoot "tools/po0/manifests/lan-worker.txt") `
     -SourceDir (Join-Path $RepoRoot "scripts/po0/relay/lan-worker/src")
-
-Test-ManifestCoverage `
-    -Name "wan-probe-openwrt" `
-    -ManifestPath (Join-Path $RepoRoot "tools/po0/manifests/wan-probe-openwrt.txt") `
-    -SourceDir (Join-Path $RepoRoot "scripts/po0/relay/wan-probe/openwrt/src")
 
 Test-ManifestCoverage `
     -Name "self-report-linux" `
@@ -1023,8 +1015,8 @@ Invoke-BashToolScript "tools/po0/test-linux-multi-wan-report.sh"
 Invoke-BashToolScript "tools/po0/test-linux-official-http.sh"
 Invoke-BashToolScript "tools/po0/test-linux-official-report.sh"
 Invoke-BashToolScript "tools/po0/test-linux-official-cli.sh"
+Invoke-BashToolScript "tools/po0/test-client-settings-input.sh"
 Invoke-BashToolScript "tools/po0/test-lan-worker-official-report.sh"
-Invoke-BashToolScript "tools/po0/test-wan-probe.sh"
 Invoke-BashToolScript "tools/po0/test-official-firewall-core.sh"
 Invoke-BashToolScript "tools/po0/test-openwrt-official-adapter.sh"
 Invoke-BashToolScript "tools/po0/test-openwrt-service.sh"
@@ -1047,7 +1039,6 @@ if ($LASTEXITCODE -ne 0) {
 }
 Invoke-BashSyntax "nftables-relay-manager.sh"
 Invoke-BashSyntax "po0-lan-client.sh"
-Invoke-BashSyntax "po0-wan-probe.sh"
 Invoke-BashSyntax "po0-outbound-ip-report.sh"
 Invoke-BashSyntax "po0-outbound-ip-report-macos.sh"
 Test-PowerShellSyntax "po0-outbound-ip-report.ps1"

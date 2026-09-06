@@ -3,12 +3,15 @@ configure_official_interactive() {
     print_panel_section "PO0 官方防火墙参数"
     printf '官方检查周期固定为 600 秒。Token 可带 @0..4 指定槽位。\n'
     po0_firewall_read_tokens_interactive || { PO0_FIREWALL_TOKENS="${previous_tokens}"; return 1; }
+    sync_official_account_names "$previous_tokens"
     save_config_file
 }
 
 clear_official_tokens_interactive() {
     prompt_yes_no "确认清除已保存的官方防火墙 token" "n" || return 0
     PO0_FIREWALL_TOKENS=""
+    PO0_FIREWALL_NAMES=""
+    OFFICIAL_AUTO_ENABLED=0
     save_config_file
 }
 
@@ -17,15 +20,19 @@ show_current_config() {
     print_panel_row "配置文件" "${CONFIG_FILE}"
     print_panel_row "保存状态" "$([[ -f "${CONFIG_FILE}" ]] && printf '已保存' || printf '未保存')"
     print_panel_section "自建 PO0 · LAN Worker"
+    print_panel_row "目标名称" "${WORKER_NAME:-LAN Worker}"
+    print_panel_row "自建自动上报" "$(channel_auto_label worker)"
     print_panel_row "LAN Worker URL" "${WORKER_URL:-未设置}"
     print_panel_row "来源 ID" "${SOURCE_ID:-未设置}"
     print_panel_row "设备备注" "${IDENTITY:-未设置}"
-    print_panel_row "上报密钥" "$(mask_secret "${SECRET}")"
+    print_panel_row "上报密钥" "${SECRET:-未设置}"
     print_panel_row "HTTP 上报" "$(if http_allowed; then printf '已显式允许'; else printf '默认拒绝'; fi)"
     print_panel_row "放行时长" "由 LAN Worker 接收端控制，默认 43200 秒"
     print_panel_row "自建上报间隔" "$(cron_minutes_to_seconds "${CRON_MINUTES}") 秒（安装定时上报时使用）"
     print_panel_section "PO0 官方防火墙"
-    print_panel_row "官方 Token" "$(po0_firewall_masked_tokens)"
+    print_panel_row "官方目标名称" "${PO0_FIREWALL_NAMES:-未设置，按账号编号显示}"
+    print_panel_row "官方自动上报" "$(channel_auto_label official)"
+    print_panel_row "官方 Token" "${PO0_FIREWALL_TOKENS:-未设置}"
     print_panel_row "官方状态" "$(po0_firewall_state_summary)"
     print_panel_row "官方检查周期" "固定 600 秒"
     print_panel_section "通用设置与定时任务"
@@ -38,37 +45,6 @@ show_current_config() {
     else
         print_panel_row "首选 IP 探测" "${IP_CHECK_URL}"
     fi
-}
-
-show_menu_dashboard() {
-    print_title "PO0 Outbound IP Report Client"
-    print_panel_section "脚本信息"
-    print_panel_row "脚本名称" "${SCRIPT_NAME}"
-    print_panel_row "版本" "${SCRIPT_VERSION}"
-    print_panel_row "构建标识" "$(script_build_label)"
-    print_panel_row "发布日期" "${SCRIPT_RELEASE_DATE}"
-    print_panel_row "执行来源" "$(current_script_path)"
-    print_panel_row "默认安装路径" "$(default_install_path)"
-    print_panel_row "下载 URL" "${DOWNLOAD_URL}"
-
-    print_panel_section "当前状态"
-    print_panel_row "配置文件" "${CONFIG_FILE}"
-    print_panel_row "保存状态" "$([[ -f "${CONFIG_FILE}" ]] && printf '已保存' || printf '未保存')"
-    print_panel_section "自建 PO0 · LAN Worker"
-    print_panel_row "LAN Worker URL" "${WORKER_URL:-未设置}"
-    print_panel_row "来源 ID" "${SOURCE_ID:-未设置}"
-    print_panel_row "设备备注" "${IDENTITY:-未设置}"
-    print_panel_row "放行时长" "由 LAN Worker 接收端控制，默认 43200 秒"
-    print_panel_row "自建上报间隔" "$(cron_minutes_to_seconds "${CRON_MINUTES}") 秒（安装定时上报时使用）"
-    print_panel_section "PO0 官方防火墙"
-    print_panel_row "官方 Token" "$(po0_firewall_masked_tokens)"
-    print_panel_row "官方状态" "$(po0_firewall_state_summary)"
-    print_panel_row "官方检查周期" "固定 600 秒"
-    print_panel_section "通用设置与定时任务"
-    print_panel_row "定时上报" "$(cron_status_summary)"
-    print_panel_row "通知模式" "$(notify_status_label)"
-    print_panel_row "跳过 Wi-Fi SSID" "$(skip_wifi_ssids_label)"
-    print_panel_row "当前 Wi-Fi SSID" "$(current_wifi_ssid_label)"
 }
 
 configure_interactive() {
@@ -89,6 +65,7 @@ configure_interactive() {
     fi
     SOURCE_ID="$(prompt_default "来源 ID" "${SOURCE_ID:-$(default_source_id)}")"
     IDENTITY="$(prompt_default "设备备注" "${IDENTITY}")"
+    print_panel_row "当前上报密钥" "${SECRET:-未设置}"
     if [[ -n "${SECRET}" ]]; then
         secret_input="$(read_prompt "Self-report secret [已设置，回车保留，输入 - 清空]: ")" || secret_input=""
         secret_input="$(trim "${secret_input}")"
@@ -160,51 +137,33 @@ install_cron_interactive() {
 }
 
 menu_loop() {
-    local choice rc
+    local choice
+    CLIENT_MENU_UNINSTALLED=0
     while true; do
         menu_clear_screen
-        show_menu_dashboard
-        print_menu_section "自建 PO0 · LAN Worker"
-        print_menu_item 1 "配置自建 PO0 参数"
-        print_menu_section "PO0 官方防火墙"
-        print_menu_pair 2 "配置官方 Token / 槽位" 3 "查看官方状态（只读）"
-        print_menu_item 4 "清除官方 Token"
-        print_menu_section "通用设置与手动上报"
-        print_menu_pair 5 "配置探测 / Wi-Fi 跳过" 6 "立即上报已配置通道"
-        print_menu_section "定时上报"
-        print_menu_pair 7 "安装 / 更新定时上报" 8 "暂停 / 恢复定时上报"
-        print_menu_pair 9 "查看定时上报状态" 10 "通知 / 静默模式"
-        print_menu_item 11 "删除定时上报"
-        print_menu_section "查看"
-        print_menu_pair 12 "显示当前配置" 13 "Wi-Fi SSID 权限诊断"
-        print_menu_section "维护"
-        print_menu_pair 14 "从 GitHub 更新脚本" 15 "删除定位权限 Helper"
-        print_menu_item 16 "卸载本客户端"
-        print_menu_section "退出"
+        show_client_overview
+        print_menu_section "通道设置"
+        print_menu_item 1 "自建 PO0"
+        print_menu_item 2 "官方防火墙"
+        print_menu_section "通用操作"
+        print_menu_item 3 "网络探测 / SSID 跳过"
+        print_menu_item 4 "立即上报全部已配置通道"
+        print_menu_item 5 "自动上报管理"
+        print_menu_item 6 "查看完整保存配置"
+        print_menu_item 7 "维护与诊断"
         print_menu_item 0 "退出"
         print_menu_footer
-        choice="$(read_prompt "请选择操作 [0-16]: ")" || return 0
-        choice="$(trim "${choice}")"
-        case "${choice}" in
-            1) configure_interactive; pause_before_return ;;
-            2) configure_official_interactive; pause_before_return ;;
-            3) official_status_interactive; pause_before_return ;;
-            4) clear_official_tokens_interactive; pause_before_return ;;
-            5) configure_common_interactive; pause_before_return ;;
-            6) run_once_interactive; pause_before_return ;;
-            7) install_cron_interactive; pause_before_return ;;
-            8) toggle_schedule_interactive; pause_before_return ;;
-            9) show_cron_status; pause_before_return ;;
-            10) toggle_notify_interactive; pause_before_return ;;
-            11) if prompt_yes_no "确认删除定时上报" "n"; then remove_cron; else echo "已取消。"; fi; pause_before_return ;;
-            12) show_current_config; pause_before_return ;;
-            13) show_wifi_ssid_permission_help_interactive; pause_before_return ;;
-            14) upgrade_self_from_download --reopen-menu || pause_before_return ;;
-            15) remove_macos_location_permission_helper_app_interactive; pause_before_return ;;
-            16) uninstall_self_report_interactive; rc=$?; pause_before_return; [[ "${rc}" == "0" ]] && return 0 ;;
+        choice="$(read_prompt "请选择 [0-7]: ")" || return 0
+        case "$(trim "${choice}")" in
+            1) channel_settings_menu worker ;;
+            2) channel_settings_menu official ;;
+            3) configure_common_interactive; pause_before_return ;;
+            4) run_channel_interactive all; pause_before_return ;;
+            5) automatic_reporting_menu ;;
+            6) show_current_config; pause_before_return ;;
+            7) client_maintenance_menu; [[ "${CLIENT_MENU_UNINSTALLED:-0}" != 1 ]] || return 0 ;;
             0) return 0 ;;
-            "") ;;
-            *) printf '无效选择：请输入 0-16。\n' >&2; pause_before_return ;;
+            *) printf '无效选择：请输入 0-7。\n'; pause_before_return ;;
         esac
     done
 }

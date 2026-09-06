@@ -28,22 +28,10 @@ PO0_REPORT_LOCK_HELD="0"
 PO0_REPORT_LOCK_STALE_SECONDS="86400"
 
 po0_firewall_normalize_tokens() {
-    local raw="${1:-}" item out=""
-    raw="$(trim "${raw}")"
-    while [[ -n "${raw}" ]]; do
-        if [[ "${raw}" == *,* ]]; then
-            item="${raw%%,*}"
-            raw="${raw#*,}"
-        else
-            item="${raw}"
-            raw=""
-        fi
-        item="$(trim "${item}")"
-        [[ -n "${item}" ]] || continue
-        [[ -n "${out}" ]] && out="${out},"
-        out="${out}${item}"
-    done
-    printf '%s\n' "${out}"
+    local raw="${1:-}"
+    raw="${raw//，/,}"
+    raw="${raw//；/,}"
+    printf '%s' "${raw}" | tr ',;[:space:]' '\n' | awk 'NF { printf "%s%s", sep, $0; sep="," } END { printf "\n" }'
 }
 
 po0_firewall_parse_item() {
@@ -77,7 +65,7 @@ po0_firewall_parse_item() {
 
 po0_firewall_validate_tokens() {
     local raw rest item count=0 key seen=";"
-    raw="$(trim "${PO0_FIREWALL_TOKENS:-}")"
+    raw="$(po0_firewall_normalize_tokens "${PO0_FIREWALL_TOKENS:-}")"
     [[ -n "${raw}" ]] || return 0
     [[ "${raw}" != ,* && "${raw}" != *, && "${raw}" != *,,* ]] || {
         printf 'PO0 官方防火墙 token 列表包含空项。\n' >&2
@@ -141,20 +129,29 @@ po0_firewall_masked_tokens() {
 }
 
 po0_firewall_read_secret_prompt() {
-    local prompt="$1" value
-    if [[ -r /dev/tty && -w /dev/tty ]]; then
-        printf '%s' "${prompt}" > /dev/tty || return 1
-        IFS= read -r -s value < /dev/tty || return 1
-        printf '\n' > /dev/tty || true
-    else
-        IFS= read -r -s value || return 1
-    fi
+    local prompt="$1" value="" line="" separator=""
+    while true; do
+        if [[ -r /dev/tty && -w /dev/tty ]] && { : < /dev/tty; } 2>/dev/null; then
+            printf '%s' "${prompt}" > /dev/tty || return 1
+            IFS= read -r line < /dev/tty || break
+        else
+            printf '%s' "${prompt}" >&2
+            IFS= read -r line || break
+        fi
+        [[ -n "$(trim "${line}")" ]] || break
+        value="${value}${separator}${line}"
+        [[ "${value}" == "-" ]] && break
+        separator=$'\n'
+        prompt='继续输入（空行结束）: '
+    done
     printf '%s\n' "${value}"
 }
 
 po0_firewall_read_tokens_interactive() {
-    local input normalized
-    input="$(po0_firewall_read_secret_prompt "PO0 官方防火墙 token 列表（逗号分隔，可写 token@0..4；回车保留，- 清空）: ")" || input=""
+    local input normalized previous_tokens="${PO0_FIREWALL_TOKENS:-}"
+    print_panel_row "当前官方 Token" "${PO0_FIREWALL_TOKENS:-未设置}"
+    printf '可用逗号、分号、空格或换行分隔。空行结束；直接空行保留，单独 - 清空。\n'
+    input="$(po0_firewall_read_secret_prompt "输入官方 Token（可写 @0..4，空行结束）: ")" || return 1
     input="$(trim "${input}")"
     [[ -n "${input}" ]] || return 0
     if [[ "${input}" == "-" ]]; then
@@ -163,7 +160,7 @@ po0_firewall_read_tokens_interactive() {
     fi
     PO0_FIREWALL_TOKENS="$(trim "${input}")"
     po0_firewall_validate_tokens || {
-        PO0_FIREWALL_TOKENS=""
+        PO0_FIREWALL_TOKENS="${previous_tokens}"
         return 1
     }
     PO0_FIREWALL_TOKENS="$(po0_firewall_normalize_tokens "${PO0_FIREWALL_TOKENS}")"
@@ -376,7 +373,7 @@ po0_firewall_state_summary() {
                 if [[ -n "$details" ]]; then
                     details="$details；"
                 fi
-                details="$details账号 $ordinal：状态=$item_status；当前出口=$current_text；白名单=${friendly_whitelist:-无}；已用=$used/$limit；固定槽位=$slot_label"
+                details="$details$(if declare -F official_account_name >/dev/null; then official_account_name "$ordinal"; else printf "账号 %s" "$ordinal"; fi)：状态=$item_status；当前出口=$current_text；白名单=${friendly_whitelist:-无}；已用=$used/$limit；固定槽位=$slot_label"
                 ;;
         esac
     done < "$state"
@@ -980,6 +977,7 @@ po0_firewall_process_item() {
     slot="${PO0_FIREWALL_ITEM_SLOT}"
     PO0_FIREWALL_ITEM_SLOT="${slot}"
     marker="官方账号 ${ordinal}"
+    if declare -F official_account_name >/dev/null; then marker="$(official_account_name "$ordinal")"; fi
     slot_label=""
     if [[ -n "${slot}" ]]; then
         slot_label="$((10#${slot} + 1))"

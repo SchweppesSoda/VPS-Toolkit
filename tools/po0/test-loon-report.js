@@ -489,13 +489,15 @@ async function testParallelOfficialAccountsPreserveLaneOrder() {
 function testPluginContract() {
   const plugin = fs.readFileSync(pluginPath, "utf8");
   const declarations = plugin.split(/\r?\n/).filter((line) => /^(?:cron|network-changed|generic)\b/.test(line));
-  assert.strictEqual(declarations.length, 6);
-  assert.strictEqual(declarations.filter((line) => /timeout=300/.test(line)).length, 4);
+  assert.strictEqual(declarations.length, 13);
+  assert.strictEqual(declarations.filter((line) => /timeout=300/.test(line)).length, 6);
   assert.match(plugin, /\[Argument\]/);
+  assert.match(plugin, /SKIP_WIFI_SSIDS = input/);
+  assert.equal(declarations.filter(line => line.includes("{SKIP_WIFI_SSIDS}")).length, 5);
   assert.match(plugin, /po0_worker_url = input,tag=【自建 PO0】/);
   assert.match(plugin, /po0_worker_token = input,tag=【自建 PO0】/);
   assert.match(plugin, /PO0_FIREWALL_TOKENS = input,tag=【官方防火墙】/);
-  assert.strictEqual(declarations.filter((line) => line.includes('argument=[{PO0_FIREWALL_TOKENS}]')).length, 1);
+  assert.strictEqual(declarations.filter((line) => line.includes('argument=[{PO0_FIREWALL_TOKENS},{PO0_FIREWALL_NAMES}]')).length, 1);
   assert.ok(declarations.every((line) => line.includes('script-path=' + scriptRawUrl)));
 }
 
@@ -518,7 +520,7 @@ function testLocalSlotSurvivesSync() {
     $persistentStore: { read: key => store.has(key) ? store.get(key) : null, write: (value, key) => { store.set(key, value); return true; } },
   };
   vm.createContext(sandbox);
-  const start = source.indexOf('function firewallInput(');
+  const start = source.indexOf('function channelSettings(');
   const end = source.indexOf('function parseFirewallTokens(');
   const parseEnd = source.indexOf('\nfunction ', end + 10);
   const functions = source.slice(start, parseEnd);
@@ -526,6 +528,7 @@ function testLocalSlotSurvivesSync() {
   const renamed = functions.replaceAll('PO0_STORE_KEY', 'STORE_ID').replaceAll('PO0_FIREWALL_TOKENS_KEY', 'LEGACY_ID').replaceAll('PO0_MAX_FIREWALL_TOKENS', 'MAX_ID');
   vm.runInContext(prefix + `
     function readStore(k) { return $persistentStore.read(k); }
+    function readJSON(k,fallback) { return JSON.parse(readStore(k) || "null") || fallback; }
     function writeJSON(k,v) { return $persistentStore.write(JSON.stringify(v),k); }
     function firstNonEmpty(v) { return v.find(x => x !== null && x !== undefined && String(x).trim()) || ''; }
   ` + renamed, sandbox);
@@ -535,7 +538,80 @@ function testLocalSlotSurvivesSync() {
   assert.equal(vm.runInContext("firewallRawValue({PO0_FIREWALL_TOKENS:'pgnfw_synced_device@4'})", sandbox), '');
 }
 
+async function testFlexibleOfficialSeparators() {
+  const saved = await execute({ argument: JSON.stringify({ mode: 'save-official', PO0_FIREWALL_TOKENS: ' ,pgnfw_a@0 pgnfw_b@1\npgnfw_c@2; pgnfw_d@3，pgnfw_e@4；pgnfw_f, ' }) });
+  assert.equal(saved.requests.length, 0);
+  const config = JSON.parse(saved.store.get(STORE_KEY + '.official-config'));
+  assert.ok(config.tokens.includes('pgnfw_f'));
+  const status = await execute({ argument: JSON.stringify({ mode: 'status' }), store: saved.store });
+  assert.equal(status.requests.filter(x => x.request.url.includes('/api/firewall/')).length, 6);
+  assert.ok(status.requests.every(x => x.method === 'get'));
+}
+
+async function testConfiguredSsidSkipsBothChannels() {
+  const args = { mode: 'auto', worker_url: 'https://report.example.com/stash-report/v1', token: 'mock-worker', SKIP_WIFI_SSIDS: 'Home WiFi;Office\nOther' };
+  const store = { [FIREWALL_KEY]: 'pgnfw_ssid_mock' };
+  const skipped = await execute({ ssid: 'Home WiFi', argument: args, store });
+  assert.equal(skipped.requests.length, 0, 'matching SSID must skip both channels before any request');
+  for (const options of [
+    { ssid: 'home wifi', argument: args },
+    { ssid: 'ZTE-47kTee', argument: { ...args, SKIP_WIFI_SSIDS: '' } },
+    { ssid: 'Home WiFi', argument: { ...args, mode: 'force' } },
+  ]) {
+    const result = await execute({ ...options, store });
+    assert.ok(result.requests.some(x => x.request.url.includes('/api/firewall/')));
+    const worker = result.requests.find(x => x.method === 'post' && x.request.url.includes('/stash-report/v1'));
+    assert.ok(worker, 'non-match, cleared list and force must allow Worker');
+    assert.ok(!Object.hasOwn(JSON.parse(worker.request.body), 'ssid'), 'SSID stays local');
+  }
+}
+
+async function testLocalChannelControls() {
+  const store = new Map();
+  const worker = { mode: 'save-worker', worker_url: 'https://saved.example/stash-report/v1', secret: 'saved-fixture-secret', worker_name: '家用接收端', auto_report_interval_seconds: 3600, source_id: 'fixture-device' };
+  const call = async args => execute({ store, argument: JSON.stringify(args), scriptType: 'request', forbidConfig: args.mode !== 'auto' && args.mode !== 'force' });
+  assert.equal((await call(worker)).requests.length, 0, 'saving Worker must stay local');
+  assert.equal((await call({ mode: 'save-official', PO0_FIREWALL_TOKENS: 'pgnfw_home_fixture,pgnfw_office_fixture', PO0_FIREWALL_NAMES: '家庭账号;办公室账号' })).requests.length, 0);
+  const savedWorker = store.get(STORE_KEY + '.worker-config');
+  await call({ mode: 'save-official', PO0_FIREWALL_TOKENS: 'pgnfw_office_fixture,pgnfw_home_fixture@2' });
+  assert.equal(JSON.parse(store.get(STORE_KEY + '.channel-settings')).officialNames, '办公室账号;家庭账号');
+  assert.equal(store.get(STORE_KEY + '.worker-config'), savedWorker, 'official save cannot replace Worker config');
+  await call({ mode: 'toggle-worker' });
+  let result = await call({ mode: 'auto' });
+  assert(result.requests.some(x => x.request.url.includes('/api/firewall/')));
+  assert(!result.requests.some(x => x.request.url.includes('saved.example')), 'paused Worker must not report');
+  await call({ mode: 'toggle-official' });
+  result = await call({ mode: 'auto' });
+  assert.equal(result.requests.length, 0, 'both paused means no network IO');
+  result = await call({ mode: 'force', channel: 'worker' });
+  const post = result.requests.find(x => x.method === 'post' && x.request.url.includes('saved.example'));
+  assert(post, 'manual Worker run must ignore automatic pause');
+  assert.equal(post.request.headers.Authorization, 'Bearer saved-fixture-secret');
+  assert(!result.requests.some(x => x.request.url.includes('/api/firewall/')), 'Worker-only manual run excludes official');
+  assert(!post.request.body.includes('家用接收端'), 'display name must not enter wire payload');
+  assert(!post.request.body.includes('SSID'), 'local SSID policy must not enter wire payload');
+  await call({ mode: 'toggle-worker' });
+  result = await call({ mode: 'auto' });
+  assert(!result.requests.some(x => x.request.url.includes('/api/firewall/')), 'paused official must not run');
+  const beforeOfficial = store.get(STORE_KEY + '.official-config');
+  await call({ mode: 'clear-worker' });
+  assert.equal(store.get(STORE_KEY + '.official-config'), beforeOfficial);
+  result = await call(Object.assign({}, worker, { mode: 'force', channel: 'worker' }));
+  assert(!result.requests.some(x => x.request.url.includes('saved.example')), 'synced parameters cannot restore cleared Worker');
+  await call(worker);
+  await call({ mode: 'clear-official' });
+  assert.equal(JSON.parse(store.get(STORE_KEY)).official, undefined, 'clearing official must remove its stale status');
+  assert.equal(JSON.parse(store.get(STORE_KEY + '.worker-config')).values.worker_name, '家用接收端');
+  result = await call({ mode: 'force', channel: 'official', PO0_FIREWALL_TOKENS: 'pgnfw_synced_fixture' });
+  assert(!result.requests.some(x => x.request.url.includes('/api/firewall/')), 'synced parameters cannot restore cleared official');
+  const view = await call({ mode: 'settings' });
+  assert.equal(view.requests.length, 0, 'settings overview must stay local');
+}
+
 (async () => {
+  await testLocalChannelControls();
+  await testConfiguredSsidSkipsBothChannels();
+  await testFlexibleOfficialSeparators();
   testLocalSlotSurvivesSync();
   await testNamedPluginArguments();
   await testSuccessfulAwayReport();

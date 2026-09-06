@@ -5,7 +5,7 @@ const PO0_RUN_LOCK_KEY = `${PO0_STORE_KEY}.run-lock`;
 const PO0_WORKER_URL_KEY = "po0_worker_url";
 const PO0_WORKER_TOKEN_KEY = "po0_worker_token";
 const PO0_FIREWALL_TOKENS_KEY = "PO0_FIREWALL_TOKENS";
-const PO0_HOME_SSID = "ZTE-47kTee";
+const PO0_LEGACY_SKIP_WIFI_SSIDS = "ZTE-47kTee";
 const PO0_SOURCE_ID = "loon-ios";
 const PO0_USER_AGENT = "AutoLoon-Loon/1";
 const PO0_OFFICIAL_USER_AGENT = "ProxyConfig-PO0-Firewall/Loon";
@@ -107,6 +107,8 @@ function getArgument() {
     "通用 · 查看上报状态": "status",
     "通用 · 立即上报": "force",
     "官方防火墙 · 保存本机设置": "save-official",
+    "自建 PO0 · 保存本机设置": "save-worker",
+    "通用 · 查看本机设置": "settings",
   };
   if (!modes[name]) throw new Error("无法识别上报操作，请更新 PO0 插件");
   return Object.assign({}, args, { mode: modes[name] });
@@ -127,14 +129,21 @@ function readRuntimeConfig() {
   return parsed;
 }
 
-function classifyNetwork(runtimeConfig) {
+function skipWifiSsids(args) {
+  // Legacy actions without this argument retain their previous skip rule.
+  const raw = Object.prototype.hasOwnProperty.call(args, "SKIP_WIFI_SSIDS")
+    ? args.SKIP_WIFI_SSIDS : PO0_LEGACY_SKIP_WIFI_SSIDS;
+  return String(raw || "").split(/[;；\r\n]+/).map((item) => item.trim()).filter((item) => item && item !== "-");
+}
+
+function classifyNetwork(runtimeConfig, args) {
   const ssid = String(runtimeConfig.ssid || "").trim();
   const unknown = !ssid || /^(?:<?unknown(?: ssid)?>?|null|undefined|n\/a)$/i.test(ssid);
   if (unknown) {
     return { allowed: false, reason: "无法可靠识别 SSID，已按 fail-closed 跳过" };
   }
-  if (ssid === PO0_HOME_SSID) {
-    return { allowed: false, home: true, reason: `家庭 Wi-Fi ${PO0_HOME_SSID} 禁止上报` };
+  if (skipWifiSsids(args).includes(ssid)) {
+    return { allowed: false, home: true, ssid, reason: `Wi-Fi ${ssid} 命中跳过名单，两个通道均已跳过` };
   }
 
   const cellular = /^(?:cellular|wwan|mobile|mobile data)$/i.test(ssid);
@@ -154,8 +163,8 @@ function forceNetwork(network) {
       forced: true,
       home: true,
       network: "wifi",
-      ssid: PO0_HOME_SSID,
-      context: "wifi:" + PO0_HOME_SSID,
+      ssid: network.ssid,
+      context: "wifi:" + network.ssid,
     };
   }
   return {
@@ -180,16 +189,16 @@ function loadCredentials(args) {
     args.po0_worker_url,
     args.worker_url,
     args.workerUrl,
-    readStore(PO0_WORKER_URL_KEY),
-    readStore(`${PO0_STORE_KEY}.worker_url`),
+    args.local_worker_saved ? "" : readStore(PO0_WORKER_URL_KEY),
+    args.local_worker_saved ? "" : readStore(`${PO0_STORE_KEY}.worker_url`),
   ]);
   const token = firstNonEmpty([
     args.token,
     args.secret,
     args.po0_worker_token,
     args.worker_token,
-    readStore(PO0_WORKER_TOKEN_KEY),
-    readStore(`${PO0_STORE_KEY}.worker_token`),
+    args.local_worker_saved ? "" : readStore(PO0_WORKER_TOKEN_KEY),
+    args.local_worker_saved ? "" : readStore(`${PO0_STORE_KEY}.worker_token`),
   ]);
 
   if (!workerUrl) return null;
@@ -199,6 +208,106 @@ function loadCredentials(args) {
   }
   if (!token || /^CHANGE_ME/i.test(token)) throw new Error("PO0 Worker token 未配置");
   return { workerUrl, token };
+}
+
+// These controls are device-local. Missing values retain the legacy behavior.
+function channelSettings() {
+  const raw = readStore(PO0_STORE_KEY + '.channel-settings');
+  if (!raw) return {};
+  let saved;
+  try { saved = JSON.parse(raw); } catch (_) { throw new Error('本机通道设置损坏，请重新保存'); }
+  if (!saved || saved.version !== 1) throw new Error('本机通道设置格式错误');
+  return saved;
+}
+
+function saveChannelSettings(value) {
+  if (!writeJSON(PO0_STORE_KEY + '.channel-settings', Object.assign({}, value, { version: 1 }))) throw new Error('无法保存本机通道设置');
+}
+
+function channelAllowed(args, mode, channel) {
+  if (args.channel && args.channel !== channel) return false;
+  return mode !== 'auto' || channelSettings()[channel + 'AutoEnabled'] !== false;
+}
+
+function localWorkerConfig() {
+  const raw = readStore(PO0_STORE_KEY + '.worker-config');
+  if (!raw) return null;
+  let saved;
+  try { saved = JSON.parse(raw); } catch (_) { throw new Error('本机自建配置损坏，请重新保存'); }
+  if (!saved || saved.version !== 1 || !saved.values || typeof saved.values !== 'object') throw new Error('本机自建配置格式错误');
+  return saved.values;
+}
+
+function effectiveWorkerArgs(args) {
+  const saved = localWorkerConfig();
+  if (!saved) return args;
+  const result = Object.assign({}, args);
+  for (const key of ['po0_worker_url', 'worker_url', 'workerUrl', 'token', 'secret', 'po0_worker_token', 'worker_token', 'source_id', 'worker_name', 'auto_report_interval_seconds', 'refresh_ttl_seconds', 'ttl_seconds', 'selected_proxy', 'allow_loopback_http']) delete result[key];
+  return Object.assign(result, saved, { local_worker_saved: true });
+}
+
+function officialAccountName(index) {
+  return String(channelSettings().officialNames || '').replace(/\r/g, '').split(/[;；\n]/)[index]?.trim() || '官方账号 ' + (index + 1);
+}
+
+function saveOfficialNames(args, tokens, clear) {
+  const settings = channelSettings();
+  const previous = readJSON(PO0_STORE_KEY + '.official-config', {});
+  const oldTokens = String(previous.tokens || '').split(/[,;，；\s]+/).filter(Boolean);
+  const oldNames = String(settings.officialNames || '').replace(/\r/g, '').split(/[;；\n]/);
+  const input = String(args.PO0_FIREWALL_NAMES || '').trim();
+  settings.officialNames = clear || input === '-' ? '' : input || parseFirewallTokens(tokens).map(item => {
+    const index = oldTokens.findIndex(old => old.split('@')[0] === item.token);
+    return index < 0 ? '' : oldNames[index] || '';
+  }).join(';');
+  if (clear) settings.officialAutoEnabled = false;
+  saveChannelSettings(settings);
+}
+
+function isLocalSettingsMode(mode) {
+  return ['save-worker', 'clear-worker', 'toggle-worker', 'toggle-official', 'settings'].includes(mode);
+}
+
+function localSettingsSummary(args) {
+  const settings = channelSettings();
+  const effective = effectiveWorkerArgs(args);
+  const workerUrl = effective.worker_url || effective.po0_worker_url || (!effective.local_worker_saved && readStore(PO0_WORKER_URL_KEY)) || '';
+  const officialConfig = readJSON(PO0_STORE_KEY + '.official-config', null);
+  const officialRaw = officialConfig ? officialConfig.tokens : firewallInput(args);
+  const officialCount = String(officialRaw || '').split(/[,;，；\s]+/).filter(Boolean).length;
+  const interval = effective.auto_report_interval_seconds || effective.refresh_ttl_seconds || effective.ttl_seconds || 1800;
+  return [
+    '自建 PO0：' + (!workerUrl ? '未配置' : settings.workerAutoEnabled === false ? '自动上报已停用' : '自动上报已启用') + '；目标名称：' + (effective.worker_name || 'LAN Worker'),
+    '自建配置：' + (localWorkerConfig() ? '已保存本机设置' : '沿用模块 / 旧设置') + '；地址：' + (workerUrl || '未配置') + '；周期：' + interval + ' 秒',
+    '官方防火墙：' + (!officialCount ? '未配置' : officialCount + ' 个目标，' + (settings.officialAutoEnabled === false ? '自动上报已停用' : '自动上报已启用')) + '；目标名称：' + (settings.officialNames || '按账号编号显示'),
+    '官方固定 600 秒；Worker 按自己的间隔运行；放行 TTL 由接收端管理。',
+    '停用保留配置，手动立即上报仍可用；清除后同步参数不会自动恢复。',
+  ].join('\n');
+}
+
+function runLocalSettingsAction(args, mode) {
+  const settings = channelSettings();
+  if (mode === 'save-worker') {
+    const workerUrl = firstNonEmpty([args.po0_worker_url, args.worker_url, args.workerUrl]);
+    const secret = firstNonEmpty([args.po0_worker_token, args.worker_token, args.token, args.secret]);
+    if (!/^https:\/\/[^/?#]+\/stash-report\/v1\/?$/.test(workerUrl) || !secret || /^CHANGE_ME/.test(secret)) throw new Error('请填写 HTTPS /stash-report/v1 地址与 Worker 密钥');
+    const seconds = Number(args.auto_report_interval_seconds || 1800);
+    if (!Number.isInteger(seconds) || seconds < 600 || seconds > 86400) throw new Error('自动上报周期必须是 600..86400 秒');
+    const values = { worker_url: workerUrl, secret, worker_name: String(args.worker_name || '').trim(), auto_report_interval_seconds: seconds };
+
+    if (!writeJSON(PO0_STORE_KEY + '.worker-config', { version: 1, values })) throw new Error('无法保存本机自建配置');
+  } else if (mode === 'clear-worker') {
+    if (!writeJSON(PO0_STORE_KEY + '.worker-config', { version: 1, values: { worker_url: '', secret: '' } })) throw new Error('无法清除本机自建配置');
+    settings.workerAutoEnabled = false;
+    saveChannelSettings(settings);
+    const state = readJSON(PO0_STORE_KEY, {});
+    if (!writeJSON(PO0_STORE_KEY, state.official ? { official: state.official } : {})) throw new Error('配置已清除，但最近状态未能清除');
+  } else if (mode.startsWith('toggle-')) {
+    const key = mode === 'toggle-worker' ? 'workerAutoEnabled' : 'officialAutoEnabled';
+    settings[key] = settings[key] === false;
+    saveChannelSettings(settings);
+  }
+  return (mode === 'settings' ? '' : '本机设置已更新。\n') + localSettingsSummary(args);
 }
 
 function firewallInput(args) {
@@ -212,7 +321,13 @@ function saveLocalFirewall(args, clear) {
   const input = clear ? "" : firewallInput(args);
   const tokens = input === "-" ? "" : input;
   parseFirewallTokens(tokens);
+  saveOfficialNames(args, tokens, clear || input === "-");
   if (!writeJSON(PO0_STORE_KEY + ".official-config", { version: 1, tokens })) throw new Error("无法保存本机官方配置");
+  if (clear || input === '-') {
+    const state = readJSON(PO0_STORE_KEY, {});
+    delete state.official;
+    if (!writeJSON(PO0_STORE_KEY, state)) throw new Error('配置已清除，但最近状态未能清除');
+  }
   return tokens;
 }
 
@@ -234,10 +349,7 @@ function firewallRawValue(args) {
 function parseFirewallTokens(raw) {
   const text = String(raw || "").trim();
   if (!text) return [];
-  const items = text.split(",");
-  if (!items.length || items.some((item) => !String(item).trim())) {
-    throw new Error("PO0 官方防火墙 token 列表包含空项");
-  }
+  const items = text.split(/[,;，；\s]+/).filter(Boolean);
 
   const tokens = [];
   const seen = [];
@@ -375,6 +487,7 @@ function officialHit(response, item) {
 
 function officialAccountState(index, item, response, nowSeconds, status, added, error) {
   return {
+    name: officialAccountName(index - 1),
     account: index,
     fixed_slot: item.fixedSlot,
     enabled: response ? response.enabled : false,
@@ -404,10 +517,12 @@ function officialSummary(official) {
     text += " · 当前 " + (first.current || "-") + " · " + first.used + "/" + first.limit;
     if (first.fixed_slot !== null && first.fixed_slot !== undefined) text += " · 固定槽位 " + (first.fixed_slot + 1);
   }
+  text += " · " + official.accounts.map(account => account.name || ("官方账号 " + account.account)).join(" / ");
   if (official.network) text += " · " + official.network;
   if (missing) text += " · 未命中 " + missing;
   if (added) text += " · 新增 " + added;
   if (official.last_error) text += " · 最近失败";
+  if (channelSettings().officialAutoEnabled === false) text += " · 自动已停用";
   return text;
 }
 
@@ -507,7 +622,7 @@ function epochSeconds(value, fallback) {
 }
 
 function boundedRefreshTTL(args) {
-  const value = Number(args.refresh_ttl_seconds || args.ttl_seconds || PO0_DEFAULT_REFRESH_TTL_SECONDS);
+  const value = Number(args.auto_report_interval_seconds || args.refresh_ttl_seconds || args.ttl_seconds || PO0_DEFAULT_REFRESH_TTL_SECONDS);
   if (!Number.isFinite(value)) return PO0_DEFAULT_REFRESH_TTL_SECONDS;
   return Math.max(300, Math.min(6 * 60 * 60, Math.floor(value)));
 }
@@ -582,6 +697,7 @@ function statusMessage(state) {
 function redactedError(error, args, items) {
   let message = String(error && error.message || error);
   const tokens = [];
+  try { const saved = localWorkerConfig(); if (saved) tokens.push(saved.secret, saved.token); } catch (_) {}
   if (args) {
     tokens.push(args.token, args.secret, args.worker_token, args.PO0_FIREWALL_TOKENS, args.po0_firewall_tokens, args.firewall_tokens);
   }
@@ -675,6 +791,10 @@ async function runWorker(credentials, state, args, network, mode, nowSeconds) {
 async function runUnlocked() {
   const args = getArgument();
   const mode = String(args.mode || "auto").toLowerCase();
+  if (isLocalSettingsMode(mode)) {
+    const message = runLocalSettingsAction(args, mode);
+    notify("PO0 本机设置", "通道管理", message); finish(); return;
+  }
   if (mode === "save-official" || mode === "clear-official") {
     saveLocalFirewall(args, mode === "clear-official");
     notify("PO0 本机官方配置", "已保存", mode === "clear-official" ? "本机配置已清除；同步参数不会自动恢复它" : "Token 和槽位已保存；后续同步参数不会覆盖");
@@ -687,6 +807,10 @@ async function runUnlocked() {
   if (!state || typeof state !== "object" || Array.isArray(state)) state = {};
   const now = Date.now();
   const nowSeconds = Math.floor(now / 1000);
+
+  if (mode === "auto" && !channelAllowed(args, mode, "worker") && !channelAllowed(args, mode, "official")) {
+    finishResult(mode, true, "两个自动上报通道均已停用，配置保留", state); return;
+  }
 
   if (mode === "status") {
     const tokens = loadFirewallTokens(args);
@@ -702,14 +826,15 @@ async function runUnlocked() {
     return;
   }
 
-  const classified = classifyNetwork(readRuntimeConfig());
+  const classified = classifyNetwork(readRuntimeConfig(), args);
   if (!classified.allowed && mode !== "force") {
     finishResult(mode, false, classified.reason, state);
     return;
   }
   const network = mode === "force" ? forceNetwork(classified) : classified;
-  const tokens = loadFirewallTokens(args);
-  const credentials = loadCredentials(args);
+  const tokens = channelAllowed(args, mode, "official") ? loadFirewallTokens(args) : [];
+  const workerArgs = effectiveWorkerArgs(args);
+  const credentials = channelAllowed(args, mode, "worker") ? loadCredentials(workerArgs) : null;
   const needsOfficial = tokens.length > 0 && officialDue(mode, state.official || {}, nowSeconds);
   const workerCached = canUseCachedTTL(mode, state, network, nowSeconds);
   if (!needsOfficial && workerCached) {
@@ -725,7 +850,7 @@ async function runUnlocked() {
 
   let workerResult = { ok: true, enabled: false, skipped: true };
   try {
-    workerResult = await runWorker(credentials, state, args, network, mode, nowSeconds);
+    workerResult = await runWorker(credentials, state, workerArgs, network, mode, nowSeconds);
     if (workerResult.state) {
       const official = state.official;
       state = workerResult.state;
@@ -762,6 +887,7 @@ async function runUnlocked() {
 async function run() {
   const args = getArgument();
   const mode = String(args.mode || "auto").toLowerCase();
+  if (isLocalSettingsMode(mode)) return runUnlocked();
   if (mode === "save-official" || mode === "clear-official") return runUnlocked();
   if (!["auto", "status", "force"].includes(mode)) throw new Error("不支持的模式：" + mode);
 

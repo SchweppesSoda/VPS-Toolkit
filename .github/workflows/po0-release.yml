@@ -55,8 +55,8 @@ jobs:
               printf '%s  %s\n' "$(sha256sum "${asset}" | awk '{print $1}')" "${asset}"
             done > checksums.txt
             checksum_lines="$(wc -l < checksums.txt)"
-            [[ "${checksum_lines}" -eq 8 ]] || {
-              echo "::error::checksums.txt must contain exactly 8 asset hashes"
+            [[ "${checksum_lines}" -eq 6 ]] || {
+              echo "::error::checksums.txt must contain exactly 6 asset hashes"
               exit 1
             }
             ! grep -Fq 'checksums.txt' checksums.txt || {
@@ -89,13 +89,11 @@ jobs:
           script_assets=(
             "nftables-relay-manager.sh"
             "po0-lan-client.sh"
-            "po0-wan-probe.sh"
             "po0-outbound-ip-report.sh"
             "po0-outbound-ip-report-macos.sh"
             "po0-outbound-ip-report.ps1"
           )
           package_assets=(
-            "po0-wan-probe.apk"
             "po0-outbound-ip-report.apk"
           )
           required_assets=(

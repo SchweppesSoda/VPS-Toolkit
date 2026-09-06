@@ -7,6 +7,7 @@ scripts/po0/relay/self-report/macos/src/050-config-device-defaults.sh
 scripts/po0/relay/self-report/macos/src/060-worker-url-interval-state.sh
 scripts/po0/relay/self-report/macos/src/070-outbound-ip-detection.sh
 scripts/po0/relay/self-report/macos/src/075-wifi-ssid-skip.sh
+scripts/po0/relay/self-report/macos/src/076-channel-settings.sh
 scripts/po0/relay/self-report/macos/src/078-official-firewall.sh
 scripts/po0/relay/self-report/macos/src/080-install-and-upgrade.sh
 scripts/po0/relay/self-report/macos/src/090-cron-block-helpers.sh

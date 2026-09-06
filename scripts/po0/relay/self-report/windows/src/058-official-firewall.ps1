@@ -30,10 +30,7 @@ function Get-Po0FirewallTokenItems {
     )
     if ($null -eq $Value) { $Value = "" }
     if (-not $Value.Trim()) { return @() }
-    if ($Value -match "[\r\n]") {
-        throw "PO0 官方防火墙 token 配置无效。"
-    }
-    $parts = $Value.Split([char[]]@(","), [System.StringSplitOptions]::None)
+    $parts = @($Value -split "[,;，；\s]+" | Where-Object { $_ })
     $items = New-Object System.Collections.Generic.List[object]
     $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::Ordinal)
     foreach ($part in $parts) {
@@ -112,39 +109,29 @@ function Get-Po0FirewallTokenSummary {
     try {
         $items = @(Get-Po0FirewallTokenItems)
     } catch {
-        return "配置有误（内容不显示）"
+        return "配置有误，请进入参数页检查"
     }
     if ($items.Count -eq 0) { return "未启用（默认关闭）" }
-    return "已设置（$($items.Count) 个，内容不显示）"
+    return "已配置 $($items.Count) 个账号"
 }
 
 function Read-Po0FirewallTokensInteractive {
-    $secure = $null
-    $pointer = [IntPtr]::Zero
-    $input = ""
-    try {
-        $secure = Read-Host -Prompt "PO0 官方防火墙 token 列表（逗号分隔，可写 @0 到 @4；回车保留，- 清空）" -AsSecureString
-        if ($null -eq $secure) { return }
-        $pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
-        $input = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
-    } catch {
-        throw "读取 PO0 官方防火墙 token 失败。"
-    } finally {
-        if ($pointer -ne [IntPtr]::Zero) {
-            [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)
-        }
-        if ($secure) { $secure.Dispose() }
+    Write-PanelRow "当前官方 Token" $(if ($script:Po0FirewallTokens) { $script:Po0FirewallTokens } else { "未设置" })
+    Write-Host "可用逗号、分号、空格或换行分隔，槽位写 @0..4。空行结束；直接空行保留，单独 - 清空。"
+    $tokenLines = New-Object System.Collections.Generic.List[string]
+    while ($true) {
+        $tokenLine = Read-Host -Prompt "输入官方 Token（空行结束）"
+        if ($null -eq $tokenLine -or -not $tokenLine.Trim()) { break }
+        $tokenLines.Add($tokenLine.Trim())
+        if ($tokenLines.Count -eq 1 -and $tokenLines[0] -eq "-") { break }
     }
-    if ($null -eq $input -or -not $input.Trim()) { return }
-    if ($input.Trim() -eq "-") {
+    if ($tokenLines.Count -eq 0) { return }
+    $tokenInput = $tokenLines -join "`n"
+    if ($tokenInput -eq "-") {
         $script:Po0FirewallTokens = ""
         return
     }
-    try {
-        $items = @(Get-Po0FirewallTokenItems -Value $input)
-    } catch {
-        throw "PO0 官方防火墙 token 配置无效。"
-    }
+    $items = @(Get-Po0FirewallTokenItems -Value $tokenInput)
     $script:Po0FirewallTokens = ConvertTo-Po0FirewallNormalizedTokens -Items $items
 }
 
@@ -542,7 +529,7 @@ function Invoke-Po0FirewallItem {
         [string]$Mode = "report"
     )
     $accountState = New-Po0FirewallAccountState -Index $Index -FixedSlot ([string]$Item.Slot)
-    $marker = "官方账号 $Index"
+    $marker = Get-OfficialAccountName $Index
     if ($Item.Slot) { $marker = "$marker（槽位 $(Format-Po0FirewallSlotLabel -Slot ([string]$Item.Slot))）" }
     try {
         $statusResponse = Invoke-Po0OfficialHttpRequest -Method GET -Token ([string]$Item.Token)

@@ -9,6 +9,13 @@ function Load-SavedConfig {
     if (-not $raw.Trim()) { return }
     $cfg = $raw | ConvertFrom-Json
 
+    foreach ($channelField in @("WorkerAutoEnabled", "OfficialAutoEnabled", "WorkerName", "Po0FirewallNames")) {
+        $channelProperty = $cfg.PSObject.Properties[$channelField]
+        if ($channelProperty -and $null -ne $channelProperty.Value) {
+            if ($channelField -like "*Enabled") { Set-Variable -Scope Script -Name $channelField -Value ([bool]$channelProperty.Value) }
+            else { Set-Variable -Scope Script -Name $channelField -Value ([string]$channelProperty.Value) }
+        }
+    }
     $tokenProperty = $cfg.PSObject.Properties["PO0_FIREWALL_TOKENS"]
     if (-not $script:Po0FirewallTokensEnvironmentSet -and $tokenProperty -and $null -ne $tokenProperty.Value) {
         $script:Po0FirewallTokens = [string]$tokenProperty.Value
@@ -124,6 +131,10 @@ function Save-ClientConfig {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
     }
     $config = [ordered]@{
+        WorkerAutoEnabled = [bool]$script:WorkerAutoEnabled
+        OfficialAutoEnabled = [bool]$script:OfficialAutoEnabled
+        WorkerName = $script:WorkerName
+        Po0FirewallNames = $script:Po0FirewallNames
         PO0_FIREWALL_TOKENS = $script:Po0FirewallTokens
         WorkerUrl = $script:WorkerUrl
         SourceId = $script:SourceId

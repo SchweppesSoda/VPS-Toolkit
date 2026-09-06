@@ -4,11 +4,12 @@ set -euo pipefail
 PATH="/usr/bin:/bin:${PATH:-}"
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+mkdir -p "$repo_root/.tmp"
 TMP_DIRS=()
 cleanup() {
     local dir
     for dir in "${TMP_DIRS[@]}"; do
-        rm -rf "${dir}"
+        case "$dir" in "$repo_root"/.tmp/po0-*) rm -rf "$dir" ;; *) printf "Unexpected test directory\n" >&2 ;; esac
     done
 }
 trap cleanup EXIT
@@ -30,7 +31,7 @@ assert_refresh() {
 
 run_linux_cases() {
     local tmp_root cron_file dest run_cmd job call_log output
-    tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/po0-linux-refresh-test.XXXXXX")"
+    tmp_root="$(mktemp -d "${repo_root}/.tmp/po0-linux-refresh-test.XXXXXX")"
     TMP_DIRS+=("${tmp_root}")
 
     # shellcheck source=/dev/null
@@ -105,7 +106,7 @@ run_linux_cases() {
     unset PO0_FIREWALL_TOKENS WORKER_ENABLED WORKER_URL
     CRON_MINUTES='60'
 
-    run_cmd="bash $(sh_quote "${dest}") --config $(sh_quote "${CONFIG_FILE}") >$(sh_quote "$(self_report_log_path)") 2>&1"
+    run_cmd="bash $(sh_quote "${dest}") --config $(sh_quote "${CONFIG_FILE}") --scheduled-run >$(sh_quote "$(self_report_log_path)") 2>&1"
     job="$(build_cron_job "${CRON_MINUTES}" "${run_cmd}")"
     {
         cron_begin_marker
@@ -115,6 +116,12 @@ run_linux_cases() {
         cron_end_marker
     } > "${cron_file}"
     assert_no_refresh linux_schedule_refresh_current "${dest}"
+    # Older Worker-only entries without the marker must refresh once.
+    sed 's/ --scheduled-run//' "$cron_file" > "$cron_file.old"
+    cp "$cron_file" "$cron_file.current"
+    cp "$cron_file.old" "$cron_file"
+    assert_refresh linux_schedule_refresh_current "$dest"
+    cp "$cron_file.current" "$cron_file"
     : > "${call_log}"
     output="$(refresh_schedule_after_script_update "${dest}" 2>&1)"
     [[ ! -s "${call_log}" ]] || fail "linux current entrypoint should not call run_updated_script"
@@ -137,7 +144,7 @@ run_linux_cases() {
 
 run_macos_cases() {
     local tmp_root dest plist call_log output
-    tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/po0-macos-refresh-test.XXXXXX")"
+    tmp_root="$(mktemp -d "${repo_root}/.tmp/po0-macos-refresh-test.XXXXXX")"
     TMP_DIRS+=("${tmp_root}")
 
     HOME="${tmp_root}/home"

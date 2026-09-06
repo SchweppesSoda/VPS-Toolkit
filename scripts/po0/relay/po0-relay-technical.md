@@ -130,9 +130,9 @@ LAN Worker / 外部脚本已经通过 --ddns-report 上报
 
 ## 0.3 发布与构建边界
 
-PO0 nftables 六个可执行脚本的正式发布渠道是 GitHub Release asset；同时发布 `po0-wan-probe.apk` 和 `po0-outbound-ip-report.apk` 两个 OpenWrt APK。旧 manager、LAN Worker 和 self-report raw URLs are disabled，不再作为兼容入口；新安装、自更新和 LAN Worker manager mirror 都应使用 Release asset 或显式 override URL。Egern canonical raw path、Egern legacy compatibility path、离线 iplist 构建器、外部 ipdb/iplist 数据源和未纳入本阶段的通用 VPS 工具 raw URL 是白名单。
+PO0 五个可执行脚本的正式发布渠道是 GitHub Release asset；APK 独立发布 `po0-outbound-ip-report.apk`。旧 manager、LAN Worker 和 self-report raw URLs are disabled，不再作为兼容入口；新安装、自更新和 LAN Worker manager mirror 都应使用 Release asset 或显式 override URL。Egern canonical raw path、Egern legacy compatibility path、离线 iplist 构建器、外部 ipdb/iplist 数据源和未纳入本阶段的通用 VPS 工具 raw URL 是白名单。
 
-`tools/po0/build-po0-assets.ps1` / `.sh` 按 `tools/po0/manifests/*.txt` 拼接 manager、LAN Worker、Linux self-report、macOS self-report 和 Windows PowerShell self-report 六个 release staging 单文件。构建必须显式控制编码和 LF：Bash/manifest/checksum 使用 UTF-8 no BOM，含中文的 Windows PowerShell `.ps1` 使用 UTF-8 BOM，避免 Windows PowerShell 5 按系统代码页解析失败。Release tag `po0-vYYYY.MM.DD.N` 上传完整 9 个资产：六个脚本、两个 OpenWrt APK 和 `checksums.txt`；checksum 文件列出其余 8 个资产的 SHA-256。六个脚本的内部版本必须统一为 `YYYY.MM.DD+build.N`，其中 `N` 与 release tag 尾号一致。Release workflow 先创建 draft，上传完整 asset set，下载回校验 checksum 后再 publish/latest；已存在 draft 可补齐缺失 asset，但已发布 release 只校验不修改，缺失或 checksum 不一致都必须打新 tag。CI/release 以 `tools/po0/check-po0-assets.sh` 为 authority；`tools/po0/check-po0-assets.ps1` 是 Windows 本地等价验证入口。两个检查入口都会确认本批次六个脚本版本与预期 tag 对齐，并对三端 PO0 Outbound IP Report asset 做 SSID 本地跳过 release gate：必须有 canonical `PO0_OUTBOUND_IP_REPORT_*SSID` 环境入口、CLI/配置入口、HTTP 上报前 guard、跳过日志摘要，并禁止新增 `PO0_SELF_REPORT_*SSID` 或 `SELF_REPORT_*SSID` legacy alias。
+`tools/po0/build-po0-assets.ps1` / `.sh` 按 `tools/po0/manifests/*.txt` 拼接 manager、LAN Worker、Linux self-report、macOS self-report 和 Windows PowerShell self-report 五个 release staging 单文件。构建必须显式控制编码和 LF：Bash/manifest/checksum 使用 UTF-8 no BOM，含中文的 Windows PowerShell `.ps1` 使用 UTF-8 BOM，避免 Windows PowerShell 5 按系统代码页解析失败。Release tag `po0-vYYYY.MM.DD.N` 上传完整 7 个资产：五个脚本、一个 OpenWrt APK 和 `checksums.txt`；checksum 文件列出其余 6 个资产的 SHA-256。五个脚本的内部版本必须统一为 `YYYY.MM.DD+build.N`，其中 `N` 与 release tag 尾号一致。Release workflow 先创建 draft，上传完整 asset set，下载回校验 checksum 后再 publish/latest；已存在 draft 可补齐缺失 asset，但已发布 release 只校验不修改，缺失或 checksum 不一致都必须打新 tag。CI/release 以 `tools/po0/check-po0-assets.sh` 为 authority；`tools/po0/check-po0-assets.ps1` 是 Windows 本地等价验证入口。两个检查入口都会确认本批次五个脚本版本与预期 tag 对齐，并对三端 PO0 Outbound IP Report asset 做 SSID 本地跳过 release gate：必须有 canonical `PO0_OUTBOUND_IP_REPORT_*SSID` 环境入口、CLI/配置入口、HTTP 上报前 guard、跳过日志摘要，并禁止新增 `PO0_SELF_REPORT_*SSID` 或 `SELF_REPORT_*SSID` legacy alias。
 ## 1. 定位与边界
 
 `nftables-relay-manager.sh` 是面向 PO0 或其它专用中转机场景的交互式 Bash 管理脚本。它集中管理：
@@ -669,7 +669,7 @@ PO0 Outbound IP Report client 适合运行在访问设备上：它检测自身�
 
 Linux/OpenWrt 的 WAN 选择仅改变公网 IPv4 探测路径，不改变到 LAN Worker 的 HTTP 提交路径。显式 `--wan` 使用 ubus 的 `network.interface.<name>` 状态解析 `l3_device`，并让 curl 以 `--interface <l3_device>` 绑定出口；`--wan all` 只枚举 mwan3 中类型为 interface 且未禁用的条目。多 WAN 仍按现有 `/report` 协议逐条提交一个 IPv4，不扩展 LAN Worker 请求格式；来源 ID 和 identity 会追加规范化 WAN 名，且保留 WAN 后缀在 48 字符限制内。探测或提交单条失败不会中断后续 WAN，但整轮返回失败，避免 cron 把部分成功误记为全部成功。
 
-可选的 `ROUTER_PROBE_URL` 用于上游 OpenWrt / 下游网关拓扑。CGI 使用独立 Release asset `po0-wan-probe.sh`，不再复用完整 Linux 上报器。探针只接受 GET、UCI `allowed_source` 白名单和已启用且允许的 mwan3 WAN；`wan=list` 与 `wan=<name>` 保留文本兼容接口，`wan=all` 返回带版本、观测时间和逐 WAN 成败的 JSON。探针先从 ubus 接口状态读取公网 IPv4，只有私网/CGNAT或缺失时才绑定 `l3_device` 调用外部检测。下游客户端优先使用批量 JSON、失败时兼容旧文本接口，再沿用 LAN Worker 提交流程。探针请求和 Worker 请求均为普通网络请求，不清理代理环境、不修改路由，也不读取或验证 Mihomo/OpenClash 配置。
+旧主路由 HTTP 探针已退役：移除独立源码、包定义、构建清单和桌面客户端 `ROUTER_PROBE_URL` / `--router-probe-url` 入口。旁路网关使用源地址直连模式自行探测，普通 Linux 客户端继续保留默认路由和本机 `--wan` 多 WAN 探测。
 
 Linux/OpenWrt 客户端未传 `--source-id` / `--identity` 时，会用 hostname + machine-id/MAC 生成默认 Source ID，并用设备名作为 Identity；显式参数、环境变量和已保存配置优先。首次进入菜单：
 

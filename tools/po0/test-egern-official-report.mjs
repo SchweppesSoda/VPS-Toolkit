@@ -341,14 +341,10 @@ async function testUnexpectedErrorRedactsTokensAndBearer() {
 
 async function testMalformedAndDuplicateTokensFailClosed() {
   for (const value of [
-    ',pgnfw_egern_bad',
-    'pgnfw_egern_bad,',
-    'pgnfw_egern_bad,,pgnfw_egern_other',
     'pgnfw_egern_bad,pgnfw_egern_bad',
     'pgnfw_egern_bad@0,pgnfw_egern_bad@0',
     'pgnfw_egern_bad@0,pgnfw_egern_bad@1',
     'pgnfw_egern_bad@5',
-    'pgnfw_egern_bad\npgnfw_egern_other',
   ]) {
     const { ctx, calls } = createContext({
       env: { PO0_FIREWALL_TOKENS: value },
@@ -760,7 +756,7 @@ async function testParallelOfficialAccountsPreserveLaneOrder() {
   const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
   const { ctx, calls, storage } = createContext({
     env: {
-      PO0_FIREWALL_TOKENS: firstToken + '@1,' + secondToken + '@2',
+      PO0_FIREWALL_TOKENS: firstToken + '@1；\n ' + secondToken + '@2',
       PO0_HOST: 'po0.example.com',
       SSH_REPORT_TOKEN: 'ssh-token-not-real',
       PO0_PASSWORD: 'password-not-real',
@@ -808,7 +804,7 @@ async function testParallelOfficialAccountsPreserveLaneOrder() {
 }
 
 function testEgernTimeoutBudget() {
-  assert.equal((yamlSource.match(/timeout: 90/g) || []).length, 5);
+  assert.equal((yamlSource.match(/timeout: 90/g) || []).length, 7);
   assert.equal((yamlSource.match(/timeout: 30/g) || []).length, 0);
 }
 
@@ -893,7 +889,68 @@ async function testScopedSavesDoNotOverwriteOtherChannel() {
   }
 }
 
+async function testFlexibleOfficialSeparators() {
+  const { ctx, calls, storage } = createContext({
+    env: { PO0_FIREWALL_TOKENS: ' ,pgnfw_a@0 pgnfw_b@1\npgnfw_c@2; pgnfw_d@3，pgnfw_e@4；pgnfw_f, ' },
+    trigger: '保存本机 PO0 官方防火墙配置',
+  });
+  const result = await runEgernReport(ctx);
+  assert.ok(JSON.parse(await storage.get(CONFIG_STORAGE_KEY)).values.PO0_FIREWALL_TOKENS.includes('pgnfw_f'));
+  assert.equal(calls.get.length, 0);
+  assert.equal(calls.post.length, 0);
+}
+
+async function testIndependentChannelControlsAndNames() {
+  const values = { PO0_HOST: 'po0.example.com', SSH_REPORT_TOKEN: 'ssh-fixture', PO0_PASSWORD: 'password-fixture', IP_CHECK_URLS: 'https://example.com/ip', SKIP_WIFI_SSIDS: 'HomeWiFi', PO0_FIREWALL_TOKENS: 'pgnfw_first,pgnfw_second', PO0_FIREWALL_NAMES: '家庭;办公室', TTL_SECONDS: '7200' };
+  const storage = createStorage({ [CONFIG_STORAGE_KEY]: JSON.stringify({ version: 1, values }) });
+  const commands = [];
+  const call = async (trigger, env = {}, ssid = '') => {
+    const fixture = createContext({ storage, trigger, env, ssid,
+      httpGet(url) { return url.includes('/api/firewall/') ? response(officialPayload({ whitelist: [{ ip: '203.0.113.10/24', slot: 0 }] })) : response({ ip: '203.0.113.50' }); },
+      sshConnect() { return { async exec(command) { commands.push(command); return { code: 0, stdout: 'SSH OK' }; }, async close() {} }; },
+    });
+    const result = await runEgernReport(fixture.ctx);
+    return { ...fixture, result };
+  };
+  let action = await call('保存本机 PO0 官方防火墙配置', { PO0_FIREWALL_TOKENS: 'pgnfw_second,pgnfw_first@0' });
+  assert.equal(action.calls.get.length, 0);
+  assert.equal(JSON.parse(await storage.get(CONFIG_STORAGE_KEY)).values.PO0_FIREWALL_NAMES, '办公室;家庭');
+  assert.equal(JSON.parse(await storage.get(CONFIG_STORAGE_KEY)).values.TTL_SECONDS, '7200');
+  action = await call('切换自建 PO0 自动上报');
+  assert.equal(action.calls.get.length, 0);
+  let report = await call('schedule');
+  assert.equal(report.calls.ssh, 0);
+  assert.equal(report.calls.get.length, 2);
+  assert.deepEqual((await officialStateOf(storage)).entries.map(x => x.name), ['办公室', '家庭']);
+  await call('切换官方防火墙自动上报');
+  report = await call('schedule');
+  assert.equal(report.calls.get.length, 0);
+  assert.equal(report.calls.ssh, 0);
+  report = await call('仅自建 PO0 立即上报');
+  assert.equal(report.calls.ssh, 1);
+  assert(!report.calls.get.some(x => x.url.includes('/api/firewall/')));
+  assert(commands[0].includes("'7200'"), 'existing custom SSH TTL must still enter the original command');
+  await call('切换自建 PO0 自动上报');
+  report = await call('schedule', {}, 'HomeWiFi');
+  assert.equal(report.calls.get.length, 0, 'SSID must still guard the active Worker lane');
+  await call('清除本机自建 PO0 配置');
+  let saved = JSON.parse(await storage.get(CONFIG_STORAGE_KEY)).values;
+  assert.equal(saved.PO0_HOST, undefined);
+  assert.equal(saved.PO0_FIREWALL_TOKENS, 'pgnfw_second,pgnfw_first@0');
+  assert.equal(saved.SKIP_WIFI_SSIDS, 'HomeWiFi');
+  report = await call('schedule', values);
+  assert.equal(report.calls.ssh, 0, 'synced env must not restore cleared SSH credentials');
+  await call('清除本机全部 PO0 上报配置');
+  report = await call('schedule', values);
+  assert.equal(report.calls.get.length, 0, 'clear-all must not bootstrap again from synced env');
+  const view = await call('查看本机上报设置');
+  assert.equal(view.calls.get.length, 0);
+  assert.equal(view.calls.ssh, 0);
+}
+
 const tests = [
+  testIndependentChannelControlsAndNames,
+  testFlexibleOfficialSeparators,
   testScopedSavesDoNotOverwriteOtherChannel,
   testSavedSlotSurvivesSyncedEnvironment,
   testHitUsesDirectGetOnlyAndStaysQuiet,

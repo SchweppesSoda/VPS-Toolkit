@@ -246,6 +246,10 @@ save_config_file() {
     umask 077
     {
         printf '# PO0 self-report client settings. This file may contain secrets.\n'
+        write_env_assignment "WORKER_AUTO_ENABLED" "${WORKER_AUTO_ENABLED:-1}"
+        write_env_assignment "OFFICIAL_AUTO_ENABLED" "${OFFICIAL_AUTO_ENABLED:-1}"
+        write_env_assignment "WORKER_NAME" "${WORKER_NAME:-}"
+        write_env_assignment "PO0_FIREWALL_NAMES" "${PO0_FIREWALL_NAMES:-}"
         write_env_assignment "WORKER_URL" "${WORKER_URL}"
         write_env_assignment "SOURCE_ID" "${SOURCE_ID}"
         write_env_assignment "IDENTITY" "${IDENTITY}"

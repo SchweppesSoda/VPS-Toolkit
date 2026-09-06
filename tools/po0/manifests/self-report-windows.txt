@@ -5,6 +5,7 @@ scripts/po0/relay/self-report/windows/src/030-config-usage-version.ps1
 scripts/po0/relay/self-report/windows/src/040-worker-url-interval-validation.ps1
 scripts/po0/relay/self-report/windows/src/050-outbound-ip-detection.ps1
 scripts/po0/relay/self-report/windows/src/055-wifi-ssid-policy.ps1
+scripts/po0/relay/self-report/windows/src/057-channel-settings.ps1
 scripts/po0/relay/self-report/windows/src/058-official-firewall.ps1
 scripts/po0/relay/self-report/windows/src/060-report-submit.ps1
 scripts/po0/relay/self-report/windows/src/070-install-upgrade-task.ps1

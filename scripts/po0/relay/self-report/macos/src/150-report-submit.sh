@@ -102,6 +102,14 @@ report_once_inner() {
     if [[ "${WORKER_ONLY:-0}" != "1" ]] && [[ -n "${PO0_FIREWALL_TOKENS:-}" ]]; then
         official_active="1"
     fi
+    if [[ "${SCHEDULED_RUN:-0}" == 1 ]]; then
+        channel_auto_enabled worker || worker_active=0
+        channel_auto_enabled official || official_active=0
+        if [[ "$official_active" == 0 && "$worker_active" == 0 ]]; then
+            self_report_completed "自动上报通道均已停用，本轮跳过。"
+            return 0
+        fi
+    fi
     [[ "${official_active}" == "1" || "${worker_active}" == "1" ]] || {
         self_report_incomplete "没有配置可执行的上报通道。"
         notify_report_failure "没有配置可执行的上报通道。"

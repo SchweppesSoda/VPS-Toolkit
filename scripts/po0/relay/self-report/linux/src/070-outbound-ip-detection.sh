@@ -88,20 +88,9 @@ wan_selection_display() {
     local selection
     selection="$(normalize_wan_selection_list "${WANS:-}")"
     case "${selection}" in
-        "")
-            if [[ -n "${ROUTER_PROBE_URL:-}" ]]; then
-                printf '上游路由器全部已启用的 mwan3 WAN\n'
-            else
-                printf '默认路由（单出口）\n'
-            fi
-            ;;
+        "") printf '默认路由（单出口）\n' ;;
         all)
-            if [[ -n "${ROUTER_PROBE_URL:-}" ]]; then
-                printf '上游路由器全部已启用的 mwan3 WAN\n'
-            else
-                printf '全部已启用的 mwan3 WAN\n'
-            fi
-            ;;
+            printf '全部已启用的 mwan3 WAN\n' ;;
         *) printf '%s\n' "${selection}" ;;
     esac
 }
@@ -157,10 +146,6 @@ resolve_report_wans() {
         [[ "$found" == 1 ]]
         return $?
     fi
-    if [[ -n "${ROUTER_PROBE_URL:-}" && ( -z "${selection}" || "${selection}" == "all" ) ]]; then
-        list_upstream_router_wans
-        return $?
-    fi
     if [[ -z "${selection}" ]]; then
         printf '__default__\n'
         return 0
@@ -175,84 +160,6 @@ resolve_report_wans() {
         rest="${rest#*;}"
         [[ -n "${wan}" ]] && printf '%s\n' "${wan}"
     done
-}
-
-router_probe_http_get() {
-    local wan="$1"
-    command -v curl >/dev/null 2>&1 || return 1
-    curl -4 -fsS --connect-timeout 5 --max-time 30 "${ROUTER_PROBE_URL}?wan=${wan}"
-}
-
-prepare_router_probe_batch() {
-    local selection raw first_name
-    ROUTER_PROBE_BATCH_RAW=""
-    gateway_source_mode && return 0
-    [[ -n "${ROUTER_PROBE_URL:-}" ]] || return 0
-    selection="$(normalize_wan_selection_list "${WANS:-}")"
-    [[ -z "${selection}" || "${selection}" == "all" ]] || return 0
-    command -v jsonfilter >/dev/null 2>&1 || return 0
-    raw="$(router_probe_http_get all 2>/dev/null || true)"
-    [[ -n "${raw}" ]] || return 0
-    first_name="$(printf '%s' "${raw}" | jsonfilter -e '@.wans[0].name' 2>/dev/null || true)"
-    [[ "${first_name}" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$ ]] || return 0
-    ROUTER_PROBE_BATCH_RAW="${raw}"
-}
-
-router_probe_batch_field() {
-    local wan="$1" field="$2" index=0 name value
-    [[ -n "${ROUTER_PROBE_BATCH_RAW:-}" ]] || return 1
-    while (( index < 128 )); do
-        name="$(printf '%s' "${ROUTER_PROBE_BATCH_RAW}" | jsonfilter -e "@.wans[${index}].name" 2>/dev/null || true)"
-        [[ -n "${name}" ]] || return 1
-        if [[ "${name}" == "${wan}" ]]; then
-            value="$(printf '%s' "${ROUTER_PROBE_BATCH_RAW}" | jsonfilter -e "@.wans[${index}].${field}" 2>/dev/null || true)"
-            printf '%s\n' "${value}"
-            return 0
-        fi
-        index=$((index + 1))
-    done
-    return 1
-}
-
-list_upstream_router_wans() {
-    local raw wan found=0 index=0
-    if [[ -n "${ROUTER_PROBE_BATCH_RAW:-}" ]]; then
-        while (( index < 128 )); do
-            wan="$(printf '%s' "${ROUTER_PROBE_BATCH_RAW}" | jsonfilter -e "@.wans[${index}].name" 2>/dev/null || true)"
-            [[ -n "${wan}" ]] || break
-            [[ "${wan}" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$ ]] || return 1
-            printf '%s\n' "${wan}"
-            found=1
-            index=$((index + 1))
-        done
-        [[ "${found}" == "1" ]]
-        return $?
-    fi
-    raw="$(router_probe_http_get list)" || return 1
-    while IFS= read -r wan; do
-        wan="$(trim "${wan}")"
-        [[ -n "${wan}" ]] || continue
-        [[ "${wan}" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$ ]] || return 1
-        printf '%s\n' "${wan}"
-        found=1
-    done <<< "${raw}"
-    [[ "${found}" == "1" ]]
-}
-
-detect_outbound_ipv4_via_router() {
-    local wan="$1" raw ip ok
-    if [[ -n "${ROUTER_PROBE_BATCH_RAW:-}" ]]; then
-        ok="$(router_probe_batch_field "${wan}" ok 2>/dev/null || true)"
-        [[ "${ok}" == "true" || "${ok}" == "1" ]] || return 1
-        ip="$(router_probe_batch_field "${wan}" ip 2>/dev/null || true)"
-        is_public_ipv4 "${ip}" || return 1
-        printf '%s\n' "${ip}"
-        return 0
-    fi
-    raw="$(router_probe_http_get "${wan}")" || return 1
-    ip="$(extract_first_public_ipv4 "${raw}" 2>/dev/null || true)"
-    [[ -n "${ip}" ]] || return 1
-    printf '%s\n' "${ip}"
 }
 
 openwrt_wan_l3_device() {

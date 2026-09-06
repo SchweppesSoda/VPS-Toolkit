@@ -96,7 +96,7 @@ po0-lan-client --menu
 
 ## PO0 发布架构与边界
 
-PO0 正式发布由六个独立脚本组成：manager 负责 PO0 nftables 与受控任务，LAN Worker 负责内网任务/接收端，WAN probe 只负责 OpenWrt WAN 出口探测，Linux/macOS/Windows Outbound IP Report 运行在访问设备。两个 OpenWrt APK 分别承载 WAN probe 和 outbound 上报器；APK 的 UCI、procd、LuCI 与 mwan3 绑定只在 OpenWrt 端维护，不把主路由行为扩散到普通客户端。
+PO0 正式发布由五个独立脚本组成：manager 负责 PO0 nftables 与受控任务，LAN Worker 负责内网任务/接收端，Linux/macOS/Windows Outbound IP Report 运行在访问设备。OpenWrt APK 承载 outbound 上报器；APK 的 UCI、procd、LuCI 与 mwan3 绑定只在 OpenWrt 端维护，不把主路由行为扩散到普通客户端。
 
 官方防火墙是默认关闭的独立第二车道：先 GET 查看当前出口、额度和槽位，缺失或固定槽位不匹配时才 POST；官方固定 600 秒，和原有 Worker / Self-report 的计划与 TTL 独立。SSID 本地跳过会同时跳过两条车道；强制上报只绕过本地 due/SSID guard，仍不能绕过 GET。token 只进权限受限配置，不进日志、参数或状态；主 OpenWrt 才能用 mwan3 指定 wan1/wan2，其它端使用各自默认出口。用户入口和实现细节以 [`scripts/po0/relay/README.md`](./scripts/po0/relay/README.md) 与 technical 文档为准。
 
@@ -106,11 +106,9 @@ PO0 正式版本通过 [GitHub Releases](https://github.com/SchweppesSoda/VPS-To
 
 - `nftables-relay-manager.sh`
 - `po0-lan-client.sh`
-- `po0-wan-probe.sh`
 - `po0-outbound-ip-report.sh`
 - `po0-outbound-ip-report-macos.sh`
 - `po0-outbound-ip-report.ps1`
-- `po0-wan-probe.apk`
 - `po0-outbound-ip-report.apk`
 - `checksums.txt`
 

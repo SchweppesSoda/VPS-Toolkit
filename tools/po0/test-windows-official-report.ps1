@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version 2.0
@@ -14,6 +14,7 @@ $partNames = @(
     "040-worker-url-interval-validation.ps1"
     "050-outbound-ip-detection.ps1"
     "055-wifi-ssid-policy.ps1"
+    "057-channel-settings.ps1"
     "058-official-firewall.ps1"
     "060-report-submit.ps1"
     "070-install-upgrade-task.ps1"
@@ -338,6 +339,32 @@ try {
 
     Assert-True ($null -ne (Get-Command Invoke-SelfReport -CommandType Function)) "Assembled asset did not expose Invoke-SelfReport."
     Set-TestMode -Scenario "hit" -Tokens $tokenA -Worker "" -Scheduled $false
+    $savedSecretForInputTest = $script:Secret
+    $script:Secret = "worker-visible-fixture"
+    $script:Po0FirewallTokens = "pgnfw_visible_fixture@3"
+    $script:VisibleRows = New-Object System.Collections.Generic.List[string]
+    function Write-PanelRow { param($Label, $Value); $script:VisibleRows.Add("$Label=$Value") }
+    function Format-CurrentWifiSsidStatus { return "Fixture Wi-Fi" }
+    Show-ClientConfig
+    Assert-True (($script:VisibleRows -join "`n").Contains("worker-visible-fixture")) "Local configuration must show the saved Worker secret."
+    Assert-True (($script:VisibleRows -join "`n").Contains("pgnfw_visible_fixture@3")) "Local configuration must show the full official token and slot."
+    $script:InputLines = New-Object System.Collections.Generic.Queue[string]
+    foreach ($line in @("pgnfw_input_a@0 pgnfw_input_b@1", "pgnfw_input_c@4", "")) { $script:InputLines.Enqueue($line) }
+    function Read-Host { param($Prompt); return $script:InputLines.Dequeue() }
+    Read-Po0FirewallTokensInteractive
+    Assert-Equal "pgnfw_input_a@0,pgnfw_input_b@1,pgnfw_input_c@4" $script:Po0FirewallTokens "Visible multiline input must preserve every account and slot."
+    $script:InputLines.Enqueue("bad-token")
+    $script:InputLines.Enqueue("")
+    Assert-Throws { Read-Po0FirewallTokensInteractive } "Invalid input must fail."
+    Assert-Equal "pgnfw_input_a@0,pgnfw_input_b@1,pgnfw_input_c@4" $script:Po0FirewallTokens "Invalid input must retain saved tokens."
+    $script:InputLines.Enqueue("-")
+    Read-Po0FirewallTokensInteractive
+    Assert-Equal "" $script:Po0FirewallTokens "A single dash must clear tokens."
+    $script:Secret = $savedSecretForInputTest
+    $mixedItems = @(Get-Po0FirewallTokenItems -Value " ,pgnfw_a@0 pgnfw_b@1`npgnfw_c@2; pgnfw_d@3，pgnfw_e@4；pgnfw_f, ")
+    Assert-Equal 6 $mixedItems.Count "All token separators must be accepted."
+    Assert-Equal "pgnfw_a@0,pgnfw_b@1,pgnfw_c@2,pgnfw_d@3,pgnfw_e@4,pgnfw_f" (ConvertTo-Po0FirewallNormalizedTokens -Items $mixedItems) "Normalized values and slots must survive."
+    Set-TestMode -Scenario "hit" -Tokens $tokenA -Worker "" -Scheduled $false
     Invoke-SelfReport
     Assert-True ($script:MutexEnterCount -gt 0) "RunOnce flow did not reach the top-level report wrapper."
     Assert-Equal $script:MutexEnterCount $script:MutexExitCount "Report mutex cleanup must run in finally."
@@ -394,9 +421,6 @@ try {
     Assert-Equal $tokenB $script:MockRequestTokens[2] "Second account must execute after first."
 
     foreach ($badTokenValue in @(
-        "$tokenA,"
-        ",$tokenA"
-        "$tokenA,,$tokenB"
         "$tokenA,$tokenA"
         "$tokenA@0,$tokenA@0"
         "$tokenA@0,$tokenA@1"
@@ -509,6 +533,38 @@ try {
     Assert-False ($statusText.Contains($tokenMarker)) "Token must not enter state."
     $stateText = $statusText
 
+    # Each automatic lane can stop independently without affecting manual runs.
+    foreach ($enabled in @(@($false, $true), @($true, $false), @($false, $false))) {
+        Set-TestMode -Scenario "hit" -Tokens $tokenA -Worker "https://worker.invalid/report" -Scheduled $true -Force $true
+        $script:WorkerAutoEnabled = $enabled[0]
+        $script:OfficialAutoEnabled = $enabled[1]
+        Invoke-SelfReport
+        Assert-Equal ([bool]$enabled[0]) ([bool](@($script:RunOrder) -contains 'worker')) 'Worker automatic switch was ignored.'
+        Assert-Equal ([bool]$enabled[1]) ([bool](@($script:RunOrder) -contains 'official')) 'Official automatic switch was ignored.'
+        Assert-Equal $tokenA $script:Po0FirewallTokens 'Pausing must retain the Token.'
+    }
+    Set-TestMode -Scenario "hit" -Tokens $tokenA -Worker "https://worker.invalid/report" -Scheduled $false -Force $true
+    $script:WorkerAutoEnabled = $false
+    $script:OfficialAutoEnabled = $false
+    Invoke-ChannelInteractive worker
+    Assert-Equal 'worker' ($script:RunOrder -join ',') 'Manual Worker-only must ignore automatic pause.'
+    Assert-False $script:Po0FirewallWorkerOnly 'Menu must restore one-shot channel selection.'
+    $script:Po0FirewallTokens = 'pgnfw_beta@3,pgnfw_alpha@0'
+    $script:Po0FirewallNames = '家庭;Office Wi-Fi'
+    Sync-OfficialAccountNames 'pgnfw_alpha,pgnfw_beta'
+    Assert-Equal 'Office Wi-Fi;家庭' $script:Po0FirewallNames 'Names must follow accounts across reorder and slot changes.'
+    $script:WorkerName = '测试接收端'
+    Save-ClientConfig
+    $script:WorkerAutoEnabled = $true
+    $script:OfficialAutoEnabled = $true
+    $script:WorkerName = ''
+    Load-SavedConfig
+    Assert-False $script:WorkerAutoEnabled 'Worker pause must survive reload.'
+    Assert-False $script:OfficialAutoEnabled 'Official pause must survive reload.'
+    Assert-Equal '测试接收端' $script:WorkerName 'Name must survive reload.'
+    $script:WorkerAutoEnabled = $true
+    $script:OfficialAutoEnabled = $true
+
     Set-TestMode -Scenario "hit" -Tokens $tokenA
     $script:ConfigPath = $configPath
     Save-ClientConfig
@@ -530,6 +586,7 @@ try {
 
     Write-Host "Windows official firewall mock tests passed."
 } catch {
+    Write-Host $_.ScriptStackTrace
     Write-Error $_.Exception.Message
     exit 1
 } finally {

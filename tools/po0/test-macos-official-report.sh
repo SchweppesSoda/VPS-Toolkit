@@ -53,6 +53,7 @@ export PATH PO0_TEST_CURL_LOG="$curl_log" PO0_TEST_CURL_ARGV_LOG="$curl_argv_log
 . "$src_root/040-prompt-and-input-helpers.sh"
 . "$src_root/060-worker-url-interval-state.sh"
 . "$src_root/075-wifi-ssid-skip.sh"
+. "$src_root/076-channel-settings.sh"
 . "$src_root/078-official-firewall.sh"
 . "$src_root/050-config-device-defaults.sh"
 
@@ -97,7 +98,7 @@ count_log() {
 }
 
 export XDG_STATE_HOME="$state_dir"
-PO0_FIREWALL_TOKENS='pgnfw_alpha,pgnfw_beta@1'
+PO0_FIREWALL_TOKENS=$' , pgnfw_alpha；\n\tpgnfw_beta@1, '
 SCHEDULED_RUN="0"
 FORCE_REPORT="0"
 CRON_MINUTES="60"
@@ -107,7 +108,8 @@ export PO0_TEST_SCENARIO
 po0_firewall_validate_tokens || fail 'valid multi-token configuration rejected'
 assert_eq "$(po0_firewall_token_count)" "2" 'token count'
 [[ "$(po0_firewall_masked_tokens)" != *pgnfw_* ]] || fail 'masked token display leaked token'
-for invalid_tokens in ',pgnfw_alpha' 'pgnfw_alpha,' 'pgnfw_alpha,,pgnfw_beta' 'pgnfw_alpha,pgnfw_alpha' 'pgnfw_alpha@0,pgnfw_alpha@0' 'pgnfw_alpha@0,pgnfw_alpha@1' 'pgnfw_alpha,pgnfw_alpha@0'; do
+assert_eq "$(po0_firewall_normalize_tokens $' pgnfw_a pgnfw_b;pgnfw_c，pgnfw_d；pgnfw_e\npgnfw_f, ')" 'pgnfw_a,pgnfw_b,pgnfw_c,pgnfw_d,pgnfw_e,pgnfw_f' 'mixed token separators'
+for invalid_tokens in 'pgnfw_alpha,pgnfw_alpha' 'pgnfw_alpha@0,pgnfw_alpha@0' 'pgnfw_alpha@0,pgnfw_alpha@1' 'pgnfw_alpha,pgnfw_alpha@0'; do
     PO0_FIREWALL_TOKENS="${invalid_tokens}"
     if po0_firewall_validate_tokens >/dev/null 2>&1; then
         fail "invalid token list was accepted: ${invalid_tokens}"
@@ -287,6 +289,31 @@ PO0_TEST_WORKER_RC="0"
 : > "$order_log"
 report_once || fail 'combined report failed'
 [[ "$(tr -d '\n' < "$order_log")" == "officialworker" ]] || fail 'official did not run before Worker'
+
+# Automatic switches do not change credentials, manual actions or the shared SSID guard.
+SCHEDULED_RUN=1
+FORCE_REPORT=1
+WORKER_AUTO_ENABLED=0
+OFFICIAL_AUTO_ENABLED=1
+: > "$order_log"
+report_once || fail 'paused Worker should not fail official'
+[[ "$(tr -d '\n' < "$order_log")" == official ]] || fail 'Worker automatic pause was ignored'
+WORKER_AUTO_ENABLED=1
+OFFICIAL_AUTO_ENABLED=0
+: > "$order_log"
+report_once || fail 'paused official should not fail Worker'
+[[ "$(tr -d '\n' < "$order_log")" == worker ]] || fail 'official automatic pause was ignored'
+WORKER_AUTO_ENABLED=0
+: > "$order_log"
+report_once || fail 'both paused should return quietly'
+[[ ! -s "$order_log" ]] || fail 'both paused ran a lane'
+SCHEDULED_RUN=0
+: > "$order_log"
+report_once || fail 'manual run should ignore automatic pause'
+[[ "$(tr -d '\n' < "$order_log")" == officialworker ]] || fail 'manual run did not use both configured lanes'
+WORKER_AUTO_ENABLED=1
+OFFICIAL_AUTO_ENABLED=1
+FORCE_REPORT=0
 
 : > "$order_log"
 OFFICIAL_ONLY="1"

@@ -53,7 +53,6 @@ apply_env_overrides() {
     [[ -n "${PO0_OUTBOUND_IP_REPORT_IP_CHECK_URLS+x}" ]] && IP_CHECK_URLS="${PO0_OUTBOUND_IP_REPORT_IP_CHECK_URLS}"
     [[ -n "${ENV_IP_CHECK_URLS}" ]] && IP_CHECK_URLS="${ENV_IP_CHECK_URLS}"
     [[ -n "${PO0_OUTBOUND_IP_REPORT_WANS+x}" ]] && WANS="${PO0_OUTBOUND_IP_REPORT_WANS}"
-    [[ -n "${PO0_OUTBOUND_IP_REPORT_ROUTER_PROBE_URL+x}" ]] && ROUTER_PROBE_URL="${PO0_OUTBOUND_IP_REPORT_ROUTER_PROBE_URL}"
     [[ -n "${PO0_OUTBOUND_IP_REPORT_WORKER_ENABLED+x}" ]] && WORKER_ENABLED="${PO0_OUTBOUND_IP_REPORT_WORKER_ENABLED}"
     if [[ "${ENV_FIREWALL_TOKENS_SET:-0}" == "1" ]]; then
         PO0_FIREWALL_TOKENS="${ENV_FIREWALL_TOKENS}"
@@ -93,7 +92,6 @@ apply_env_overrides() {
     [[ -n "${PO0_OUTBOUND_IP_REPORT_IP_CHECK_URL+x}" ]] && IP_CHECK_URL="${PO0_OUTBOUND_IP_REPORT_IP_CHECK_URL}"
     [[ -n "${PO0_OUTBOUND_IP_REPORT_IP_CHECK_URLS+x}" ]] && IP_CHECK_URLS="${PO0_OUTBOUND_IP_REPORT_IP_CHECK_URLS}"
     [[ -n "${PO0_OUTBOUND_IP_REPORT_WANS+x}" ]] && WANS="${PO0_OUTBOUND_IP_REPORT_WANS}"
-    [[ -n "${PO0_OUTBOUND_IP_REPORT_ROUTER_PROBE_URL+x}" ]] && ROUTER_PROBE_URL="${PO0_OUTBOUND_IP_REPORT_ROUTER_PROBE_URL}"
     [[ -n "${PO0_OUTBOUND_IP_REPORT_WORKER_ENABLED+x}" ]] && WORKER_ENABLED="${PO0_OUTBOUND_IP_REPORT_WORKER_ENABLED}"
     [[ -n "${PO0_OUTBOUND_IP_REPORT_SKIP_WIFI_SSIDS+x}" ]] && SKIP_WIFI_SSIDS="${PO0_OUTBOUND_IP_REPORT_SKIP_WIFI_SSIDS}"
     if [[ -n "${PO0_OUTBOUND_IP_REPORT_INSTALL_PATH+x}" ]]; then
@@ -105,7 +103,6 @@ apply_env_overrides() {
     [[ -n "${PO0_OUTBOUND_IP_REPORT_MAX_MINUTES+x}" ]] && MAX_CRON_MINUTES="${PO0_OUTBOUND_IP_REPORT_MAX_MINUTES}"
     [[ -n "${PO0_OUTBOUND_IP_REPORT_PAUSED+x}" ]] && SCHEDULE_PAUSED="${PO0_OUTBOUND_IP_REPORT_PAUSED}"
     WANS="$(normalize_wan_selection_list "${WANS:-}")"
-    ROUTER_PROBE_URL="$(normalize_router_probe_url "${ROUTER_PROBE_URL:-}")"
     SKIP_WIFI_SSIDS="$(normalize_wifi_ssid_skip_list "${SKIP_WIFI_SSIDS:-}")"
     normalize_legacy_default_install_path
 }
@@ -242,7 +239,6 @@ save_config_file() {
     validate_cron_minutes || return 1
     WANS="$(normalize_wan_selection_list "${WANS:-}")"
     validate_wan_selection || return 1
-    validate_router_probe_url || return 1
     if declare -F official_channel_enabled >/dev/null 2>&1 && official_channel_enabled; then
         official_validate_tokens || return 1
     fi
@@ -254,6 +250,10 @@ save_config_file() {
     umask 077
     {
         printf '# PO0 self-report client settings. This file may contain secrets.\n'
+        write_env_assignment "WORKER_AUTO_ENABLED" "${WORKER_AUTO_ENABLED:-1}"
+        write_env_assignment "OFFICIAL_AUTO_ENABLED" "${OFFICIAL_AUTO_ENABLED:-1}"
+        write_env_assignment "WORKER_NAME" "${WORKER_NAME:-}"
+        write_env_assignment "PO0_FIREWALL_NAMES" "${PO0_FIREWALL_NAMES:-}"
         write_env_assignment "WORKER_URL" "${WORKER_URL}"
         write_env_assignment "SOURCE_ID" "${SOURCE_ID}"
         write_env_assignment "IDENTITY" "${IDENTITY}"
@@ -262,7 +262,6 @@ save_config_file() {
         write_env_assignment "IP_CHECK_URL" "${IP_CHECK_URL}"
         write_env_assignment "IP_CHECK_URLS" "${IP_CHECK_URLS}"
         write_env_assignment "WANS" "${WANS}"
-        write_env_assignment "ROUTER_PROBE_URL" "${ROUTER_PROBE_URL}"
         write_env_assignment "WORKER_ENABLED" "${WORKER_ENABLED:-}"
         write_env_assignment "PO0_FIREWALL_TOKENS" "${PO0_FIREWALL_TOKENS:-}"
         write_env_assignment "SKIP_WIFI_SSIDS" "${SKIP_WIFI_SSIDS}"

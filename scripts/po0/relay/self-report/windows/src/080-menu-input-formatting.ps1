@@ -60,6 +60,7 @@ function Read-YesNoDefault {
 }
 
 function Read-SecretSetting {
+    Write-PanelRow "当前上报密钥" $(if ($script:Secret) { $script:Secret } else { "未设置" })
     if ($script:Secret) {
         $value = Read-Host "Self-report secret [已设置，回车保留，输入 - 清空]"
         if ($null -eq $value) { return }

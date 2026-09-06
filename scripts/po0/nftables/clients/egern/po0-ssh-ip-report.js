@@ -16,7 +16,7 @@ const DEFAULT_AUTO_REPORT_INTERVAL_SECONDS = 3600;
 const MIN_AUTO_REPORT_INTERVAL_SECONDS = 600;
 const MAX_AUTO_REPORT_INTERVAL_SECONDS = 86400;
 const DEFAULT_CELLULAR_CIDR_PREFIX = 24;
-const REPORT_TITLE = 'PO0 SSH IP 上报';
+const REPORT_TITLE = 'PO0 出口上报';
 const REPORT_FAILED_TITLE = 'PO0 SSH IP 上报失败';
 const PERSISTED_ENV_KEYS = [
   'PO0_HOST',
@@ -29,6 +29,9 @@ const PERSISTED_ENV_KEYS = [
   'SSH_REPORT_SOURCE',
   'SSH_REPORT_TOKEN',
   'PO0_FIREWALL_TOKENS',
+  'PO0_FIREWALL_NAMES',
+  'WORKER_AUTO_ENABLED',
+  'OFFICIAL_AUTO_ENABLED',
   'REPORT_IDENTITY',
   'TTL_SECONDS',
   'AUTO_REPORT_INTERVAL_SECONDS',
@@ -41,6 +44,8 @@ const PERSISTED_ENV_KEYS = [
   'NOTIFY_SUCCESS',
   'NOTIFY_FAILURE',
 ];
+const OFFICIAL_CONFIG_KEYS = ['PO0_FIREWALL_TOKENS', 'PO0_FIREWALL_NAMES', 'OFFICIAL_AUTO_ENABLED'];
+const WORKER_CONFIG_KEYS = ['PO0_HOST', 'PO0_PORT', 'PO0_USER', 'PO0_PASSWORD', 'PO0_PRIVATE_KEY', 'PO0_PASSPHRASE', 'PO0_SCRIPT', 'SSH_REPORT_SOURCE', 'SSH_REPORT_TOKEN', 'REPORT_IDENTITY', 'TTL_SECONDS', 'AUTO_REPORT_INTERVAL_SECONDS', 'CELLULAR_CIDR_PREFIX', 'SSH_REPORT_TARGETS', 'WORKER_AUTO_ENABLED'];
 const MODULE_DEFAULT_ENV_VALUES = {
   PO0_PORT: '22',
   PO0_USER: 'root',
@@ -407,12 +412,9 @@ function parseOfficialTokenItem(value) {
 function parseOfficialTokens(raw) {
   const value = String(raw ?? '').trim();
   if (!value) return [];
-  if (/[\r\n]/.test(value)) {
-    throw new Error('PO0 官方防火墙 token 配置不能包含换行。');
-  }
 
   const seen = new Set();
-  const tokens = value.split(',').map((item) => parseOfficialTokenItem(item));
+  const tokens = value.split(/[,;，；\s]+/).filter(Boolean).map((item) => parseOfficialTokenItem(item));
   for (const item of tokens) {
     // A token identifies one official account; slot hints are not separate accounts.
     const key = item.token;
@@ -935,7 +937,7 @@ function officialSummaryRows(state, ctx, metrics = widgetMetrics(ctx)) {
   entries.slice(0, maxEntries).forEach((entry, index) => {
     const color = entry.status === 'error' ? WIDGET_COLORS.red
       : entry.status === 'missing' ? WIDGET_COLORS.yellow : WIDGET_COLORS.green;
-    const name = `官方${entry.ordinal || index + 1}`;
+    const name = entry.name || `官方${entry.ordinal || index + 1}`;
     const displaySlot = officialDisplaySlot(entry.fixedSlot);
     const fixedSlot = displaySlot === null ? '未固定' : `#${displaySlot}`;
     const quota = `${entry.used || 0}/${entry.limit || 0}`;
@@ -1593,6 +1595,7 @@ async function shouldSkipUnchangedAutoReport(ctx, env, targets, ip, reportedCidr
 
 function sanitizeOfficialEntry(entry = {}) {
   const clean = {
+    name: String(entry.name || ''),
     ordinal: Number.isInteger(entry.ordinal) ? entry.ordinal : 0,
     slot: Number.isInteger(entry.slot) ? entry.slot : null,
     fixedSlot: Number.isInteger(entry.fixedSlot) ? entry.fixedSlot : null,
@@ -1739,6 +1742,7 @@ async function runOfficialFirewall(ctx, env, mode = 'report') {
 
   const runOfficialAccount = async (item, index) => {
     const entry = {
+      name: officialAccountName(env, index),
       ordinal: index + 1,
       slot: item.slot,
       fixedSlot: item.slot,
@@ -2165,9 +2169,11 @@ async function handleScopedConfigSaveScript(ctx, runtimeEnv, storedValues, devic
       if (!input) throw new Error('请填写官方 Token；清除请使用独立的清除官方 Token 操作。');
       parseOfficialTokens(input);
       candidate = { ...(storedValues || {}), PO0_FIREWALL_TOKENS: input };
+      candidate.PO0_FIREWALL_NAMES = officialNamesForSave(storedValues || {}, runtimeEnv, input);
+      if (runtimeEnv.OFFICIAL_AUTO_ENABLED !== undefined) candidate.OFFICIAL_AUTO_ENABLED = String(runtimeEnv.OFFICIAL_AUTO_ENABLED);
     } else {
       const scopedEnv = { ...runtimeEnv };
-      delete scopedEnv.PO0_FIREWALL_TOKENS;
+      for (const key of OFFICIAL_CONFIG_KEYS) delete scopedEnv[key];
       candidate = reportConfigSaveCandidate(storedValues, scopedEnv);
       const workerEnv = { ...candidate };
       delete workerEnv.PO0_FIREWALL_TOKENS;
@@ -2221,7 +2227,7 @@ async function handleReportConfigSaveScript(ctx, runtimeEnv, storedValues, devic
 }
 
 async function handleReportConfigClearScript(ctx) {
-  await storageDelete(ctx, CONFIG_STORAGE_KEY);
+  await saveReportConfig(ctx, { WORKER_AUTO_ENABLED: 'false', OFFICIAL_AUTO_ENABLED: 'false' });
   await storageDelete(ctx, STORAGE_KEY);
   await storageDelete(ctx, ERROR_STORAGE_KEY);
   await storageDelete(ctx, OFFICIAL_STORAGE_KEY);
@@ -2235,7 +2241,8 @@ async function handleReportConfigClearScript(ctx) {
 
 async function handleOfficialConfigClearScript(ctx, storedValues) {
   const next = { ...(storedValues || {}) };
-  delete next.PO0_FIREWALL_TOKENS;
+  for (const key of OFFICIAL_CONFIG_KEYS) delete next[key];
+  next.OFFICIAL_AUTO_ENABLED = 'false';
   if (Object.keys(next).length === 0) {
     await storageDelete(ctx, CONFIG_STORAGE_KEY);
   } else {
@@ -2320,6 +2327,75 @@ function officialUpdateSummary(result) {
     .join('；');
 }
 
+function officialAccountName(env, index) {
+  return String(env.PO0_FIREWALL_NAMES || '').replace(/\r/g, '').split(/[;；\n]/)[index]?.trim() || `官方账号 ${index + 1}`;
+}
+
+function officialNamesForSave(stored, runtime, tokens) {
+  if (Object.prototype.hasOwnProperty.call(runtime, 'PO0_FIREWALL_NAMES') && String(runtime.PO0_FIREWALL_NAMES).trim()) {
+    const names = String(runtime.PO0_FIREWALL_NAMES).trim();
+    return names === '-' ? '' : names;
+  }
+  const oldTokens = String(stored.PO0_FIREWALL_TOKENS || '').split(/[,;，；\s]+/).filter(Boolean);
+  const oldNames = String(stored.PO0_FIREWALL_NAMES || '').replace(/\r/g, '').split(/[;；\n]/);
+  return parseOfficialTokens(tokens).map(item => {
+    const index = oldTokens.findIndex(old => old.split('@')[0] === item.token);
+    return index < 0 ? '' : oldNames[index] || '';
+  }).join(';');
+}
+
+function localChannelAction(ctx) {
+  const label = scriptLabel(ctx);
+  if (/清除本机自建 PO0 配置/.test(label)) return 'clear-worker';
+  if (/切换自建 PO0 自动上报/.test(label)) return 'toggle-worker';
+  if (/切换官方防火墙自动上报/.test(label)) return 'toggle-official';
+  if (/查看本机上报设置/.test(label)) return 'settings';
+  return '';
+}
+
+async function handleLocalChannelAction(ctx, env, action) {
+  const next = { ...env };
+  let message = '';
+  if (action === 'clear-worker') {
+    for (const key of WORKER_CONFIG_KEYS) delete next[key];
+    next.WORKER_AUTO_ENABLED = 'false';
+    await saveReportConfig(ctx, next);
+    await storageDelete(ctx, STORAGE_KEY);
+    message = '自建 PO0 的本机配置已清除，官方及公共设置保留。';
+  } else if (action.startsWith('toggle-')) {
+    const worker = action === 'toggle-worker';
+    const key = worker ? 'WORKER_AUTO_ENABLED' : 'OFFICIAL_AUTO_ENABLED';
+    next[key] = boolEnv(next[key], true) ? 'false' : 'true';
+    await saveReportConfig(ctx, next);
+    message = (worker ? '自建 PO0' : '官方防火墙') + '自动上报已' + (next[key] === 'true' ? '启用' : '停用') + '；配置保留，手动上报仍可用。';
+  }
+  const rows = [message,
+    '自建 PO0：' + (workerConfigRequested(next) ? boolEnv(next.WORKER_AUTO_ENABLED, true) ? '自动上报启用' : '自动上报停用（配置保留）' : '未配置'),
+    '自建上报周期：' + autoReportIntervalSeconds(next) + ' 秒；TTL：' + (next.TTL_SECONDS || DEFAULT_TTL_SECONDS) + ' 秒（多目标可分别覆盖）',
+    '官方防火墙：' + (officialTokensConfigured(next) ? boolEnv(next.OFFICIAL_AUTO_ENABLED, true) ? '自动上报启用' : '自动上报停用（配置保留）' : '未配置'),
+    '官方周期固定 600 秒；TTL 由官方服务管理。',
+    '官方目标名称：' + (next.PO0_FIREWALL_NAMES || '按账号编号显示'),
+    'SSID 跳过：' + (next.SKIP_WIFI_SSIDS || '未设置') + '；匹配时同时跳过两个自动上报通道。',
+    '定时 / 网络变化共用两个通道；手动操作仍沿用原有强制上报规则。',
+  ].filter(Boolean);
+  if (message) notify(ctx, REPORT_TITLE, message);
+  return widgetPanel(REPORT_TITLE + ' · 本机设置', rows, true, ctx);
+}
+
+function selectReportChannels(ctx, env, channels) {
+  const automatic = isAutomaticReportRun(ctx);
+  const label = scriptLabel(ctx);
+  if ((automatic && !boolEnv(env.WORKER_AUTO_ENABLED, true)) || /仅官方防火墙立即上报/.test(label)) {
+    channels.workerRequested = false; channels.workerTargets = []; channels.workerError = null;
+  }
+  if ((automatic && !boolEnv(env.OFFICIAL_AUTO_ENABLED, true)) || /仅自建 PO0 立即上报/.test(label)) {
+    channels.officialRequested = false; channels.officialTokens = []; channels.officialError = null;
+  }
+  channels.anyRequested = channels.workerRequested || channels.officialRequested;
+  channels.anyValid = channels.workerTargets.length > 0 || channels.officialTokens.length > 0;
+  return channels;
+}
+
 async function runEgernReportUnlocked(ctx) {
   const deviceHttpResponse = await handleDeviceHttpRequest(ctx);
   if (deviceHttpResponse) return deviceHttpResponse;
@@ -2365,6 +2441,7 @@ async function runEgernReportUnlocked(ctx) {
     if (storedConfig.exists) {
       env = storedConfig.values;
     }
+    if (localChannelAction(ctx)) return await handleLocalChannelAction(ctx, env, localChannelAction(ctx));
     if (isOfficialConfigClearRun(ctx)) {
       return await handleOfficialConfigClearScript(ctx, storedConfig.values);
     }
@@ -2384,6 +2461,8 @@ async function runEgernReportUnlocked(ctx) {
       await saveReportConfig(ctx, env);
     }
 
+    channels = selectReportChannels(ctx, env, channels);
+    if (!channels.anyRequested) return { ok: true, skipped: true, skipType: 'channels-paused', reason: '本次没有启用的自动上报通道；配置保留。' };
     policy = env.POLICY || 'DIRECT';
     notifySuccess = boolEnv(env.NOTIFY_SUCCESS, false) || isManualRun(ctx);
     notifyFailure = boolEnv(env.NOTIFY_FAILURE, true) || isManualRun(ctx);
@@ -2611,7 +2690,10 @@ function reportLockBypass(ctx) {
     || isDeviceClearRun(ctx)
     || isReportConfigSaveRun(ctx)
     || isReportConfigClearRun(ctx)
-    || isOfficialConfigClearRun(ctx);
+    || isOfficialConfigClearRun(ctx)
+    || isWorkerConfigSaveRun(ctx)
+    || isOfficialConfigSaveRun(ctx)
+    || Boolean(localChannelAction(ctx));
 }
 
 export default async function(ctx) {
