@@ -632,7 +632,9 @@ function isOfficialStatusRun(ctx) {
 }
 
 function shouldReturnWidget(ctx) {
-  return isWidgetRun(ctx) || isStatusRun(ctx);
+  // Egern documents ctx.script.name; generic actions need renderable results too.
+  return isWidgetRun(ctx) || isStatusRun(ctx)
+    || (Boolean(ctx?.script?.name) && !ctx?.request && !isAutomaticReportRun(ctx));
 }
 
 function isDeviceSetupRun(ctx) {
@@ -1763,6 +1765,10 @@ function parseRequestUrl(ctx) {
   }
 }
 
+function isLegacyDeviceHttpRun(ctx) {
+  return /PO0 防火墙本机设备 ID/.test(scriptLabel(ctx));
+}
+
 async function handleDeviceHttpRequest(ctx) {
   const url = parseRequestUrl(ctx);
   if (!url || url.protocol !== 'http:' || url.hostname !== 'po0-egern.local') return null;
@@ -2307,6 +2313,15 @@ function selectReportChannels(ctx, env, channels) {
 async function runEgernReportUnlocked(ctx) {
   const deviceHttpResponse = await handleDeviceHttpRequest(ctx);
   if (deviceHttpResponse) return deviceHttpResponse;
+  if (isLegacyDeviceHttpRun(ctx)) {
+    if (ctx?.request) return;
+    return widgetPanel(REPORT_TITLE, [
+      '这是旧版浏览器设备 ID 入口。',
+      '查看请运行“查看本机上报设置”。',
+      '修改请运行“保存本机设备 ID”或“清除本机设备 ID”。',
+      '本次没有发起上报。',
+    ], true, ctx);
+  }
 
   const runtimeEnv = ctx.env || {};
   if (isDeviceSetupRun(ctx)) return await handleDeviceSetupScript(ctx, runtimeEnv);
@@ -2370,7 +2385,14 @@ async function runEgernReportUnlocked(ctx) {
     }
 
     channels = selectReportChannels(ctx, env, channels);
-    if (!channels.anyRequested) return { ok: true, skipped: true, skipType: 'channels-paused', reason: '本次没有启用的自动上报通道；配置保留。' };
+    if (!channels.anyRequested) {
+      if (shouldReturnWidget(ctx)) return widgetPanel(REPORT_TITLE, [
+        '所选上报通道尚未配置。',
+        '请先保存该通道配置，再运行强制上报。',
+        '本次没有发起网络请求。',
+      ], false, ctx);
+      return { ok: true, skipped: true, skipType: 'channels-paused', reason: '本次没有启用的自动上报通道；配置保留。' };
+    }
     policy = env.POLICY || 'DIRECT';
     notifySuccess = boolEnv(env.NOTIFY_SUCCESS, false) || isManualRun(ctx);
     notifyFailure = boolEnv(env.NOTIFY_FAILURE, true) || isManualRun(ctx);
@@ -2595,6 +2617,7 @@ function reportLockBypass(ctx) {
     && requestUrl.protocol === 'http:'
     && requestUrl.hostname === 'po0-egern.local';
   return Boolean(isDeviceRequest)
+    || isLegacyDeviceHttpRun(ctx)
     || isDeviceSetupRun(ctx)
     || isDeviceClearRun(ctx)
     || isReportConfigSaveRun(ctx)
@@ -2635,7 +2658,7 @@ async function unavailableReportResult(ctx, status) {
   return panel;
 }
 
-export default async function(ctx) {
+async function runEgernReportWithLock(ctx) {
   if (reportLockBypass(ctx)) return runEgernReportUnlocked(ctx);
   const mode = isStatusRun(ctx) || isWidgetRun(ctx)
     ? 'status'
@@ -2657,5 +2680,20 @@ export default async function(ctx) {
     } catch (error) {
       logMessage(ctx, 'error', '释放上报锁失败', redactError(error, ctx?.env || {}));
     }
+  }
+}
+
+export default async function(ctx) {
+  try {
+    return await runEgernReportWithLock(ctx);
+  } catch (error) {
+    if (!shouldReturnWidget(ctx)) throw error;
+    // Local save/clear operations can fail before the report error handler runs.
+    // Do not expose storage errors, which may contain previously saved secrets.
+    return widgetPanel(REPORT_TITLE, [
+      '本次操作未完成。',
+      '本机存储暂时不可用，请稍后重试。',
+      '可在“查看本机上报设置”核对保存结果。',
+    ], false, ctx);
   }
 }

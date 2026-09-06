@@ -873,16 +873,19 @@ async function testParallelOfficialAccountsPreserveLaneOrder() {
 }
 
 function testEgernTimeoutBudget() {
-  assert.equal((yamlSource.match(/timeout: 90/g) || []).length, 8);
+  assert.equal((yamlSource.match(/timeout: 90/g) || []).length, 6);
   assert.equal((yamlSource.match(/timeout: 30/g) || []).length, 0);
 }
 
 function testEgernWidgetBindingsStayCompatible() {
   const widgets = yamlSource.slice(yamlSource.indexOf('\nwidgets:'));
-  for (const name of ['PO0 防火墙上报状态', 'PO0 SSH 上报状态']) {
-    if (name === 'PO0 防火墙上报状态') assert(widgets.includes('name: ' + name));
-    assert(yamlSource.includes('      name: ' + name), 'existing custom script binding must still resolve');
+  assert(widgets.includes('name: PO0 防火墙上报状态'));
+  assert(widgets.includes('script_name: PO0 防火墙上报状态'));
+  assert(yamlSource.includes('      name: PO0 防火墙上报状态'));
+  for (const removed of ['PO0 SSH 上报状态', '强制上报 PO0 防火墙', 'PO0 防火墙本机设备 ID']) {
+    assert(!yamlSource.includes('      name: ' + removed), 'redundant entries must not be republished');
   }
+  assert(!yamlSource.includes('  - http_request:'));
   assert.equal((widgets.match(/  - name:/g) || []).length, 1, 'the module must publish exactly one widget');
   assert(!yamlSource.includes('name: 切换'), 'published UI must use explicit enable/disable actions');
 }
@@ -1235,7 +1238,139 @@ async function testSettingsShowEffectiveTtlForEveryTarget() {
   assert.equal(fixture.calls.get.length + fixture.calls.post.length + fixture.calls.ssh, 0);
 }
 
+
+function publishedActions() {
+  return [...yamlSource.matchAll(/^  - (generic|schedule|network):\r?\n      name: ([^\r\n]+)/gm)]
+    .map(match => ({ type: match[1], name: match[2] }));
+}
+
+function nativeActionFixture(action, overrides = {}) {
+  const fixture = createContext(overrides);
+  // Use the documented native context, not invented trigger/type properties.
+  delete fixture.ctx.name;
+  delete fixture.ctx.trigger;
+  fixture.ctx.script = { name: action.name };
+  if (action.type === 'schedule') fixture.ctx.cron = '*/10 * * * *';
+  return fixture;
+}
+
+const actionValues = {
+  PO0_FIREWALL_TOKENS: 'pgnfw_action_fixture@0', PO0_FIREWALL_NAMES: '官方测试目标',
+  SSH_REPORT_TARGETS: 'phone-source|po0.example.com||||ssh-action-fixture|audit-note|7200',
+  PO0_PASSWORD: 'mock-password', IP_CHECK_URLS: 'https://example.com/ip',
+  SKIP_WIFI_SSIDS: 'HomeWiFi', WORKER_AUTO_ENABLED: 'false', OFFICIAL_AUTO_ENABLED: 'false',
+};
+
+function actionHttpGet(url) {
+  return url.includes('/api/firewall/')
+    ? response(officialPayload({ whitelist: [{ ip: '203.0.113.10/24', slot: 0 }] }))
+    : response({ ip: '203.0.113.50' });
+}
+
+async function testEveryPublishedManualActionReturnsVisibleResult() {
+  const actions = publishedActions().filter(action => action.type === 'generic');
+  assert.equal(actions.length, 16);
+  for (const action of actions) {
+    for (const mode of ['configured', 'empty', 'busy', 'storage-read-error', 'storage-write-error']) {
+      const values = mode === 'empty' ? {} : actionValues;
+      const storage = createStorage(mode === 'empty' ? {} : { [CONFIG_STORAGE_KEY]: JSON.stringify({ version: 1, values }) });
+      if (mode === 'busy') await storage.set(REPORT_LOCK_KEY, JSON.stringify({ owner: 'existing-run', expiresAt: Date.now() + 120000 }));
+      if (mode === 'storage-read-error') storage.get = async () => { throw Error('mock storage read failure'); };
+      if (mode === 'storage-write-error') {
+        storage.set = storage.delete = async () => { throw Error('mock storage write failure'); };
+      }
+      const fixture = nativeActionFixture(action, {
+        storage, env: { PO0_FIREWALL_TOKENS: '', ...values, DEVICE_ID_SETUP: 'test-phone' },
+        ssid: 'HomeWiFi', httpGet: actionHttpGet,
+      });
+      const result = await runEgernReport(fixture.ctx);
+      assert.equal(result?.type, 'widget', action.name + ' / ' + mode + ' must render a result');
+      assert.match(visibleText(result), /text/);
+      const networkCalls = fixture.calls.get.length + fixture.calls.post.length + fixture.calls.ssh;
+      const reportAction = /上报状态|强制上报|状态（只读）/.test(action.name);
+      if (!reportAction || mode !== 'configured') assert.equal(networkCalls, 0, action.name + ' / ' + mode);
+      if (reportAction && mode === 'configured') {
+        assert.equal(fixture.calls.ssh, /仅官方|官方防火墙状态/.test(action.name) ? 0 : 1, 'manual reporting must bypass disabled auto and SSID');
+        const officialGets = fixture.calls.get.filter(call => call.url.includes('/api/firewall/'));
+        assert.equal(officialGets.length, /仅自建/.test(action.name) ? 0 : 1);
+        assert.equal(fixture.calls.post.length, 0, 'already allowed or read-only must never POST');
+      }
+      assert(!visibleText(result).includes('pgnfw_action_fixture'));
+      assert(!visibleText(result).includes('ssh-action-fixture'));
+    }
+  }
+}
+
+async function testScopedNativeForceWithoutSelectedConfigIsVisible() {
+  for (const [name, values] of [
+    ['仅自建防火墙强制上报', { PO0_FIREWALL_TOKENS: actionValues.PO0_FIREWALL_TOKENS }],
+    ['仅官方防火墙强制上报', { SSH_REPORT_TARGETS: actionValues.SSH_REPORT_TARGETS, PO0_PASSWORD: 'mock-password' }],
+  ]) {
+    const storage = createStorage({ [CONFIG_STORAGE_KEY]: JSON.stringify({ version: 1, values }) });
+    const fixture = nativeActionFixture({ name }, { storage });
+    const result = await runEgernReport(fixture.ctx);
+    assert.equal(result.type, 'widget');
+    assert(visibleText(result).includes('所选上报通道尚未配置'));
+    assert.equal(fixture.calls.get.length + fixture.calls.post.length + fixture.calls.ssh, 0);
+  }
+}
+
+async function testNativeForceFailuresAreVisible() {
+  for (const name of ['仅自建防火墙强制上报', '仅官方防火墙强制上报', 'PO0 防火墙上报状态']) {
+    const fixture = nativeActionFixture({ name }, {
+      env: actionValues, ssid: 'HomeWiFi',
+      httpGet(url) { return url.includes('/api/firewall/') ? response({}, 503) : actionHttpGet(url); },
+      sshConnect() { throw Error('mock SSH unavailable'); },
+    });
+    const result = await runEgernReport(fixture.ctx);
+    assert.equal(result.type, 'widget');
+    assert.equal((await stateOf(fixture.storage)).ok, false);
+    assert.equal(fixture.calls.post.length, 0);
+  }
+}
+
+async function testPublishedBackgroundTriggersKeepAutomaticGuards() {
+  const actions = publishedActions().filter(action => action.type !== 'generic');
+  assert.deepEqual(actions.map(action => action.type), ['schedule', 'network']);
+  for (const action of actions) {
+    assert(action.name.includes('后台自动'));
+    for (const mode of ['paused', 'ssid', 'empty', 'enabled']) {
+      const values = mode === 'empty' ? {} : { ...actionValues, WORKER_AUTO_ENABLED: mode === 'paused' ? 'false' : 'true', OFFICIAL_AUTO_ENABLED: mode === 'paused' ? 'false' : 'true' };
+      const storage = createStorage(mode === 'empty' ? {} : { [CONFIG_STORAGE_KEY]: JSON.stringify({ version: 1, values }) });
+      const fixture = nativeActionFixture(action, { storage, env: { PO0_FIREWALL_TOKENS: '' }, ssid: mode === 'ssid' ? 'HomeWiFi' : '', httpGet: actionHttpGet });
+      const result = await runEgernReport(fixture.ctx);
+      assert.notEqual(result?.type, 'widget');
+      if (mode === 'enabled') {
+        assert.equal(result.ok, true);
+        await runEgernReport(fixture.ctx);
+        assert.equal(fixture.calls.ssh, 1, 'repeated background checks must honor the SSH interval');
+        assert.equal(fixture.calls.get.filter(call => call.url.includes('/api/firewall/')).length, 1, 'official interval stays independent');
+      } else {
+        assert.equal(result.skipType, { paused: 'channels-paused', ssid: 'wifi-ssid', empty: 'missing-config' }[mode]);
+        assert.equal(fixture.calls.get.length + fixture.calls.post.length + fixture.calls.ssh, 0);
+      }
+      assert.equal(fixture.calls.notifications.length, 0);
+    }
+  }
+}
+
+async function testLegacyDeviceEntryCannotFallThroughToReporting() {
+  for (const request of [null, { url: 'https://po0-egern.local/device' }, { url: 'http://example.com/' }]) {
+    const fixture = nativeActionFixture({ name: 'PO0 防火墙本机设备 ID' }, { env: actionValues, request });
+    const result = await runEgernReport(fixture.ctx);
+    if (!request) { assert.equal(result.type, 'widget'); assert(visibleText(result).includes('旧版浏览器设备 ID 入口')); }
+    else assert.equal(result, undefined, 'unmatched HTTP requests should pass through');
+    assert.equal(fixture.calls.get.length + fixture.calls.post.length + fixture.calls.ssh, 0);
+    assert.equal(fixture.storage.values.size, 0);
+  }
+}
+
 const tests = [
+  testEveryPublishedManualActionReturnsVisibleResult,
+  testScopedNativeForceWithoutSelectedConfigIsVisible,
+  testNativeForceFailuresAreVisible,
+  testPublishedBackgroundTriggersKeepAutomaticGuards,
+  testLegacyDeviceEntryCannotFallThroughToReporting,
   testUiRefreshForcesBothConfiguredLanes,
   testNamesOnlySaveAndWidgetReload,
   testModuleNamesReachWidgetWithoutReplacingReportConfig,
