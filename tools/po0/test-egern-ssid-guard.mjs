@@ -471,12 +471,19 @@ async function testClearConfigKeepsDeviceId() {
 
   await runEgernReport(clearRun.ctx);
 
-  assert.equal(await storage.get(CONFIG_STORAGE_KEY), null);
+  assert.deepEqual((await readStoredConfig(storage)).values, {
+    WORKER_AUTO_ENABLED: 'false', OFFICIAL_AUTO_ENABLED: 'false',
+  });
   assert.equal(await storage.get(STORAGE_KEY), null);
   assert.equal(await storage.get(ERROR_STORAGE_KEY), null);
   assert.equal(await storage.get(DEVICE_ID_KEY), 'iphone15pm');
   assert.equal(clearRun.calls.http, 0);
   assert.equal(clearRun.calls.ssh, 0);
+  const nextRun = createContext({ trigger: 'schedule', storage });
+  await runEgernReport(nextRun.ctx);
+  assert.equal(nextRun.calls.http, 0);
+  assert.equal(nextRun.calls.ssh, 0);
+  assert.equal((await readStoredConfig(storage)).values.SSH_REPORT_TOKEN, undefined);
 }
 
 const tests = [

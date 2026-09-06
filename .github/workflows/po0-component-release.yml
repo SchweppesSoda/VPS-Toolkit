@@ -21,6 +21,14 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v6
 
+      - name: Install validation dependencies
+        shell: bash
+        run: |
+          if ! command -v rg >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y ripgrep
+          fi
+
       - name: Select release component
         id: plan
         shell: bash

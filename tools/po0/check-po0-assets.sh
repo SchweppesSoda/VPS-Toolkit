@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+command -v rg >/dev/null 2>&1 || { printf 'ripgrep (rg) is required for PO0 reference checks.\n' >&2; exit 1; }
+
 repo_root="$(cd "$(git rev-parse --show-toplevel)" && pwd -P)"
 asset_dir="${1:-${repo_root}/.tmp/po0-check-assets-bash}"
 expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.09.06+build.1}"
