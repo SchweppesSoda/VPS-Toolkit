@@ -5,10 +5,12 @@ PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.c
 DOWNLOAD_URL="${PO0_LAN_CLIENT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-lan-client.sh}"
 MANAGER_DOWNLOAD_URL="${PO0_MANAGER_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/nftables-relay-manager.sh}"
 SCRIPT_NAME="po0-lan-worker-client"
-SCRIPT_VERSION="2026.09.06+build.3"
+SCRIPT_VERSION="2026.09.06+build.4"
 SCRIPT_RELEASE_DATE="2026-09-06"
 # CHANGELOG_BEGIN
-# - 随访问设备客户端目标名称与有效期说明更新同步脚本发布版本；本脚本功能不变。
+# - Windows / macOS / Linux 自建与官方任务分别安装、启停、删除与更新。
+# - 官方周期默认 600 秒，可调整或关闭；网络变化独立触发。
+# - 支持的系统接入网络事件，旧共享任务迁移保留参数和暂停状态。
 # CHANGELOG_END
 DEFAULT_PO0_SCRIPT="/root/nftables-relay-manager.sh"
 PO0_HOST="${PO0_HOST:-}"

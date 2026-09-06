@@ -1,4 +1,4 @@
-
+﻿
 # PO0 official firewall channel for the Windows self-report client.
 #
 # The channel is disabled unless PO0_FIREWALL_TOKENS is present in the
@@ -9,14 +9,14 @@
 # when the current /24 is missing (or is in a different requested fixed slot).
 
 $script:Po0FirewallApiBaseUrl = "https://124.221.69.228/api/firewall"
-$script:Po0FirewallIntervalSeconds = 600
+# Official interval is loaded from local channel settings.
 $script:Po0FirewallTokensEnvironmentSet = [bool](Get-Item -LiteralPath "Env:PO0_FIREWALL_TOKENS" -ErrorAction SilentlyContinue)
 if ($script:Po0FirewallTokensEnvironmentSet) {
     $script:Po0FirewallTokens = [string]$env:PO0_FIREWALL_TOKENS
 } else {
     $script:Po0FirewallTokens = ""
 }
-$script:Po0FirewallScheduledRun = [bool]$ScheduledRun
+$script:Po0FirewallScheduledRun = [bool]($ScheduledRun -or $NetworkChanged)
 $script:Po0FirewallStatusOnly = [bool]$OfficialStatus
 $script:Po0FirewallOfficialOnly = [bool]$OfficialOnly
 $script:Po0FirewallWorkerOnly = [bool]$WorkerOnly
@@ -237,12 +237,12 @@ function Get-Po0FirewallLastAttempt {
 
 function Test-Po0FirewallDue {
     if (-not (Test-Po0FirewallConfigured)) { return $false }
-    if (-not $script:Po0FirewallScheduledRun -or $script:Po0FirewallForce) { return $true }
+    if (-not $script:Po0FirewallScheduledRun -or $script:Po0FirewallForce -or $NetworkChanged -or $TimerTrigger) { return $true }
     $now = Get-Po0FirewallNow
     $last = Get-Po0FirewallLastAttempt
     if ($last -le 0) { return $true }
     if ($now -lt $last) { return $true }
-    return (($now - $last) -ge [int64]$script:Po0FirewallIntervalSeconds)
+    return (($now - $last) -ge [int64]$script:OfficialIntervalSeconds)
 }
 
 function Get-Po0WorkerLastAttempt {
@@ -257,7 +257,7 @@ function Get-Po0WorkerLastAttempt {
 
 function Test-Po0WorkerDue {
     if (-not $script:WorkerUrl) { return $false }
-    if (-not $script:Po0FirewallScheduledRun -or $script:Po0FirewallForce) { return $true }
+    if (-not $script:Po0FirewallScheduledRun -or $script:Po0FirewallForce -or $NetworkChanged -or $TimerTrigger) { return $true }
     $now = Get-Po0FirewallNow
     $last = Get-Po0WorkerLastAttempt
     if ($last -le 0) { return $true }
@@ -727,7 +727,7 @@ function Enter-Po0SelfReportMutex {
         $acquired = $false
         try {
             try {
-                $acquired = $mutex.WaitOne(0)
+                $acquired = $mutex.WaitOne($(if ($script:Po0FirewallScheduledRun) { 120000 } else { 0 }))
             } catch [System.Threading.AbandonedMutexException] {
                 $acquired = $true
             }

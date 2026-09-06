@@ -4,12 +4,12 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_OUTBOUND_IP_REPORT_MACOS_DOWNLOAD_URL:-${PO0_SELF_REPORT_MACOS_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report-macos.sh}}"
 SCRIPT_NAME="po0-outbound-ip-report"
-SCRIPT_VERSION="2026.09.06+build.3"
+SCRIPT_VERSION="2026.09.06+build.4"
 SCRIPT_RELEASE_DATE="2026-09-06"
 # CHANGELOG_BEGIN
-# - 主菜单与官方通道页逐个显示目标名称，未命名账号显示默认编号。
-# - 自建放行有效期仅标明由 LAN Worker 接收端管理，不再展示默认秒数。
-# - 保留独立名称保存、手动立即上报、只读状态和双通道 SSID 跳过规则。
+# - Windows / macOS / Linux 自建与官方任务分别安装、启停、删除与更新。
+# - 官方周期默认 600 秒，可调整或关闭；网络变化独立触发。
+# - 支持的系统接入网络事件，旧共享任务迁移保留参数和暂停状态。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24

@@ -47,7 +47,7 @@ worker_last_attempt_at() {
 worker_due() {
     local now last interval
     [[ "${SCHEDULED_RUN:-0}" == "1" ]] || return 0
-    [[ "${FORCE_REPORT:-0}" == "1" ]] && return 0
+    [[ "${FORCE_REPORT:-0}" == "1" || "${NETWORK_CHANGED:-0}" == 1 || "${TIMER_TRIGGER:-0}" == 1 ]] && return 0
     interval="$(worker_interval_seconds)"
     last="$(worker_last_attempt_at 2>/dev/null || true)"
     [[ "${last}" =~ ^[0-9]+$ ]] || return 0
@@ -318,8 +318,16 @@ report_once() {
         official_enabled=1
     fi
     if [[ "${SCHEDULED_RUN:-0}" == 1 ]]; then
+        if schedule_paused; then return 0; fi
         case "${WORKER_AUTO_ENABLED:-1}" in 0|false|no|off) worker_enabled=0 ;; esac
         case "${OFFICIAL_AUTO_ENABLED:-1}" in 0|false|no|off) official_enabled=0 ;; esac
+        if [[ "${NETWORK_CHANGED:-0}" == 1 ]]; then
+            case "${WORKER_NETWORK_ENABLED:-1}" in 0|false|no|off) worker_enabled=0 ;; esac
+            case "${OFFICIAL_NETWORK_ENABLED:-1}" in 0|false|no|off) official_enabled=0 ;; esac
+        else
+            case "${WORKER_TIMER_ENABLED:-1}" in 0|false|no|off) worker_enabled=0 ;; esac
+            case "${OFFICIAL_TIMER_ENABLED:-1}" in 0|false|no|off) official_enabled=0 ;; esac
+        fi
         if (( worker_enabled == 0 && official_enabled == 0 )); then
             self_report_completed "自动上报通道均已停用，本轮跳过。"
             return 0
@@ -334,6 +342,13 @@ report_once() {
     fi
     report_run_lock_acquire
     lock_rc=$?
+    local wait_count=0
+    while [[ "$lock_rc" == 2 && "${SCHEDULED_RUN:-0}" == 1 && "$wait_count" -lt "${REPORT_LOCK_WAIT_SECONDS:-120}" ]]; do
+        sleep 1
+        report_run_lock_acquire
+        lock_rc=$?
+        wait_count=$((wait_count + 1))
+    done
     if (( lock_rc == 2 )); then
         self_report_completed "已有上报正在执行，本轮跳过。"
         return 0

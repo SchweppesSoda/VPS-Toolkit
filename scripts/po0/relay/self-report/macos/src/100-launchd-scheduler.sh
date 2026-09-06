@@ -3,10 +3,11 @@ is_macos() {
 }
 
 launchd_label() {
-    printf '%s\n' "outbound-ip-report"
+    printf 'outbound-ip-report.%s\n' "${1:-worker}"
 }
 
 legacy_launchd_labels() {
+    printf '%s\n' "outbound-ip-report"
     printf '%s\n' "fr.schweppes.po0-outbound-ip-report"
     printf '%s\n' "fr.schweppes.po0-self-report"
 }
@@ -26,7 +27,7 @@ launchd_supported() {
 
 launchd_plist_path() {
     local label
-    label="$(launchd_label)"
+    label="$(launchd_label "${1:-worker}")"
     if [[ "${EUID:-$(id -u 2>/dev/null || printf 1)}" -eq 0 ]]; then
         printf '/Library/LaunchDaemons/%s.plist\n' "${label}"
     else
@@ -89,9 +90,9 @@ xml_escape() {
 }
 
 write_launchd_plist() {
-    local plist="$1" script="$2" interval_seconds="$3" log_path disabled
-    log_path="$(self_report_log_path)"
-    if schedule_paused; then
+    local plist="$1" script="$2" interval_seconds="$3" channel="${4:-worker}" log_path disabled
+    log_path="$(schedule_channel_log_path "$channel")"
+    if schedule_channel_paused "$channel" || ! schedule_timer_enabled "$channel"; then
         disabled="true"
     else
         disabled="false"
@@ -103,7 +104,7 @@ write_launchd_plist() {
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>$(xml_escape "$(launchd_label)")</string>
+    <string>$(xml_escape "$(launchd_label "$channel")")</string>
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
@@ -111,6 +112,8 @@ write_launchd_plist() {
         <string>--config</string>
         <string>$(xml_escape "${CONFIG_FILE}")</string>
         <string>--scheduled-run</string>
+        <string>--${channel}-only</string>
+        <string>--timer-trigger</string>
 EOF
         if notify_enabled; then
             printf '        <string>--notify</string>\n'
@@ -154,11 +157,10 @@ remove_legacy_launchd_if_exists() {
 }
 
 launchd_load() {
-    local plist="$1" domain label
-    domain="$(launchd_domain)"
-    label="$(launchd_label)"
-    launchctl bootstrap "${domain}" "${plist}" >/dev/null 2>&1 || launchctl load "${plist}" >/dev/null 2>&1 || return 1
-    launchctl enable "${domain}/${label}" >/dev/null 2>&1 || true
+    local plist="$1" channel="${2:-worker}" domain label
+    domain="$(launchd_domain)"; label="$(launchd_label "$channel")"
+    launchctl enable "$domain/$label" >/dev/null 2>&1 || true
+    launchctl bootstrap "$domain" "$plist" >/dev/null 2>&1 || launchctl load "$plist" >/dev/null 2>&1
 }
 
 launchd_interval_seconds_from_plist() {
@@ -178,59 +180,22 @@ launchd_plist_has_scheduled_run() {
 }
 
 launchd_plist_matches_desired() {
-    local plist="$1" script="$2" tmp
-    [[ -f "${plist}" ]] || return 1
-    if command -v mktemp >/dev/null 2>&1; then
-        tmp="$(mktemp "${TMPDIR:-/tmp}/po0-launchd-desired.XXXXXX")" || return 1
-    else
-        tmp="${TMPDIR:-/tmp}/po0-launchd-desired.$$"
-    fi
-    write_launchd_plist "${tmp}" "${script}" "$(po0_reporter_wakeup_seconds)" || {
-        rm -f "${tmp}" 2>/dev/null || true
-        return 1
-    }
-    if cmp -s "${plist}" "${tmp}"; then
-        rm -f "${tmp}" 2>/dev/null || true
-        return 0
-    fi
-    rm -f "${tmp}" 2>/dev/null || true
-    return 1
+    local plist="$1" script="$2" channel="${3:-worker}" tmp rc=0
+    [[ -f "$plist" ]] || return 1
+    tmp="$(mktemp "${TMPDIR:-/tmp}/po0-launchd-desired.XXXXXX")" || return 1
+    write_launchd_plist "$tmp" "$script" "$(($(schedule_channel_minutes "$channel") * 60))" "$channel" && cmp -s "$plist" "$tmp" || rc=1
+    rm -f "$tmp"
+    return "$rc"
 }
 
 read_launchd_status_snapshot() {
-    local plist interval_seconds interval="" config_paused disabled state consistency="ok" legacy=0
-    launchd_supported || return 1
-    plist="$(launchd_plist_path)"
-    config_paused="$(schedule_paused && printf '1' || printf '0')"
-    if [[ ! -f "${plist}" && legacy_launchd_plist_exists ]]; then
-        plist="$(legacy_launchd_plist_path)"
-        legacy=1
-    fi
-    [[ -f "${plist}" ]] || {
-        printf 'uninstalled||%s||ok\n' "${config_paused}"
-        return 0
-    }
-    interval_seconds="$(launchd_interval_seconds_from_plist "${plist}")"
-    interval="$(interval_seconds_label "${interval_seconds}" 2>/dev/null || true)"
-    disabled="$(launchd_disabled_from_plist "${plist}")"
-    if [[ "${disabled}" == "1" || "${config_paused}" == "1" ]]; then
-        state="paused"
-    else
-        state="running"
-    fi
-    if [[ "${state}" == "running" && "${config_paused}" == "1" ]]; then
-        consistency="drift"
-    elif [[ "${state}" == "paused" && "${config_paused}" != "1" && "${disabled}" == "1" ]]; then
-        consistency="drift"
-    fi
-    if [[ "${legacy}" == "1" ]]; then
-        consistency="legacy"
-    elif ! launchd_plist_has_scheduled_run "${plist}"; then
-        if [[ "${consistency}" == "ok" ]]; then
-            consistency="stale-scheduled-run"
-        else
-            consistency="${consistency},stale-scheduled-run"
-        fi
-    fi
-    printf '%s|%s|%s|launchd: %s|%s\n' "${state}" "${interval}" "${config_paused}" "${plist}" "${consistency}"
+    local channel="${1:-worker}" plist paused=0 disabled state consistency=ok interval
+    plist="$(launchd_plist_path "$channel")"
+    schedule_channel_paused "$channel" && paused=1
+    [[ -f "$plist" ]] || { printf 'uninstalled||%s||ok\n' "$paused"; return; }
+    disabled="$(launchd_disabled_from_plist "$plist")"
+    if [[ "$disabled" == 1 ]]; then state=paused; else state=running; fi
+    if [[ "$disabled" != "$paused" ]] && schedule_timer_enabled "$channel"; then consistency=drift; fi
+    interval="$(interval_seconds_label "$(launchd_interval_seconds_from_plist "$plist")")"
+    printf '%s|%s|%s|launchd: %s|%s\n' "$state" "$interval" "$paused" "$plist" "$consistency"
 }

@@ -21,7 +21,7 @@ bash /root/nftables-relay-manager.sh --ssh-ip-report <SSH_REPORT_SOURCE> <ipv4> 
 https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/PO0-SSH-IP-Report.yaml
 ```
 
-参数表按【自建防火墙】【官方防火墙】【通用】分组。自建通道统一填写“上报目标”，一台或多台服务器都用同一种格式；主机、端口、用户、路径、来源 ID、Token、备注和 TTL 不再重复提供单目标表单项。共用 SSH 认证、自动周期和蜂窝网段设置保留。官方通道填写 Token / 槽位，检查周期固定为 600 秒。SSID、IP 探测和通知放在通用区域，随“保存本机 PO0 自建防火墙配置”保存；只启用官方通道时，先保存官方配置，再用此动作保存通用设置。
+参数表按【自建防火墙】【官方防火墙】【通用】分组。自建通道统一填写“上报目标”，一台或多台服务器都用同一种格式；主机、端口、用户、路径、来源 ID、Token、备注和 TTL 不再重复提供单目标表单项。共用 SSH 认证、自动周期和蜂窝网段设置保留。官方通道填写 Token / 槽位，网络变化立即检查，可选定时默认 600 秒。SSID、IP 探测和通知放在通用区域，随“保存本机 PO0 自建防火墙配置”保存；只启用官方通道时，先保存官方配置，再用此动作保存通用设置。
 
 在模块环境变量里填写：
 
@@ -49,7 +49,7 @@ https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nft
 
 运行“保存本机 PO0 官方防火墙配置”可把名称保留到本机，只改名称不需要重填 Token；保存结果逐个列出名称和槽位。名称空白沿用本机已保存值，单独 `-` 清空；只改 Token 顺序或槽位而未输入名称时，旧名称跟随相同账号。自建组件统一显示第一列来源 ID，Token 后的 `identity` 仍只作上报备注 / 审计，不再充当目标标签。
 
-清除一个通道保留另一通道及公共 SSID 等设置；清除全部保留设备 ID。清除操作会留下本机停用记录，同步模块参数不会在下一次定时执行时重新恢复旧凭据。重新填写并保存后，用“启用…自动上报”恢复该通道。官方固定 600 秒且无客户端 TTL 参数；自建 TTL 和自动上报周期仍分别设置。
+清除一个通道保留另一通道及公共 SSID 等设置；清除全部保留设备 ID。清除操作会留下本机停用记录，同步模块参数不会在下一次定时执行时重新恢复旧凭据。重新填写并保存后，用“启用…自动上报”恢复该通道。官方定时可调整/关闭（默认 600 秒），网络变化独立触发，无客户端 TTL 参数；自建 TTL 和自动上报周期仍分别设置。
 
 ## 本机上报配置持久化
 
@@ -144,7 +144,7 @@ source-id|host|port|user|script|token|identity|ttl
 - `清除本机设备 ID`：清除本机 `ctx.storage` 里的设备 ID。
 - `PO0 防火墙上报状态` / `widget`：刷新时立即强制上报两个已配置的通道，再按尺寸展示公网出口、目标名称、两条通道的自动状态和最近结果；大号补充官方槽位 / 名额。完整白名单由官方只读状态入口展示。点击“更新小组件”或刷新普通上报状态时，官方通道也会先 GET，缺失或固定槽位不符时 POST；本机 600 秒间隔和 SSID guard 不会阻止本次刷新。只有“PO0 官方防火墙状态（只读）”保留只读检查；归属地 / 运营商优先使用本次 IP 查询接口返回的数据，拿不到时才额外查询。
 
-自动触发会先校验已配置的通道，再读取当前 Wi-Fi SSID；如果 `SKIP_WIFI_SSIDS` 命中，脚本只写本地跳过状态，官方和 SSH 两条通道都不探测/不上报/不通知，并优先保留上一轮成功状态供 Widget 查看。SSID 读取失败会 fail-open 继续正常上报。未命中 SSID guard 时，官方通道先按固定 `600` 秒独立 due 检查，GET 成功且命中时保持安静，缺失或固定槽位不符才 POST；官方失败仍会继续执行 SSH 通道。随后 SSH 通道按既有 CIDR、`AUTO_REPORT_INTERVAL_SECONDS` 和 TTL 判断；两条通道的 due 状态互不影响。指定 WAN/多 WAN 的官方绑定属于主 OpenWrt 配置，Egern 只使用本机当前 `DIRECT` 出口。
+自动触发会先校验已配置的通道，再读取当前 Wi-Fi SSID；如果 `SKIP_WIFI_SSIDS` 命中，脚本只写本地跳过状态，官方和 SSH 两条通道都不探测/不上报/不通知，并优先保留上一轮成功状态供 Widget 查看。SSID 读取失败会 fail-open 继续正常上报。未命中 SSID guard 时，网络变化时两通道跳过周期等待，定时触发时官方按 `OFFICIAL_INTERVAL_SECONDS`（默认 `600` 秒）独立 due 检查，关闭 `OFFICIAL_TIMER_ENABLED` 仅停止定时检查，GET 成功且命中时保持安静，缺失或固定槽位不符才 POST；官方失败仍会继续执行 SSH 通道。随后 SSH 通道按既有 CIDR、`AUTO_REPORT_INTERVAL_SECONDS` 和 TTL 判断；两条通道的 due 状态互不影响。自建定时默认 600 秒，`WORKER_TIMER_ENABLED` 可关闭定时，网络变化不受其影响。指定 WAN/多 WAN 的官方绑定属于主 OpenWrt 配置，Egern 只使用本机当前 `DIRECT` 出口。
 
 所有手动动作都返回可显示的结果，成功、失败、未配置或上报锁占用时均有反馈；保存、启停、清除和设置查看不发起网络请求，存储操作失败也显示可读提示。通知只作为补充，不代替操作结果。自动成功默认不通知，失败、部分完成或官方新增占位时才通知。官方 token 不写入日志、通知、最近状态或错误摘要；手动执行和 Status 脚本开启 debug，SSH stderr 会写入 Egern 脚本日志；长错误会分段通知，避免只显示半截 `PO0 restricted report key denied`。
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export REPORT_LOCK_WAIT_SECONDS=0
 
 repo_root="$(cd "$(dirname "$0")/../.." && pwd -P)"
 src_root="$repo_root/scripts/po0/relay/self-report/macos/src"

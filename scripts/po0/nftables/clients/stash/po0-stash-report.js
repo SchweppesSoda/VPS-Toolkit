@@ -4,7 +4,6 @@ const NETWORK_GROUP = "📡 PO0 网络识别（自动）";
 const FORCE_URL = "http://po0-report.invalid/report-now";
 const FIREWALL_TOKENS_KEY = "PO0_FIREWALL_TOKENS";
 const OFFICIAL_API_URL = "https://124.221.69.228/api/firewall";
-const OFFICIAL_INTERVAL_SECONDS = 600;
 const OFFICIAL_USER_AGENT = "ProxyConfig-PO0-Firewall/Stash";
 const MAX_FIREWALL_TOKENS = 16;
 // One persistent guard covers every report/status mode and network context.
@@ -89,6 +88,7 @@ function saveOfficialNames(args, tokens, clear) {
     const index = oldTokens.findIndex(old => old.split('@')[0] === item.token);
     return index < 0 ? '' : oldNames[index] || '';
   }).join(';');
+  if (args.official_report_interval_seconds !== undefined) settings.officialIntervalSeconds = reportInterval(args.official_report_interval_seconds);
   if (clear) settings.officialAutoEnabled = false;
   saveChannelSettings(settings);
 }
@@ -104,12 +104,12 @@ function localSettingsSummary(args) {
   const officialConfig = readJSON(STORE_KEY + '.official-config', null);
   const officialRaw = officialConfig ? officialConfig.tokens : firewallInput(args);
   const officialCount = String(officialRaw || '').split(/[,;，；\s]+/).filter(Boolean).length;
-  const interval = effective.auto_report_interval_seconds || effective.refresh_ttl_seconds || effective.ttl_seconds || 3600;
+  const interval = reportInterval(effective.auto_report_interval_seconds ?? effective.refresh_ttl_seconds ?? effective.ttl_seconds);
   return [
     '自建 PO0：' + (!workerUrl ? '未配置' : settings.workerAutoEnabled === false ? '自动上报已停用' : '自动上报已启用') + '；目标名称：' + (effective.worker_name || 'LAN Worker'),
-    '自建配置：' + (localWorkerConfig() ? '已保存本机设置' : '沿用模块 / 旧设置') + '；地址：' + (workerUrl || '未配置') + '；周期：' + interval + ' 秒',
+    '自建配置：' + (localWorkerConfig() ? '已保存本机设置' : '沿用模块 / 旧设置') + '；地址：' + (workerUrl || '未配置') + '；周期：' + (interval === 0 ? '关闭' : interval + ' 秒'),
     '官方防火墙：' + (!officialCount ? '未配置' : officialCount + ' 个目标，' + (settings.officialAutoEnabled === false ? '自动上报已停用' : '自动上报已启用')) + '；目标名称：' + (settings.officialNames || '按账号编号显示'),
-    '官方固定 600 秒；Worker 按自己的间隔运行；放行 TTL 由接收端管理。',
+    '官方定时：' + (reportInterval(settings.officialIntervalSeconds) || '关闭') + ' 秒；出口变化轮询独立触发；放行 TTL 由接收端管理。',
     '停用保留配置，手动立即上报仍可用；清除后同步参数不会自动恢复。',
   ].join('\n');
 }
@@ -120,8 +120,7 @@ function runLocalSettingsAction(args, mode) {
     const workerUrl = firstNonEmpty([args.po0_worker_url, args.worker_url, args.workerUrl]);
     const secret = firstNonEmpty([args.po0_worker_token, args.worker_token, args.token, args.secret]);
     if (!/^https:\/\/[^/?#]+\/stash-report\/v1\/?$/.test(workerUrl) || !secret || /^CHANGE_ME/.test(secret)) throw new Error('请填写 HTTPS /stash-report/v1 地址与 Worker 密钥');
-    const seconds = Number(args.auto_report_interval_seconds || 3600);
-    if (!Number.isInteger(seconds) || seconds < 600 || seconds > 86400) throw new Error('自动上报周期必须是 600..86400 秒');
+    const seconds = reportInterval(args.auto_report_interval_seconds);
     const values = { worker_url: workerUrl, secret, worker_name: String(args.worker_name || '').trim(), auto_report_interval_seconds: seconds };
     if (!String(args.source_id || '').trim()) throw new Error('请填写来源 ID');
     values.source_id = String(args.source_id).trim();
@@ -399,11 +398,23 @@ function officialSummary(official) {
   return text;
 }
 
-function officialDue(mode, state, nowSeconds) {
+function officialDue(mode, state, nowSeconds, args = {}) {
   if (mode === "force") return true;
   if (mode !== "auto") return false;
+  if (isNetworkTrigger(args)) return true;
+  const interval = reportInterval(channelSettings().officialIntervalSeconds);
+  if (interval === 0) return false;
   const last = Number(state && state.last_attempt_at || 0);
-  return !last || nowSeconds < last || nowSeconds - last >= OFFICIAL_INTERVAL_SECONDS;
+  return !last || nowSeconds < last || nowSeconds - last >= interval;
+}
+function reportInterval(value) {
+  if (value === undefined || value === null || value === '') return 600;
+  const n = Number(value);
+  if (!Number.isInteger(n) || (n !== 0 && (n < 60 || n > 86400))) throw new Error('定时周期须为 60..86400 秒，0 关闭定时');
+  return n;
+}
+function isNetworkTrigger(args) {
+  return args.trigger === 'network' || (typeof $script !== 'undefined' && /network-changed|网络变化/i.test(String($script.type || '') + ' ' + String($script.name || '')));
 }
 
 function parseRunLock(raw) {
@@ -519,10 +530,10 @@ async function runWorker(args, state, network, mode, nowSeconds) {
     throw new Error("请先设置 source_id 与 secret");
   }
 
-  const ip = await detectIPv4();
+  const ip = args.detected_ip || await detectIPv4();
   const lastAcceptedMs = Number(state.accepted_at || 0) * 1000;
   const unchanged = state.ip === ip && state.network === network.network;
-  if (mode === "auto" && unchanged && nowSeconds * 1000 - lastAcceptedMs < Math.max(600, Math.min(86400, Number(args.auto_report_interval_seconds) || 3600)) * 1000) {
+  if (mode === "auto" && !isNetworkTrigger(args) && (reportInterval(args.auto_report_interval_seconds) === 0 || (unchanged && nowSeconds * 1000 - lastAcceptedMs < reportInterval(args.auto_report_interval_seconds) * 1000))) {
     return { ok: true, enabled: true, skipped: true };
   }
   const requestId = String(args.source_id) + "-" + nowSeconds + "-" + Math.random().toString(36).slice(2, 10);
@@ -591,10 +602,10 @@ function htmlResult(ok, message, state, mode) {
   const link = (path, label, danger) => '<a class="action' + (danger ? ' danger' : '') + '" href="http://po0-report.invalid/' + path + '"' + (danger ? ' onclick="return confirm(\'确认清除此通道的本机保存配置？\')"' : '') + '>' + label + '</a>';
   return '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PO0 · ' + heading + '</title>' +
     '<style>body{margin:0;background:#f4f6f9;color:#172333;font:16px/1.65 -apple-system,sans-serif}main{max-width:680px;margin:auto;padding:28px 18px 48px}h1{font-size:28px;margin:4px 0}h2{font-size:18px;margin:0 0 12px}.eyebrow{font-size:12px;letter-spacing:2px;color:#59718c}.card{background:white;border:1px solid #e0e6ee;border-radius:16px;padding:20px;margin:16px 0}.detail{white-space:pre-wrap;overflow-wrap:anywhere}.actions{display:flex;gap:8px;flex-wrap:wrap}.action{display:block;background:#edf3fa;color:#245581;text-decoration:none;padding:10px 14px;border-radius:10px;font-size:14px}.danger{color:#a13535;background:#fceded}.muted{color:#637286;font-size:13px}</style>' +
-    '<main><div class="eyebrow">PO0 · 出口上报</div><h1>' + heading + '</h1><p class="muted">自建与官方分别管理，自动触发共用同一计划。</p>' +
+    '<main><div class="eyebrow">PO0 · 出口上报</div><h1>' + heading + '</h1><p class="muted">自建与官方分别设置周期；每分钟检查出口 IP 变化。</p>' +
     '<section class="card"><h2>' + (ok ? '✓ ' : '！ ') + heading + '</h2><div class="detail">' + escapeHtml(message === 'status' ? officialSummary(state && state.official) : message) + '</div><p class="muted">最近自建出口：' + escapeHtml(state && (state.accepted_cidr || state.ip) || '尚无记录') + '</p></section>' +
     '<section class="card"><h2>自建 PO0 · LAN Worker</h2><div class="actions">' + link('save-worker','保存参数') + link('toggle-worker','停用 / 恢复自动') + link('worker-now','仅自建立即上报') + link('clear-worker','清除本机配置',true) + '</div><p class="muted">名称、地址、密钥和上报间隔在模块的 /save-worker 参数中填写；TTL 由接收端设置。</p></section>' +
-    '<section class="card"><h2>官方防火墙</h2><div class="actions">' + link('save-official','保存参数') + link('toggle-official','停用 / 恢复自动') + link('official-now','仅官方立即上报') + link('clear-official','清除本机配置',true) + '</div><p class="muted">Token 与名称在模块的 /save-official 参数中填写；每 600 秒检查，TTL 由官方管理。</p></section>' +
+    '<section class="card"><h2>官方防火墙</h2><div class="actions">' + link('save-official','保存参数') + link('toggle-official','停用 / 恢复自动') + link('official-now','仅官方立即上报') + link('clear-official','清除本机配置',true) + '</div><p class="muted">Token、名称、定时周期在模块的 /save-official 参数中填写；周期默认 600 秒，0 关闭；出口变化由每分钟轮询检测。</p></section>' +
     '<div class="actions">' + link('settings','本机设置') + link('status','只读检查状态') + link('report-now','立即上报两个通道') + '<a class="action" href="stash://">返回 Stash</a></div><p class="muted">Stash 公开脚本接口不提供当前 SSID，因此此客户端没有 SSID 跳过名单。</p></main></html>';
 }
 
@@ -656,7 +667,14 @@ async function runUnlocked() {
     return finish(mode, false, "无法可靠识别网络，已按 fail-closed 跳过", state, {});
   }
   const network = { network: detectedNetwork, context: detectedNetwork };
-  const needsOfficial = tokens.length > 0 && officialDue(mode, state.official || {}, nowSeconds);
+  // Stash has no documented network event or current SSID API. Poll the direct
+  // public IPv4 instead; never present this as an instantaneous network callback.
+  if (mode === 'auto') {
+    args.detected_ip = await detectIPv4();
+    if (!(state.detected_ip || state.ip) || (state.detected_ip || state.ip) !== args.detected_ip) args.trigger = 'network';
+    state.detected_ip = args.detected_ip;
+  }
+  const needsOfficial = tokens.length > 0 && officialDue(mode, state.official || {}, nowSeconds, args);
 
   let officialResult = { ok: true, added: 0, attempted: false };
   if (tokens.length && (needsOfficial || mode === "force")) {
@@ -682,6 +700,7 @@ async function runUnlocked() {
     };
   }
 
+  if (args.detected_ip) state.detected_ip = args.detected_ip;
   const ok = officialResult.ok && workerResult.ok;
   const parts = [];
   if (officialResult.attempted) parts.push("官方" + (officialResult.added ? "新增 " + officialResult.added : "检查完成"));

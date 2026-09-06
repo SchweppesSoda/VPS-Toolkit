@@ -1,14 +1,12 @@
-function Get-ScheduledReporterSummary {
+﻿function Get-ScheduledReporterSummary {
+    param([ValidateSet('all','worker','official')][string]$Channel='all')
+    if ($Channel -eq 'all') { return "自建：$(Get-ScheduledReporterSummary worker)；官方：$(Get-ScheduledReporterSummary official)" }
     try {
-        $record = Get-ScheduledReporterTaskRecord
-        $task = $record.Task
-        if (-not $task) { return "未安装" }
-        $prefix = $(if ($record.IsLegacy) { "旧计划任务，" } else { "" })
-        if ($task.State -eq "Disabled") { return "${prefix}已安装，当前暂停" }
-        return "${prefix}已安装，状态 $($task.State)"
-    } catch {
-        return "无法读取"
-    }
+        $record = Get-ScheduledReporterTaskRecord -Channel $Channel
+        if (-not $record.Task) { if ((Get-LegacyReporterRecord).Task) { return '旧共享任务，待迁移' }; return '未安装' }
+        $label = if ($record.Task.State -eq 'Disabled') { '已暂停' } else { [string]$record.Task.State }
+        return "$label；周期 $(Get-ChannelIntervalSeconds $Channel) 秒"
+    } catch { return '无法读取' }
 }
 
 function Get-CurrentScheduledReporterNotifyState {
@@ -64,7 +62,7 @@ function Show-ClientConfig {
     Write-PanelRow "官方 Token" $(if ($script:Po0FirewallTokens) { $script:Po0FirewallTokens } else { "未设置" })
     Write-PanelRow "官方状态" (Get-Po0FirewallDashboardSummary)
     Write-PanelRow "下次检查" (Get-Po0FirewallDueSummary)
-    Write-PanelRow "官方检查周期" "固定 600 秒"
+    Write-PanelRow "官方检查周期" "$($script:OfficialIntervalSeconds) 秒（可关闭）"
     Write-PanelSection "通用设置与定时任务"
     Write-PanelRow "跳过 Wi-Fi SSID" (Format-WifiSsidPolicyList -Ssids $script:SkipWifiSsids)
     Write-PanelRow "当前 Wi-Fi SSID" (Format-CurrentWifiSsidStatus)
@@ -130,7 +128,7 @@ function Set-CommonConfigInteractive {
 
 function Set-OfficialConfigInteractive {
     Write-PanelSection "PO0 官方防火墙参数"
-    Write-Host "官方检查周期固定为 600 秒。Token 可带 @0..4 指定槽位；逗号、分号、空格或换行均可分隔。"
+    Write-Host "官方定时上报可关闭、可修改，默认 600 秒；网络变化单独触发。Token 可带 @0..4 指定槽位；逗号、分号、空格或换行均可分隔。"
     $previousTokens = $script:Po0FirewallTokens
     Read-Po0FirewallTokensInteractive
     Sync-OfficialAccountNames $previousTokens
@@ -157,96 +155,57 @@ function Show-OfficialStatusInteractive {
 }
 
 function Install-ScheduledReporterInteractive {
-    if (-not (Test-ClientConfigComplete)) {
-        Set-ClientConfigInteractive
-    } elseif ($script:WorkerUrl) {
-        $seconds = Read-Default "自建 PO0 定时上报每几秒执行一次（60-$($script:MaxMinutes * 60)；必须是 60 的倍数）" ([string](Get-IntervalSeconds))
-        $script:Minutes = Convert-IntervalSecondsToMinutes $seconds
-    }
-    $script:TaskNotify = Read-YesNoDefault "自动上报完成/失败后弹出 Windows 通知" $script:TaskNotify
-    Save-ClientConfig
-    Write-Host "两个已配置且启用的通道共用此计划，各自按自己的间隔执行。"
-    Install-ScheduledReporter
+    param([ValidateSet('all','worker','official')][string]$Channel='all')
+    if ($Channel -eq 'all') { Install-ScheduledReporter -Channel all; return }
+    if (-not (Test-ChannelConfigured $Channel)) { throw '请先保存本通道参数。' }
+    $timerEnabled = if ($Channel -eq 'official') { $script:OfficialTimerEnabled } else { $script:WorkerTimerEnabled }
+    $defaultInterval = if ($timerEnabled) { Get-ChannelIntervalSeconds $Channel } else { 0 }
+    $value = Read-Default '定时周期秒数（60..86400，60 的倍数；0 关闭定时）' ([string]$defaultInterval)
+    $seconds = 0
+    if (-not [int]::TryParse($value,[ref]$seconds) -or $seconds -lt 0 -or $seconds -gt 86400 -or ($seconds -gt 0 -and ($seconds -lt 60 -or $seconds % 60))) { throw '无效周期。' }
+    if ($Channel -eq 'official') { $script:OfficialTimerEnabled = $seconds -gt 0; if ($seconds -gt 0) { $script:OfficialIntervalSeconds = $seconds } }
+    else { $script:WorkerTimerEnabled = $seconds -gt 0; if ($seconds -gt 0) { $script:Minutes = $seconds / 60 } }
+    Install-ScheduledReporter -Channel $Channel
 }
 
 function Show-ScheduledReporter {
-    Write-PanelSection "PO0 Outbound IP Report 定时上报"
-    Write-PanelRow "配置文件" $script:ConfigPath
-    Write-PanelRow "暂停状态" $(if ($script:SchedulePaused) { "已暂停（手动立即上报仍可用）" } else { "未暂停" })
-    Write-PanelRow "PO0 官方防火墙" (Get-Po0FirewallTokenSummary)
-    Write-PanelRow "官方防火墙状态" (Get-Po0FirewallDashboardSummary)
-    Write-PanelRow "官方防火墙 due" (Get-Po0FirewallDueSummary)
-    Write-PanelRow "计划任务唤醒" ("每 {0} 分钟" -f (Get-Po0FirewallWakeIntervalMinutes))
-    Write-PanelRow "跳过 Wi-Fi SSID" (Format-WifiSsidPolicyList -Ssids $script:SkipWifiSsids)
-    Write-PanelRow "当前 Wi-Fi SSID" (Format-CurrentWifiSsidStatus)
-    try {
-        $record = Get-ScheduledReporterTaskRecord
-        $task = $record.Task
-        if (-not $task) {
-            Write-PanelRow "计划任务" "未安装本脚本管理的计划任务"
-            Write-NotifyStatusRows -NotifyState (Get-ScheduledReporterNotifyState -Task $null)
-            return
+    param([ValidateSet('all','worker','official')][string]$Channel=$ScheduleChannel)
+    foreach ($lane in @('worker','official')) {
+        if ($Channel -ne 'all' -and $Channel -ne $lane) { continue }
+        Write-PanelSection $(if ($lane -eq 'worker') { '自建 PO0 · 定时任务' } else { '官方防火墙 · 定时任务' })
+        $networkTask = Get-ScheduledTask -TaskName (Get-NetworkReporterTaskName $lane) -ErrorAction SilentlyContinue
+        Write-PanelRow '网络变化监听' $(if (-not (Test-WindowsNetworkWatchSupported)) { '当前环境不可用，跳过检测' } elseif (-not $networkTask) { '未安装' } elseif ($networkTask.State -eq 'Disabled') { '已暂停' } else { '已启用' })
+        Write-PanelRow '任务名称' (Get-ChannelTaskName $lane)
+        Write-PanelRow '实际状态' (Get-ScheduledReporterSummary $lane)
+        $record = Get-ScheduledReporterTaskRecord -Channel $lane
+        if ($record.Task) {
+            $state = Get-ScheduledReporterNotifyState -Task $record.Task
+            Write-NotifyStatusRows -NotifyState $state
+            $info = Get-ScheduledTaskInfo -TaskName $record.Name -ErrorAction SilentlyContinue
+            if ($info) { Write-PanelRow '上次运行' (Format-TaskTime $info.LastRunTime); Write-PanelRow '上次结果' (Format-TaskResult $info.LastTaskResult) }
         }
-        $notifyState = Get-ScheduledReporterNotifyState -Task $task
-        Write-PanelRow "计划任务" $(if ($record.IsLegacy) { "$($record.Name)（旧名，运行安装 / 更新可迁移）" } else { $script:TaskName })
-        Write-PanelRow "任务状态" ([string]$task.State)
-        Write-NotifyStatusRows -NotifyState $notifyState
-        if ($notifyState.LauncherPath) {
-            Write-PanelRow "计划任务启动文件" $notifyState.LauncherPath
-        }
-        if ($notifyState.ScriptPath) {
-            Write-PanelRow "计划任务脚本" $notifyState.ScriptPath
-            if ($notifyState.ScriptPathIsLegacy) {
-                Write-PanelRow "脚本路径状态" "旧 po0-self-report.ps1 路径；运行 -InstallTask 或 -UpgradeSelf 迁移"
-            } elseif (-not $notifyState.ScriptPathExists) {
-                Write-PanelRow "脚本路径状态" "目标不存在；请重新运行 -InstallTask"
-            } else {
-                Write-PanelRow "脚本路径状态" "已指向标准安装脚本"
-            }
-        } else {
-            Write-PanelRow "计划任务脚本" "无法从任务动作或计划任务启动文件读取"
-        }
-        foreach ($trigger in $task.Triggers) {
-            Write-PanelRow "触发器" ([string]$trigger)
-        }
-        $info = Get-ScheduledTaskInfo -TaskName $record.Name -ErrorAction SilentlyContinue
-        if ($info) {
-            Write-PanelRow "上次运行" (Format-TaskTime $info.LastRunTime)
-            Write-PanelRow "上次结果" (Format-TaskResult $info.LastTaskResult)
-            Write-PanelRow "下次运行" (Format-TaskTime $info.NextRunTime)
-        }
-        Show-SelfReportLogTail -Path (Get-ScheduledReporterLogPath -Task $task)
-    } catch {
-        Write-PanelRow "状态读取" "失败：$($_.Exception.Message)"
+        Write-PanelRow '运行日志' (Get-ChannelLogPath $lane)
+        Show-SelfReportLogTail -Path (Get-ChannelLogPath $lane)
     }
 }
 
 function Set-ScheduledReporterPaused {
-    param([bool]$Paused)
-    $script:SchedulePaused = $Paused
+    param([bool]$Paused, [ValidateSet('all','worker','official')][string]$Channel=$ScheduleChannel)
+    if ((Get-LegacyReporterRecord).Task) { Sync-ScheduledReporterTasks -Mode refresh | Out-Null }
+    if ($Channel -eq 'all') { $script:SchedulePaused = $Paused }
+    else {
+        if ($script:SchedulePaused) { $script:WorkerAutoEnabled=$false; $script:OfficialAutoEnabled=$false; $script:SchedulePaused=$false }
+        if ($Channel -eq 'worker') { $script:WorkerAutoEnabled = -not $Paused } else { $script:OfficialAutoEnabled = -not $Paused }
+    }
     Save-ClientConfig
-    try {
-        $record = Get-ScheduledReporterTaskRecord
-        $task = $record.Task
-        if ($task) {
-            if ($Paused) {
-                Disable-ScheduledTask -TaskName $record.Name | Out-Null
-            } else {
-                Enable-ScheduledTask -TaskName $record.Name | Out-Null
-            }
-        }
-    } catch {
-        throw "更新计划任务启停状态失败：$($_.Exception.Message)"
-    }
-    if ($Paused) {
-        Write-SelfReportCompleted "定时上报已暂停；手动立即上报仍可用。"
-    } else {
-        Write-SelfReportCompleted "定时上报已恢复。"
-    }
+    Sync-ScheduledReporterTasks -Mode refresh -Channel $Channel | Out-Null
+    Write-SelfReportCompleted '所选通道自动状态已更新；手动上报仍可使用。'
 }
 
 function Toggle-ScheduledReporterPaused {
-    Set-ScheduledReporterPaused -Paused (-not $script:SchedulePaused)
+    param([string]$Channel='all')
+    if ($Channel -eq 'all') { Set-ScheduledReporterPaused -Paused (-not $script:SchedulePaused) -Channel all }
+    else { Set-ScheduledReporterPaused -Paused (-not (Test-ChannelAutoPaused $Channel)) -Channel $Channel }
 }
 
 function Set-ScheduledReporterNotify {
@@ -270,25 +229,9 @@ function Toggle-ScheduledReporterNotify {
 }
 
 function Remove-ScheduledReporter {
-    try {
-        $record = Get-ScheduledReporterTaskRecord
-        $task = $record.Task
-        if (-not $task) {
-            Write-PanelRow "计划任务" "未安装本脚本管理的计划任务"
-            Write-SelfReportCompleted "当前没有本脚本管理的计划任务。"
-            return
-        }
-        Unregister-ScheduledTask -TaskName $record.Name -Confirm:$false
-        Write-Host "已删除计划任务：$($record.Name)"
-        if (-not $record.IsLegacy) {
-            if (-not (Remove-LegacyScheduledReporterTask)) {
-                throw "旧计划任务删除失败，已尝试禁用旧任务；请检查计划任务：$(Format-LegacyScheduledReporterTaskNames)"
-            }
-        }
-        Write-SelfReportCompleted "已删除本脚本管理的计划任务。"
-    } catch {
-        throw "删除计划任务失败：$($_.Exception.Message)"
-    }
+    param([ValidateSet('all','worker','official')][string]$Channel=$ScheduleChannel)
+    Sync-ScheduledReporterTasks -Mode remove -Channel $Channel | Out-Null
+    Write-SelfReportCompleted '已删除所选通道任务，保存配置保留。'
 }
 
 function Remove-SelfReportPathIfExists {
@@ -328,7 +271,7 @@ function Uninstall-SelfReportClient {
     Write-Host "计划任务启动文件：$launcherPath"
     Write-Host "旧本机脚本：$legacyScriptPath"
     Write-Host "旧计划任务启动文件：$legacyLauncherPath"
-    Remove-ScheduledReporter
+    Remove-ScheduledReporter -Channel all
     if (-not (Remove-SelfReportPathIfExists -Label "计划任务启动文件" -Path $launcherPath)) { $ok = $false }
     if (-not (Remove-SelfReportPathIfExists -Label "本机脚本" -Path $scriptPath)) { $ok = $false }
     if ($legacyLauncherPath -ne $launcherPath) {

@@ -1,4 +1,4 @@
-function Get-SelfReportResponseSummary {
+﻿function Get-SelfReportResponseSummary {
     param([string]$Content)
     if ($null -eq $Content) { return $null }
     foreach ($line in (([string]$Content -replace "`r", "") -split "`n")) {
@@ -116,8 +116,16 @@ function Invoke-SelfReportCore {
     $officialActive = (-not $script:Po0FirewallWorkerOnly) -and (Test-Po0FirewallConfigured)
     $workerActive = (-not $script:Po0FirewallOfficialOnly) -and [bool]$script:WorkerUrl
     if ($script:Po0FirewallScheduledRun) {
+        if ($script:SchedulePaused) { return }
         $workerActive = $workerActive -and $script:WorkerAutoEnabled
         $officialActive = $officialActive -and $script:OfficialAutoEnabled
+        if ($NetworkChanged) {
+            $workerActive = $workerActive -and $script:WorkerNetworkEnabled
+            $officialActive = $officialActive -and $script:OfficialNetworkEnabled
+        } else {
+            $workerActive = $workerActive -and $script:WorkerTimerEnabled
+            $officialActive = $officialActive -and $script:OfficialTimerEnabled
+        }
         if (-not $officialActive -and -not $workerActive) {
             Write-SelfReportCompleted "自动上报通道均已停用，本轮跳过。"
             return
@@ -132,7 +140,7 @@ function Invoke-SelfReportCore {
     if ($workerActive) {
         Assert-WorkerUrl
     }
-    Assert-Minutes
+    if ($workerActive) { Assert-Minutes }
 
     $successCount = 0
     $failureCount = 0

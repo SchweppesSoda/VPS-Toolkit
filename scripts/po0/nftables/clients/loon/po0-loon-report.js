@@ -10,13 +10,12 @@ const PO0_SOURCE_ID = "loon-ios";
 const PO0_USER_AGENT = "AutoLoon-Loon/1";
 const PO0_OFFICIAL_USER_AGENT = "ProxyConfig-PO0-Firewall/Loon";
 const PO0_OFFICIAL_API_URL = "https://124.221.69.228/api/firewall";
-const PO0_OFFICIAL_INTERVAL_SECONDS = 600;
 const PO0_MAX_FIREWALL_TOKENS = 16;
 // One persistent guard covers every report/status mode and network context.
 // Loon exposes persistent storage but no atomic lock primitive, so a bounded
 // expiry is the safest recoverable approximation for a whole run.
 const PO0_RUN_LOCK_TTL_MS = 120_000;
-const PO0_DEFAULT_REFRESH_TTL_SECONDS = 30 * 60;
+const PO0_DEFAULT_REFRESH_TTL_SECONDS = 600;
 const PO0_EXPIRY_SAFETY_SECONDS = 10 * 60;
 
 let po0Finished = false;
@@ -260,6 +259,7 @@ function saveOfficialNames(args, tokens, clear) {
     const index = oldTokens.findIndex(old => old.split('@')[0] === item.token);
     return index < 0 ? '' : oldNames[index] || '';
   }).join(';');
+  if (args.official_report_interval_seconds !== undefined) settings.officialIntervalSeconds = reportInterval(args.official_report_interval_seconds);
   if (clear) settings.officialAutoEnabled = false;
   saveChannelSettings(settings);
 }
@@ -275,12 +275,12 @@ function localSettingsSummary(args) {
   const officialConfig = readJSON(PO0_STORE_KEY + '.official-config', null);
   const officialRaw = officialConfig ? officialConfig.tokens : firewallInput(args);
   const officialCount = String(officialRaw || '').split(/[,;，；\s]+/).filter(Boolean).length;
-  const interval = effective.auto_report_interval_seconds || effective.refresh_ttl_seconds || effective.ttl_seconds || 1800;
+  const interval = reportInterval(effective.auto_report_interval_seconds ?? effective.refresh_ttl_seconds ?? effective.ttl_seconds);
   return [
     '自建 PO0：' + (!workerUrl ? '未配置' : settings.workerAutoEnabled === false ? '自动上报已停用' : '自动上报已启用') + '；目标名称：' + (effective.worker_name || 'LAN Worker'),
     '自建配置：' + (localWorkerConfig() ? '已保存本机设置' : '沿用模块 / 旧设置') + '；地址：' + (workerUrl || '未配置') + '；周期：' + interval + ' 秒',
     '官方防火墙：' + (!officialCount ? '未配置' : officialCount + ' 个目标，' + (settings.officialAutoEnabled === false ? '自动上报已停用' : '自动上报已启用')) + '；目标名称：' + (settings.officialNames || '按账号编号显示'),
-    '官方固定 600 秒；Worker 按自己的间隔运行；放行 TTL 由接收端管理。',
+    '官方定时：' + (reportInterval(settings.officialIntervalSeconds) || '关闭') + ' 秒；网络变化独立触发；放行 TTL 由接收端管理。',
     '停用保留配置，手动立即上报仍可用；清除后同步参数不会自动恢复。',
   ].join('\n');
 }
@@ -291,8 +291,7 @@ function runLocalSettingsAction(args, mode) {
     const workerUrl = firstNonEmpty([args.po0_worker_url, args.worker_url, args.workerUrl]);
     const secret = firstNonEmpty([args.po0_worker_token, args.worker_token, args.token, args.secret]);
     if (!/^https:\/\/[^/?#]+\/stash-report\/v1\/?$/.test(workerUrl) || !secret || /^CHANGE_ME/.test(secret)) throw new Error('请填写 HTTPS /stash-report/v1 地址与 Worker 密钥');
-    const seconds = Number(args.auto_report_interval_seconds || 1800);
-    if (!Number.isInteger(seconds) || seconds < 600 || seconds > 86400) throw new Error('自动上报周期必须是 600..86400 秒');
+    const seconds = reportInterval(args.auto_report_interval_seconds);
     const values = { worker_url: workerUrl, secret, worker_name: String(args.worker_name || '').trim(), auto_report_interval_seconds: seconds };
 
     if (!writeJSON(PO0_STORE_KEY + '.worker-config', { version: 1, values })) throw new Error('无法保存本机自建配置');
@@ -622,23 +621,39 @@ function epochSeconds(value, fallback) {
 }
 
 function boundedRefreshTTL(args) {
-  const value = Number(args.auto_report_interval_seconds || args.refresh_ttl_seconds || args.ttl_seconds || PO0_DEFAULT_REFRESH_TTL_SECONDS);
+  const value = reportInterval(args.auto_report_interval_seconds ?? args.refresh_ttl_seconds ?? args.ttl_seconds);
   if (!Number.isFinite(value)) return PO0_DEFAULT_REFRESH_TTL_SECONDS;
-  return Math.max(300, Math.min(6 * 60 * 60, Math.floor(value)));
+  return Math.max(60, Math.min(86400, Math.floor(value)));
 }
 
-function canUseCachedTTL(mode, state, network, nowSeconds) {
+function canUseCachedTTL(mode, state, network, nowSeconds, args = {}) {
+  if (isNetworkTrigger(args)) return false;
+  if (mode === "auto" && reportInterval(effectiveWorkerArgs(args).auto_report_interval_seconds) === 0) return true;
   if (mode !== "auto" || !state || state.context !== network.context) return false;
-  const nextRefresh = Number(state.next_refresh_at || 0);
+  const accepted = Date.parse(state.accepted_at || "") / 1000;
+  const configuredNext = accepted + boundedRefreshTTL(effectiveWorkerArgs(args));
+  const nextRefresh = Number.isFinite(configuredNext) ? Math.min(Number(state.next_refresh_at || configuredNext), configuredNext) : Number(state.next_refresh_at || 0);
   const expiresAt = Number(state.expires_at || 0);
   return nextRefresh > nowSeconds && expiresAt > nowSeconds + PO0_EXPIRY_SAFETY_SECONDS;
 }
 
-function officialDue(mode, state, nowSeconds) {
+function officialDue(mode, state, nowSeconds, args = {}) {
   if (mode === "force") return true;
   if (mode !== "auto") return false;
+  if (isNetworkTrigger(args)) return true;
+  const interval = reportInterval(channelSettings().officialIntervalSeconds);
+  if (interval === 0) return false;
   const last = Number(state && state.last_attempt_at || 0);
-  return !last || nowSeconds < last || nowSeconds - last >= PO0_OFFICIAL_INTERVAL_SECONDS;
+  return !last || nowSeconds < last || nowSeconds - last >= interval;
+}
+function reportInterval(value) {
+  if (value === undefined || value === null || value === '') return 600;
+  const n = Number(value);
+  if (!Number.isInteger(n) || (n !== 0 && (n < 60 || n > 86400))) throw new Error('定时周期须为 60..86400 秒，0 关闭定时');
+  return n;
+}
+function isNetworkTrigger(args) {
+  return args.trigger === 'network' || (typeof $script !== 'undefined' && /network-changed|网络变化/i.test(String($script.type || '') + ' ' + String($script.name || '')));
 }
 
 function parseRunLock(raw) {
@@ -726,7 +741,7 @@ function finishResult(mode, ok, message, state, meta) {
 
 async function runWorker(credentials, state, args, network, mode, nowSeconds) {
   if (!credentials) return { ok: true, enabled: false, skipped: true };
-  if (canUseCachedTTL(mode, state, network, nowSeconds)) {
+  if (canUseCachedTTL(mode, state, network, nowSeconds, args)) {
     return { ok: true, enabled: true, skipped: true };
   }
 
@@ -835,8 +850,8 @@ async function runUnlocked() {
   const tokens = channelAllowed(args, mode, "official") ? loadFirewallTokens(args) : [];
   const workerArgs = effectiveWorkerArgs(args);
   const credentials = channelAllowed(args, mode, "worker") ? loadCredentials(workerArgs) : null;
-  const needsOfficial = tokens.length > 0 && officialDue(mode, state.official || {}, nowSeconds);
-  const workerCached = canUseCachedTTL(mode, state, network, nowSeconds);
+  const needsOfficial = tokens.length > 0 && officialDue(mode, state.official || {}, nowSeconds, args);
+  const workerCached = canUseCachedTTL(mode, state, network, nowSeconds, args);
   if (!needsOfficial && workerCached) {
     finishResult(mode, true, "有效 TTL 内无需重复上报", state);
     return;

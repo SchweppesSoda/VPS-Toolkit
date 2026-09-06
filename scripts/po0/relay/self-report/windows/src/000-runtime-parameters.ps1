@@ -15,7 +15,14 @@
     [switch]$ScheduledRun,
     [switch]$ClearPo0FirewallTokens,
     [switch]$InstallTask,
+    [switch]$RemoveTask,
+    [switch]$RefreshSchedules,
+    [switch]$TimerTrigger,
+    [switch]$NetworkChanged,
+    [switch]$WatchNetwork,
+    [ValidateSet("all","worker","official")][string]$ScheduleChannel = "all",
     [switch]$RunOnce,
+    [ValidateRange(60,86400)][int]$OfficialIntervalSeconds = 600,
     [int]$Minutes = $(if ($env:PO0_OUTBOUND_IP_REPORT_MINUTES) { [int]$env:PO0_OUTBOUND_IP_REPORT_MINUTES } elseif ($env:PO0_SELF_REPORT_MINUTES) { [int]$env:PO0_SELF_REPORT_MINUTES } elseif ($env:MINUTES) { [int]$env:MINUTES } else { 60 }),
     [int]$IntervalSeconds = $(if ($env:PO0_OUTBOUND_IP_REPORT_INTERVAL_SECONDS) { [int]$env:PO0_OUTBOUND_IP_REPORT_INTERVAL_SECONDS } elseif ($env:PO0_SELF_REPORT_INTERVAL_SECONDS) { [int]$env:PO0_SELF_REPORT_INTERVAL_SECONDS } elseif ($env:INTERVAL_SECONDS) { [int]$env:INTERVAL_SECONDS } else { 0 }),
     [string]$LogPath = $(if ($env:PO0_OUTBOUND_IP_REPORT_LOG) { $env:PO0_OUTBOUND_IP_REPORT_LOG } elseif ($env:PO0_SELF_REPORT_LOG) { $env:PO0_SELF_REPORT_LOG } elseif ($env:SELF_REPORT_LOG) { $env:SELF_REPORT_LOG } else { "" }),
@@ -37,12 +44,12 @@ $ErrorActionPreference = "Stop"
 $ReleaseDownloadBaseUrl = $(if ($env:PO0_RELEASE_DOWNLOAD_BASE_URL) { $env:PO0_RELEASE_DOWNLOAD_BASE_URL } else { "https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download" })
 $DownloadUrl = $(if ($env:PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL) { $env:PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL } elseif ($env:PO0_SELF_REPORT_PS_DOWNLOAD_URL) { $env:PO0_SELF_REPORT_PS_DOWNLOAD_URL } else { "$ReleaseDownloadBaseUrl/po0-outbound-ip-report.ps1" })
 $ScriptName = "po0-outbound-ip-report"
-$ScriptVersion = "2026.09.06+build.3"
+$ScriptVersion = "2026.09.06+build.4"
 $ScriptReleaseDate = "2026-09-06"
 # CHANGELOG_BEGIN
-# - 主菜单与官方通道页逐个显示目标名称，未命名账号显示默认编号。
-# - 自建放行有效期仅标明由 LAN Worker 接收端管理，不再展示默认秒数。
-# - 保留独立名称保存、手动立即上报、只读状态和双通道 SSID 跳过规则。
+# - Windows / macOS / Linux 自建与官方任务分别安装、启停、删除与更新。
+# - 官方周期默认 600 秒，可调整或关闭；网络变化独立触发。
+# - 支持的系统接入网络事件，旧共享任务迁移保留参数和暂停状态。
 # CHANGELOG_END
 $PanelValueColumn = 24
 $MenuRightColumn = 46

@@ -908,6 +908,16 @@ PO0 的基础 IPDB 格式校验使用常见的 `od`、`dd`、`grep` 检查文件
 
 Worker 的 `resource-stats.tsv` 每个 PO0 端点只保留一行累计统计，不会按任务无限追加。PO0 的任务文件保留全部活动任务和最近 500 条终态记录，管理员可以在菜单中查看结果，或把失败/执行中的任务重新排队。
 
+#### 访问设备独立任务与网络事件
+
+Windows 定时任务为 `Outbound IP Report - Self-hosted` / `Outbound IP Report - Official`，监听任务追加 ` - Network`。macOS label 为 `outbound-ip-report.worker` / `outbound-ip-report.official`，监听追加 `.network`。Linux cron 按配置路径与 WORKER / OFFICIAL marker 隔离。入口只传配置路径和通道，不传凭据；日志分别为 `.worker.log` / `.official.log`。
+
+`WORKER_TIMER_ENABLED` / `OFFICIAL_TIMER_ENABLED` 控制定时，`WORKER_NETWORK_ENABLED` / `OFFICIAL_NETWORK_ENABLED` 控制事件（Windows 使用 PascalCase 对应字段）；AutoEnabled 控制整个通道自动触发。官方周期为 `OFFICIAL_INTERVAL_SECONDS` / `OfficialIntervalSeconds`，默认 600 秒。关闭定时保留通道登记供升级刷新监听；已删除的通道不会由保存或升级重新安装。
+
+Windows 订阅 .NET NetworkAddressChanged；macOS 使用 [Apple scutil n.add / n.wait / n.changes](https://github.com/apple-oss-distributions/configd/blob/main/scutil.tproj/notifications.c) 监听全局 IPv4、IPv6 和接口 IPv4。去抖后启动新进程读取保存配置。Linux 仅在 root 且 [NetworkManager dispatcher](https://networkmanager.pages.freedesktop.org/NetworkManager/NetworkManager/NetworkManager-dispatcher.html) 或 OpenWrt hotplug 可用时写入独立事件入口。
+
+[Egern network](https://egernapp.com/docs/configuration/scriptings/) 和 [Loon network-changed](https://github.com/Loon0x00/LoonExampleConfig/blob/master/Script/script_README.md) 沿用已有声明，Loon 保持单个 network-changed 入口。[Stash 公开文档仅提供 cron](https://stash.wiki/en/script/scheduled-tasks)，用每分钟 DIRECT 公网 IPv4 探测比较缓存，变化时绕过周期；同出口切网不可见。移动端两通道分别计算周期，默认 600 秒；每分钟唤醒但未到周期不发上报请求，Stash 仍需探测出口。
+
 #### 官方防火墙双车道状态机
 
 官方防火墙不是现有 LAN Worker / Self-report 的替代品，而是默认关闭的第二车道。一次访问设备运行的状态机是：
@@ -916,7 +926,7 @@ Worker 的 `resource-stats.tsv` 每个 PO0 端点只保留一行累计统计，�
 触发
   -> 本地 due / Wi-Fi SSID guard
   -> 取得本机运行锁
-  -> 官方车道 due（固定 600 秒）
+  -> 官方车道 due（定时可配置/关闭，默认 600 秒；网络事件绕过）
        -> 当前出口探测
        -> 对每个官方账号先 GET 状态
        -> 当前出口缺失，或固定槽位不匹配时才 POST
@@ -930,7 +940,7 @@ Worker 的 `resource-stats.tsv` 每个 PO0 端点只保留一行累计统计，�
 
 SSID guard 位于两条车道真正探测之前：命中时一次运行整体跳过，不上传 SSID；读取 SSID 失败按 fail-open 继续。官方状态文件只保存最近状态、额度、当前出口、白名单/槽位和最近尝试时间，不保存 token。token 只能从权限受限配置或交互设置读取，不放进命令行、计划任务、日志、通知或错误摘要。
 
-外层运行锁保证同一客户端不会并发执行两条车道；官方状态的 `last_attempt_at` / 600 秒 due 与普通车道的状态文件、TTL、计划完全独立。任一状态写入失败都只让所属车道失败，并在合并结果中保留另一车道的结果。测试只使用本地 fixture 或 mock，不访问真实官方 API。
+外层运行锁保证同一客户端不会并发执行两条车道；官方状态的 `last_attempt_at` / 可配置 due 与普通车道的状态文件、TTL、计划完全独立。任一状态写入失败都只让所属车道失败，并在合并结果中保留另一车道的结果。测试只使用本地 fixture 或 mock，不访问真实官方 API。
 
 WAN 选择也不跨车道共享：Linux、macOS、Windows、Egern 和普通 LAN Worker 使用本机默认出口（Egern 使用 DIRECT）。只有主 OpenWrt 的官方绑定可以在 UCI 中声明 wan1/wan2，并由 `mwan3 use <wan>` 选择该出口；绑定缺失或不可用时失败，不回退到另一个 WAN，也不修改其它客户端的默认路由。OpenWrt outbound APK 的普通上报与官方绑定分别走各自既有路径。
 

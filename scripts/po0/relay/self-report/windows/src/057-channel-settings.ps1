@@ -1,4 +1,9 @@
-# Local controls are independent of credentials and of the shared scheduled task.
+﻿# Local controls and scheduler entries are independent for each channel.
+$script:OfficialIntervalSeconds = $OfficialIntervalSeconds
+$script:WorkerTimerEnabled = $true
+$script:OfficialTimerEnabled = $true
+$script:WorkerNetworkEnabled = $true
+$script:OfficialNetworkEnabled = $true
 $script:WorkerAutoEnabled = $true
 $script:OfficialAutoEnabled = $true
 $script:WorkerName = ""
@@ -27,9 +32,7 @@ function Show-OfficialTargetNames {
 
 function Toggle-ChannelAutoInteractive {
     param([ValidateSet("worker", "official")][string]$Channel)
-    if ($Channel -eq "worker") { $script:WorkerAutoEnabled = -not $script:WorkerAutoEnabled }
-    else { $script:OfficialAutoEnabled = -not $script:OfficialAutoEnabled }
-    Save-ClientConfig
+    Set-ScheduledReporterPaused -Paused (-not (Test-ChannelAutoPaused $Channel)) -Channel $Channel
     Write-Host "自动上报：$(Get-ChannelAutoLabel $Channel)。手动上报仍可使用。"
 }
 
@@ -43,12 +46,13 @@ function Clear-WorkerConfigInteractive {
 }
 
 function Update-ChannelScheduleIfInstalled {
-    if (-not (Test-ClientConfigComplete)) { return }
-    $record = Get-ScheduledReporterTaskRecord
-    if ($record.Task) {
-        Install-ScheduledReporter
-        Write-Host '已更新现有自动上报计划，两个通道按当前保存配置执行。'
-    }
+    param([ValidateSet('all','worker','official')][string]$Channel='all')
+    Sync-ScheduledReporterTasks -Mode refresh -Channel $Channel | Out-Null
+}
+function Test-ChannelAutoPaused {
+    param([string]$Channel)
+    $enabled = if ($Channel -eq 'official') { $script:OfficialAutoEnabled } else { $script:WorkerAutoEnabled }
+    return [bool]($script:SchedulePaused -or -not $enabled)
 }
 
 function Sync-OfficialAccountNames {

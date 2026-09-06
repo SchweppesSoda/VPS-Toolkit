@@ -88,9 +88,7 @@ official_reset_internal_settings() {
     OFFICIAL_API_BASE="https://124.221.69.228/api/firewall"
 }
 
-official_interval_seconds() {
-    printf '600\n'
-}
+official_interval_seconds() { printf '%s\n' "${OFFICIAL_INTERVAL_SECONDS:-600}"; }
 
 official_interval_minutes() {
     local seconds
@@ -116,7 +114,7 @@ official_due() {
     # Only an internal scheduled wake-up is subject to the last-attempt gate.
     # Manual runs always perform the safe GET-first decision.
     [[ "${SCHEDULED_RUN:-0}" == "1" ]] || return 0
-    [[ "${FORCE_REPORT:-0}" == "1" ]] && return 0
+    [[ "${FORCE_REPORT:-0}" == "1" || "${NETWORK_CHANGED:-0}" == 1 || "${TIMER_TRIGGER:-0}" == 1 ]] && return 0
     interval="$(official_interval_seconds)"
     last="$(official_last_attempt_at 2>/dev/null || true)"
     [[ "${last}" =~ ^[0-9]+$ ]] || return 0

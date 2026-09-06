@@ -1,4 +1,4 @@
-if ($env:INSTALL_TASK -match "^(1|true|yes)$") {
+﻿if ($env:INSTALL_TASK -match "^(1|true|yes)$") {
     $InstallTask = $true
 }
 
@@ -25,6 +25,9 @@ $legacyPathShouldOpenMenu = [bool](
         -not $OfficialOnly -and
         -not $WorkerOnly -and
         -not $InstallTask -and
+        -not $RemoveTask -and
+        -not $RefreshSchedules -and
+        -not $WatchNetwork -and
         -not ($PSBoundParameters.ContainsKey("WorkerUrl")) -and
         [Environment]::UserInteractive
     )
@@ -73,6 +76,10 @@ try {
         throw "-Notify 与 -NoNotify 不能同时使用。"
     }
 
+    if (-not $ScheduledRun -and -not $NetworkChanged -and -not $WatchNetwork) {
+        $legacySettings = Get-LegacyReporterRecord
+        if ($legacySettings.Task) { Import-ScheduledReporterTaskSettings -Task $legacySettings.Task -KeepNotifyPreference }
+    }
     Load-SavedConfig
     if ($ClearPo0FirewallTokens) {
         $script:Po0FirewallTokens = ""
@@ -91,6 +98,12 @@ try {
 
     if ($SaveConfig) {
         Save-ClientConfig
+    } elseif ($WatchNetwork) {
+        Watch-ReporterNetwork
+    } elseif ($RefreshSchedules) {
+        Update-ScheduledReporterLauncherForExistingTask | Out-Null
+    } elseif ($RemoveTask) {
+        Remove-ScheduledReporter
     } elseif ($PauseSchedule) {
         Set-ScheduledReporterPaused -Paused $true
     } elseif ($ResumeSchedule) {

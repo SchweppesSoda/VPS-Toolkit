@@ -1,7 +1,7 @@
 configure_official_interactive() {
     local previous_tokens="${PO0_FIREWALL_TOKENS}"
     print_panel_section "PO0 官方防火墙参数"
-    printf '官方检查周期固定为 600 秒。Token 可带 @0..4 指定槽位。\n'
+    printf '官方定时上报可关闭、可修改，默认 600 秒；网络变化单独触发。Token 可带 @0..4 指定槽位。\n'
     po0_firewall_read_tokens_interactive || { PO0_FIREWALL_TOKENS="${previous_tokens}"; return 1; }
     sync_official_account_names "$previous_tokens"
     save_config_file
@@ -34,7 +34,7 @@ show_current_config() {
     print_panel_row "官方自动上报" "$(channel_auto_label official)"
     print_panel_row "官方 Token" "${PO0_FIREWALL_TOKENS:-未设置}"
     print_panel_row "官方状态" "$(po0_firewall_state_summary)"
-    print_panel_row "官方检查周期" "固定 600 秒"
+    print_panel_row "官方检查周期" "${OFFICIAL_INTERVAL_SECONDS:-600} 秒（可关闭）"
     print_panel_section "通用设置与定时任务"
     print_panel_row "定时暂停" "$(schedule_paused && printf '已暂停' || printf '未暂停')"
     print_panel_row "通知模式" "$(notify_status_label)"
@@ -123,20 +123,23 @@ official_status_interactive() {
 }
 
 install_cron_interactive() {
-    local cron_seconds
-    if ! config_complete; then
-        configure_interactive || return 1
-    elif [[ -n "${WORKER_URL}" ]]; then
-        cron_seconds="$(prompt_default "自建 PO0 定时上报每几秒执行一次（60-$(max_interval_seconds)；必须是 60 的倍数）" "$(cron_minutes_to_seconds "${CRON_MINUTES}")")"
-        CRON_MINUTES="$(normalize_interval_seconds_to_minutes "${cron_seconds}" "${MAX_CRON_MINUTES}")" || {
-            printf '上报间隔秒数无效：请输入 60-%s 且为 60 倍数的整数。\n' "$(max_interval_seconds)" >&2
-            return 1
-        }
+    local channel="${1:-all}" seconds
+    if [[ "$channel" == all ]]; then install_cron all; return $?; fi
+    schedule_channel_configured "$channel" || { printf '请先保存本通道参数。\n'; return 1; }
+    seconds="$(prompt_default "定时上报周期秒数（60..86400，60 的倍数；0 关闭定时）" "$(if schedule_timer_enabled "$channel"; then printf '%s' "$(($(schedule_channel_minutes "$channel") * 60))"; else printf 0; fi)")" || return 1
+    [[ "$seconds" =~ ^[0-9]+$ ]] && (( seconds == 0 || (seconds >= 60 && seconds <= 86400 && seconds % 60 == 0) )) || { printf '无效周期。\n'; return 1; }
+    if [[ "$channel" == official ]]; then
+        OFFICIAL_TIMER_ENABLED=0
+        if (( seconds > 0 )); then OFFICIAL_TIMER_ENABLED=1; OFFICIAL_INTERVAL_SECONDS="$seconds"; fi
+    else
+        WORKER_TIMER_ENABLED=0
+        if (( seconds > 0 )); then WORKER_TIMER_ENABLED=1; CRON_MINUTES=$((seconds / 60)); fi
     fi
-    PO0_PATH_PROMPT=1 install_cron
+    install_cron "$channel"
 }
 
 menu_loop() {
+    if legacy_schedule_exists; then refresh_channel_schedules all || printf '旧任务迁移失败，请查看自动上报状态。\n' >&2; fi
     local choice
     CLIENT_MENU_UNINSTALLED=0
     while true; do

@@ -497,14 +497,15 @@ function testPluginContract() {
   assert.match(plugin, /po0_worker_url = input,tag=【自建 PO0】/);
   assert.match(plugin, /po0_worker_token = input,tag=【自建 PO0】/);
   assert.match(plugin, /PO0_FIREWALL_TOKENS = input,tag=【官方防火墙】/);
-  assert.strictEqual(declarations.filter((line) => line.includes('argument=[{PO0_FIREWALL_TOKENS},{PO0_FIREWALL_NAMES}]')).length, 1);
+  assert.strictEqual(declarations.filter((line) => line.includes('argument=[{PO0_FIREWALL_TOKENS},{PO0_FIREWALL_NAMES},{official_report_interval_seconds}]')).length, 1);
   assert.ok(declarations.every((line) => line.includes('script-path=' + scriptRawUrl)));
 }
 
 async function testNamedPluginArguments() {
   const saved = await execute({ scriptName: '官方防火墙 · 保存本机设置',
-    argument: { PO0_FIREWALL_TOKENS: 'pgnfw_named_mock@2' }, forbidConfig: true });
+    argument: { PO0_FIREWALL_TOKENS: 'pgnfw_named_mock@2', official_report_interval_seconds: 900 }, forbidConfig: true });
   assert.deepStrictEqual(saved.requests, []);
+  assert.equal(JSON.parse(saved.store.get(STORE_KEY + '.channel-settings')).officialIntervalSeconds, 900, 'native form persists official interval');
   assert.equal(JSON.parse(saved.store.get(STORE_KEY + '.official-config')).tokens, 'pgnfw_named_mock@2');
   const status = await execute({ scriptName: '通用 · 查看上报状态',
     argument: { po0_worker_url: 'https://report.example.com/stash-report/v1', po0_worker_token: 'mock' }, forbidConfig: true });
@@ -608,7 +609,30 @@ async function testLocalChannelControls() {
   assert.equal(view.requests.length, 0, 'settings overview must stay local');
 }
 
+async function testNetworkChangesAndOptionalTimer() {
+  const now = Math.floor(Date.now() / 1000);
+  for (const interval of [0, 900]) {
+    for (const changed of [false, true]) {
+      const store = new Map([
+        [FIREWALL_KEY, 'pgnfw_network_fixture'],
+        [STORE_KEY + '.channel-settings', JSON.stringify({version: 1, officialIntervalSeconds: interval})],
+        [STORE_KEY, JSON.stringify({detected_ip: changed ? '1.1.1.1' : '8.8.8.8', official: {last_attempt_at: now - 601}})],
+      ]);
+      const result = await execute({store, scriptName: changed ? '网络变化上报' : '', argument: officialOnlyArgument('auto')});
+      const gets = result.requests.filter(item => item.method === 'get' && item.request.url.includes('/api/firewall/'));
+      assert.strictEqual(gets.length, changed ? 1 : 0, 'network change bypasses optional timer, unchanged respects 900s/disabled');
+    }
+  }
+  const result = await execute({store: new Map([
+    [FIREWALL_KEY, 'pgnfw_network_fixture'],
+    [STORE_KEY + '.channel-settings', JSON.stringify({version: 1, officialIntervalSeconds: 900})],
+    [STORE_KEY, JSON.stringify({detected_ip: '8.8.8.8', official: {last_attempt_at: now - 901}})],
+  ]), argument: officialOnlyArgument('auto')});
+  assert(result.requests.some(item => item.request.url.includes('/api/firewall/')), 'custom timer fires when due');
+}
+
 (async () => {
+  await testNetworkChangesAndOptionalTimer();
   await testLocalChannelControls();
   await testConfiguredSsidSkipsBothChannels();
   await testFlexibleOfficialSeparators();

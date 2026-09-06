@@ -12,31 +12,33 @@ po0_worker_url = input,tag=【自建 PO0】Worker 地址,desc=HTTPS /stash-repor
 po0_worker_token = input,tag=【自建 PO0】Worker 密钥,desc=LAN Worker 上报密钥；与官方 Token 分开填写
 
 worker_name = input,tag=【自建 PO0】目标名称,desc=仅本机显示；不改变来源 ID
-auto_report_interval_seconds = input,"1800",tag=【自建 PO0】自动上报周期秒数,desc=600..86400 秒；保留原默认 1800 秒；不是白名单 TTL
+auto_report_interval_seconds = input,"600",tag=【自建 PO0】定时上报周期秒数,desc=60..86400 秒；0 关闭定时，网络变化仍上报；不是白名单 TTL
 
 # ── 官方防火墙参数 ──
-PO0_FIREWALL_TOKENS = input,tag=【官方防火墙】Token / 槽位,desc=填写完整 pgnfw_ Token；可带 @0..@4；填写后运行“官方防火墙 · 保存本机设置”；固定每 600 秒检查
+PO0_FIREWALL_TOKENS = input,tag=【官方防火墙】Token / 槽位,desc=填写完整 pgnfw_ Token；可带 @0..@4；填写后运行“官方防火墙 · 保存本机设置”；网络变化立即检查，定时默认 600 秒且可关闭
 
 PO0_FIREWALL_NAMES = input,tag=【官方防火墙】目标名称,desc=与 Token 顺序对应；分号或换行分隔；名称可含空格；填 - 恢复默认名称
+
+official_report_interval_seconds = input,"600",tag=【官方防火墙】定时周期秒数,desc=60..86400 秒；0 关闭定时，网络变化仍上报
 
 # ── 通用设置 · 同时作用于两个上报通道 ──
 SKIP_WIFI_SSIDS = input,"ZTE-47kTee",tag=【通用】跳过 Wi-Fi SSID,desc=多个名称用分号或换行分隔；精确匹配；填 - 关闭跳过；立即上报可强制继续
 
 [Script]
 # ── 通用 ──
-generic script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260906-v9,timeout=10,tag=通用 · 查看本机设置,argument=[{po0_worker_url},{po0_worker_token},{SKIP_WIFI_SSIDS}],img-url=slider.horizontal.3.system,enable=true
-generic script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260906-v9,timeout=300,tag=通用 · 查看上报状态,argument=[{po0_worker_url},{po0_worker_token},{SKIP_WIFI_SSIDS}],img-url=slider.horizontal.3.system,enable=true
-generic script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260906-v9,timeout=300,tag=通用 · 立即上报,argument=[{po0_worker_url},{po0_worker_token},{SKIP_WIFI_SSIDS}],img-url=arrow.clockwise.circle.system,enable=true
+generic script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260906-v10,timeout=10,tag=通用 · 查看本机设置,argument=[{po0_worker_url},{po0_worker_token},{SKIP_WIFI_SSIDS}],img-url=slider.horizontal.3.system,enable=true
+generic script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260906-v10,timeout=300,tag=通用 · 查看上报状态,argument=[{po0_worker_url},{po0_worker_token},{SKIP_WIFI_SSIDS}],img-url=slider.horizontal.3.system,enable=true
+generic script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260906-v10,timeout=300,tag=通用 · 立即上报,argument=[{po0_worker_url},{po0_worker_token},{SKIP_WIFI_SSIDS}],img-url=arrow.clockwise.circle.system,enable=true
 # ── 自建 PO0 ──
-generic script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260906-v9,timeout=10,tag=自建 PO0 · 保存本机设置,argument=[{po0_worker_url},{po0_worker_token},{worker_name},{auto_report_interval_seconds}],img-url=slider.horizontal.3.system,enable=true
-generic script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260906-v9,timeout=10,tag=自建 PO0 · 切换自动上报,argument="toggle-worker",img-url=slider.horizontal.3.system,enable=true
-generic script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260906-v9,timeout=300,tag=自建 PO0 · 立即上报,argument={"mode":"force","channel":"worker"},img-url=slider.horizontal.3.system,enable=true
-generic script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260906-v9,timeout=10,tag=自建 PO0 · 清除本机设置,argument="clear-worker",img-url=slider.horizontal.3.system,enable=true
+generic script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260906-v10,timeout=10,tag=自建 PO0 · 保存本机设置,argument=[{po0_worker_url},{po0_worker_token},{worker_name},{auto_report_interval_seconds}],img-url=slider.horizontal.3.system,enable=true
+generic script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260906-v10,timeout=10,tag=自建 PO0 · 切换自动上报,argument="toggle-worker",img-url=slider.horizontal.3.system,enable=true
+generic script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260906-v10,timeout=300,tag=自建 PO0 · 立即上报,argument={"mode":"force","channel":"worker"},img-url=slider.horizontal.3.system,enable=true
+generic script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260906-v10,timeout=10,tag=自建 PO0 · 清除本机设置,argument="clear-worker",img-url=slider.horizontal.3.system,enable=true
 # ── 官方防火墙 ──
-generic script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260906-v9,timeout=10,tag=官方防火墙 · 保存本机设置,argument=[{PO0_FIREWALL_TOKENS},{PO0_FIREWALL_NAMES}],img-url=slider.horizontal.3.system,enable=true
-generic script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260906-v9,timeout=10,tag=官方防火墙 · 切换自动上报,argument="toggle-official",img-url=slider.horizontal.3.system,enable=true
-generic script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260906-v9,timeout=300,tag=官方防火墙 · 立即上报,argument={"mode":"force","channel":"official"},img-url=slider.horizontal.3.system,enable=true
-generic script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260906-v9,timeout=10,tag=官方防火墙 · 清除本机设置,argument="clear-official",img-url=slider.horizontal.3.system,enable=true
+generic script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260906-v10,timeout=10,tag=官方防火墙 · 保存本机设置,argument=[{PO0_FIREWALL_TOKENS},{PO0_FIREWALL_NAMES},{official_report_interval_seconds}],img-url=slider.horizontal.3.system,enable=true
+generic script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260906-v10,timeout=10,tag=官方防火墙 · 切换自动上报,argument="toggle-official",img-url=slider.horizontal.3.system,enable=true
+generic script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260906-v10,timeout=300,tag=官方防火墙 · 立即上报,argument={"mode":"force","channel":"official"},img-url=slider.horizontal.3.system,enable=true
+generic script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260906-v10,timeout=10,tag=官方防火墙 · 清除本机设置,argument="clear-official",img-url=slider.horizontal.3.system,enable=true
 # ── 自动触发 · 两个已配置且启用的通道共用 ──
-cron "*/10 * * * *" script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260906-v9,timeout=300,tag=通用 · 自动上报,argument=[{po0_worker_url},{po0_worker_token},{SKIP_WIFI_SSIDS}],enable=true
-network-changed script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260906-v9,timeout=300,tag=通用 · 网络变化上报,argument=[{po0_worker_url},{po0_worker_token},{SKIP_WIFI_SSIDS}],enable=true
+cron "* * * * *" script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260906-v10,timeout=300,tag=通用 · 自动上报,argument=[{po0_worker_url},{po0_worker_token},{SKIP_WIFI_SSIDS}],enable=true
+network-changed script-path=https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/loon/po0-loon-report.js?rev=20260906-v10,timeout=300,tag=通用 · 网络变化上报,argument=[{po0_worker_url},{po0_worker_token},{SKIP_WIFI_SSIDS}],enable=true

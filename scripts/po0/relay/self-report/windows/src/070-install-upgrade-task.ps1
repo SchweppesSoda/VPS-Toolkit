@@ -1,4 +1,4 @@
-function Quote-TaskArg {
+﻿function Quote-TaskArg {
     param([string]$Value)
     if ($null -eq $Value) { return '""' }
     return '"' + ($Value -replace '"', '\"') + '"'
@@ -74,7 +74,7 @@ function Ensure-DefaultSelfReportScriptInstalled {
 }
 
 function Get-ScheduledReporterTaskArgumentList {
-    param([string]$ScriptPath)
+    param([string]$ScriptPath, [string]$Channel="worker")
     $taskArgList = @(
         "-NoProfile",
         "-Sta",
@@ -83,9 +83,11 @@ function Get-ScheduledReporterTaskArgumentList {
         "-ExecutionPolicy", "Bypass",
         "-File", (Quote-TaskArg $ScriptPath),
         "-ConfigPath", (Quote-TaskArg $script:ConfigPath),
-        "-LogPath", (Quote-TaskArg $script:LogPath),
+        "-LogPath", (Quote-TaskArg (Get-ChannelLogPath $Channel)),
         "-RunOnce",
-        "-ScheduledRun"
+        "-ScheduledRun",
+        "-TimerTrigger",
+        $(if ($Channel -eq "official") { "-OfficialOnly" } else { "-WorkerOnly" })
     )
     if ($script:TaskNotify) {
         $taskArgList += "-Notify"
@@ -96,20 +98,21 @@ function Get-ScheduledReporterTaskArgumentList {
 }
 
 function Get-ScheduledReporterTaskCommand {
-    param([string]$ScriptPath)
-    return ("powershell.exe " + ((Get-ScheduledReporterTaskArgumentList -ScriptPath $ScriptPath) -join " "))
+    param([string]$ScriptPath, [string]$Channel="worker")
+    return ("powershell.exe " + ((Get-ScheduledReporterTaskArgumentList -ScriptPath $ScriptPath -Channel $Channel) -join " "))
 }
 
 function Write-ScheduledReporterTaskLauncher {
     param(
         [string]$LauncherPath = $(Get-DefaultTaskLauncherPath),
-        [string]$ScriptPath = $(Get-DefaultScriptPath)
+        [string]$ScriptPath = $(Get-DefaultScriptPath),
+        [string]$Channel = "worker"
     )
     $launcherDir = Split-Path -Parent $LauncherPath
     if ($launcherDir -and -not (Test-Path -LiteralPath $launcherDir)) {
         New-Item -ItemType Directory -Path $launcherDir -Force | Out-Null
     }
-    $command = Get-ScheduledReporterTaskCommand -ScriptPath $ScriptPath
+    $command = Get-ScheduledReporterTaskCommand -ScriptPath $ScriptPath -Channel $Channel
     $launcherContent = @(
         "Option Explicit",
         "Dim shell, command",
@@ -211,19 +214,15 @@ function Get-ScheduledReporterNotifyState {
 }
 
 function Get-ScheduledReporterTaskRecord {
-    try {
-        $task = Get-ScheduledTask -TaskName $script:TaskName -ErrorAction SilentlyContinue
-        if ($task) {
-            return [pscustomobject]@{ Task = $task; Name = $script:TaskName; IsLegacy = $false }
-        }
-        foreach ($legacyName in $script:LegacyTaskNames) {
-            $legacyTask = Get-ScheduledTask -TaskName $legacyName -ErrorAction SilentlyContinue
-            if ($legacyTask) {
-                return [pscustomobject]@{ Task = $legacyTask; Name = $legacyName; IsLegacy = $true }
-            }
-        }
-    } catch {}
-    return [pscustomobject]@{ Task = $null; Name = ""; IsLegacy = $false }
+    param([ValidateSet('all','worker','official')][string]$Channel='all')
+    foreach ($lane in @('worker','official')) {
+        if ($Channel -ne 'all' -and $Channel -ne $lane) { continue }
+        $name = Get-ChannelTaskName $lane
+        $task = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+        if ($task) { return [pscustomobject]@{Task=$task;Name=$name;IsLegacy=$false;Channel=$lane} }
+    }
+    if ($Channel -eq 'all') { return Get-LegacyReporterRecord }
+    return [pscustomobject]@{Task=$null;Name='';IsLegacy=$false;Channel=$Channel}
 }
 
 function Format-LegacyScheduledReporterTaskNames {
@@ -231,13 +230,13 @@ function Format-LegacyScheduledReporterTaskNames {
 }
 
 function Test-ScheduledReporterTaskWakeInterval {
-    param($Task)
+    param($Task, [string]$Channel="worker")
     if (-not $Task) { return $false }
     $triggersProperty = $Task.PSObject.Properties["Triggers"]
     if (-not $triggersProperty) { return $true }
     $triggers = @($triggersProperty.Value)
     if ($triggers.Count -eq 0) { return $false }
-    $expectedSeconds = [int](Get-Po0FirewallWakeIntervalMinutes) * 60
+    $expectedSeconds = Get-ChannelIntervalSeconds $Channel
     foreach ($trigger in $triggers) {
         $interval = $null
         $repetitionProperty = $trigger.PSObject.Properties["Repetition"]
@@ -270,15 +269,17 @@ function Test-ScheduledReporterTaskWakeInterval {
 function Test-ScheduledReporterTaskCurrent {
     param(
         $Task,
-        [string]$ScriptPath = $(Get-DefaultScriptPath)
+        [string]$ScriptPath = $(Get-DefaultScriptPath),
+        [string]$Channel = "worker"
     )
     if (-not $Task) { return $false }
+    if (($Task.State -eq "Disabled") -ne (Test-ChannelPaused $Channel)) { return $false }
     $launcher = Get-ScheduledReporterLauncherPath -Task $Task
-    if (-not (Test-SamePath $launcher (Get-DefaultTaskLauncherPath))) { return $false }
+    if (-not (Test-SamePath $launcher (Get-ChannelTaskLauncherPath $Channel))) { return $false }
     if (-not (Test-Path -LiteralPath $launcher)) { return $false }
     $launcherCommand = Get-ScheduledReporterLauncherCommand -LauncherPath $launcher
     if (-not $launcherCommand) { return $false }
-    $expectedCommand = Get-ScheduledReporterTaskCommand -ScriptPath $ScriptPath
+    $expectedCommand = Get-ScheduledReporterTaskCommand -ScriptPath $ScriptPath -Channel $Channel
     if (-not [System.String]::Equals($launcherCommand, $expectedCommand, [System.StringComparison]::OrdinalIgnoreCase)) {
         return $false
     }
@@ -287,7 +288,7 @@ function Test-ScheduledReporterTaskCurrent {
     if (-not (Test-SamePath $notifyState.ScriptPath $ScriptPath)) { return $false }
     if ($notifyState.IsUnknown) { return $false }
     if ([bool]$notifyState.ActualNotify -ne [bool]$script:TaskNotify) { return $false }
-    if (-not (Test-ScheduledReporterTaskWakeInterval -Task $Task)) { return $false }
+    if (-not (Test-ScheduledReporterTaskWakeInterval -Task $Task -Channel $Channel)) { return $false }
     return $true
 }
 
@@ -378,53 +379,9 @@ function Remove-LegacyScheduledReporterTask {
 }
 
 function Update-ScheduledReporterLauncherForExistingTask {
-    $record = Get-ScheduledReporterTaskRecord
-    $task = $record.Task
-    if (-not $task) { return "none" }
-    $scriptPath = Ensure-DefaultSelfReportScriptInstalled
-    Import-ScheduledReporterTaskSettings -Task $task -KeepNotifyPreference
-    Cleanup-LegacySelfReportArtifacts -Quiet | Out-Null
-    if (-not $script:LogPath) {
-        $script:LogPath = Get-DefaultLogPath
-    }
-    if (-not $record.IsLegacy -and (Test-ScheduledReporterTaskCurrent -Task $task -ScriptPath $scriptPath)) {
-        return "current"
-    }
-    $launcher = Get-DefaultTaskLauncherPath
-    Write-ScheduledReporterTaskLauncher -LauncherPath $launcher -ScriptPath $scriptPath | Out-Null
-    $action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument ("//B //Nologo " + (Quote-TaskArg $launcher))
-    if ($record.IsLegacy) {
-        $description = "Report outbound IPv4."
-        $registerParams = @{
-            TaskName = $script:TaskName
-            Action = $action
-            Trigger = (New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes (Get-Po0FirewallWakeIntervalMinutes)) -RepetitionDuration (New-TimeSpan -Days 3650))
-            Description = $description
-            Force = $true
-        }
-        if ($task.Settings) { $registerParams.Settings = $task.Settings }
-        if ($task.Principal) { $registerParams.Principal = $task.Principal }
-        Register-ScheduledTask @registerParams | Out-Null
-        if ($script:SchedulePaused) {
-            Disable-ScheduledTask -TaskName $script:TaskName | Out-Null
-        } else {
-            Enable-ScheduledTask -TaskName $script:TaskName | Out-Null
-        }
-        if (-not (Remove-LegacyScheduledReporterTask)) {
-            throw "旧计划任务删除失败，已尝试禁用旧任务；请检查计划任务：$(Format-LegacyScheduledReporterTaskNames)"
-        }
-        return "migrated"
-    } else {
-        $setParams = @{
-            TaskName = $script:TaskName
-            Action = $action
-        }
-        if ($task.PSObject.Properties["Triggers"] -and $task.Triggers) {
-            $setParams.Trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes (Get-Po0FirewallWakeIntervalMinutes)) -RepetitionDuration (New-TimeSpan -Days 3650)
-        }
-        Set-ScheduledTask @setParams | Out-Null
-        return "refreshed"
-    }
+    if (-not (Get-ScheduledReporterTaskRecord).Task) { return 'none' }
+    Ensure-DefaultSelfReportScriptInstalled | Out-Null
+    return Sync-ScheduledReporterTasks -Mode refresh
 }
 
 function Write-ScheduledReporterRefreshResult {
@@ -541,11 +498,7 @@ function Cleanup-LegacySelfReportArtifacts {
 
     $legacyTaskStillExists = $false
     try {
-        $newTask = Get-ScheduledTask -TaskName $script:TaskName -ErrorAction SilentlyContinue
-        if ($newTask) {
-            if (-not (Remove-LegacyScheduledReporterTask -Quiet:$Quiet)) { $ok = $false }
-        }
-        foreach ($legacyName in $script:LegacyTaskNames) {
+        foreach ($legacyName in @($script:TaskName) + $script:LegacyTaskNames) {
             if (Get-ScheduledTask -TaskName $legacyName -ErrorAction SilentlyContinue) {
                 $legacyTaskStillExists = $true
                 break
@@ -594,6 +547,9 @@ function Invoke-LegacyPathSelfHeal {
     Write-Host "已迁移 Windows PO0 Outbound IP Report 客户端脚本到标准安装路径：$dest"
 
     try {
+        $legacySettings = Get-LegacyReporterRecord
+        if ($legacySettings.Task) { Import-ScheduledReporterTaskSettings -Task $legacySettings.Task -KeepNotifyPreference }
+        Load-SavedConfig
         $refreshResult = Update-ScheduledReporterLauncherForExistingTask
         Write-ScheduledReporterRefreshResult -Result $refreshResult -ScriptPath $dest
     } catch {
@@ -698,17 +654,7 @@ function Upgrade-SelfFromDownload {
 }
 
 function Install-ScheduledReporter {
-    $existingRecord = Get-ScheduledReporterTaskRecord
-    if ($existingRecord.Task) {
-        Import-ScheduledReporterTaskSettings -Task $existingRecord.Task
-        Load-SavedConfig
-    }
-    if ($script:WorkerUrl) {
-        Assert-WorkerUrl
-    } elseif (-not (Test-Po0FirewallConfigured)) {
-        throw "没有配置可执行的上报通道。"
-    }
-    Assert-Minutes
+    param([ValidateSet("all","worker","official")][string]$Channel=$ScheduleChannel)
     $dir = Get-DefaultDataDir
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
     $dest = Get-DefaultScriptPath
@@ -730,41 +676,202 @@ function Install-ScheduledReporter {
     } else {
         Invoke-WebRequest -UseBasicParsing -Uri $DownloadUrl -OutFile $dest -TimeoutSec 120
     }
-    $launcher = Get-DefaultTaskLauncherPath
-    Write-ScheduledReporterTaskLauncher -LauncherPath $launcher -ScriptPath $dest | Out-Null
-    $action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument ("//B //Nologo " + (Quote-TaskArg $launcher))
-    $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes (Get-Po0FirewallWakeIntervalMinutes)) -RepetitionDuration (New-TimeSpan -Days 3650)
-    $description = "Report outbound IPv4."
-    $registerParams = @{
-        TaskName = $script:TaskName
-        Action = $action
-        Trigger = $trigger
-        Description = $description
-        Force = $true
+    $result = Sync-ScheduledReporterTasks -Mode install -Channel $Channel
+    Write-ScheduledReporterRefreshResult -Result $result -ScriptPath $dest
+    Show-ScheduledReporter -Channel $Channel
+}
+
+function Get-ChannelTaskName {
+    param([ValidateSet('worker','official')][string]$Channel)
+    if ($Channel -eq 'worker') { return 'Outbound IP Report - Self-hosted' }
+    return 'Outbound IP Report - Official'
+}
+function Get-ChannelTaskLauncherPath {
+    param([string]$Channel)
+    return Join-Path (Get-DefaultDataDir) "po0-outbound-ip-report-$Channel-task.vbs"
+}
+function Get-ChannelLogPath {
+    param([string]$Channel)
+    $path = if ($script:LogPath) { $script:LogPath } else { Get-DefaultLogPath }
+    if ($path.EndsWith(".$Channel.log", [StringComparison]::OrdinalIgnoreCase)) { return $path }
+    return [IO.Path]::ChangeExtension($path, "$Channel.log")
+}
+function Get-ChannelIntervalSeconds {
+    param([string]$Channel)
+    if ($Channel -eq 'official') { return [int]$script:OfficialIntervalSeconds }
+    return Get-IntervalSeconds
+}
+function Test-ChannelConfigured {
+    param([string]$Channel)
+    if ($Channel -eq 'official') { return Test-Po0FirewallConfigured }
+    return [bool]($script:WorkerUrl -and $script:Secret)
+}
+function Test-ChannelPaused {
+    param([string]$Channel)
+    $enabled = if ($Channel -eq 'official') { $script:OfficialAutoEnabled } else { $script:WorkerAutoEnabled }
+    $timer = if ($Channel -eq 'official') { $script:OfficialTimerEnabled } else { $script:WorkerTimerEnabled }
+    return [bool]($script:SchedulePaused -or -not $enabled -or -not $timer)
+}
+function Get-LegacyReporterRecord {
+    foreach ($name in @($script:TaskName) + $script:LegacyTaskNames) {
+        $task = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+        if ($task) { return [pscustomobject]@{ Task=$task; Name=$name; IsLegacy=$true } }
     }
-    if ($existingRecord.Task -and $existingRecord.Task.Settings) { $registerParams.Settings = $existingRecord.Task.Settings }
-    if ($existingRecord.Task -and $existingRecord.Task.Principal) { $registerParams.Principal = $existingRecord.Task.Principal }
-    Register-ScheduledTask @registerParams | Out-Null
-    if ($script:SchedulePaused) {
-        Disable-ScheduledTask -TaskName $script:TaskName | Out-Null
-    } else {
-        Enable-ScheduledTask -TaskName $script:TaskName | Out-Null
+    return [pscustomobject]@{ Task=$null; Name=''; IsLegacy=$false }
+}
+function Sync-ScheduledReporterTasks {
+    param([ValidateSet('install','refresh','remove')][string]$Mode, [ValidateSet('all','worker','official')][string]$Channel='all')
+    $legacy = Get-LegacyReporterRecord
+    if ($legacy.Task -and $legacy.Task.State -eq 'Disabled' -and $Mode -eq 'refresh') { $script:SchedulePaused=$true; Save-ClientConfig }
+    $plans = @()
+    foreach ($lane in @('worker','official')) {
+        $record = Get-ScheduledReporterTaskRecord -Channel $lane
+        $selected = $Channel -eq 'all' -or $Channel -eq $lane
+        $write = $false; $remove = $false
+        if ($selected) {
+            if ($Mode -eq 'remove') { $remove = $true }
+            elseif ($Mode -eq 'install' -or $record.Task -or $legacy.Task) {
+                if (Test-ChannelConfigured $lane) { $write = $true }
+                elseif ($Mode -eq 'install' -and $Channel -ne 'all') { throw '请先保存本通道参数。' }
+                else { $remove = [bool]$record.Task }
+            }
+        } elseif ($legacy.Task -and -not $record.Task -and (Test-ChannelConfigured $lane)) { $write = $true }
+        if ($write) {
+            if ($lane -eq 'worker') { Assert-WorkerUrl; Assert-Minutes }
+            else {
+                Get-Po0FirewallTokenItems | Out-Null
+                $seconds = Get-ChannelIntervalSeconds $lane
+                if ($seconds -lt 60 -or $seconds -gt 86400 -or $seconds % 60) { throw '官方周期须为 60..86400 秒且为 60 的倍数。' }
+            }
+        }
+        if ($write -or $remove) { $plans += [pscustomobject]@{ Channel=$lane; Record=$record; Write=$write; Remove=$remove } }
     }
-    if ($existingRecord.IsLegacy) {
-        if (-not (Remove-LegacyScheduledReporterTask)) {
-            throw "旧计划任务删除失败，已尝试禁用旧任务；请检查计划任务：$(Format-LegacyScheduledReporterTaskNames)"
+    if ($Mode -eq 'install' -and -not @($plans | Where-Object Write).Count) { throw '没有已配置的上报通道。' }
+    $dest = Get-DefaultScriptPath
+    $changed = $false
+    # Keep replacements disabled until the shared task has been retired.
+    $created = @()
+    try {
+    foreach ($plan in $plans) {
+        if (-not $plan.Write) { continue }
+        $lane = $plan.Channel
+        if ($plan.Record.Task -and (Test-ScheduledReporterTaskCurrent -Task $plan.Record.Task -ScriptPath $dest -Channel $lane)) { continue }
+        $launcher = Get-ChannelTaskLauncherPath $lane
+        Write-ScheduledReporterTaskLauncher -LauncherPath $launcher -ScriptPath $dest -Channel $lane | Out-Null
+        $params = @{
+            TaskName = (Get-ChannelTaskName $lane)
+            Action = (New-ScheduledTaskAction -Execute 'wscript.exe' -Argument ('//B //Nologo ' + (Quote-TaskArg $launcher)))
+            Trigger = (New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Seconds (Get-ChannelIntervalSeconds $lane)) -RepetitionDuration (New-TimeSpan -Days 3650))
+            Description = $(if ($lane -eq 'worker') { 'Report outbound IPv4 to self-hosted PO0 through LAN Worker.' } else { 'Check official firewall and report outbound IPv4 when needed.' })
+            Force = $true
+        }
+        $old = if ($plan.Record.Task) { $plan.Record.Task } else { $legacy.Task }
+        if ($old -and $old.Settings) { $params.Settings = $old.Settings }
+        if ($old -and $old.Principal) { $params.Principal = $old.Principal }
+        Register-ScheduledTask @params | Out-Null
+        if (-not $plan.Record.Task) { $created += $params.TaskName }
+        if ($legacy.Task -or (Test-ChannelPaused $lane)) { Disable-ScheduledTask -TaskName $params.TaskName | Out-Null }
+        else { Enable-ScheduledTask -TaskName $params.TaskName | Out-Null }
+        $changed = $true
+    }
+    } catch {
+        if ($legacy.Task) {
+            foreach ($name in $created) { Unregister-ScheduledTask -TaskName $name -Confirm:$false -ErrorAction SilentlyContinue }
+        }
+        throw
+    }
+    if ($legacy.Task) {
+        foreach ($name in @($script:TaskName) + $script:LegacyTaskNames) {
+            if (Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue) {
+                try { Unregister-ScheduledTask -TaskName $name -Confirm:$false -ErrorAction Stop }
+                catch { Disable-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue | Out-Null; throw '旧共享任务清理失败，已尝试禁用；请检查任务状态。' }
+            }
+        }
+        $changed = $true
+    }
+    foreach ($plan in $plans) {
+        if ($plan.Write) {
+            if ($legacy.Task -and -not (Test-ChannelPaused $plan.Channel)) { Enable-ScheduledTask -TaskName (Get-ChannelTaskName $plan.Channel) | Out-Null }
+            Sync-NetworkReporterTask -Channel $plan.Channel
+        }
+        if ($plan.Remove) {
+            Sync-NetworkReporterTask -Channel $plan.Channel -Remove
+            Stop-ScheduledTask -TaskName (Get-ChannelTaskName $plan.Channel) -ErrorAction SilentlyContinue
+            if ($plan.Record.Task) { Unregister-ScheduledTask -TaskName (Get-ChannelTaskName $plan.Channel) -Confirm:$false -ErrorAction Stop }
+            $path = Get-ChannelTaskLauncherPath $plan.Channel
+            if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force }
+            $changed = $true
         }
     }
-    Cleanup-LegacySelfReportArtifacts | Out-Null
-    Write-Host ("已安装计划任务：{0}，每 {1} 分钟唤醒；LAN Worker 仍按 {2} 秒 due。" -f $script:TaskName, (Get-Po0FirewallWakeIntervalMinutes), (Get-IntervalSeconds))
-    Write-Host "脚本路径：$dest"
-    Write-Host "计划任务启动文件：$launcher"
-    Write-Host "配置文件：$script:ConfigPath"
-    Write-Host "运行日志：$script:LogPath"
-    Write-Host "Windows 通知：$(Format-NotifyStatus)"
-    if ($script:SchedulePaused) {
-        Write-SelfReportCompleted "计划任务已安装 / 更新，但当前保持暂停。"
-    } else {
-        Write-SelfReportCompleted "计划任务已安装 / 更新：$script:TaskName；唤醒：$(Get-Po0FirewallWakeIntervalMinutes) 分钟；LAN Worker due：$(Get-IntervalSeconds) 秒；通知：$(Format-NotifyStatus)；脚本路径：$dest；日志路径：$script:LogPath。"
+    if ($legacy.Task) { return 'migrated' }
+    if ($changed) { return 'refreshed' }
+    if ($plans.Count) { return 'current' }
+    return 'none'
+}
+
+function Test-WindowsNetworkWatchSupported {
+    try { return [bool]([System.Net.NetworkInformation.NetworkChange].GetEvent('NetworkAddressChanged')) }
+    catch { return $false }
+}
+function Get-NetworkReporterTaskName {
+    param([string]$Channel)
+    return "$(Get-ChannelTaskName $Channel) - Network"
+}
+function Sync-NetworkReporterTask {
+    param([string]$Channel, [switch]$Remove)
+    $name = Get-NetworkReporterTaskName $Channel
+    $existing = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+    $enabled = if ($Channel -eq 'worker') { $script:WorkerNetworkEnabled } else { $script:OfficialNetworkEnabled }
+    $launcher = Join-Path (Get-DefaultDataDir) "po0-outbound-ip-report-$Channel-network.vbs"
+    if ($Remove -or -not $enabled -or -not (Test-ChannelConfigured $Channel)) {
+        if ($existing) { Stop-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue; Unregister-ScheduledTask -TaskName $name -Confirm:$false -ErrorAction Stop }
+        if (Test-Path -LiteralPath $launcher) { Remove-Item -LiteralPath $launcher -Force }
+        return
     }
+    if (-not (Test-WindowsNetworkWatchSupported)) { return }
+    $command = ((Get-ScheduledReporterTaskCommand -ScriptPath (Get-DefaultScriptPath) -Channel $Channel) -replace ' -TimerTrigger','') + ' -WatchNetwork'
+    $paused = Test-ChannelAutoPaused $Channel
+    if ($existing -and (Get-ScheduledReporterLauncherCommand $launcher) -eq $command -and (($existing.State -eq 'Disabled') -eq $paused)) { return }
+    if ($existing) { Stop-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue }
+    @('Option Explicit','Dim shell, command',"command = $(ConvertTo-VbsStringLiteral $command)",'Set shell = CreateObject("WScript.Shell")','WScript.Quit shell.Run(command, 0, True)') | Set-Content -LiteralPath $launcher -Encoding Unicode
+    $params = @{
+        TaskName=$name
+        Action=(New-ScheduledTaskAction -Execute 'wscript.exe' -Argument ('//B //Nologo ' + (Quote-TaskArg $launcher)))
+        Trigger=(New-ScheduledTaskTrigger -AtLogOn)
+        Settings=(New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries)
+        Description='Watch local network changes and report only this channel. Independent from the optional periodic task.'
+        Force=$true
+    }
+    if ($existing -and $existing.Principal) { $params.Principal=$existing.Principal }
+    Register-ScheduledTask @params | Out-Null
+    if ($paused) { Disable-ScheduledTask -TaskName $name | Out-Null }
+    else { Enable-ScheduledTask -TaskName $name | Out-Null; Start-ScheduledTask -TaskName $name }
+}
+function Watch-ReporterNetwork {
+    if (-not (Test-WindowsNetworkWatchSupported)) { throw '当前环境不支持网络变化监听。' }
+    if ($script:Po0FirewallOfficialOnly) { $lane='official'; $switch='-OfficialOnly' }
+    elseif ($script:Po0FirewallWorkerOnly) { $lane='worker'; $switch='-WorkerOnly' }
+    else { throw '网络监听必须选择一个上报通道。' }
+    Add-Type -TypeDefinition @"
+using System;
+using System.Threading;
+using System.Net.NetworkInformation;
+public static class OutboundIpNetworkSignal {
+    public static readonly AutoResetEvent Changed = new AutoResetEvent(false);
+    private static void AddressChanged(object sender, EventArgs e) { Changed.Set(); }
+    public static void Start() { NetworkChange.NetworkAddressChanged += AddressChanged; }
+    public static void Stop() { NetworkChange.NetworkAddressChanged -= AddressChanged; }
+}
+"@
+    [OutboundIpNetworkSignal]::Start()
+    try {
+        while ($true) {
+            if (-not [OutboundIpNetworkSignal]::Changed.WaitOne(60000)) { continue }
+            Start-Sleep -Seconds 2
+            [OutboundIpNetworkSignal]::Changed.Reset() | Out-Null
+            if (-not [System.Net.NetworkInformation.NetworkInterface]::GetIsNetworkAvailable()) { continue }
+            # Reload saved settings in a fresh invocation; never pass credentials.
+            & powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File (Get-DefaultScriptPath) -ConfigPath $script:ConfigPath -LogPath (Get-ChannelLogPath $lane) -ScheduledRun -NetworkChanged -RunOnce $switch
+        }
+    } finally { [OutboundIpNetworkSignal]::Stop() }
 }

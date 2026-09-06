@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export REPORT_LOCK_WAIT_SECONDS=0
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 mkdir -p "${repo_root}/.tmp"

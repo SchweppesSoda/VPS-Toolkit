@@ -5,14 +5,14 @@ desc: |-
   【官方防火墙】只在 /save-official 参数填写 Token / 槽位和名称，然后访问 /save-official 保存。
   两边都可单独停用、恢复、清除或立即上报；停用保留参数，清除后同步参数不会自动恢复。
   多个官方 Token 支持逗号、分号、空格或换行（JSON 内用 \n）；名称按 Token 顺序，用分号或换行分隔。
-  自动触发每 10 分钟共用一次：官方固定 600 秒，Worker 保留默认 3600 秒及原 IP / 网络变化逻辑。
+  每分钟轮询直连出口 IPv4，变化时上报；两通道定时各自可选，默认 600 秒，填 0 关闭。Stash 没有公开原生网络变化事件。
   Worker 放行 TTL 由 LAN Worker 接收端设置；官方 TTL 由官方服务管理。
   /status 只读检查，/report-now 手动上报两个通道；官方始终先 GET，缺失时才加白。
   Stash 公开 JS 接口不提供当前 SSID，没有可配置的 SSID 跳过名单。
 
 script-providers:
   po0-stash-report-worker-v2:
-    url: https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/stash/po0-stash-report.js?rev=20260906-v8
+    url: https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/stash/po0-stash-report.js?rev=20260906-v9
     interval: 86400
   po0-stash-status-tile-v2:
     interval: 86400
@@ -64,7 +64,7 @@ script-providers:
 cron:
   script:
     - name: po0-stash-report-worker-v2
-      cron: '*/10 * * * *'
+      cron: '* * * * *'
       timeout: 90
       argument: '{"mode":"auto"}'
 
@@ -93,12 +93,12 @@ http:
       argument: '{"mode":"status"}'
 
     # ── 官方防火墙参数 · 仅在这里填写 Token / 槽位 ──
-    # 保存后固定每 600 秒检查；本次保存不发起上报。
+    # 定时默认 600 秒，可改为 60..86400；0 关闭定时，出口变化检测仍保留；本次保存不发起上报。
     - match: ^http://po0-report\.invalid/save-official$
       name: po0-stash-report-worker-v2
       type: request
       timeout: 10
-      argument: '{"mode":"save-official","PO0_FIREWALL_TOKENS":"","PO0_FIREWALL_NAMES":""}'
+      argument: '{"mode":"save-official","PO0_FIREWALL_TOKENS":"","PO0_FIREWALL_NAMES":"","official_report_interval_seconds":600}'
     - match: ^http://po0-report\.invalid/clear-official$
       name: po0-stash-report-worker-v2
       type: request
@@ -110,7 +110,7 @@ http:
       name: po0-stash-report-worker-v2
       type: request
       timeout: 10
-      argument: '{"mode":"save-worker","worker_url":"https://CHANGE_ME/stash-report/v1","source_id":"iphone-stash","secret":"CHANGE_ME_BEARER","worker_name":"LAN Worker","auto_report_interval_seconds":3600,"selected_proxy":"DIRECT"}'
+      argument: '{"mode":"save-worker","worker_url":"https://CHANGE_ME/stash-report/v1","source_id":"iphone-stash","secret":"CHANGE_ME_BEARER","worker_name":"LAN Worker","auto_report_interval_seconds":600,"selected_proxy":"DIRECT"}'
     - match: ^http://po0-report\.invalid/clear-worker$
       name: po0-stash-report-worker-v2
       type: request

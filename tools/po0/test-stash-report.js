@@ -316,9 +316,9 @@ async function testDualOrderAndIndependentWorkerTTL() {
     officialGets: [{ body: officialBody([{ ip: "1.1.1.1/24", slot: null }]) }],
     officialPosts: [{ body: officialBody([{ ip: "8.8.8.8/24", slot: null }]) }],
   });
-  assert.deepStrictEqual(dual.requests.map((entry) => entry.method), ["get", "get", "post", "get", "post"]);
-  assert.strictEqual(dual.requests[1].request.url, OFFICIAL_URL + "/" + token);
-  assert.strictEqual(dual.requests[2].request.url, OFFICIAL_URL + "/" + token + "/add");
+  assert.deepStrictEqual(dual.requests.map((entry) => entry.method), ["get", "get", "get", "post", "post"]);
+  assert.strictEqual(dual.requests[2].request.url, OFFICIAL_URL + "/" + token);
+  assert.strictEqual(dual.requests[3].request.url, OFFICIAL_URL + "/" + token + "/add");
   assert.strictEqual(dual.notifications.length, 1, "automatic new official slot should notify");
 
   const now = Math.floor(Date.now() / 1000);
@@ -333,7 +333,7 @@ async function testDualOrderAndIndependentWorkerTTL() {
     officialGets: [{ body: officialBody([{ ip: "8.8.8.8/24", slot: null }]) }],
   });
   assert.deepStrictEqual(due.requests.map((entry) => entry.method), ["get", "get", "get"]);
-  assert.ok(due.requests[1].request.url.startsWith(OFFICIAL_URL));
+  assert.ok(due.requests[2].request.url.startsWith(OFFICIAL_URL));
 }
 
 async function testStrictDuplicateSlotsAndTokenPersistence() {
@@ -436,8 +436,8 @@ async function testParallelOfficialAccountsPreserveLaneOrder() {
 
 function testOverrideContract() {
   assert.match(override, /PO0_FIREWALL_TOKENS/);
-  assert.ok(override.includes("cron: '*/10 * * * *'"));
-  assert.match(override, /20260906-v8/);
+  assert.ok(override.includes("cron: '* * * * *'"));
+  assert.match(override, /20260906-v9/);
   assert.match(override, /先 GET/);
   assert.match(override, /TTL 由官方服务管理/);
   assert.match(override, /"PO0_FIREWALL_TOKENS":""/);
@@ -530,7 +530,35 @@ async function testLocalChannelControls() {
   assert.equal(view.requests.length, 0, 'settings overview must stay local');
 }
 
+async function testNetworkChangesAndOptionalTimer() {
+  const saved = await execute({argument: reportArgument('save-official', {PO0_FIREWALL_TOKENS: 'pgnfw_timer_save_fixture', official_report_interval_seconds: 900})});
+  assert.equal(JSON.parse(saved.store.get(STORE_KEY + '.channel-settings')).officialIntervalSeconds, 900, 'save action persists interval');
+  const workerOff = await execute({argument: reportArgument('save-worker', {worker_url: 'https://saved.example/stash-report/v1', source_id:'fixture-device', secret:'test-secret', auto_report_interval_seconds:0})});
+  const view = await execute({store:workerOff.store, argument:reportArgument('settings'), scriptType:'request'});
+  assert(JSON.stringify(view.value).includes('周期：关闭'), 'disabled Worker timer must not display an old 3600s default');
+  const now = Math.floor(Date.now() / 1000);
+  for (const interval of [0, 900]) {
+    for (const changed of [false, true]) {
+      const store = new Map([
+        [FIREWALL_KEY, 'pgnfw_network_fixture'],
+        [STORE_KEY + '.channel-settings', JSON.stringify({version: 1, officialIntervalSeconds: interval})],
+        [STORE_KEY, JSON.stringify({detected_ip: changed ? '1.1.1.1' : '8.8.8.8', official: {last_attempt_at: now - 601}})],
+      ]);
+      const result = await execute({store, argument: reportArgument('auto')});
+      const gets = result.requests.filter(item => item.method === 'get' && item.request.url.includes('/api/firewall/'));
+      assert.strictEqual(gets.length, changed ? 1 : 0, 'network change bypasses optional timer, unchanged respects 900s/disabled');
+    }
+  }
+  const result = await execute({store: new Map([
+    [FIREWALL_KEY, 'pgnfw_network_fixture'],
+    [STORE_KEY + '.channel-settings', JSON.stringify({version: 1, officialIntervalSeconds: 900})],
+    [STORE_KEY, JSON.stringify({detected_ip: '8.8.8.8', official: {last_attempt_at: now - 901}})],
+  ]), argument: reportArgument('auto')});
+  assert(result.requests.some(item => item.request.url.includes('/api/firewall/')), 'custom timer fires when due');
+}
+
 (async () => {
+  await testNetworkChangesAndOptionalTimer();
   await testLocalChannelControls();
   await testFlexibleOfficialSeparators();
   testLocalSlotSurvivesSync();

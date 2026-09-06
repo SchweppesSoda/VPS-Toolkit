@@ -250,6 +250,11 @@ save_config_file() {
     umask 077
     {
         printf '# PO0 self-report client settings. This file may contain secrets.\n'
+        write_env_assignment "WORKER_TIMER_ENABLED" "${WORKER_TIMER_ENABLED:-1}"
+        write_env_assignment "OFFICIAL_TIMER_ENABLED" "${OFFICIAL_TIMER_ENABLED:-1}"
+        write_env_assignment "WORKER_NETWORK_ENABLED" "${WORKER_NETWORK_ENABLED:-1}"
+        write_env_assignment "OFFICIAL_NETWORK_ENABLED" "${OFFICIAL_NETWORK_ENABLED:-1}"
+        write_env_assignment "OFFICIAL_INTERVAL_SECONDS" "${OFFICIAL_INTERVAL_SECONDS:-600}"
         write_env_assignment "WORKER_AUTO_ENABLED" "${WORKER_AUTO_ENABLED:-1}"
         write_env_assignment "OFFICIAL_AUTO_ENABLED" "${OFFICIAL_AUTO_ENABLED:-1}"
         write_env_assignment "WORKER_NAME" "${WORKER_NAME:-}"

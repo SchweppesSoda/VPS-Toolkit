@@ -1343,8 +1343,8 @@ async function testPublishedBackgroundTriggersKeepAutomaticGuards() {
       if (mode === 'enabled') {
         assert.equal(result.ok, true);
         await runEgernReport(fixture.ctx);
-        assert.equal(fixture.calls.ssh, 1, 'repeated background checks must honor the SSH interval');
-        assert.equal(fixture.calls.get.filter(call => call.url.includes('/api/firewall/')).length, 1, 'official interval stays independent');
+        assert.equal(fixture.calls.ssh, action.type === 'network' ? 2 : 1, 'timer honors the SSH interval; network changes report immediately');
+        assert.equal(fixture.calls.get.filter(call => call.url.includes('/api/firewall/')).length, action.type === 'network' ? 2 : 1, 'official timer stays independent; network changes report immediately');
       } else {
         assert.equal(result.skipType, { paused: 'channels-paused', ssid: 'wifi-ssid', empty: 'missing-config' }[mode]);
         assert.equal(fixture.calls.get.length + fixture.calls.post.length + fixture.calls.ssh, 0);
@@ -1365,7 +1365,31 @@ async function testLegacyDeviceEntryCannotFallThroughToReporting() {
   }
 }
 
+async function testNetworkChangesBypassOptionalTimer() {
+  for (const enabled of ['true', 'false']) {
+    const storage = createStorage();
+    const env = { OFFICIAL_INTERVAL_SECONDS: '900', OFFICIAL_TIMER_ENABLED: enabled };
+    const get = () => response(officialPayload({ whitelist: [{ ip: '203.0.113.10/24', slot: null }] }));
+    globalThis.__PO0_EGERN_TEST_NOW = 1000000000;
+    await runEgernReport(createContext({ storage, env, httpGet: get }).ctx);
+    globalThis.__PO0_EGERN_TEST_NOW += 600000;
+    const early = createContext({ storage, env, trigger: 'schedule', httpGet: get });
+    await runEgernReport(early.ctx);
+    assert.equal(early.calls.get.length, 0, 'custom 900s timer must not fire at 600s');
+    globalThis.__PO0_EGERN_TEST_NOW += 400000;
+    const due = createContext({ storage, env, trigger: 'schedule', httpGet: get });
+    await runEgernReport(due.ctx);
+    assert.equal(due.calls.get.length, enabled === 'true' ? 1 : 0, 'timer can be disabled');
+    globalThis.__PO0_EGERN_TEST_NOW += 1;
+    const network = createContext({ storage, env, trigger: 'network', httpGet: get });
+    await runEgernReport(network.ctx);
+    assert.equal(network.calls.get.length, 1, 'network event must bypass timer interval and timer disable');
+  }
+  delete globalThis.__PO0_EGERN_TEST_NOW;
+}
+
 const tests = [
+  testNetworkChangesBypassOptionalTimer,
   testEveryPublishedManualActionReturnsVisibleResult,
   testScopedNativeForceWithoutSelectedConfigIsVisible,
   testNativeForceFailuresAreVisible,

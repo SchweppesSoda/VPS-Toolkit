@@ -1,4 +1,9 @@
 # Local channel controls. Missing values preserve existing automatic reporting.
+WORKER_TIMER_ENABLED="${WORKER_TIMER_ENABLED:-1}"
+OFFICIAL_TIMER_ENABLED="${OFFICIAL_TIMER_ENABLED:-1}"
+WORKER_NETWORK_ENABLED="${WORKER_NETWORK_ENABLED:-1}"
+OFFICIAL_NETWORK_ENABLED="${OFFICIAL_NETWORK_ENABLED:-1}"
+OFFICIAL_INTERVAL_SECONDS="${OFFICIAL_INTERVAL_SECONDS:-600}"
 WORKER_AUTO_ENABLED="${WORKER_AUTO_ENABLED:-1}"
 OFFICIAL_AUTO_ENABLED="${OFFICIAL_AUTO_ENABLED:-1}"
 WORKER_NAME="${WORKER_NAME:-}"
@@ -46,14 +51,7 @@ print_official_target_names() {
     done
 }
 
-toggle_channel_auto_interactive() {
-    local channel="$1" value=1 label='自建 PO0'
-    [[ "$channel" != official ]] || label='官方防火墙'
-    channel_auto_enabled "$channel" && value=0
-    if [[ "$channel" == worker ]]; then WORKER_AUTO_ENABLED="$value"; else OFFICIAL_AUTO_ENABLED="$value"; fi
-    save_config_file || return 1
-    printf '%s自动上报：%s。手动上报仍可使用。\n' "$label" "$(channel_auto_label "$channel")"
-}
+toggle_channel_auto_interactive() { toggle_schedule_interactive "$1"; }
 
 clear_worker_config_interactive() {
     prompt_yes_no '清除本机自建 PO0 地址、密钥和目标名称（保留官方及通用设置）' n || return 0
@@ -123,7 +121,7 @@ show_channel_status() {
         print_panel_row '上报间隔' "$(cron_minutes_to_seconds "$CRON_MINUTES") 秒"
         print_panel_row '放行有效期' '由 LAN Worker 接收端管理'
         print_panel_row '设备备注' "${IDENTITY:-未设置}"
-        print_panel_row '定时任务' "$(cron_status_summary)"
+        print_panel_row '定时任务' "$(cron_status_summary worker)"
     fi
 }
 
@@ -135,9 +133,10 @@ channel_settings_menu() {
         print_title "$title · 设置"
         print_panel_row '配置状态' "$(if [[ "$channel" == official ]]; then [[ -n "${PO0_FIREWALL_TOKENS:-}" ]] && printf "已配置" || printf "未配置"; else [[ -n "${WORKER_URL:-}" ]] && printf "已配置" || printf "未配置"; fi)"
         print_panel_row '自动上报' "$(channel_auto_label "$channel")"
+        print_panel_row '定时任务' "$(cron_status_summary "$channel")"
         if [[ "$channel" == official ]]; then
             print_official_target_names
-            print_panel_row '检查间隔' '固定 600 秒'
+            print_panel_row '定时周期' "${OFFICIAL_INTERVAL_SECONDS:-600} 秒（可关闭）"
             print_panel_row '放行有效期 TTL' '由官方服务管理，接口未提供自定义 TTL'
         else
             print_panel_row '上报间隔' "$(cron_minutes_to_seconds "$CRON_MINUTES") 秒"
@@ -149,47 +148,71 @@ channel_settings_menu() {
         print_menu_item 4 '仅本通道立即上报'
         print_menu_item 5 '查看本通道状态'
         print_menu_item 6 '清除此通道保存的配置'
+        print_menu_item 7 '安装 / 更新本通道定时任务'
+        print_menu_item 8 '删除本通道自动任务'
         print_menu_item 0 '返回主菜单'
-        choice="$(read_prompt '请选择 [0-6]: ')" || return 0
+        choice="$(read_prompt '请选择 [0-8]: ')" || return 0
         case "$(trim "$choice")" in
-            1) if [[ "$channel" == worker ]]; then configure_interactive && update_channel_schedule_if_installed; else configure_official_interactive && update_channel_schedule_if_installed; fi ;;
+            1) if [[ "$channel" == worker ]]; then configure_interactive && update_channel_schedule_if_installed "$channel"; else configure_official_interactive && update_channel_schedule_if_installed "$channel"; fi ;;
             2) set_channel_names_interactive "$channel" ;;
-            3) toggle_channel_auto_interactive "$channel" && update_channel_schedule_if_installed ;;
+            3) toggle_channel_auto_interactive "$channel" && update_channel_schedule_if_installed "$channel" ;;
             4) run_channel_interactive "$channel" ;;
             5) show_channel_status "$channel" ;;
-            6) if [[ "$channel" == worker ]]; then clear_worker_config_interactive && update_channel_schedule_if_installed; else clear_official_tokens_interactive && update_channel_schedule_if_installed; fi ;;
+            6) if [[ "$channel" == worker ]]; then clear_worker_config_interactive && update_channel_schedule_if_installed "$channel"; else clear_official_tokens_interactive && update_channel_schedule_if_installed "$channel"; fi ;;
+            7) install_cron_interactive "$channel" ;;
+            8) if prompt_yes_no '删除本通道自动任务（保留配置）' n; then remove_cron "$channel"; fi ;;
             0) return 0 ;;
-            *) printf '无效选择：请输入 0-6。\n' ;;
+            *) printf '无效选择：请输入 0-8。\n' ;;
         esac
         pause_before_return
     done
 }
 
 automatic_reporting_menu() {
-    local choice max_choice=4
-    declare -F toggle_notify_interactive >/dev/null && max_choice=5
+    local choice max_choice=3
+    if declare -F is_macos >/dev/null; then max_choice=4; fi
     while true; do
         menu_clear_screen
-        print_title '自动上报 · 两个通道共用一个计划'
-        print_panel_row '自建 PO0' "$(channel_auto_label worker)"
-        print_panel_row '官方防火墙' "$(channel_auto_label official)"
-        print_panel_row '计划状态' "$(cron_status_summary)"
-        printf "安装后自动处理两个已配置且启用的通道，各自按自己的间隔上报。\n"
-        print_menu_item 1 '安装 / 更新自动上报'
-        print_menu_item 2 '暂停 / 恢复全部自动上报'
-        print_menu_item 3 '查看计划状态和日志'
-        print_menu_item 4 '删除自动上报计划'
-        if declare -F toggle_notify_interactive >/dev/null; then print_menu_item 5 '通知 / 静默设置'; fi
+        print_title '自动上报 · 独立定时任务'
+        print_panel_row '自建 PO0 任务' "$(cron_status_summary worker)"
+        print_panel_row '官方防火墙任务' "$(cron_status_summary official)"
+        print_menu_item 1 '管理自建 PO0 定时任务'
+        print_menu_item 2 '管理官方防火墙定时任务'
+        print_menu_item 3 '查看两项任务状态和日志'
+        if [[ "$max_choice" == 4 ]]; then print_menu_item 4 '通知 / 静默设置'; fi
         print_menu_item 0 '返回主菜单'
         choice="$(read_prompt "请选择 [0-$max_choice]: ")" || return 0
         case "$(trim "$choice")" in
-            1) install_cron_interactive ;;
-            2) toggle_schedule_interactive ;;
-            3) show_cron_status ;;
-            4) if prompt_yes_no '删除全部自动上报计划（保留两个通道的配置）' n; then remove_cron; fi ;;
-            5) if declare -F toggle_notify_interactive >/dev/null; then toggle_notify_interactive; else printf '此系统的自动上报结果记录在本机日志中。\n'; fi ;;
+            1) channel_schedule_menu worker ;;
+            2) channel_schedule_menu official ;;
+            3) show_cron_status all; pause_before_return ;;
+            4) if [[ "$max_choice" == 4 ]]; then toggle_notify_interactive; pause_before_return; fi ;;
             0) return 0 ;;
-            *) printf "无效选择：请输入 0-%s。\n" "$max_choice" ;;
+            *) printf '无效选择。\n'; pause_before_return ;;
+        esac
+    done
+}
+
+channel_schedule_menu() {
+    local channel="$1" choice
+    while true; do
+        menu_clear_screen
+        print_title "$(schedule_channel_label "$channel") · 定时任务"
+        print_panel_row '实际状态' "$(cron_status_summary "$channel")"
+        print_panel_row '执行间隔' "$(($(schedule_channel_minutes "$channel") * 60)) 秒"
+        print_menu_item 1 '安装 / 更新本通道定时任务'
+        print_menu_item 2 '暂停 / 恢复本通道自动上报'
+        print_menu_item 3 '查看本通道任务状态和日志'
+        print_menu_item 4 '删除本通道自动任务'
+        print_menu_item 0 '返回'
+        choice="$(read_prompt '请选择 [0-4]: ')" || return 0
+        case "$(trim "$choice")" in
+            1) install_cron_interactive "$channel" ;;
+            2) toggle_schedule_interactive "$channel" ;;
+            3) show_cron_status "$channel" ;;
+            4) if prompt_yes_no '删除本通道自动任务（保留配置）' n; then remove_cron "$channel"; fi ;;
+            0) return 0 ;;
+            *) printf '无效选择：请输入 0-4。\n' ;;
         esac
         pause_before_return
     done
@@ -272,13 +295,4 @@ sync_official_account_names() {
         separator=';'
     done
     PO0_FIREWALL_NAMES="$result"
-}
-
-update_channel_schedule_if_installed() {
-    config_complete || return 0
-    if cron_managed_block_exists; then
-        install_cron
-    elif declare -F launchd_supported >/dev/null && launchd_supported && { [[ -f "$(launchd_plist_path)" ]] || legacy_launchd_plist_exists; }; then
-        install_cron
-    fi
 }

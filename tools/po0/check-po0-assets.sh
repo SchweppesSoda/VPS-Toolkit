@@ -5,9 +5,9 @@ command -v rg >/dev/null 2>&1 || { printf 'ripgrep (rg) is required for PO0 refe
 
 repo_root="$(cd "$(git rev-parse --show-toplevel)" && pwd -P)"
 asset_dir="${1:-${repo_root}/.tmp/po0-check-assets-bash}"
-expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.09.06+build.3}"
+expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.09.06+build.4}"
 expected_po0_release_date="${PO0_EXPECTED_RELEASE_DATE:-2026-09-06}"
-expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.09.06.3}"
+expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.09.06.4}"
 
 manifest_entries() {
     local manifest="$1"
@@ -170,7 +170,7 @@ check_egern_official_channel() {
         exit 1
     }
     for token in \
-        'OFFICIAL_FIREWALL_INTERVAL_SECONDS = 600' \
+        'DEFAULT_OFFICIAL_INTERVAL_SECONDS = 600' \
         'OFFICIAL_FIREWALL_API_BASE' \
         'parseOfficialTokens' \
         'officialDirectRequest' \

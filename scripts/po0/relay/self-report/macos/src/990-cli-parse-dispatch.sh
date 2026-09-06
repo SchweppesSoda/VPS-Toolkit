@@ -45,9 +45,15 @@ usage() {
         "  --ip-check-urls CSV   覆盖完整探测地址列表，多个 URL 用逗号分隔。" \
         "  --install-launchd [N] 安装 / 更新 macOS launchd 定时上报；不带 N 时默认 3600 秒。" \
         "  --install-cron [N]    兼容旧参数，等同 --install-launchd；N 为兼容分钟参数。" \
+        "  --schedule-channel worker|official|all  选择安装、启停、删除或查看的任务（默认 all）。" \
+        "  --refresh-schedules   仅刷新已安装的任务；旧共享任务迁为两项独立任务。" \
         "  --pause-schedule      暂停本脚本管理的定时上报；手动立即上报仍可用。" \
         "  --resume-schedule     恢复本脚本管理的定时上报。" \
         "  --schedule-status     查看本脚本管理的定时上报状态。" \
+        "  --schedule-channel worker|official|all  选择安装、启停、删除的通道。" \
+        "  --official-interval-seconds N  官方周期默认 600 秒，60..86400 且为 60 的倍数。" \
+        "  --remove-cron / --remove-launchd  删除所选通道的定时和网络事件任务。" \
+        "  --refresh-schedules  更新已有任务并迁移旧共享任务。" \
         "  --interval-seconds N  设置 launchd 上报间隔秒数，必须是 60 的倍数，默认 3600。" \
         "  --minutes N           兼容旧参数：设置定时上报间隔分钟数，范围 1-${MAX_CRON_MINUTES}。" \
         "" \
@@ -231,6 +237,29 @@ parse_args() {
                     shift
                 fi
                 ;;
+            --official-interval-seconds)
+                [[ "${2:-}" =~ ^[0-9]+$ ]] && (( $2 >= 60 && $2 <= 86400 && $2 % 60 == 0 )) || { echo '官方周期无效。' >&2; exit 1; }
+                OFFICIAL_INTERVAL_SECONDS="$2"; shift 2 ;;
+            --timer-trigger)
+                TIMER_TRIGGER="1"; SCHEDULED_RUN="1"; shift ;;
+            --watch-network)
+                WATCH_NETWORK=1; shift ;;
+            --network-changed)
+                NETWORK_CHANGED=1; SCHEDULED_RUN=1; shift ;;
+            --schedule-channel)
+                [[ $# -ge 2 ]] || { echo '缺少任务通道。' >&2; exit 1; }
+                SCHEDULE_CHANNEL="$2"
+                case "$SCHEDULE_CHANNEL" in all|worker|official) ;; *) echo '任务通道仅支持 worker / official / all。' >&2; exit 1 ;; esac
+                shift 2
+                ;;
+            --remove-cron|--remove-launchd)
+                REMOVE_SCHEDULES="1"
+                shift
+                ;;
+            --refresh-schedules)
+                REFRESH_SCHEDULES="1"
+                shift
+                ;;
             --pause-schedule)
                 PAUSE_SCHEDULE="1"
                 shift
@@ -299,6 +328,12 @@ elif [[ "${SAVE_CONFIG}" == "1" && "${SHOW_MENU}" == "1" ]]; then
     menu_loop
 elif [[ "${SAVE_CONFIG}" == "1" ]]; then
     save_config_file
+elif [[ "${WATCH_NETWORK:-0}" == "1" ]]; then
+    watch_network_changes
+elif [[ "${REMOVE_SCHEDULES:-0}" == "1" ]]; then
+    remove_cron "${SCHEDULE_CHANNEL:-all}"
+elif [[ "${REFRESH_SCHEDULES:-0}" == "1" ]]; then
+    refresh_channel_schedules "${SCHEDULE_CHANNEL:-all}"
 elif [[ "${PAUSE_SCHEDULE}" == "1" ]]; then
     set_schedule_paused "1"
 elif [[ "${RESUME_SCHEDULE}" == "1" ]]; then

@@ -149,7 +149,7 @@ refresh_schedule_after_script_update() {
     if command -v crontab >/dev/null 2>&1 && cron_managed_block_exists; then
         if linux_schedule_refresh_current "${dest}"; then
             printf '定时上报已指向标准脚本路径，未刷新：%s\n' "${dest}"
-        elif run_updated_script "${dest}" --install-cron >/dev/null 2>&1; then
+        elif run_updated_script "${dest}" --refresh-schedules >/dev/null 2>&1; then
             printf '已刷新定时上报到标准脚本路径：%s\n' "${dest}"
         else
             printf '警告：脚本已更新，但自动刷新 cron 失败；请运行 %s --install-cron。\n' "${dest}" >&2

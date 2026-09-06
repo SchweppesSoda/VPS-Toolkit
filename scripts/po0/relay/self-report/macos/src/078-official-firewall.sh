@@ -9,7 +9,6 @@
 # implementation or assume a Chicksure-specific deployment.
 
 PO0_FIREWALL_API_BASE_URL="https://124.221.69.228/api/firewall"
-PO0_FIREWALL_INTERVAL_SECONDS="600"
 PO0_FIREWALL_HTTP_BODY=""
 PO0_FIREWALL_HTTP_CODE=""
 PO0_FIREWALL_SUCCESS_COUNT="0"
@@ -475,12 +474,12 @@ po0_firewall_due() {
     local now last state_file
     po0_firewall_configured || return 1
     [[ "${SCHEDULED_RUN:-0}" == "1" ]] || return 0
-    [[ "${FORCE_REPORT:-0}" == "1" ]] && return 0
+    [[ "${FORCE_REPORT:-0}" == "1" || "${NETWORK_CHANGED:-0}" == 1 || "${TIMER_TRIGGER:-0}" == 1 ]] && return 0
     now="$(po0_firewall_now)"
     state_file="$(po0_firewall_due_state_file)"
     [[ -r "${state_file}" ]] || return 0
     last="$(po0_firewall_read_timestamp "${state_file}")"
-    (( now < last || now - last >= PO0_FIREWALL_INTERVAL_SECONDS ))
+    (( now < last || now - last >= ${OFFICIAL_INTERVAL_SECONDS:-600} ))
 }
 
 po0_firewall_mark_due() {
@@ -491,7 +490,7 @@ po0_worker_due() {
     local now last interval state_file
     [[ -n "${WORKER_URL:-}" ]] || return 1
     [[ "${SCHEDULED_RUN:-0}" == "1" ]] || return 0
-    [[ "${FORCE_REPORT:-0}" == "1" ]] && return 0
+    [[ "${FORCE_REPORT:-0}" == "1" || "${NETWORK_CHANGED:-0}" == 1 || "${TIMER_TRIGGER:-0}" == 1 ]] && return 0
     interval="$(cron_minutes_to_seconds "${CRON_MINUTES:-60}")"
     now="$(po0_firewall_now)"
     state_file="$(po0_worker_due_state_file)"

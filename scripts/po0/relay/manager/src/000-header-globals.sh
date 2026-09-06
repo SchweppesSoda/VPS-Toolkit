@@ -2,10 +2,12 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-nftables-relay-manager"
-SCRIPT_VERSION="2026.09.06+build.3"
+SCRIPT_VERSION="2026.09.06+build.4"
 SCRIPT_RELEASE_DATE="2026-09-06"
 # CHANGELOG_BEGIN
-# - 随访问设备客户端目标名称与有效期说明更新同步脚本发布版本；本脚本功能不变。
+# - Windows / macOS / Linux 自建与官方任务分别安装、启停、删除与更新。
+# - 官方周期默认 600 秒，可调整或关闭；网络变化独立触发。
+# - 支持的系统接入网络事件，旧共享任务迁移保留参数和暂停状态。
 # CHANGELOG_END
 CONF_DIR="${PO0_CONF_DIR:-/etc/nftables.d}"
 MAIN_CONF="/etc/nftables.conf"

@@ -7,13 +7,13 @@ const CONFIG_STORAGE_KEY = 'po0-ssh-ip-report:config:v1';
 const CONFIG_STORAGE_VERSION = 1;
 const DEVICE_ID_FALLBACK = 'egern';
 const OFFICIAL_FIREWALL_API_BASE = 'https://124.221.69.228/api/firewall';
-const OFFICIAL_FIREWALL_INTERVAL_SECONDS = 600;
+const DEFAULT_OFFICIAL_INTERVAL_SECONDS = 600;
 const OFFICIAL_FIREWALL_MAX_TOKENS = 16;
 const REPORT_LOCK_KEY = 'po0-ssh-ip-report:run-lock:v1';
 const REPORT_LOCK_TTL_MS = 120000;
 const DEFAULT_TTL_SECONDS = 43200;
-const DEFAULT_AUTO_REPORT_INTERVAL_SECONDS = 3600;
-const MIN_AUTO_REPORT_INTERVAL_SECONDS = 600;
+const DEFAULT_AUTO_REPORT_INTERVAL_SECONDS = 600;
+const MIN_AUTO_REPORT_INTERVAL_SECONDS = 60;
 const MAX_AUTO_REPORT_INTERVAL_SECONDS = 86400;
 const DEFAULT_CELLULAR_CIDR_PREFIX = 24;
 const REPORT_TITLE = 'PO0 防火墙上报';
@@ -32,6 +32,9 @@ const PERSISTED_ENV_KEYS = [
   'PO0_FIREWALL_NAMES',
   'WORKER_AUTO_ENABLED',
   'OFFICIAL_AUTO_ENABLED',
+  'OFFICIAL_INTERVAL_SECONDS',
+  'WORKER_TIMER_ENABLED',
+  'OFFICIAL_TIMER_ENABLED',
   'REPORT_IDENTITY',
   'TTL_SECONDS',
   'AUTO_REPORT_INTERVAL_SECONDS',
@@ -44,8 +47,8 @@ const PERSISTED_ENV_KEYS = [
   'NOTIFY_SUCCESS',
   'NOTIFY_FAILURE',
 ];
-const OFFICIAL_CONFIG_KEYS = ['PO0_FIREWALL_TOKENS', 'PO0_FIREWALL_NAMES', 'OFFICIAL_AUTO_ENABLED'];
-const WORKER_CONFIG_KEYS = ['PO0_HOST', 'PO0_PORT', 'PO0_USER', 'PO0_PASSWORD', 'PO0_PRIVATE_KEY', 'PO0_PASSPHRASE', 'PO0_SCRIPT', 'SSH_REPORT_SOURCE', 'SSH_REPORT_TOKEN', 'REPORT_IDENTITY', 'TTL_SECONDS', 'AUTO_REPORT_INTERVAL_SECONDS', 'CELLULAR_CIDR_PREFIX', 'SSH_REPORT_TARGETS', 'WORKER_AUTO_ENABLED'];
+const OFFICIAL_CONFIG_KEYS = ['PO0_FIREWALL_TOKENS', 'PO0_FIREWALL_NAMES', 'OFFICIAL_AUTO_ENABLED', 'OFFICIAL_INTERVAL_SECONDS', 'OFFICIAL_TIMER_ENABLED'];
+const WORKER_CONFIG_KEYS = ['PO0_HOST', 'PO0_PORT', 'PO0_USER', 'PO0_PASSWORD', 'PO0_PRIVATE_KEY', 'PO0_PASSPHRASE', 'PO0_SCRIPT', 'SSH_REPORT_SOURCE', 'SSH_REPORT_TOKEN', 'REPORT_IDENTITY', 'TTL_SECONDS', 'AUTO_REPORT_INTERVAL_SECONDS', 'CELLULAR_CIDR_PREFIX', 'SSH_REPORT_TARGETS', 'WORKER_AUTO_ENABLED', 'WORKER_TIMER_ENABLED'];
 const MODULE_DEFAULT_ENV_VALUES = {
   PO0_PORT: '22',
   PO0_USER: 'root',
@@ -53,7 +56,7 @@ const MODULE_DEFAULT_ENV_VALUES = {
   SSH_REPORT_SOURCE: 'egern',
   REPORT_IDENTITY: 'egern',
   TTL_SECONDS: '43200',
-  AUTO_REPORT_INTERVAL_SECONDS: '3600',
+  AUTO_REPORT_INTERVAL_SECONDS: '600',
   CELLULAR_CIDR_PREFIX: '24',
   IP_CHECK_URL: 'https://ip9.com.cn/get',
   POLICY: 'DIRECT',
@@ -1427,7 +1430,7 @@ function effectiveAutoRefreshAfterSeconds(env, targets) {
 }
 
 async function shouldSkipUnchangedAutoReport(ctx, env, targets, ip, reportedCidr) {
-  if (isManualRun(ctx) || isWidgetRun(ctx) || isStatusRun(ctx)) return { skip: false };
+  if (isManualRun(ctx) || isWidgetRun(ctx) || isStatusRun(ctx) || isNetworkChangeRun(ctx)) return { skip: false };
 
   const previous = parseStoredState(await storageGet(ctx, STORAGE_KEY));
   if (!previous || !previous.ok || stateReportedCidr(previous) !== reportedCidr) return { skip: false };
@@ -1517,12 +1520,21 @@ async function storedOfficialState(ctx) {
   return sanitizeOfficialState(await storageGet(ctx, OFFICIAL_STORAGE_KEY));
 }
 
-function officialIsDue(ctx, state) {
-  if (!isAutomaticReportRun(ctx)) return true;
+function isNetworkChangeRun(ctx) {
+  return /network|网络变化/i.test(scriptLabel(ctx));
+}
+function officialIntervalSeconds(env) {
+  const value = Number(env?.OFFICIAL_INTERVAL_SECONDS ?? DEFAULT_OFFICIAL_INTERVAL_SECONDS);
+  if (!Number.isInteger(value) || value < 60 || value > 86400) throw new Error('官方定时周期必须为 60..86400 秒');
+  return value;
+}
+function officialIsDue(ctx, state, env = {}) {
+  if (!isAutomaticReportRun(ctx) || isNetworkChangeRun(ctx)) return true;
+  if (!boolEnv(env.OFFICIAL_TIMER_ENABLED, true)) return false;
   const last = Date.parse(String(state?.lastAttemptAt || ''));
   if (!Number.isFinite(last)) return true;
   const age = officialNowMs() - last;
-  return age < 0 || age >= OFFICIAL_FIREWALL_INTERVAL_SECONDS * 1000;
+  return age < 0 || age >= officialIntervalSeconds(env) * 1000;
 }
 
 function officialStateFromEntries(entries, mode, now, previous, skipped = false) {
@@ -1570,7 +1582,7 @@ async function runOfficialFirewall(ctx, env, mode = 'report') {
   }
   if (items.length === 0) return { active: false, ok: true, state: previous, skipped: false, needsNotification: false };
 
-  if (mode === 'report' && !officialIsDue(ctx, previous)) {
+  if (mode === 'report' && !officialIsDue(ctx, previous, env)) {
     const dueState = previous
       ? { ...previous, skipped: true, status: 'due-skipped', checkedAt: officialNowIso() }
       : officialStateFromEntries([], mode, officialNowIso(), previous, true);
@@ -2043,6 +2055,10 @@ async function handleScopedConfigSaveScript(ctx, runtimeEnv, storedValues, devic
       candidate = { ...(storedValues || {}), PO0_FIREWALL_TOKENS: input };
       candidate.PO0_FIREWALL_NAMES = officialNamesForSave(storedValues || {}, runtimeEnv, input);
       if (runtimeEnv.OFFICIAL_AUTO_ENABLED !== undefined) candidate.OFFICIAL_AUTO_ENABLED = String(runtimeEnv.OFFICIAL_AUTO_ENABLED);
+      for (const key of ['OFFICIAL_INTERVAL_SECONDS', 'OFFICIAL_TIMER_ENABLED']) {
+        if (runtimeEnv[key] !== undefined && String(runtimeEnv[key]).trim()) candidate[key] = String(runtimeEnv[key]);
+      }
+      officialIntervalSeconds(candidate);
     } else {
       const scopedEnv = { ...runtimeEnv };
       for (const key of OFFICIAL_CONFIG_KEYS) delete scopedEnv[key];
@@ -2286,7 +2302,7 @@ async function handleLocalChannelAction(ctx, env, action) {
     '自建防火墙：' + (workerConfigRequested(next) ? boolEnv(next.WORKER_AUTO_ENABLED, true) ? '自动上报启用' : '自动上报停用（配置保留）' : '未配置'),
     '自建上报周期：' + autoReportIntervalSeconds(next) + ' 秒（不是白名单 TTL）',
     '官方防火墙：' + (officialTokensConfigured(next) ? boolEnv(next.OFFICIAL_AUTO_ENABLED, true) ? '自动上报启用' : '自动上报停用（配置保留）' : '未配置'),
-    '官方周期固定 600 秒；TTL 由官方服务管理。',
+    '官方定时：' + (boolEnv(next.OFFICIAL_TIMER_ENABLED, true) ? officialIntervalSeconds(next) + ' 秒' : '已关闭') + '；网络变化立即检查，TTL 由官方服务管理。',
     ...officialSavedNameRows(officialDisplayEnv(next, ctx?.env)),
     ...widgetTargets(null, next, await storedDeviceId(ctx)).map(target => target.sourceId + ' · 生效 TTL ' + target.ttlSeconds + ' 秒'),
     'SSID 跳过：' + (next.SKIP_WIFI_SSIDS || '未设置') + '；匹配时同时跳过两个自动上报通道。',
@@ -2299,10 +2315,11 @@ async function handleLocalChannelAction(ctx, env, action) {
 function selectReportChannels(ctx, env, channels) {
   const automatic = isAutomaticReportRun(ctx);
   const label = scriptLabel(ctx);
-  if ((automatic && !boolEnv(env.WORKER_AUTO_ENABLED, true)) || /仅官方防火墙(?:立即|强制)上报/.test(label)) {
+  const timer = automatic && !isNetworkChangeRun(ctx);
+  if ((timer && !boolEnv(env.WORKER_TIMER_ENABLED, true)) || (automatic && !boolEnv(env.WORKER_AUTO_ENABLED, true)) || /仅官方防火墙(?:立即|强制)上报/.test(label)) {
     channels.workerRequested = false; channels.workerTargets = []; channels.workerError = null;
   }
-  if ((automatic && !boolEnv(env.OFFICIAL_AUTO_ENABLED, true)) || /仅自建(?: PO0 立即|防火墙强制)上报/.test(label)) {
+  if ((timer && !boolEnv(env.OFFICIAL_TIMER_ENABLED, true)) || (automatic && !boolEnv(env.OFFICIAL_AUTO_ENABLED, true)) || /仅自建(?: PO0 立即|防火墙强制)上报/.test(label)) {
     channels.officialRequested = false; channels.officialTokens = []; channels.officialError = null;
   }
   channels.anyRequested = channels.workerRequested || channels.officialRequested;

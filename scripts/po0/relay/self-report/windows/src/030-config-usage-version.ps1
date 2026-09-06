@@ -1,4 +1,4 @@
-function Load-SavedConfig {
+﻿function Load-SavedConfig {
     $readPath = $script:ConfigPath
     $legacyConfig = Get-LegacyConfigPath
     if (-not (Test-Path -LiteralPath $readPath) -and -not $script:ConfigPathExplicit -and (Test-Path -LiteralPath $legacyConfig)) {
@@ -9,7 +9,8 @@ function Load-SavedConfig {
     if (-not $raw.Trim()) { return }
     $cfg = $raw | ConvertFrom-Json
 
-    foreach ($channelField in @("WorkerAutoEnabled", "OfficialAutoEnabled", "WorkerName", "Po0FirewallNames")) {
+    foreach ($channelField in @("WorkerAutoEnabled", "OfficialAutoEnabled", "WorkerTimerEnabled", "OfficialTimerEnabled", "WorkerNetworkEnabled", "OfficialNetworkEnabled", "OfficialIntervalSeconds", "WorkerName", "Po0FirewallNames")) {
+        if ($channelField -eq "OfficialIntervalSeconds" -and $PSBoundParameters.ContainsKey("OfficialIntervalSeconds")) { continue }
         $channelProperty = $cfg.PSObject.Properties[$channelField]
         if ($channelProperty -and $null -ne $channelProperty.Value) {
             if ($channelField -like "*Enabled") { Set-Variable -Scope Script -Name $channelField -Value ([bool]$channelProperty.Value) }
@@ -133,6 +134,11 @@ function Save-ClientConfig {
     $config = [ordered]@{
         WorkerAutoEnabled = [bool]$script:WorkerAutoEnabled
         OfficialAutoEnabled = [bool]$script:OfficialAutoEnabled
+        OfficialIntervalSeconds = [int]$script:OfficialIntervalSeconds
+        WorkerTimerEnabled = [bool]$script:WorkerTimerEnabled
+        OfficialTimerEnabled = [bool]$script:OfficialTimerEnabled
+        WorkerNetworkEnabled = [bool]$script:WorkerNetworkEnabled
+        OfficialNetworkEnabled = [bool]$script:OfficialNetworkEnabled
         WorkerName = $script:WorkerName
         Po0FirewallNames = $script:Po0FirewallNames
         PO0_FIREWALL_TOKENS = $script:Po0FirewallTokens
@@ -199,6 +205,10 @@ self-report 接收服务。访问设备不直接连接 PO0。
   -PauseSchedule      暂停计划任务；手动立即上报仍可用。
   -ResumeSchedule     恢复计划任务。
   -ScheduleStatus     查看计划任务状态。
+  -ScheduleChannel all|worker|official  选择安装、启停或删除的通道，默认 all。
+  -OfficialIntervalSeconds N  官方周期，默认 600 秒；60..86400 且为 60 的倍数。
+  -RemoveTask         删除所选通道的定时和网络变化任务。
+  -RefreshSchedules   只更新已有任务，迁移旧共享任务。
   -IntervalSeconds N  计划任务间隔秒数，必须是 60 的倍数。默认: 3600。
   -Minutes N          兼容旧参数：计划任务间隔分钟数，范围 1-$MaxMinutes。默认: 60。
   -LogPath PATH       计划任务运行日志路径；默认 po0-outbound-ip-report.log。

@@ -103,8 +103,16 @@ report_once_inner() {
         official_active="1"
     fi
     if [[ "${SCHEDULED_RUN:-0}" == 1 ]]; then
+        if schedule_paused; then return 0; fi
         channel_auto_enabled worker || worker_active=0
         channel_auto_enabled official || official_active=0
+        if [[ "${NETWORK_CHANGED:-0}" == 1 ]]; then
+            case "${WORKER_NETWORK_ENABLED:-1}" in 0|false|no|off) worker_active=0 ;; esac
+            case "${OFFICIAL_NETWORK_ENABLED:-1}" in 0|false|no|off) official_active=0 ;; esac
+        else
+            case "${WORKER_TIMER_ENABLED:-1}" in 0|false|no|off) worker_active=0 ;; esac
+            case "${OFFICIAL_TIMER_ENABLED:-1}" in 0|false|no|off) official_active=0 ;; esac
+        fi
         if [[ "$official_active" == 0 && "$worker_active" == 0 ]]; then
             self_report_completed "自动上报通道均已停用，本轮跳过。"
             return 0
@@ -180,6 +188,13 @@ report_once() {
     local lock_rc result
     po0_firewall_report_lock_acquire
     lock_rc="$?"
+    local wait_count=0
+    while [[ "$lock_rc" == 2 && "${SCHEDULED_RUN:-0}" == 1 && "$wait_count" -lt "${REPORT_LOCK_WAIT_SECONDS:-120}" ]]; do
+        sleep 1
+        po0_firewall_report_lock_acquire
+        lock_rc=$?
+        wait_count=$((wait_count + 1))
+    done
     if [[ "$lock_rc" == "2" ]]; then
         self_report_incomplete "已有另一项上报或状态检查正在进行，本次未重复执行。"
         return 1
