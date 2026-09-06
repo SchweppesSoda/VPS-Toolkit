@@ -2347,6 +2347,10 @@ function officialNamesForSave(stored, runtime, tokens) {
 function localChannelAction(ctx) {
   const label = scriptLabel(ctx);
   if (/清除本机自建(?: PO0 |防火墙)配置/.test(label)) return 'clear-worker';
+  if (/启用自建防火墙自动上报/.test(label)) return 'enable-worker';
+  if (/停用自建防火墙自动上报/.test(label)) return 'disable-worker';
+  if (/启用官方防火墙自动上报/.test(label)) return 'enable-official';
+  if (/停用官方防火墙自动上报/.test(label)) return 'disable-official';
   if (/切换自建(?: PO0 |防火墙)自动上报/.test(label)) return 'toggle-worker';
   if (/切换官方防火墙自动上报/.test(label)) return 'toggle-official';
   if (/查看本机上报设置/.test(label)) return 'settings';
@@ -2362,12 +2366,21 @@ async function handleLocalChannelAction(ctx, env, action) {
     await saveReportConfig(ctx, next);
     await storageDelete(ctx, STORAGE_KEY);
     message = '自建防火墙的本机配置已清除，官方及公共设置保留。';
-  } else if (action.startsWith('toggle-')) {
-    const worker = action === 'toggle-worker';
+  } else if (/^(toggle|enable|disable)-/.test(action)) {
+    const worker = action.endsWith('-worker');
     const key = worker ? 'WORKER_AUTO_ENABLED' : 'OFFICIAL_AUTO_ENABLED';
-    next[key] = boolEnv(next[key], true) ? 'false' : 'true';
+    const enabled = action.startsWith('enable-') || (action.startsWith('toggle-') && !boolEnv(next[key], true));
+    next[key] = enabled ? 'true' : 'false';
     await saveReportConfig(ctx, next);
-    message = (worker ? '自建防火墙' : '官方防火墙') + '自动上报已' + (next[key] === 'true' ? '启用' : '停用') + '；配置保留，手动上报仍可用。';
+    const channel = worker ? '自建防火墙' : '官方防火墙';
+    const otherKey = worker ? 'OFFICIAL_AUTO_ENABLED' : 'WORKER_AUTO_ENABLED';
+    const otherChannel = worker ? '官方防火墙' : '自建防火墙';
+    return widgetPanel(REPORT_TITLE + ' · 自动上报', [
+      channel + '自动上报：已' + (enabled ? '启用' : '停用') + '。',
+      '只控制定时检查和网络变化触发。' + (action.startsWith('toggle-') ? '旧切换动作每次会反转开关。' : '重复点击不会反转。'),
+      '配置保留；手动强制上报和小组件刷新仍可执行。',
+      otherChannel + '自动上报保持' + (boolEnv(next[otherKey], true) ? '启用' : '停用') + '；未配置的通道不会上报。',
+    ], true, ctx);
   }
   const rows = [message,
     '自建防火墙：' + (workerConfigRequested(next) ? boolEnv(next.WORKER_AUTO_ENABLED, true) ? '自动上报启用' : '自动上报停用（配置保留）' : '未配置'),
@@ -2696,6 +2709,37 @@ function reportLockBypass(ctx) {
     || Boolean(localChannelAction(ctx));
 }
 
+async function unavailableReportResult(ctx, status) {
+  const busy = status === 'busy';
+  const message = busy ? '已有另一项上报或状态检查正在进行，本次未重复执行。' : '暂时无法读取本机上报状态，请稍后刷新。';
+  let previous = null;
+  let deviceId = '';
+  let env = ctx?.env || {};
+  try {
+    previous = sanitizedStoredState(await storageGet(ctx, STORAGE_KEY));
+    if (shouldReturnWidget(ctx)) {
+      deviceId = await storedDeviceId(ctx);
+      const config = await storedReportConfig(ctx);
+      if (config.exists) env = config.values;
+    }
+  } catch (_) {
+    // Storage errors must still produce a valid widget without exposing raw errors.
+  }
+  if (!shouldReturnWidget(ctx)) return { ...(previous || {}), ok: false, status, error: message };
+  let panel;
+  if (busy && previous) {
+    panel = widgetFromState(previous, ctx, deviceId, env);
+    panel.children.splice(1, 0, textNode('正在上报，暂显示上次结果', 'caption2', 'regular', WIDGET_COLORS.yellow));
+  } else {
+    panel = widgetPanel(REPORT_TITLE, [
+      busy ? '正在上报，请稍后刷新。' : message,
+      busy ? '另一项上报完成前，本次不重复发送。' : '本次未发起网络请求。',
+    ], busy, ctx);
+  }
+  panel.refreshAfter = new Date(Date.now() + 60 * 1000).toISOString();
+  return panel;
+}
+
 export default async function(ctx) {
   if (reportLockBypass(ctx)) return runEgernReportUnlocked(ctx);
   const mode = isStatusRun(ctx) || isWidgetRun(ctx)
@@ -2706,22 +2750,10 @@ export default async function(ctx) {
   let lock;
   try {
     lock = await acquireReportLock(ctx, mode, officialNowMs());
-  } catch (error) {
-    return {
-      ok: false,
-      status: 'lock-error',
-      error: redactError(error, ctx?.env || {}) || '上报锁操作失败。',
-    };
+  } catch (_) {
+    return unavailableReportResult(ctx, 'lock-error');
   }
-  if (!lock) {
-    const current = sanitizedStoredState(await storageGet(ctx, STORAGE_KEY)) || {};
-    return {
-      ...current,
-      ok: false,
-      status: 'busy',
-      error: '已有另一项上报或状态检查正在进行，本次未重复执行。',
-    };
-  }
+  if (!lock) return unavailableReportResult(ctx, 'busy');
   try {
     return await runEgernReportUnlocked(ctx);
   } finally {

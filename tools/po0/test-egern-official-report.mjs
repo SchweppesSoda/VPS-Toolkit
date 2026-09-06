@@ -579,7 +579,8 @@ async function testSharedRunLockAcrossModesAndContexts() {
     },
   });
   const statusBusy = await runEgernReport(runningStatusAfterAuto.ctx);
-  assert.equal(statusBusy.status, 'busy', 'active scheduled lock must block status');
+  assert.equal(statusBusy.type, 'widget', 'busy status must render a Widget DSL root');
+  assert.match(visibleText(statusBusy), /正在上报/);
   assert.equal(runningStatusAfterAuto.calls.get.length + runningStatusAfterAuto.calls.post.length, 0);
 
   autoGate.resolve();
@@ -872,8 +873,17 @@ async function testParallelOfficialAccountsPreserveLaneOrder() {
 }
 
 function testEgernTimeoutBudget() {
-  assert.equal((yamlSource.match(/timeout: 90/g) || []).length, 7);
+  assert.equal((yamlSource.match(/timeout: 90/g) || []).length, 8);
   assert.equal((yamlSource.match(/timeout: 30/g) || []).length, 0);
+}
+
+function testEgernWidgetBindingsStayCompatible() {
+  const widgets = yamlSource.slice(yamlSource.indexOf('\nwidgets:'));
+  for (const name of ['PO0 防火墙上报状态', 'PO0 SSH 上报状态']) {
+    assert(widgets.includes('name: ' + name), 'existing desktop widget identity must remain available');
+    assert(yamlSource.includes('      name: ' + name), 'existing custom script binding must still resolve');
+  }
+  assert(!yamlSource.includes('name: 切换'), 'published UI must use explicit enable/disable actions');
 }
 
 function testEgernScriptCopiesStaySynchronized() {
@@ -1059,7 +1069,67 @@ async function testNamedForceActionRunsBothLanesDespiteSsidAndDue() {
   assert.equal(visibleText(result).includes(token), false);
 }
 
+
+async function testWidgetBusyAndStorageErrorsAlwaysRender() {
+  const now = 1000000000;
+  globalThis.__PO0_EGERN_TEST_NOW = now;
+  for (const trigger of ['PO0 防火墙上报状态', 'PO0 SSH 上报状态']) {
+    for (const failure of ['busy', 'read-error', 'write-error']) {
+      for (const cached of [false, true]) {
+        const storage = createStorage({
+          ...(failure === 'busy' ? { [REPORT_LOCK_KEY]: JSON.stringify({ owner: 'active-report', expiresAt: now + 120000 }) } : {}),
+          ...(cached ? { [STATE_STORAGE_KEY]: JSON.stringify({ ok: true, ip: '203.0.113.45', at: new Date(now - 30000).toISOString(), targets: [], targetCount: 0, successCount: 0 }) } : {}),
+        });
+        if (failure === 'read-error') storage.get = async () => { throw Error('storage unavailable pgnfw_storage_not_real'); };
+        if (failure === 'write-error') storage.set = async () => { throw Error('storage write failed'); };
+        const before = JSON.stringify([...storage.values]);
+        const fixture = createContext({ trigger, widgetFamily: 'systemMedium', storage });
+        const result = await runEgernReport(fixture.ctx);
+        assert.equal(result.type, 'widget', 'busy/storage error must return a Widget DSL root, never a report state object');
+        assert(Array.isArray(result.children));
+        assert.equal(fixture.calls.get.length + fixture.calls.post.length + fixture.calls.ssh, 0);
+        assert.equal(JSON.stringify([...storage.values]), before, 'fallback must not overwrite the active lock or previous report');
+        assert(!visibleText(result).includes('pgnfw_storage_not_real'));
+        if (failure === 'busy') {
+          assert.match(visibleText(result), /正在上报/);
+          if (cached) assert(visibleText(result).includes('203.0.113.45'));
+        }
+      }
+    }
+  }
+}
+
+async function testExplicitAutomaticActionsAreIdempotent() {
+  const values = { PO0_HOST: 'po0.example.com', SSH_REPORT_TOKEN: 'ssh-fixture', PO0_PASSWORD: 'password-fixture', PO0_FIREWALL_TOKENS: 'pgnfw_auto_not_real', SKIP_WIFI_SSIDS: 'Home' };
+  const storage = createStorage({ [CONFIG_STORAGE_KEY]: JSON.stringify({ version: 1, values }) });
+  for (const [name, key, other] of [['自建防火墙', 'WORKER_AUTO_ENABLED', 'OFFICIAL_AUTO_ENABLED'], ['官方防火墙', 'OFFICIAL_AUTO_ENABLED', 'WORKER_AUTO_ENABLED']]) {
+    for (const [verb, expected] of [['停用', 'false'], ['启用', 'true']]) {
+      const before = JSON.parse(await storage.get(CONFIG_STORAGE_KEY)).values;
+      for (let repeat = 0; repeat < 2; repeat++) {
+        const actionName = verb + name + '自动上报';
+        assert(yamlSource.includes('name: ' + actionName));
+        const fixture = createContext({ trigger: actionName, storage });
+        fixture.ctx.script = { name: actionName };
+        delete fixture.ctx.name;
+        delete fixture.ctx.trigger;
+        const result = await runEgernReport(fixture.ctx);
+        const after = JSON.parse(await storage.get(CONFIG_STORAGE_KEY)).values;
+        assert.equal(after[key], expected, 'explicit actions must never invert after repeated taps');
+        assert.equal(after[other], before[other]);
+        for (const k of Object.keys(values)) assert.equal(after[k], values[k]);
+        assert.equal(fixture.calls.get.length + fixture.calls.post.length + fixture.calls.ssh, 0);
+        assert.match(visibleText(result), /定时.*网络变化/);
+        assert.match(visibleText(result), /手动.*小组件/);
+        assert(visibleText(result).includes('已' + verb));
+      }
+    }
+  }
+}
+
 const tests = [
+  testEgernWidgetBindingsStayCompatible,
+  testWidgetBusyAndStorageErrorsAlwaysRender,
+  testExplicitAutomaticActionsAreIdempotent,
   testIndependentChannelControlsAndNames,
   testFlexibleOfficialSeparators,
   testNamedForceActionRunsBothLanesDespiteSsidAndDue,
