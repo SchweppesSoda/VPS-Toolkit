@@ -1391,22 +1391,22 @@ async function testNetworkChangesBypassOptionalTimer() {
 
 async function testInlineOfficialTargetsPersistAndMatchNames() {
   const storage = createStorage();
-  const env = { PO0_FIREWALL_TOKENS: 'pgnfw_inline_one@0 | 家庭账号 | interval=600 | timer=true\npgnfw_inline_two@2|Office Firewall|timer=false|interval=900' };
+  const env = { PO0_FIREWALL_TOKENS: 'pgnfw_inline_one@0 | 手机 | 600\npgnfw_inline_two@2|Office Firewall|0' };
   const save = createContext({ storage, env, trigger: '保存本机 PO0 官方防火墙配置' });
   const result = await runEgernReport(save.ctx);
-  assert.match(visibleText(result), /家庭账号/);
+  assert.match(visibleText(result), /手机/);
   assert.match(visibleText(result), /Office Firewall/);
   assert.match(visibleText(result), /定时关闭/);
   assert.equal(save.calls.get.length + save.calls.post.length, 0);
   let values = JSON.parse(await storage.get(CONFIG_STORAGE_KEY)).values;
-  assert.equal(values.PO0_FIREWALL_NAMES, '家庭账号;Office Firewall');
-  assert.equal(values.PO0_FIREWALL_TOKENS, 'pgnfw_inline_one@0||interval=600|timer=true\npgnfw_inline_two@2||interval=900|timer=false');
+  assert.equal(values.PO0_FIREWALL_NAMES, '手机;Office Firewall');
+  assert.equal(values.PO0_FIREWALL_TOKENS, 'pgnfw_inline_one@0||600\npgnfw_inline_two@2||0');
   const synced = createContext({ storage, trigger: 'PO0 防火墙上报状态', widgetFamily: 'systemLarge',
-    env: { PO0_FIREWALL_TOKENS: 'pgnfw_inline_two@4|Office New|interval=60|timer=true\npgnfw_inline_one@3|家庭新名|timer=false' },
+    env: { PO0_FIREWALL_TOKENS: 'pgnfw_inline_two@4|Office New|60\npgnfw_inline_one@3|手机新名|0' },
     httpGet(url) { return response(officialPayload({ whitelist: [{ ip: '203.0.113.10/24', slot: url.endsWith('one') ? 0 : 2 }] })); },
   });
   const widget = await runEgernReport(synced.ctx);
-  assert.match(visibleText(widget), /家庭新名/); assert.match(visibleText(widget), /Office New/);
+  assert.match(visibleText(widget), /手机新名/); assert.match(visibleText(widget), /Office New/);
   assert.equal(synced.calls.get.length, 2); assert.equal(synced.calls.post.length, 0);
   assert.deepEqual(JSON.parse(await storage.get(CONFIG_STORAGE_KEY)).values, values, 'sync only changes display, never saved credentials/slots/timers');
   for (const entry of await officialStateOf(storage).then(state => state.entries)) assert(!visibleText(entry).includes('pgnfw_'));
@@ -1416,7 +1416,7 @@ async function testInlineOfficialTargetsPersistAndMatchNames() {
   assert.equal(JSON.parse(await storage.get(CONFIG_STORAGE_KEY)).values.PO0_FIREWALL_TOKENS, values.PO0_FIREWALL_TOKENS);
   const rename = createContext({ storage, trigger: '保存本机 PO0 官方防火墙配置', env: { PO0_FIREWALL_TOKENS: '', PO0_FIREWALL_NAMES: '甲;乙' } });
   await runEgernReport(rename.ctx);
-  const reorder = createContext({ storage, trigger: '保存本机 PO0 官方防火墙配置', env: { PO0_FIREWALL_TOKENS: 'pgnfw_inline_two@3||interval=1200;pgnfw_inline_one@0||timer=false' } });
+  const reorder = createContext({ storage, trigger: '保存本机 PO0 官方防火墙配置', env: { PO0_FIREWALL_TOKENS: 'pgnfw_inline_two@3||1200;pgnfw_inline_one@0||0' } });
   await runEgernReport(reorder.ctx);
   values = JSON.parse(await storage.get(CONFIG_STORAGE_KEY)).values;
   assert.equal(values.PO0_FIREWALL_NAMES, '乙;甲', 'blank inline names follow account identity');
@@ -1424,13 +1424,14 @@ async function testInlineOfficialTargetsPersistAndMatchNames() {
 
 async function testInlineOfficialTargetValidation() {
   for (const [row, expected] of [
-    ['pgnfw_invalid@0|家庭|ttl=43200', /不支持 TTL/],
-    ['pgnfw_invalid@0|家庭|43200', /不支持 TTL/],
+    ['pgnfw_invalid@0|名称|59', /60\.\.86400/],
+    ['pgnfw_invalid@0|名称|86401', /60\.\.86400/],
+    ['pgnfw_invalid@0|名称|ttl=abc', /格式/],
     ['pgnfw_invalid@0|家庭|interval=59', /60\.\.86400/],
     ['pgnfw_invalid@0|家庭|interval=86401', /60\.\.86400/],
     ['pgnfw_invalid@0|家庭|timer=maybe', /timer=true 或 timer=false/],
     ['pgnfw_invalid@0|家庭|interval=600|interval=900', /不能重复/],
-    ['pgnfw_invalid@0|家庭|foo=bar', /只支持/],
+    ['pgnfw_invalid@0|名称|foo=bar', /格式/],
     ['pgnfw_invalid@0|家庭\npgnfw_invalid@2|重复', /重复/],
   ]) {
     const fixture = createContext({ env: { PO0_FIREWALL_TOKENS: row }, trigger: '保存本机 PO0 官方防火墙配置' });
@@ -1440,14 +1441,14 @@ async function testInlineOfficialTargetValidation() {
     assert.equal(fixture.calls.get.length + fixture.calls.post.length, 0);
     assert.equal(await fixture.storage.get(CONFIG_STORAGE_KEY), null);
   }
-  const run = createContext({ env: { PO0_FIREWALL_TOKENS: 'pgnfw_invalid|家庭|ttl=43200' } });
-  assert.match(visibleText(await runEgernReport(run.ctx)), /不支持 TTL/);
+  const run = createContext({ env: { PO0_FIREWALL_TOKENS: 'pgnfw_invalid|名称|59' } });
+  assert.match(visibleText(await runEgernReport(run.ctx)), /TTL 上报周期/);
   assert.equal(run.calls.get.length + run.calls.post.length, 0);
 }
 
 async function testPerAccountOfficialTimersAndReadonlyState() {
   const storage = createStorage();
-  const env = { PO0_FIREWALL_TOKENS: 'pgnfw_fast|快|interval=600\npgnfw_slow|慢|interval=900\npgnfw_network|切网|timer=false' };
+  const env = { PO0_FIREWALL_TOKENS: 'pgnfw_fast|快|600\npgnfw_slow|慢|900\npgnfw_network|切网|0' };
   const initial = 1000000000;
   const hit = () => response(officialPayload({ whitelist: [{ ip: '203.0.113.10/24', slot: null }] }));
   async function runAt(seconds, trigger = 'schedule', overrides = {}) {
@@ -1501,7 +1502,46 @@ async function testLegacyAccountTimesAndNewTarget() {
   assert.deepEqual(existing.calls.get.map(call => call.url), [API_BASE + '/pgnfw_existing']);
 }
 
+
+async function testSimpleTtlDefaultsAndLegacyMigration() {
+  for (const [row, normalized] of [
+    ['pgnfw_simple@0|显示名称|600', 'pgnfw_simple@0||600'],
+    ['pgnfw_simple@0|显示名称|ttl=600', 'pgnfw_simple@0||600'],
+    ['pgnfw_simple@0|显示名称|0', 'pgnfw_simple@0||0'],
+    ['pgnfw_simple@0|显示名称', 'pgnfw_simple@0'],
+    ['pgnfw_simple@0|显示名称|', 'pgnfw_simple@0'],
+    ['pgnfw_simple@0|显示名称|interval=900|timer=true', 'pgnfw_simple@0||900'],
+    ['pgnfw_simple@0|显示名称|interval=900|timer=false', 'pgnfw_simple@0||0'],
+  ]) {
+    const save = createContext({ trigger: '保存本机 PO0 官方防火墙配置', env: { PO0_FIREWALL_TOKENS: row } });
+    const result = await runEgernReport(save.ctx);
+    const values = JSON.parse(await save.storage.get(CONFIG_STORAGE_KEY)).values;
+    assert.equal(values.PO0_FIREWALL_TOKENS, normalized);
+    assert.equal(values.PO0_FIREWALL_NAMES, '显示名称');
+    assert.doesNotMatch(visibleText(result), /interval=|timer=/);
+    if (!normalized.includes('||')) assert.match(visibleText(result), /TTL 600 秒/);
+    assert.equal(save.calls.get.length + save.calls.post.length, 0);
+  }
+  const env = { PO0_FIREWALL_TOKENS: 'pgnfw_period|显示名称|43200' };
+  const storage = createStorage();
+  globalThis.__PO0_EGERN_TEST_NOW = 1000000000;
+  const first = createContext({ env, storage, trigger: 'schedule' });
+  await runEgernReport(first.ctx);
+  assert.equal(first.calls.get.length, 1);
+  assert.equal(first.calls.post[0].url, API_BASE + '/pgnfw_period/add');
+  assert.equal(first.calls.post[0].options.body, undefined, 'TTL controls only the client period');
+  globalThis.__PO0_EGERN_TEST_NOW += 600000;
+  const early = createContext({ env, storage, trigger: 'schedule' });
+  await runEgernReport(early.ctx);
+  assert.equal(early.calls.get.length, 0);
+  globalThis.__PO0_EGERN_TEST_NOW += 42600000;
+  const due = createContext({ env, storage, trigger: 'schedule' });
+  await runEgernReport(due.ctx);
+  assert.equal(due.calls.get.length, 1, 'plain TTL seconds must actually control the report interval');
+}
+
 const tests = [
+  testSimpleTtlDefaultsAndLegacyMigration,
   testLegacyAccountTimesAndNewTarget,
   testInlineOfficialTargetsPersistAndMatchNames,
   testInlineOfficialTargetValidation,

@@ -393,13 +393,24 @@ function parseOfficialTokenItem(value) {
 
   const [item, name, ...options] = row.split('|').map(part => part.trim());
   const settings = {};
+  // TTL is the user's client-side reporting period, not a server-side expiry.
+  // Old interval/timer rows remain readable for saved local configuration.
+  if (options.length === 1 && /^(?:ttl=)?\d+$/i.test(options[0])) {
+    const seconds = Number(options[0].replace(/^ttl=/i, ''));
+    if (!Number.isInteger(seconds) || (seconds !== 0 && (seconds < 60 || seconds > 86400))) {
+      throw new Error('官方目标 TTL 上报周期必须为 0 或 60..86400 秒；0 只关闭定时。');
+    }
+    if (seconds === 0) settings.timer = false;
+    else settings.interval = seconds;
+    options.length = 0;
+  }
   for (const option of options) {
     if (!option) continue;
     if (/^ttl\s*=/i.test(option) || /^\d+$/.test(option)) {
-      throw new Error('官方目标不支持 TTL 参数；定时周期请写 interval=秒数，不能作为白名单有效期。');
+      throw new Error('官方目标格式为 Token@槽位|名称|TTL秒数；TTL 可留空，填 0 或 60..86400。');
     }
     const match = /^(interval|timer)=(.+)$/.exec(option);
-    if (!match) throw new Error('官方目标可选参数只支持 interval=60..86400 和 timer=true/false。');
+    if (!match) throw new Error('官方目标格式为 Token@槽位|名称|TTL秒数；TTL 可留空，填 0 或 60..86400。');
     const [, key, raw] = match;
     if (Object.prototype.hasOwnProperty.call(settings, key)) throw new Error('官方目标可选参数不能重复。');
     if (key === 'interval') {
@@ -432,10 +443,8 @@ function parseOfficialTokenItem(value) {
 }
 
 function officialTokenWithoutName(item) {
-  const options = [];
-  if (item.interval !== undefined) options.push('interval=' + item.interval);
-  if (item.timer !== undefined) options.push('timer=' + item.timer);
-  return item.token + (item.slot === null ? '' : '@' + item.slot) + (options.length ? '||' + options.join('|') : '');
+  const ttl = item.timer === false ? 0 : item.interval;
+  return item.token + (item.slot === null ? '' : '@' + item.slot) + (ttl === undefined ? '' : '||' + ttl);
 }
 
 function parseOfficialTokens(raw) {
@@ -578,8 +587,8 @@ async function officialDirectRequest(ctx, item, operation) {
 function officialSafeError(error) {
   const text = String(error?.message || '');
   if ([
-    '官方目标不支持 TTL 参数；定时周期请写 interval=秒数，不能作为白名单有效期。',
-    '官方目标可选参数只支持 interval=60..86400 和 timer=true/false。',
+    '官方目标格式为 Token@槽位|名称|TTL秒数；TTL 可留空，填 0 或 60..86400。',
+    '官方目标 TTL 上报周期必须为 0 或 60..86400 秒；0 只关闭定时。',
     '官方目标可选参数不能重复。',
     '官方目标定时周期必须为 60..86400 秒。',
     '官方目标定时开关必须为 timer=true 或 timer=false。',
@@ -2320,7 +2329,7 @@ function officialSavedNameRows(env) {
   let items;
   try { items = parseOfficialTokens(env.PO0_FIREWALL_TOKENS); } catch (_) { return []; }
   return items.map((item, index) => '官方目标：' + officialAccountName(env, index) + ' · ' + (officialDisplaySlot(item.slot) ? '固定槽位 #' + officialDisplaySlot(item.slot) : '自动槽位')
-    + ' · 定时' + (officialTimerEnabled(env, item) ? ' ' + officialIntervalSeconds(env, item) + ' 秒' : '关闭') + ' · 网络变化检查');
+    + ' · ' + (officialTimerEnabled(env, item) ? 'TTL ' + officialIntervalSeconds(env, item) + ' 秒（上报周期）' : '定时关闭') + ' · 网络变化检查');
 }
 
 function officialNamesForSave(stored, runtime, tokens) {
@@ -2378,7 +2387,7 @@ async function handleLocalChannelAction(ctx, env, action) {
     '自建防火墙：' + (workerConfigRequested(next) ? boolEnv(next.WORKER_AUTO_ENABLED, true) ? '自动上报启用' : '自动上报停用（配置保留）' : '未配置'),
     '自建上报周期：' + autoReportIntervalSeconds(next) + ' 秒（不是白名单 TTL）',
     '官方防火墙：' + (officialTokensConfigured(next) ? boolEnv(next.OFFICIAL_AUTO_ENABLED, true) ? '自动上报启用' : '自动上报停用（配置保留）' : '未配置'),
-    '官方定时：' + (boolEnv(next.OFFICIAL_TIMER_ENABLED, true) ? officialIntervalSeconds(next) + ' 秒' : '已关闭') + '；网络变化立即检查，TTL 由官方服务管理。',
+    '官方定时：' + (boolEnv(next.OFFICIAL_TIMER_ENABLED, true) ? officialIntervalSeconds(next) + ' 秒' : '已关闭') + '；网络变化立即检查，白名单有效期由官方服务管理。',
     ...officialSavedNameRows(officialDisplayEnv(next, ctx?.env)),
     ...widgetTargets(null, next, await storedDeviceId(ctx)).map(target => target.sourceId + ' · 生效 TTL ' + target.ttlSeconds + ' 秒'),
     'SSID 跳过：' + (next.SKIP_WIFI_SSIDS || '未设置') + '；匹配时同时跳过两个自动上报通道。',
