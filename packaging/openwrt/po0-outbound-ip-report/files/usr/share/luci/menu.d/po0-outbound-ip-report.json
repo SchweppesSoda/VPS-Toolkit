@@ -4,7 +4,7 @@
     "order": 92,
     "action": {
       "type": "view",
-      "path": "po0/outbound-ip-report-v8"
+      "path": "po0/outbound-ip-report-v9"
     },
     "depends": {
       "acl": [ "po0-outbound-ip-report" ],

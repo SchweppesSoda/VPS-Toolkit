@@ -49,6 +49,8 @@
 - `.github/workflows/po0-check.yml` 的路径过滤必须覆盖整个 `scripts/po0/nftables/clients/**` 和已接入门禁的 `scripts/po0/reinstall/**`，不能退回只监听 Egern。
 - 构建器必须显式控制编码和 LF：Bash/manifest/checksum 使用 UTF-8 no BOM；含中文的 Windows PowerShell `.ps1` 使用 UTF-8 BOM，避免 Windows PowerShell 5 按系统代码页解析失败。
 
+- OpenWrt APK 独立维护 procd 调度：`worker` / `official` 两个具名实例、每通道独立锁与周期（默认 3600 / 600 秒，0 仅关闭定时），网络事件遵守各通道网络开关且不移动定时截止点。升级保留旧总开关、通道停用和凭据；APK 不加载 Linux 的 cron 安装/迁移入口。更改 APK 调度必须运行 `tools/po0/test-openwrt-apk-layout.sh`，其中包含 service、hotplug、UCI 适配器和运行时回归。
+
 ## 访问设备客户端的通道设置
 
 - Windows / macOS / Linux 主菜单和两个通道子菜单维持相同编号与语义；本机目标名称不能改变 source-id、identity 或请求协议。三端主菜单和官方通道页逐个显示官方账号名称，未命名账号使用默认编号；自建有效期只说明由 LAN Worker 接收端管理，不展示未经读取确认的默认秒数。

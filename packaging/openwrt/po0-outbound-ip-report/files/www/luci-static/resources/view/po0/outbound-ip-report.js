@@ -542,7 +542,7 @@ return view.extend({
    var common = m.section(form.NamedSection, 'main', 'reporter', _('自动上报'));
    var o = common.option(form.Flag, 'enabled', _('启用自动上报服务'));
    o.default = '0'; o.rmempty = false;
-   o.description = _('只控制后台定时任务。关闭后，两个通道仍可手动上报或查询。');
+   o.description = _('控制后台定时和网络变化上报。关闭后，两个通道仍可手动上报或查询。');
    var s = m.section(form.NamedSection, 'main', 'reporter', _('上报通道'));
    s.tab('worker', _('自建防火墙 · LAN Worker'));
    s.tab('official', _('PO0 官方防火墙'));
@@ -582,15 +582,21 @@ return view.extend({
    field('worker', form.Value, 'identity', '备注');
    o = field('worker', form.Value, 'wans', '上报哪些 WAN', '填写 wan1、wan2、wan1;wan2 或 all。出口对应关系在“出口与探测”中设置。');
    o.default = 'all'; o.value('wan1','WAN1'); o.value('wan2','WAN2'); o.value('wan1;wan2', _('WAN1 和 WAN2')); o.value('all', _('全部'));
-   o = field('worker', form.Value, 'interval_seconds', '自动上报间隔（秒）');
-   o.datatype = 'uinteger'; o.default = '3600'; o.rmempty = false;
+   o = field('worker', form.Value, 'interval_seconds', '定时上报间隔（秒）', '默认 3600 秒；填写 0 关闭定时，网络变化上报仍由独立开关控制。');
+   o.datatype = 'and(uinteger,or(0,min(60)))'; o.default = '3600'; o.rmempty = false;
+   o = field('worker', form.Flag, 'worker_network_enabled', '网络变化时上报', '本机接口上线、地址或路由变化时上报，不受定时间隔限制。旁路网关无法直接收到上游 WAN 事件，建议保留定时。');
+   o.default = '1'; o.rmempty = false;
    field('worker', form.Value, 'skip_wifi_ssids', '跳过 Wi-Fi SSID', '英文分号分隔；只影响本通道，路由器上的官方 WAN 上报不使用 SSID 条件。');
    o = field('worker', form.Flag, 'allow_http', '允许明文 HTTP（不推荐）', '仅 LAN Worker 地址使用 http:// 时需要。');
    o.default = '0';
    actions('worker');
 
-   o = field('official', form.Flag, 'official_enabled', '自动上报到官方防火墙', '需要同时开启页面上方的自动上报服务；每 10 分钟查询，缺失或槽位不匹配时才加白。');
+   o = field('official', form.Flag, 'official_enabled', '自动上报到官方防火墙', '需要同时开启页面上方的自动上报服务；先查询，缺失或槽位不匹配时才加白。');
    o.default = '0'; o.rmempty = false;
+   o = field('official', form.Value, 'official_interval_seconds', '定时上报间隔（秒）', '默认 600 秒；填写 0 关闭定时，不影响网络变化上报。');
+   o.datatype = 'and(uinteger,or(0,min(60)))'; o.default = '600'; o.rmempty = false;
+   o = field('official', form.Flag, 'official_network_enabled', '网络变化时上报', '本机接口上线、地址或路由变化时检查白名单，不受定时间隔限制。旁路网关无法直接收到上游 WAN 事件，建议保留定时。');
+   o.default = '1'; o.rmempty = false;
    var targets = s.taboption('official', form.SectionValue, '_official_targets', form.TableSection, 'official_target', null, _('官方目标与 Token')).subsection;
    targets.anonymous = true; targets.addremove = true; targets.sortable = true;
    targets.description = _('每个目标对应 PO0 防火墙页面的一份完整 Token。输入 pgnfw_xxxx 整段，必须包含 pgnfw_ 前缀；也可粘贴完整加白链接。Token 在这里直接显示。');

@@ -1,8 +1,8 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=po0-outbound-ip-report
-PKG_VERSION:=2026.09.05
-PKG_RELEASE:=4
+PKG_VERSION:=2026.09.06
+PKG_RELEASE:=1
 PKGARCH:=all
 
 include $(INCLUDE_DIR)/package.mk
@@ -45,7 +45,7 @@ define Package/po0-outbound-ip-report/install
 	$(INSTALL_DATA) ./files/usr/share/luci/menu.d/po0-outbound-ip-report.json $(1)/usr/share/luci/menu.d/po0-outbound-ip-report.json
 	$(INSTALL_DATA) ./files/usr/share/rpcd/acl.d/po0-outbound-ip-report.json $(1)/usr/share/rpcd/acl.d/po0-outbound-ip-report.json
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/po0
-	$(INSTALL_DATA) ./files/www/luci-static/resources/view/po0/outbound-ip-report.js $(1)/www/luci-static/resources/view/po0/outbound-ip-report-v8.js
+	$(INSTALL_DATA) ./files/www/luci-static/resources/view/po0/outbound-ip-report.js $(1)/www/luci-static/resources/view/po0/outbound-ip-report-v9.js
 endef
 
 define Package/po0-outbound-ip-report/postinst

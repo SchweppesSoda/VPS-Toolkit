@@ -4,7 +4,11 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 work="$(mktemp -d "${repo_root}/.tmp/po0-runtime-test.XXXXXX")"
 trap 'rm -rf -- "$work"' EXIT
 mkdir -p "$work/bin" "$work/home"
-bash "$repo_root/tools/po0/build-openwrt-reporter-runtime.sh" "$work/engine"
+if [[ -n "${PO0_TEST_RUNTIME_ENGINE:-}" ]]; then
+ cp "$PO0_TEST_RUNTIME_ENGINE" "$work/engine"
+else
+ bash "$repo_root/tools/po0/build-openwrt-reporter-runtime.sh" "$work/engine"
+fi
 cat > "$work/bin/ip" <<'MOCK'
 #!/bin/sh
 printf '2: br-lan inet 192.168.88.250/24 scope global br-lan\n2: br-lan inet 192.168.88.251/32 scope global br-lan\n'

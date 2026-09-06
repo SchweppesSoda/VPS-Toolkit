@@ -6,7 +6,7 @@ CONFIG_FILE='/etc/config/po0_outbound_ip_report'
 ENGINE='/usr/libexec/po0-outbound-ip-report-engine'
 OFFICIAL_RUNNER='/usr/libexec/po0-official-firewall-runner'
 RUN_DIR='/var/run/po0-outbound-ip-report'
-LOCK_DIR="${RUN_DIR}/run.lock"
+LOCK_DIR=""
 
 umask 077
 
@@ -183,6 +183,7 @@ force='0'
 official_wan=''
 manual_worker='0'
 manual_official='0'
+auto_trigger=''
 while [ "$#" -gt 0 ]; do
 	case "$1" in
 		--worker-report)
@@ -215,6 +216,8 @@ while [ "$#" -gt 0 ]; do
 			official_action='report'
 			shift
 			;;
+		--network-changed) auto_trigger=network; shift ;;
+		--timer-trigger) auto_trigger=timer; shift ;;
 		--force-report)
 			force='1'
 			shift
@@ -239,6 +242,17 @@ done
 # Keep this adapter usable for LuCI/manual report and status actions even when
 # the automatic service is disabled; those callers deliberately reach this
 # adapter directly and must still perform the read-only official check.
+
+if [ -n "$auto_trigger" ]; then
+	case "$(uci_get main enabled)" in 1|true|yes|on) ;; *) exit 0 ;; esac
+	if [ "$auto_trigger" = network ]; then
+		is_disabled "$(uci_get main worker_network_enabled)" && worker_run=0
+		is_disabled "$(uci_get main official_network_enabled)" && official_run=0
+	else
+		[ "$(uci_get main interval_seconds)" != 0 ] || worker_run=0
+		[ "$(uci_get main official_interval_seconds)" != 0 ] || official_run=0
+	fi
+fi
 
 # Validate every enabled binding before dispatch. The package-local runner
 # rereads the same UCI sections; this private list is used only for duplicate
@@ -341,17 +355,13 @@ done <<EOF
 $official_ids
 EOF
 fi
-acquire_run_lock || exit $?
-rc='0'
-worker_enabled_status='disabled'
-official_enabled_status='disabled'
-# Execute the official lane first. Its result is independent: a failure here
-# must not prevent the existing Worker lane from running.
-if [ "$official_run" = '1' ]; then
+run_official_lane() (
+	rc=0
 	if is_disabled "$official_enabled" && [ "$manual_official" != '1' ]; then
 		printf 'official_status=disabled\n'
 	else
-		official_enabled_status='enabled'
+		LOCK_DIR="${RUN_DIR}/official.lock"
+		acquire_run_lock || exit $?
 		if [ "$official_config_error" = '1' ]; then
 			printf 'official_status=invalid_configuration\n' >&2
 			rc='1'
@@ -375,20 +385,25 @@ if [ "$official_run" = '1' ]; then
 			fi
 		fi
 	fi
-fi
-if [ "$worker_run" = '1' ]; then
+	exit "$rc"
+)
+run_worker_lane() (
+	rc=0
 	if is_disabled "$worker_enabled" && [ "$manual_worker" != '1' ]; then
 		printf 'worker_status=disabled\n'
 	else
-		worker_enabled_status='enabled'
+		LOCK_DIR="${RUN_DIR}/worker.lock"
+		acquire_run_lock || exit $?
 		if [ "$force" = '1' ]; then
 			"$ENGINE" --force-report || rc='1'
 		else
 			"$ENGINE" || rc='1'
 		fi
 	fi
-fi
-if [ "$worker_enabled_status" = 'disabled' ] && [ "$official_enabled_status" = 'disabled' ]; then
-	printf 'reporter_status=disabled\n'
-fi
+	exit "$rc"
+)
+rc=0
+# Compatibility calls may request both lanes; each acquires only its lock.
+[ "$official_run" != 1 ] || run_official_lane || rc=$?
+[ "$worker_run" != 1 ] || run_worker_lane || rc=$?
 exit "$rc"

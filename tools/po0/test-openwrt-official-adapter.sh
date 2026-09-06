@@ -187,26 +187,24 @@ assert_file_not_has() {
 run_adapter() {
     local scenario="$1"
     local runner_rc="${2:-0}"
-    local action="${3:---official-report}"
+    shift
+    [[ "$#" -eq 0 ]] || shift
+    if [[ "$#" -eq 0 && "$scenario" != both ]]; then set -- --official-report; fi
     : > "${stdout_log}"
     : > "${stderr_log}"
     : > "${runner_log}"
     rm -rf "${run_dir}"
     mkdir -p "${run_dir}"
-    set +e
-    if [ "$scenario" = 'both' ]; then
-        PO0_TEST_SCENARIO="${scenario}" \
-            PO0_TEST_RUNNER_RC="${runner_rc}" \
-            PO0_TEST_RUNNER_LOG="${runner_log}" \
-            PATH="${bin_dir}:${PATH}" \
-            sh "${adapter}" >"${stdout_log}" 2>"${stderr_log}"
-    else
-        PO0_TEST_SCENARIO="${scenario}" \
-            PO0_TEST_RUNNER_RC="${runner_rc}" \
-            PO0_TEST_RUNNER_LOG="${runner_log}" \
-            PATH="${bin_dir}:${PATH}" \
-            sh "${adapter}" "${action}" >"${stdout_log}" 2>"${stderr_log}"
+    if [[ -n "${PO0_TEST_HELD_LANE:-}" ]]; then
+        mkdir "$run_dir/$PO0_TEST_HELD_LANE.lock"
+        printf '%s\n' "$$" > "$run_dir/$PO0_TEST_HELD_LANE.lock/pid"
     fi
+    set +e
+    PO0_TEST_SCENARIO="${scenario}" \
+        PO0_TEST_RUNNER_RC="${runner_rc}" \
+        PO0_TEST_RUNNER_LOG="${runner_log}" \
+        PATH="${bin_dir}:${PATH}" \
+        sh "${adapter}" "$@" >"${stdout_log}" 2>"${stderr_log}"
     RUN_RC=$?
     set -e
 }
@@ -298,5 +296,23 @@ run_adapter malicious-token 0 --worker-report
 assert_eq '0' "$RUN_RC" 'Worker manual report was blocked by unrelated official config'
 assert_file_has 'worker' "$runner_log" 'manual Worker did not dispatch'
 assert_file_not_has 'official' "$runner_log" 'Worker manual report also ran official'
+
+# A busy official channel cannot block Worker, and vice versa.
+PO0_TEST_HELD_LANE=official run_adapter both 0 --worker-report
+assert_eq 0 "$RUN_RC" 'official lock blocked Worker'
+assert_file_has worker "$runner_log" 'Worker did not run beside official'
+assert_file_not_has official "$runner_log" 'Worker request invoked official'
+PO0_TEST_HELD_LANE=official run_adapter both 0 --official-only
+assert_eq 75 "$RUN_RC" 'official same-channel lock ignored'
+PO0_TEST_HELD_LANE=worker run_adapter both 0 --official-only
+assert_eq 0 "$RUN_RC" 'Worker lock blocked official'
+assert_file_has official "$runner_log" 'official did not run beside Worker'
+assert_file_not_has worker "$runner_log" 'official request invoked Worker'
+PO0_TEST_HELD_LANE=worker run_adapter both 0 --worker-only
+assert_eq 75 "$RUN_RC" 'Worker same-channel lock ignored'
+
+run_adapter disabled 0 --official-only --network-changed
+assert_eq 0 "$RUN_RC" 'disabled network action failed'
+[[ ! -s "$runner_log" ]] || fail 'queued network event ignored total switch'
 
 printf 'PASS: OpenWrt official adapter mock checks passed.\n'

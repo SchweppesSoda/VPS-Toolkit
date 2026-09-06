@@ -56,14 +56,15 @@ bash "${repo_root}/tools/po0/test-openwrt-manual-runner.sh"
 bash "${repo_root}/tools/po0/test-official-firewall-core.sh"
 bash "${repo_root}/tools/po0/test-openwrt-official-adapter.sh"
 bash "${repo_root}/tools/po0/test-openwrt-service.sh"
+bash "${repo_root}/tools/po0/test-openwrt-hotplug.sh"
 bash "${repo_root}/tools/po0/test-openwrt-luci-official-ui.sh"
 
 expected_apk_runtime_version="$(sed -n 's/^SCRIPT_VERSION="\([^"]*\)"/\1/p' "${repo_root}/packaging/openwrt/po0-outbound-ip-report/runtime-header.sh")"
 [[ "${expected_apk_runtime_version}" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}\+build\.[0-9]+$ ]] || { printf 'Invalid APK runtime version.\n' >&2; exit 1; }
 for package in po0-outbound-ip-report; do
     grep -Fq 'PKGARCH:=all' "${repo_root}/packaging/openwrt/${package}/Makefile"
-    grep -Fq 'PKG_VERSION:=2026.09.05' "${repo_root}/packaging/openwrt/${package}/Makefile"
-    grep -Fq 'PKG_RELEASE:=4' "${repo_root}/packaging/openwrt/${package}/Makefile"
+    grep -Fq 'PKG_VERSION:=2026.09.06' "${repo_root}/packaging/openwrt/${package}/Makefile"
+    grep -Fq 'PKG_RELEASE:=1' "${repo_root}/packaging/openwrt/${package}/Makefile"
     grep -Fq "$(printf '$(TOPDIR)/po0-assets')" "${repo_root}/packaging/openwrt/${package}/Makefile"
     grep -Fq "po0-outbound-ip-report ${expected_apk_runtime_version} (OpenWrt APK)" \
         "${repo_root}/packaging/openwrt/${package}/files/usr/sbin/po0-outbound-ip-report"
@@ -132,9 +133,9 @@ if rg -n "LOCK_DIR='/tmp|/tmp/po0-outbound-ip-report.run.lock|>>/tmp/po0-outboun
     printf 'OpenWrt official runtime must not use pre-creatable /tmp locks or logs.\n' >&2
     exit 1
 fi
-grep -Fq 'outbound-ip-report-v8' \
+grep -Fq 'outbound-ip-report-v9' \
     "${repo_root}/packaging/openwrt/po0-outbound-ip-report/Makefile"
-grep -Fq 'po0/outbound-ip-report-v8' \
+grep -Fq 'po0/outbound-ip-report-v9' \
     "${repo_root}/packaging/openwrt/po0-outbound-ip-report/files/usr/share/luci/menu.d/po0-outbound-ip-report.json"
 grep -Fq -- '--run-once)' \
     "${repo_root}/scripts/po0/relay/self-report/linux/src/990-cli-parse-dispatch.sh"
@@ -170,18 +171,13 @@ grep -Fq 'official firewall whitelist' "$repo_root/packaging/openwrt/po0-outboun
 grep -Fq 'chmod 600 $(1)/etc/config/po0_outbound_ip_report' "$repo_root/packaging/openwrt/po0-outbound-ip-report/Makefile"
 grep -Fq '"$now" -lt "$last"' "$repo_root/packaging/openwrt/po0-outbound-ip-report/files/usr/libexec/po0-outbound-ip-report-service"
 grep -Fq 'head -c 65536' "$repo_root/packaging/openwrt/po0-outbound-ip-report/files/etc/hotplug.d/iface/95-po0-outbound-ip-report"
-grep -Fq -- '-eq 75' "$repo_root/packaging/openwrt/po0-outbound-ip-report/files/etc/hotplug.d/iface/95-po0-outbound-ip-report"
+grep -Fq -- '-eq 75' "$repo_root/packaging/openwrt/po0-outbound-ip-report/files/usr/libexec/po0-outbound-ip-report-service"
 grep -Fq 'main.enabled controls the procd service' "$repo_root/packaging/openwrt/po0-outbound-ip-report/files/usr/libexec/po0-outbound-ip-report-uci"
 grep -Fq 'safe_label()' "$repo_root/packaging/openwrt/po0-outbound-ip-report/files/usr/libexec/po0-outbound-ip-report-uci"
 grep -Fq "jsonfilter -t '@[\"whitelist\"]'" "$repo_root/packaging/openwrt/po0-outbound-ip-report/files/usr/libexec/po0-official-firewall-runner"
-grep -Fq "OFFICIAL_INTERVAL='600'" "$repo_root/packaging/openwrt/po0-outbound-ip-report/files/usr/libexec/po0-outbound-ip-report-service"
-if rg -n 'official_interval_seconds' \
-    "$repo_root/packaging/openwrt/po0-outbound-ip-report/files/etc/config/po0_outbound_ip_report" \
-    "$repo_root/packaging/openwrt/po0-outbound-ip-report/files/www/luci-static/resources/view/po0/outbound-ip-report.js" \
-    "$repo_root/packaging/openwrt/po0-outbound-ip-report/files/usr/libexec/po0-outbound-ip-report-service"; then
-    printf 'Official interval must remain a fixed service constant, not a free-form setting.\n' >&2
-    exit 1
-fi
+grep -Fq "option official_interval_seconds '600'" "$repo_root/packaging/openwrt/po0-outbound-ip-report/files/etc/config/po0_outbound_ip_report"
+grep -Fq 'procd_open_instance "$lane"' "$repo_root/packaging/openwrt/po0-outbound-ip-report/files/etc/init.d/po0-outbound-ip-report"
+grep -Fq -- '--network-changed' "$repo_root/packaging/openwrt/po0-outbound-ip-report/files/usr/libexec/po0-outbound-ip-report-service"
 
 bash "${repo_root}/tools/po0/test-openwrt-runtime.sh"
 bash "${repo_root}/tools/po0/test-openwrt-reporter-migration.sh"

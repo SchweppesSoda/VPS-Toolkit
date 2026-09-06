@@ -3,6 +3,7 @@ set -u
 umask 077
 
 RUN_DIR='/var/run/po0-outbound-ip-report'
+SERVICE='/usr/libexec/po0-outbound-ip-report-service'
 HOTPLUG_LOG="${RUN_DIR}/hotplug.log"
 
 prepare_hotplug_log() {
@@ -31,34 +32,45 @@ prepare_hotplug_log() {
 	[ "$log_mode" = '-rw-------' ] && [ "$log_owner" = '0' ]
 }
 
-[ "${ACTION:-}" = 'ifup' ] || exit 0
-wan="${INTERFACE:-}"
-case "$wan" in
-	''|*[!A-Za-z0-9_.-]*) exit 0 ;;
-esac
-overall="$(uci -q get po0_outbound_ip_report.main.enabled 2>/dev/null || printf '0')"
-official_enabled="$(uci -q get po0_outbound_ip_report.main.official_enabled 2>/dev/null || printf '0')"
-case "$overall:$official_enabled" in
-	1:1|1:true|1:yes|1:on|true:1|true:true|true:yes|true:on|yes:1|yes:true|yes:yes|yes:on|on:1|on:true|on:yes|on:on) ;;
+# netifd's ifupdate may describe unrelated data changes. React only to an
+# address/route update, or interface recovery; skip loopback.
+case "${ACTION:-}" in
+	ifup) ;;
+	ifupdate) [ "${IFUPDATE_ADDRESSES:-0}" = 1 ] || [ "${IFUPDATE_ROUTES:-0}" = 1 ] || exit 0 ;;
 	*) exit 0 ;;
 esac
+wan="${INTERFACE:-}"
+case "$wan" in ''|loopback|*[!A-Za-z0-9_.-]*) exit 0 ;; esac
+overall="$(uci -q get po0_outbound_ip_report.main.enabled 2>/dev/null || printf 0)"
+case "$overall" in 1|true|yes|on) ;; *) exit 0 ;; esac
+probe_mode="$(uci -q get po0_outbound_ip_report.main.probe_mode 2>/dev/null || true)"
 
-matched='0'
-while IFS= read -r binding; do
-	[ -n "$binding" ] || continue
-	binding_enabled="$(uci -q get "po0_outbound_ip_report.${binding}.enabled" 2>/dev/null || true)"
-	case "$binding_enabled" in
-		0|false|no|off) continue ;;
-	esac
-	configured_wan="$(uci -q get "po0_outbound_ip_report.${binding}.wan" 2>/dev/null || true)"
-	[ "$configured_wan" = "$wan" ] && matched='1'
-done <<EOF
+lane_matches_event() {
+	# Source-address and legacy upstream-probe modes observe only this host's
+	# network. They cannot receive an upstream router's WAN hotplug events.
+	[ "$probe_mode" = local ] || return 0
+	if [ "$lane" = worker ]; then
+		wans="$(uci -q get po0_outbound_ip_report.main.wans 2>/dev/null || true)"
+		case "$wans" in
+			''|all)
+				[ "$(uci -q get "mwan3.$wan" 2>/dev/null || true)" = interface ] || return 1
+				case "$(uci -q get "mwan3.$wan.enabled" 2>/dev/null || true)" in 0|false|no|off) return 1 ;; esac
+				return 0 ;;
+		esac
+		wans="$(printf '%s' "$wans" | tr ', ' ';;')"
+		case ";$wans;" in *";$wan;"*) return 0 ;; *) return 1 ;; esac
+	fi
+	while IFS= read -r binding; do
+		[ -n "$binding" ] || continue
+		case "$(uci -q get "po0_outbound_ip_report.${binding}.enabled" 2>/dev/null || true)" in 0|false|no|off) continue ;; esac
+		configured_wan="$(uci -q get "po0_outbound_ip_report.${binding}.wan" 2>/dev/null || true)"
+		[ "$configured_wan" != "$wan" ] || return 0
+	done <<EOF
 $(uci -q show po0_outbound_ip_report 2>/dev/null | sed -n 's/^po0_outbound_ip_report\.\([^.=]*\)=official_binding$/\1/p')
 EOF
-[ "$matched" = '1' ] || exit 0
+	return 1
+}
 
-# Delay briefly for PPPoE/netifd to publish the new source address. The run
-# lock in the UCI adapter coalesces multiple WAN events and manual actions.
 run_hotplug_attempt() {
 	prepare_hotplug_log || return 0
 	attempt_log="$(mktemp "$RUN_DIR/hotplug-attempt.XXXXXX" 2>/dev/null || true)"
@@ -67,8 +79,7 @@ run_hotplug_attempt() {
 		rm -f "$attempt_log" 2>/dev/null || true
 		return 0
 	}
-	if /usr/libexec/po0-outbound-ip-report-uci --official-only \
-		--official-wan "$wan" >"$attempt_log" 2>&1; then
+	if "$SERVICE" "$lane" network "$filter_wan" >"$attempt_log" 2>&1; then
 		attempt_rc=0
 	else
 		attempt_rc=$?
@@ -97,15 +108,21 @@ run_hotplug_attempt() {
 	return "$attempt_rc"
 }
 
-(
-	sleep 5
-	run_hotplug_attempt
-	attempt_rc=$?
-	if [ "$attempt_rc" -eq 75 ]; then
-		# A concurrent full run is expected during a WAN flap. Retry once
-		# after the short coalescing window so the event is not lost.
-		sleep 3
+# Each channel waits/retries independently and rechecks its switch after the
+# settling delay. A timer disabled with interval=0 does not suppress events.
+for lane in worker official; do
+	fallback=0; [ "$lane" != worker ] || fallback=1
+	enabled="$(uci -q get "po0_outbound_ip_report.main.${lane}_enabled" 2>/dev/null || printf '%s' "$fallback")"
+	case "$enabled" in 0|false|no|off) continue ;; esac
+	network="$(uci -q get "po0_outbound_ip_report.main.${lane}_network_enabled" 2>/dev/null || printf 1)"
+	case "$network" in 0|false|no|off) continue ;; esac
+	lane_matches_event || continue
+	filter_wan=''
+	[ "$probe_mode" != local ] || [ "$lane" != official ] || filter_wan="$wan"
+	(
+		HOTPLUG_LOG="${RUN_DIR}/hotplug.${lane}.log"
+		sleep 5
 		run_hotplug_attempt
-	fi
-) &
+	) &
+done
 exit 0

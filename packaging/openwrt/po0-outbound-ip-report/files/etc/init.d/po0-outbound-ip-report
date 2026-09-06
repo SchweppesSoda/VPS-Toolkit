@@ -7,7 +7,7 @@ STOP=10
 CONFIG_FILE='/etc/config/po0_outbound_ip_report'
 
 start_service() {
-	local enabled
+	local enabled lane interval fallback
 	if [ -e "$CONFIG_FILE" ]; then
 		[ -f "$CONFIG_FILE" ] && [ ! -L "$CONFIG_FILE" ] || return 0
 		chmod 600 "$CONFIG_FILE" 2>/dev/null || return 0
@@ -17,12 +17,30 @@ start_service() {
 		1|true|yes|on) ;;
 		*) return 0 ;;
 	esac
-	procd_open_instance
-	procd_set_param command /usr/libexec/po0-outbound-ip-report-service
-	procd_set_param respawn 3600 5 5
-	procd_set_param stdout 1
-	procd_set_param stderr 1
-	procd_close_instance
+	for lane in worker official; do
+		fallback=0; [ "$lane" != worker ] || fallback=1
+		enabled="$(uci -q get "po0_outbound_ip_report.main.${lane}_enabled" 2>/dev/null || printf '%s' "$fallback")"
+		case "$enabled" in 0|false|no|off) continue ;; esac
+		if [ "$lane" = worker ]; then
+			interval="$(uci -q get po0_outbound_ip_report.main.interval_seconds 2>/dev/null || printf 3600)"
+		else
+			interval="$(uci -q get po0_outbound_ip_report.main.official_interval_seconds 2>/dev/null || printf 600)"
+		fi
+		case "$interval" in
+			''|*[!0-9]*) [ "$lane" = worker ] && interval=3600 || interval=600 ;;
+		esac
+		interval="$(printf '%s' "$interval" | sed 's/^0*//')"
+		[ -n "$interval" ] || continue
+		[ "$interval" -ge 60 ] 2>/dev/null || interval=60
+		procd_open_instance "$lane"
+		procd_set_param command /usr/libexec/po0-outbound-ip-report-service "$lane"
+		# Only changed instance data restarts a timer when UCI is applied.
+		procd_set_param data interval "$interval"
+		procd_set_param respawn 3600 5 5
+		procd_set_param stdout 1
+		procd_set_param stderr 1
+		procd_close_instance
+	done
 }
 
 service_triggers() {

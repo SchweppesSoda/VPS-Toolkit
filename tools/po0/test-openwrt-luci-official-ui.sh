@@ -21,9 +21,9 @@ grep -Fq "form.TableSection, 'official_binding'" "${ui}" || fail "official bindi
 grep -Fq "'worker_enabled'" "${ui}" || fail "independent Worker switch is missing"
 grep -Fq "'official_enabled'" "${ui}" || fail "official switch is missing"
 grep -Fq "'official_source_' + wan" "${ui}" || fail "gateway WAN source settings are missing"
-if grep -Fq "official_interval_seconds" "${ui}"; then
-	fail "LuCI must not expose a free-form official interval"
-fi
+for key in official_interval_seconds worker_network_enabled official_network_enabled; do
+	grep -Fq "$key" "${ui}" || fail "independent trigger setting is missing: $key"
+done
 grep -Fq "String(slot - 1)" "${ui}" || fail "UI does not map slot 1-5 to backend slot 0-4"
 grep -Fq "'official-status'" "${ui}" || fail "read-only official status action is missing"
 grep -Fq "channel + '-report'" "${ui}" || fail "explicit official report action is missing"

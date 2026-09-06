@@ -3,168 +3,126 @@ set -u
 umask 077
 
 BASE='/tmp/po0-outbound-ip-report'
-AUTO_LOG="${BASE}.log"
-AUTO_STATE="${BASE}.state"
-WORKER_LOG="${BASE}.worker.log"
-WORKER_STATE="${BASE}.worker.state"
-OFFICIAL_LOG="${BASE}.official.log"
-OFFICIAL_STATE="${BASE}.official.state"
 UCI_RUNNER='/usr/libexec/po0-outbound-ip-report-uci'
-OFFICIAL_INTERVAL='600'
+lane="${1:-}"
+trigger="${2:-timer}"
+wan="${3:-}"
+case "$lane" in worker|official) ;; *) exit 2 ;; esac
+case "$trigger" in timer|network) ;; *) exit 2 ;; esac
+case "$wan" in *[!A-Za-z0-9_.-]*) exit 2 ;; esac
+LOG="${BASE}.${lane}.log"
+STATE="${BASE}.${lane}.state"
+TIMER_STATE="${BASE}.${lane}.timer.state"
 
 is_disabled() {
-	case "${1:-}" in
-		0|false|no|off) return 0 ;;
-		*) return 1 ;;
-	esac
+	case "${1:-}" in 0|false|no|off) return 0 ;; *) return 1 ;; esac
 }
 
-read_state_time() {
-	state="$1"
-	field="$2"
-	value=''
-	[ -r "$state" ] && value="$(sed -n "s/^${field}=//p" "$state" | head -n 1)"
-	case "$value" in
-		''|*[!0-9]*) value='0' ;;
-	esac
+uci_get() { uci -q get "po0_outbound_ip_report.main.$1" 2>/dev/null || true; }
+
+interval_for() {
+	case "$lane" in worker) key=interval_seconds; fallback=3600 ;; official) key=official_interval_seconds; fallback=600 ;; esac
+	value="$(uci_get "$key")"
+	case "$value" in ''|*[!0-9]*) value="$fallback" ;; esac
+	value="$(printf '%s' "$value" | sed 's/^0*//')"
+	[ -n "$value" ] || value=0
+	# Zero disables only the timer. Preserve legacy positive values below 60.
+	[ "$value" = 0 ] || [ "$value" -ge 60 ] 2>/dev/null || value=60
 	printf '%s' "$value"
 }
 
-read_finished_at() {
-	read_state_time "$1" finished_at
+automatic_enabled() {
+	overall="$(uci_get enabled)"
+	case "$overall" in 1|true|yes|on) ;; *) return 1 ;; esac
+	enabled="$(uci_get "${lane}_enabled")"
+	[ -n "$enabled" ] || { [ "$lane" = worker ] && enabled=1 || enabled=0; }
+	is_disabled "$enabled" && return 1
+	if [ "$trigger" = network ]; then
+		! is_disabled "$(uci_get "${lane}_network_enabled")"
+	else
+		[ "$(interval_for)" -gt 0 ]
+	fi
 }
 
-read_attempt_at() {
-	read_state_time "$1" observed_at
+read_timer_time() {
+	file="$TIMER_STATE"
+	# Seed from the previous APK's result without rewriting the saved switches.
+	if [ ! -r "$file" ] && [ -r "$STATE" ] && ! grep -q '^trigger=network$' "$STATE"; then file="$STATE"; fi
+	case "$lane" in worker) field=finished_at ;; official) field=observed_at ;; esac
+	value=''
+	[ ! -r "$file" ] || value="$(sed -n "s/^${field}=//p" "$file" | head -n 1)"
+	case "$value" in ''|*[!0-9]*) value=0 ;; esac
+	printf '%s' "$value"
 }
 
 seconds_until_due() {
-	state="$1"
-	field="$2"
-	now="$3"
-	interval="$4"
-	last="$(read_state_time "$state" "$field")"
-	case "$now:$last:$interval" in
-		*[!0-9:]*|*::*|*:0) printf '0'; return 0 ;;
-	esac
-	[ "$now" -lt "$last" ] 2>/dev/null && { printf '0'; return 0; }
-	elapsed=$((now - last))
-	[ "$elapsed" -ge "$interval" ] 2>/dev/null && { printf '0'; return 0; }
-	printf '%s' "$((interval - elapsed))"
-}
-
-next_wakeup_seconds() {
-	now="$1"
-	next=''
-	if ! is_disabled "${official_enabled:-0}"; then
-		remaining="$(seconds_until_due "$OFFICIAL_STATE" observed_at "$now" "$OFFICIAL_INTERVAL")"
-		next="$remaining"
+	last="$(read_timer_time)"
+	now="$(date +%s)"
+	interval="$(interval_for)"
+	if [ "$last" -eq 0 ] || [ "$now" -lt "$last" ] || [ $((now - last)) -ge "$interval" ]; then
+		printf '0'
+	else
+		printf '%s' "$((interval - now + last))"
 	fi
-	if ! is_disabled "${worker_enabled:-1}"; then
-		worker_interval="$(interval_for interval_seconds 3600)"
-		remaining="$(seconds_until_due "$WORKER_STATE" finished_at "$now" "$worker_interval")"
-		if [ -z "$next" ] || [ "$remaining" -lt "$next" ] 2>/dev/null; then
-			next="$remaining"
-		fi
-	fi
-	# A missing/corrupt state is due now, but never spin in a tight loop if a
-	# state write failed. Procd reload and the iface hotplug hook can still
-	# restart/wake this process when configuration or a WAN changes.
-	case "$next" in
-		''|*[!0-9]*) next='60' ;;
-		0) next='1' ;;
-	esac
-	printf '%s' "$next"
-}
-
-interval_for() {
-	value="$(uci -q get "po0_outbound_ip_report.main.${1}" 2>/dev/null || true)"
-	case "$value" in
-		''|*[!0-9]*) value="$2" ;;
-	esac
-	[ "$value" -ge 60 ] 2>/dev/null || value='60'
-	printf '%s' "$value"
-}
-
-write_running_state() {
-	state="$1"
-	started="$2"
-	tmp="${state}.$$"
-	umask 077
-	{
-		printf 'status=running\n'
-		printf 'lane=%s\n' "$lane"
-		printf 'observed_at=%s\n' "$started"
-	} > "$tmp"
-	mv -f "$tmp" "$state"
 }
 
 run_lane() {
-	lane="$1"
-	case "$lane" in
-		worker)
-			log="$WORKER_LOG"
-			state="$WORKER_STATE"
-			command_args='--worker-only'
-			;;
-		official)
-			log="$OFFICIAL_LOG"
-			state="$OFFICIAL_STATE"
-			command_args='--official-only'
-			;;
-		*) return 2 ;;
-	esac
 	started="$(date +%s)"
-	write_running_state "$state" "$started"
-	tmp_log="${log}.$$"
-	if "$UCI_RUNNER" $command_args > "$tmp_log" 2>&1; then
-		rc='0'
+	tmp_log="${LOG}.$$"
+	set -- "--${lane}-only"
+	if [ "$trigger" = network ]; then
+		set -- "$@" --network-changed
+		[ "$lane" != official ] || [ -z "$wan" ] || set -- "$@" --official-wan "$wan"
 	else
-		rc="$?"
+		set -- "$@" --timer-trigger
 	fi
-	mv -f "$tmp_log" "$log"
+	"$UCI_RUNNER" "$@" > "$tmp_log" 2>&1 && rc=0 || rc=$?
+	# A busy run has not reported. Keep its prior deadline and visible result.
+	if [ "$rc" -eq 75 ]; then rm -f "$tmp_log"; return 75; fi
+	# Preserve a legacy timer deadline before an event replaces the old result.
+	if [ "$trigger" = network ] && [ ! -r "$TIMER_STATE" ] && [ -r "$STATE" ] && ! grep -q '^trigger=network$' "$STATE"; then
+		cp -f "$STATE" "${TIMER_STATE}.$$"
+		mv -f "${TIMER_STATE}.$$" "$TIMER_STATE"
+	fi
+	mv -f "$tmp_log" "$LOG"
 	finished="$(date +%s)"
-	tmp_state="${state}.$$"
-	umask 077
+	tmp_state="${STATE}.$$"
 	{
 		printf 'status=finished\n'
 		printf 'lane=%s\n' "$lane"
+		printf 'trigger=%s\n' "$trigger"
 		printf 'observed_at=%s\n' "$started"
 		printf 'finished_at=%s\n' "$finished"
 		printf 'exit_code=%s\n' "$rc"
 	} > "$tmp_state"
-	mv -f "$tmp_state" "$state"
-	# Keep the legacy latest-result files available to the existing LuCI view.
-	cp -f "$log" "$AUTO_LOG"
-	cp -f "$state" "$AUTO_STATE"
-	chmod 600 "$log" "$state" "$AUTO_LOG" "$AUTO_STATE" 2>/dev/null || true
+	if [ "$trigger" = timer ]; then
+		cp -f "$tmp_state" "${TIMER_STATE}.$$"
+		mv -f "${TIMER_STATE}.$$" "$TIMER_STATE"
+	fi
+	mv -f "$tmp_state" "$STATE"
+	chmod 600 "$LOG" "$STATE" 2>/dev/null || true
+	return "$rc"
 }
 
-while :; do
-	overall="$(uci -q get po0_outbound_ip_report.main.enabled 2>/dev/null || printf '0')"
-	case "$overall" in
-		1|true|yes|on) ;;
-		*) exit 0 ;;
-	esac
-	now="$(date +%s)"
-	worker_enabled="$(uci -q get po0_outbound_ip_report.main.worker_enabled 2>/dev/null || printf '1')"
-	official_enabled="$(uci -q get po0_outbound_ip_report.main.official_enabled 2>/dev/null || printf '0')"
-	# Run the official lane first so its actual WAN source is checked before
-	# the existing Worker lane. The lanes remain independently scheduled.
-	if ! is_disabled "$official_enabled"; then
-		last="$(read_attempt_at "$OFFICIAL_STATE")"
-		interval="$OFFICIAL_INTERVAL"
-		if [ "$last" -eq 0 ] || [ "$now" -lt "$last" ] || [ $((now - last)) -ge "$interval" ]; then
-			run_lane official
-		fi
+if [ "$trigger" = network ]; then
+	# Coalesce same-channel activity, then retry the event so a WAN change is
+	# not lost behind a manual/timer run. Never wake the other channel.
+	attempt=0
+	while automatic_enabled; do
+		run_lane && exit 0 || rc=$?
+		[ "$rc" -eq 75 ] && [ "$attempt" -lt 40 ] || exit "$rc"
+		attempt=$((attempt + 1))
+		sleep 3
+	done
+	exit 0
+fi
+
+while automatic_enabled; do
+	remaining="$(seconds_until_due)"
+	if [ "$remaining" -eq 0 ]; then
+		run_lane || { [ "$?" -ne 75 ] || { sleep 3; continue; }; }
+		remaining="$(seconds_until_due)"
+		[ "$remaining" -gt 0 ] || remaining=1
 	fi
-	if ! is_disabled "$worker_enabled"; then
-		last="$(read_finished_at "$WORKER_STATE")"
-		interval="$(interval_for interval_seconds 3600)"
-		if [ "$last" -eq 0 ] || [ "$now" -lt "$last" ] || [ $((now - last)) -ge "$interval" ]; then
-			run_lane worker
-		fi
-	fi
-	now="$(date +%s)"
-	sleep "$(next_wakeup_seconds "$now")"
+	sleep "$remaining"
 done

@@ -110,7 +110,7 @@ po0-lan-client --probe
 po0-lan-client --version
 ```
 
-PO0 nftables 子系统内带 `SCRIPT_VERSION`、`--version` / `--changelog` 或自更新提示的五个可独立部署脚本（PO0 manager、LAN Worker、三端 PO0 Outbound IP Report）统一使用 `YYYY.MM.DD+build.N` 混合版本格式。最新可下载脚本版本以 GitHub Latest 为准。OpenWrt outbound APK 使用独立包版本，脚本 Release 不包含 APK。正式 PO0 Release 发布文件的脚本内部版本必须与 release tag 尾号一致：`po0-vYYYY.MM.DD.N` 对应 `YYYY.MM.DD+build.N`，例如 `po0-v2026.07.01.7` 对应 `2026.07.01+build.7`。完整历史写在 [`CHANGELOG.md`](CHANGELOG.md)。
+PO0 nftables 子系统内带 `SCRIPT_VERSION`、`--version` / `--changelog` 或自更新提示的五个可独立部署脚本（PO0 manager、LAN Worker、三端 PO0 Outbound IP Report）统一使用 `YYYY.MM.DD+build.N` 混合版本格式。最新可下载脚本版本以 GitHub Latest 为准。OpenWrt outbound APK 使用独立包版本（本轮源码为 `2026.09.06-r1`），脚本 Release 不包含 APK。正式 PO0 Release 发布文件的脚本内部版本必须与 release tag 尾号一致：`po0-vYYYY.MM.DD.N` 对应 `YYYY.MM.DD+build.N`，例如 `po0-v2026.07.01.7` 对应 `2026.07.01+build.7`。完整历史写在 [`CHANGELOG.md`](CHANGELOG.md)。
 
 更新 LAN Worker 上已安装的 client：
 
@@ -581,7 +581,7 @@ Token 必须包含 `pgnfw_` 前缀：官方链接 `https://124.221.69.228/api/fi
 - Loon：修改插件输入后执行 `官方防火墙 · 保存本机设置`；清除用 `官方防火墙 · 清除本机设置`。正常上报使用本机专用存储中的 Token/槽位。
 - Windows、macOS：Token 和 `@槽位` 保存在各自客户端本地配置中。它们支持固定槽位，但不会按其它设备的 ID 自动分配槽位。
 
-OpenWrt 页面按“自建防火墙 · LAN Worker”和“PO0 官方防火墙”分组，每个通道拥有自己的自动开关、保存并上报和最近结果。自动开关不阻止明确的手动上报/查询，手动上报只执行所选通道。
+OpenWrt 页面按“自建防火墙 · LAN Worker”和“PO0 官方防火墙”分组，每个通道拥有独立后台任务、自动开关、定时间隔、网络变化开关、保存并上报和最近结果。自建定时默认 3600 秒，官方默认 600 秒；可填写至少 60 秒的间隔，填写 0 仅关闭对应定时。本机接口上线、地址或路由变化时可立即触发，不受定时时间限制，也不推迟下一次定时。旁路网关无法直接收到上游 WAN 事件，建议保留定时兜底。关闭通道自动开关同时停用该通道的定时与网络触发，保留配置且不影响另一通道；手动上报和只读查询仍可使用。
 
 旁路网关在“出口与探测”选择“本机按源地址直连探测”，一次配置 WAN1/WAN2 对应的本机专用 IPv4。真实 WAN IP 探测和官方 GET/POST 都使用对应源地址，绕过 OpenClash；上游仅按源地址固定到对应 WAN-only 策略，所选 WAN 故障时不回退。向 LAN Worker 提交探测结果时使用本机正常网络，遵循 OpenClash 规则，不绑定这些专用源地址。
 
