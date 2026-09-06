@@ -567,6 +567,7 @@ try {
 
     Set-TestMode -Scenario "hit" -Tokens $tokenA
     $script:ConfigPath = $configPath
+    if (-not $runningOnWindows) { $script:MockClientConfigAclCallCount = 0 }
     Save-ClientConfig
     Assert-True (Test-Path -LiteralPath $configPath) "Config must be written."
     $configText = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8
