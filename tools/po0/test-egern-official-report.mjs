@@ -314,7 +314,7 @@ async function testWidgetAndReportStatusInitializeSavedToken() {
     assert.equal(official.entries[0].status, 'updated');
     assert.equal(official.lastAttemptAt, new Date(now).toISOString());
     assert.equal(official.lastSuccessAt, new Date(now).toISOString());
-    assert.match(visibleText(widget), /已更新当前出口/);
+    assert.match(visibleText(widget), /已加白/);
     assert.doesNotMatch(visibleText(widget), /当前出口未加白/);
 
     await runEgernReport(refresh.ctx);
@@ -880,9 +880,10 @@ function testEgernTimeoutBudget() {
 function testEgernWidgetBindingsStayCompatible() {
   const widgets = yamlSource.slice(yamlSource.indexOf('\nwidgets:'));
   for (const name of ['PO0 防火墙上报状态', 'PO0 SSH 上报状态']) {
-    assert(widgets.includes('name: ' + name), 'existing desktop widget identity must remain available');
+    if (name === 'PO0 防火墙上报状态') assert(widgets.includes('name: ' + name));
     assert(yamlSource.includes('      name: ' + name), 'existing custom script binding must still resolve');
   }
+  assert.equal((widgets.match(/  - name:/g) || []).length, 1, 'the module must publish exactly one widget');
   assert(!yamlSource.includes('name: 切换'), 'published UI must use explicit enable/disable actions');
 }
 
@@ -1126,7 +1127,19 @@ async function testExplicitAutomaticActionsAreIdempotent() {
   }
 }
 
+async function testSettingsShowEffectiveTtlForEveryTarget() {
+  const values = { PO0_PASSWORD: 'mock-password', TTL_SECONDS: '3600', SSH_REPORT_TARGETS: 'one|one.example.com||||mock-one|one|7200,two|two.example.com||||mock-two|two|14400' };
+  const storage = createStorage({ [CONFIG_STORAGE_KEY]: JSON.stringify({ version: 1, values }) });
+  const fixture = createContext({ trigger: '查看本机上报设置', storage });
+  const result = await runEgernReport(fixture.ctx);
+  assert(visibleText(result).includes('one · 生效 TTL 7200 秒'));
+  assert(visibleText(result).includes('two · 生效 TTL 14400 秒'));
+  assert(!visibleText(result).includes('TTL 3600'));
+  assert.equal(fixture.calls.get.length + fixture.calls.post.length + fixture.calls.ssh, 0);
+}
+
 const tests = [
+  testSettingsShowEffectiveTtlForEveryTarget,
   testEgernWidgetBindingsStayCompatible,
   testWidgetBusyAndStorageErrorsAlwaysRender,
   testExplicitAutomaticActionsAreIdempotent,

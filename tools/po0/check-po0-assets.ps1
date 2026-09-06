@@ -1004,6 +1004,9 @@ Write-Host "Checking node tools/po0/test-egern-ssid-guard.mjs"
 if ($LASTEXITCODE -ne 0) {
     throw "Command failed: node tools/po0/test-egern-ssid-guard.mjs"
 }
+Write-Host "Checking node tools/po0/test-egern-widget.mjs"
+& node (Join-Path $RepoRoot "tools/po0/test-egern-widget.mjs") | Out-Host
+if ($LASTEXITCODE -ne 0) { throw "Egern widget regression failed" }
 Write-Host "Checking node tools/po0/test-egern-official-report.mjs"
 & node (Join-Path $RepoRoot "tools/po0/test-egern-official-report.mjs") | Out-Host
 if ($LASTEXITCODE -ne 0) {

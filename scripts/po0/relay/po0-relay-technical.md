@@ -1006,7 +1006,7 @@ iphone-us|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_U
 
 如果使用 PO0 专用受限 SSH 上报 key，Egern 专用 key 的 scope 应为 `egern`。wrapper 拒绝时会把不含 token 的摘要写入 `/etc/nftables.d/po0-report-key-denied.log`，也可以用 `--refresh-report-key-wrapper` 刷新 wrapper，再用 `--show-report-key-denials 80` 查看最近记录。Egern 手动执行和 Status 脚本开启 debug，SSH stderr 会写入脚本日志；长错误会分段通知。
 
-Egern 上报锁覆盖 schedule、network、手动和 Widget 刷新。锁占用时不重复请求；Widget / 状态入口必须返回 Widget DSL，使用上一轮状态并标记正在上报，没有缓存时显示等待提示。存储异常同样返回可渲染提示，不写覆盖原锁或结果。保留旧 widget name 和 generic script name 的关联，不能只兼容 JS 动作匹配。
+Egern 上报锁覆盖 schedule、network、手动和 Widget 刷新。锁占用时不重复请求；Widget / 状态入口必须返回 Widget DSL，使用上一轮状态并标记正在上报，没有缓存时显示等待提示。存储异常同样返回可渲染提示，不写覆盖原锁或结果。只注册一个 Widget，保留旧 generic script name 供已有自定义绑定使用。自动状态从当前配置和当前 Wi-Fi 计算，两条通道复用相同显示逻辑；SSID guard 不改变持久开关，缓存结果与本次是否上报分别展示。官方名称从当前本机配置读取，避免缓存名滞后。最近结果通过非凭据账号摘要和固定槽位匹配，换 Token / 槽位或旧缓存无法确认归属时显示待检查，不按账号位置套用成功状态。targetValue 先遍历目标全部别名，再遍历 env 默认值，文本空列和 JSON 缺省一致；目标值不被默认覆盖。
 
 ### 5.7 高级渲染调试
 

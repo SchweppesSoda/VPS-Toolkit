@@ -732,172 +732,51 @@ function spacerNode(length) {
 
 function widgetFamily(ctx) {
   const family = String(ctx?.widgetFamily || '').toLowerCase();
-  if (family.includes('small')) return 'small';
+  if (family.includes('small') || family.includes('accessory')) return 'small';
   if (family.includes('large')) return 'large';
   return 'medium';
 }
 
 function widgetMetrics(ctx) {
-  const base = {
-    padding: 14,
-    widgetGap: 6,
-    headerGap: 6,
-    headerIconSize: 16,
-    titleSize: 'headline',
-    timeSize: 10,
-    detailRowGap: 3,
-    detailIconSize: 10,
-    detailLabelSize: 10,
-    detailValueSize: 10,
-    sectionTitleSize: 12,
-    columnGap: 6,
-    columnInnerGap: 5,
-    bottomGap: 3,
-    summaryGap: 6,
-    summaryItemGap: 4,
-    summaryLabelSize: 9,
-    summaryValueSize: 11,
-  };
-  if (widgetFamily(ctx) !== 'medium') return base;
+  const family = widgetFamily(ctx);
   return {
-    ...base,
-    padding: 12,
-    widgetGap: 4,
-    titleSize: 13,
-    detailLabelSize: 11,
-    detailValueSize: 11,
-    sectionTitleSize: 12,
-    columnGap: 5,
-    columnInnerGap: 3,
-    bottomGap: 0,
-    summaryItemGap: 3,
+    padding: family === 'large' ? 14 : 10,
+    widgetGap: family === 'large' ? 6 : 5,
+    titleSize: family === 'small' ? 14 : 15,
+    bodySize: family === 'medium' ? 13 : 14,
+    captionSize: 11,
+    cardGap: family === 'large' ? 5 : 3,
   };
 }
 
-function rowNode(icon, iconColor, label, value, valueColor = WIDGET_COLORS.text, metrics = widgetMetrics()) {
-  return {
-    type: 'stack',
-    direction: 'row',
-    alignItems: 'center',
-    gap: metrics.detailRowGap,
-    children: [
-      iconNode(icon, iconColor, metrics.detailIconSize),
-      textNode(label, metrics.detailLabelSize, 'regular', WIDGET_COLORS.dim),
-      spacerNode(),
-      textNode(value || '未知', metrics.detailValueSize, 'medium', valueColor),
-    ],
-  };
+function widgetText(text, size = 12, color = WIDGET_COLORS.text, weight = 'regular') {
+  return { ...textNode(redactSensitiveText(String(text)), size, weight, color), minScale: 0.9 };
 }
 
-function sectionTitleNode(text, metrics = widgetMetrics()) {
-  return {
-    type: 'stack',
-    direction: 'row',
-    alignItems: 'center',
-    children: [
-      textNode(text, metrics.sectionTitleSize, 'semibold', WIDGET_COLORS.heading),
-    ],
-  };
-}
-
-function summaryItemNode(label, value, valueColor = WIDGET_COLORS.text, metrics = widgetMetrics()) {
-  return {
-    type: 'stack',
-    direction: 'row',
-    alignItems: 'center',
-    gap: metrics.summaryItemGap,
-    flex: 1,
-    children: [
-      textNode(label, metrics.summaryLabelSize, 'regular', WIDGET_COLORS.dim),
-      textNode(value || '未知', metrics.summaryValueSize, 'semibold', valueColor),
-    ],
-  };
-}
-
-function summaryRowNode(deviceName, targetText, targetColor, metrics = widgetMetrics()) {
-  return {
-    type: 'stack',
-    direction: 'row',
-    alignItems: 'center',
-    gap: metrics.summaryGap,
-    children: [
-      summaryItemNode('设备', deviceName, WIDGET_COLORS.text, metrics),
-      summaryItemNode('目标', targetText, targetColor, metrics),
-    ],
-  };
+function widgetRow(children, gap = 5) {
+  return { type: 'stack', direction: 'row', alignItems: 'center', gap, children };
 }
 
 function widgetPanel(title, content, ok, ctx) {
-  const lines = (Array.isArray(content) ? content : String(content || '').split('\n').filter(Boolean))
-    .map((line) => redactSensitiveText(line));
-  const family = widgetFamily(ctx);
+  const lines = (Array.isArray(content) ? content : String(content || '').split('\n'))
+    .map(line => String(line || '').trim()).filter(Boolean);
   const metrics = widgetMetrics(ctx);
-  const maxLines = family.includes('large') ? 10 : family.includes('small') ? 4 : 7;
-  const shownLines = lines.slice(0, maxLines);
-  const accent = ok ? '#34C759' : '#FF453A';
-
+  const maxLines = !ctx?.widgetFamily ? lines.length : widgetFamily(ctx) === 'small' ? 4 : widgetFamily(ctx) === 'large' ? 12 : 7;
   return {
-    type: 'widget',
-    padding: metrics.padding,
-    gap: metrics.widgetGap,
+    type: 'widget', padding: metrics.padding, gap: metrics.widgetGap,
     backgroundColor: WIDGET_COLORS.background,
-    refreshAfter: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+    refreshAfter: new Date(Date.now() + 600000).toISOString(),
     children: [
-      {
-        type: 'stack',
-        direction: 'row',
-        alignItems: 'center',
-        gap: metrics.headerGap,
-        children: [
-          iconNode(ok ? 'checkmark.shield.fill' : 'exclamationmark.triangle.fill', accent, 18),
-          textNode(redactSensitiveText(title), metrics.titleSize, 'semibold', WIDGET_COLORS.text),
-        ],
-      },
-      ...shownLines.map((line) => textNode(line)),
+      widgetRow([iconNode(ok ? 'checkmark.shield.fill' : 'exclamationmark.triangle.fill', ok ? WIDGET_COLORS.green : WIDGET_COLORS.red, 15), widgetText(title, metrics.titleSize, WIDGET_COLORS.text, 'semibold')]),
+      ...lines.slice(0, maxLines).map(line => ({ ...widgetText(line, metrics.bodySize), maxLines: 2 })),
     ],
   };
-}
-
-function shortHost(host) {
-  const text = String(host || 'PO0');
-  return text.length > 18 ? `${text.slice(0, 17)}...` : text;
 }
 
 function targetName(target) {
   const host = target.host || 'PO0';
   const port = target.port ? `:${target.port}` : '';
   return `${target.sourceId || 'egern'}@${host}${port}`;
-}
-
-function targetDisplayValue(target) {
-  const name = `${target.sourceId || 'egern'}@${shortHost(target.host)}`;
-  if (target.skipped) return `${name} 已跳过`;
-  if (target.ok) return `${name} TTL ${ttlRemaining(target.expiresAt)}`;
-  return `${name} 失败: ${target.error || '未知错误'}`;
-}
-
-function targetSummaryRows(state, ctx, metrics = widgetMetrics(ctx)) {
-  const targets = Array.isArray(state.targets) ? state.targets : [];
-  const family = widgetFamily(ctx);
-  const maxTargets = family.includes('small') ? 0 : family.includes('large') ? 4 : 2;
-  if (maxTargets === 0) return [];
-  if (targets.length === 0) {
-    if (state.expiresAt) {
-      return [rowNode('server.rack', WIDGET_COLORS.green, '目标1', `${state.sourceId || 'egern'} TTL ${ttlRemaining(state.expiresAt)}`, WIDGET_COLORS.text, metrics)];
-    }
-    return [];
-  }
-  return targets.slice(0, maxTargets).map((target, index) => {
-    const ok = Boolean(target.ok);
-    return rowNode(
-      target.skipped ? 'pause.circle.fill' : ok ? 'server.rack' : 'exclamationmark.triangle.fill',
-      target.skipped ? WIDGET_COLORS.yellow : ok ? WIDGET_COLORS.green : WIDGET_COLORS.red,
-      `目标${index + 1}`,
-      targetDisplayValue(target),
-      target.skipped ? WIDGET_COLORS.yellow : ok ? WIDGET_COLORS.text : WIDGET_COLORS.red,
-      metrics,
-    );
-  });
 }
 
 function officialStatusText(entry) {
@@ -913,151 +792,133 @@ function officialDisplaySlot(slot) {
 }
 
 function officialWhitelistText(entry) {
-  const currentIp = entry?.currentIp || '';
   const rows = Array.isArray(entry?.whitelist) ? entry.whitelist : [];
-  if (rows.length === 0) return '空';
-  return rows.map((row) => {
-    const marker = row.ip === currentIp && (entry?.slot === null || row.slot === entry?.slot) ? ' 当前' : '';
-    const displaySlot = officialDisplaySlot(row.slot);
-    const slot = displaySlot === null ? '自动' : `#${displaySlot}`;
-    return `${row.ip} ${slot}${marker}`;
-  }).join('，');
+  return rows.length ? rows.map(row => `${row.ip} #${officialDisplaySlot(row.slot) || '自动'}`).join('，') : '空';
 }
 
-function officialSummaryRows(state, ctx, metrics = widgetMetrics(ctx)) {
-  const official = state?.official;
-  if (!official) return [];
-  const entries = Array.isArray(official.entries) ? official.entries : [];
+function widgetTargets(state, env, deviceId) {
+  const previous = Array.isArray(state?.targets) ? state.targets : [];
+  if (!workerConfigRequested(env)) return [];
+  try {
+    return parseTargets(env, deviceId).map(target => ({
+      ...target,
+      ...previous.find(item => item.sourceId === target.sourceId && item.host === target.host && Number(item.port || 22) === target.port),
+      // Configuration supplies the current display name and effective TTL, even before a new report.
+      identity: target.identity, ttlSeconds: target.ttlSeconds,
+    }));
+  } catch (_) { return previous; }
+}
+
+function widgetOfficialEntries(state, env) {
+  if (!officialTokensConfigured(env)) return [];
+  const previous = Array.isArray(state?.official?.entries) ? state.official.entries : [];
+  try {
+    return parseOfficialTokens(env.PO0_FIREWALL_TOKENS).map((item, index) => ({
+      ...(previous.find(entry => entry.accountKey === shortHash(item.token) && entry.fixedSlot === item.slot) || (state?.official?.status === 'config-error' ? previous[0] : {}) || {}),
+      ordinal: index + 1,
+      name: officialAccountName(env, index),
+      fixedSlot: item.slot,
+    }));
+  } catch (_) { return previous.map((entry, index) => ({ ...entry, name: officialAccountName(env, index) })); }
+}
+
+function widgetAutoState(configured, enabled, ssidMatched) {
+  if (!configured) return { text: '未配置', icon: 'circle.dashed', color: WIDGET_COLORS.dim };
+  if (!enabled) return { text: '自动停用', icon: 'pause.circle.fill', color: WIDGET_COLORS.yellow };
+  if (ssidMatched) return { text: 'SSID跳过', icon: 'wifi.slash', color: WIDGET_COLORS.blue };
+  return { text: '自动开启', icon: 'clock.arrow.circlepath', color: WIDGET_COLORS.green };
+}
+
+function widgetLane(title, auto, entries, official, ctx, env) {
+  const metrics = widgetMetrics(ctx);
   const family = widgetFamily(ctx);
-  if (entries.length === 0) {
-    return [rowNode('shield.lefthalf.filled', WIDGET_COLORS.yellow, '官方', '暂无状态', WIDGET_COLORS.yellow, metrics)];
-  }
-  const maxEntries = family.includes('large') ? 3 : 1;
-  const rows = [];
-  entries.slice(0, maxEntries).forEach((entry, index) => {
-    const color = entry.status === 'error' ? WIDGET_COLORS.red
-      : entry.status === 'missing' ? WIDGET_COLORS.yellow : WIDGET_COLORS.green;
-    const name = entry.name || `官方${entry.ordinal || index + 1}`;
-    const displaySlot = officialDisplaySlot(entry.fixedSlot);
-    const fixedSlot = displaySlot === null ? '未固定' : `#${displaySlot}`;
-    const quota = `${entry.used || 0}/${entry.limit || 0}`;
-    if (family.includes('small')) {
-      rows.push(rowNode('shield.lefthalf.filled', color, name, `${entry.currentIp || '未知'} · ${officialStatusText(entry)} · 槽位 ${fixedSlot}`, color, metrics));
-      rows.push(rowNode('list.bullet.rectangle', WIDGET_COLORS.blue, '白名单', `${officialWhitelistText(entry)} · 名额 ${quota}`, WIDGET_COLORS.text, metrics));
-    } else {
-      rows.push(rowNode('shield.lefthalf.filled', color, name, `${entry.currentIp || '未知'} · ${officialStatusText(entry)}`, color, metrics));
-      rows.push(rowNode('list.bullet.rectangle', WIDGET_COLORS.blue, '白名单', officialWhitelistText(entry), WIDGET_COLORS.text, metrics));
-      rows.push(rowNode('5.square.fill', WIDGET_COLORS.blue, '名额', quota, WIDGET_COLORS.text, metrics));
-      rows.push(rowNode('square.dashed', WIDGET_COLORS.blue, '固定槽位', fixedSlot, WIDGET_COLORS.text, metrics));
-    }
+  const limit = family === 'small' ? 1 : family === 'large' ? 3 : 2;
+  const shown = entries.slice(0, limit);
+  const children = [widgetRow([
+    widgetText(title, metrics.bodySize, WIDGET_COLORS.heading, 'semibold'), spacerNode(),
+    iconNode(auto.icon, auto.color, 11), widgetText(auto.text, 11, auto.color),
+  ], 3)];
+  shown.forEach(entry => {
+    const name = official ? entry.name : (entry.identity && entry.identity !== 'egern' ? entry.identity : entry.sourceId || entry.host);
+    const success = official ? entry.status === 'hit' || entry.status === 'updated' : entry.ok === true;
+    const failed = official ? entry.status === 'error' : entry.ok === false;
+    const result = official ? success ? '已加白' : entry.status === 'missing' ? '未加白' : failed ? '失败' : '待检查'
+      : success ? '成功' : failed ? '失败' : '待上报';
+    const color = failed ? WIDGET_COLORS.red : success ? WIDGET_COLORS.green : WIDGET_COLORS.dim;
+    const suffix = entries.length > limit && entry === shown[shown.length - 1] ? ` +${entries.length - limit}` : '';
+    children.push(widgetRow([
+      { ...widgetText((name || '目标') + suffix, metrics.bodySize, WIDGET_COLORS.text, 'medium'), flex: 1 },
+      ...(family === 'large' ? [widgetText(official ? '#' + (officialDisplaySlot(entry.fixedSlot) || '自动') + ' · ' + (entry.used ?? '?') + '/' + (entry.limit ?? 5) : 'TTL ' + formatDurationSeconds(entry.ttlSeconds), 11, WIDGET_COLORS.dim)] : []),
+      widgetText(result, 12, color),
+    ]));
   });
-  if (entries.length > maxEntries) {
-    rows.push(rowNode('ellipsis.circle', WIDGET_COLORS.dim, '其他', `还有 ${entries.length - maxEntries} 个官方账号`, WIDGET_COLORS.dim, metrics));
+  if (!shown.length && family !== 'small') children.push(widgetText(auto.text === '未配置' ? '尚未设置目标' : '等待首次结果', metrics.bodySize, WIDGET_COLORS.dim));
+  if (family !== 'small') {
+    const first = shown[0];
+    const fixed = officialDisplaySlot(first?.fixedSlot);
+    const detail = entries.length > 1 || family === 'large'
+      ? `${entries.length} 个${official ? '账号 · 检查 10分钟' : '目标 · 周期 ' + formatDurationSeconds(autoReportIntervalSeconds(env))}`
+      : official ? (first ? `固定槽位 ${fixed ? '#' + fixed : '自动'} · 名额 ${first.used ?? '?'}/${first.limit ?? 5}` : '检查周期 10 分钟')
+      : (first ? `TTL ${formatDurationSeconds(first.ttlSeconds)} · 周期 ${formatDurationSeconds(autoReportIntervalSeconds(env))}` : 'TTL 在每条目标内设置');
+    children.push(widgetText(detail, 11, WIDGET_COLORS.dim));
   }
-  return rows;
+  return { type: 'stack', direction: 'column', alignItems: 'start', gap: metrics.cardGap, flex: family === 'medium' ? 1 : 0, children };
+}
+
+function officialReadOnlyWidget(state, ctx, env) {
+  const metrics = widgetMetrics(ctx);
+  const entries = widgetOfficialEntries(state, env);
+  const lines = ['本次只查询，不新增白名单。'];
+  for (const entry of entries) {
+    lines.push(entry.name + ' · ' + officialStatusText(entry));
+    lines.push(`出口 ${entry.currentIp || '未知'} · 固定槽位 ${officialDisplaySlot(entry.fixedSlot) ? '#' + officialDisplaySlot(entry.fixedSlot) : '自动'}`);
+    lines.push(`白名单 ${officialWhitelistText(entry)} · 名额 ${entry.used ?? '?'}/${entry.limit ?? 5}`);
+  }
+  if (!entries.length) lines.push(state?.error || '官方防火墙尚无结果。');
+  return {
+    type: 'widget', padding: metrics.padding, gap: 5, backgroundColor: WIDGET_COLORS.background,
+    children: [widgetText('官方防火墙 · 只读状态', 14, WIDGET_COLORS.text, 'semibold'), ...lines.map(line => ({ ...widgetText(line, 12), maxLines: 2 }))],
+  };
 }
 
 function widgetFromState(state, ctx, deviceId = '', env = ctx?.env || {}) {
-  const ok = Boolean(state?.ok);
-  const skipped = Boolean(state?.skipped && state?.skipType === 'wifi-ssid');
+  if (isOfficialStatusRun(ctx)) return officialReadOnlyWidget(state, ctx, env);
   const family = widgetFamily(ctx);
   const metrics = widgetMetrics(ctx);
-  const isSmall = family.includes('small');
-  const network = normalizeNetworkInfo(state?.network);
-  const ipProfile = normalizeIpProfile(state?.ipProfile);
-  const reportedCidr = state?.reportedCidr || (state?.ip ? `${state.ip}/32` : '');
-  const deviceName = deviceDisplayName(deviceId || state?.deviceId || '');
-  const targets = Array.isArray(state?.targets) ? state.targets : [];
-  const successCount = state?.successCount ?? targets.filter((target) => target.ok).length;
-  const targetCount = state?.targetCount ?? targets.length;
-  const statusColor = skipped ? WIDGET_COLORS.yellow : ok ? WIDGET_COLORS.green : WIDGET_COLORS.red;
-  const statusIcon = skipped ? 'pause.circle.fill' : ok ? 'checkmark.shield.fill' : 'exclamationmark.triangle.fill';
-  const timeText = formatTime(skipped ? state?.checkedAt || state?.at : state?.at || state?.official?.checkedAt || state?.checkedAt);
-
-  if (!state) {
-    return widgetPanel(REPORT_TITLE, [`设备: ${deviceName}`, '暂无上报状态。', '点按刷新即可立即上报。'], false, ctx);
-  }
-
-  const publicRows = [
-    rowNode('globe.asia.australia.fill', WIDGET_COLORS.blue, '公网', state.ip || (skipped ? '本次未探测' : '未知'), WIDGET_COLORS.text, metrics),
-    rowNode('point.3.connected.trianglepath.dotted', WIDGET_COLORS.blue, 'CIDR', reportedCidr || (skipped ? '本次未上传' : '未知'), WIDGET_COLORS.text, metrics),
-    rowNode('mappin.and.ellipse', WIDGET_COLORS.blue, '位置', trimDisplayText(ipProfile.location || (skipped ? '沿用上次或未探测' : '未知'), 28), WIDGET_COLORS.text, metrics),
-    rowNode('building.2.fill', WIDGET_COLORS.blue, '运营商', trimDisplayText(ipProfile.isp || (skipped ? '沿用上次或未探测' : '未知'), 28), WIDGET_COLORS.text, metrics),
+  const network = ctx?.device ? networkInfo(ctx) : normalizeNetworkInfo(state?.network);
+  const ssid = currentWifiSsidFromNetwork(ctx, network);
+  const ssidMatched = Boolean(ssid && normalizeSsidSkipList(env.SKIP_WIFI_SSIDS).includes(ssid));
+  const targets = widgetTargets(state, env, deviceId);
+  const entries = widgetOfficialEntries(state, env);
+  const workerAuto = widgetAutoState(workerConfigRequested(env), boolEnv(env.WORKER_AUTO_ENABLED, true), ssidMatched);
+  const officialAuto = widgetAutoState(officialTokensConfigured(env), boolEnv(env.OFFICIAL_AUTO_ENABLED, true), ssidMatched);
+  const worker = widgetLane('自建', workerAuto, targets, false, ctx, env);
+  const official = widgetLane('官方', officialAuto, entries, true, ctx, env);
+  const lastTime = state?.at || state?.official?.lastSuccessAt || state?.checkedAt;
+  const ip = state?.ip || state?.official?.currentIp?.replace(/\/\d+$/, '') || '暂无出口结果';
+  const small = family === 'small';
+  const networkText = ssid || network.value || '';
+  const note = state?.uiNotice || (state?.error ? '上报未完成 · ' + redactSensitiveText(state.error) : state?.skipped && state?.skipType === 'wifi-ssid'
+    ? '本次 SSID 跳过 · 保留上次结果'
+    : state?.skipped ? '本次无需续报 · 保留上次结果'
+    : shouldReturnWidget(ctx) ? '本次强制上报 · 自动开关保持不变' : '最近上报结果');
+  const children = [
+    widgetRow([widgetText(small ? 'PO0 防火墙' : REPORT_TITLE, metrics.titleSize, WIDGET_COLORS.text, 'semibold'), spacerNode(), widgetText(lastTime ? formatTime(lastTime) : '未上报', 11, WIDGET_COLORS.dim)]),
+    widgetRow([{ ...widgetText(ip, metrics.bodySize), flex: 1 }, ...(!small && networkText ? [widgetText(networkText, 11, WIDGET_COLORS.dim)] : [])]),
   ];
-  const networkRows = [
-    rowNode(network.icon, WIDGET_COLORS.blue, network.label, network.value, WIDGET_COLORS.text, metrics),
-    rowNode('iphone', WIDGET_COLORS.blue, '本机', network.localIp || '未知', WIDGET_COLORS.text, metrics),
-    rowNode('wifi.router.fill', WIDGET_COLORS.blue, '网关', network.gateway || '不适用', WIDGET_COLORS.text, metrics),
-    rowNode('timer', WIDGET_COLORS.blue, '周期', formatDurationSeconds(autoReportIntervalSeconds(env)), WIDGET_COLORS.text, metrics),
-  ];
-  const summaryRow = summaryRowNode(deviceName, skipped ? 'SSID 跳过' : `${successCount}/${targetCount || 1} 成功`, statusColor, metrics);
-  const targetRows = targetSummaryRows(state, ctx, metrics);
-  const officialRows = officialSummaryRows(state, ctx, metrics);
-  if (!isSmall && skipped) {
-    targetRows.unshift(rowNode('pause.circle.fill', WIDGET_COLORS.yellow, '本次', 'SSID 命中，未探测/未上传', WIDGET_COLORS.yellow, metrics));
+  if (family === 'medium') children.push(widgetRow([worker, official], 14));
+  else children.push(worker, official);
+  if (family === 'large') {
+    const profile = normalizeIpProfile(state?.ipProfile);
+    const details = [deviceId || state?.deviceId, profile.location, profile.isp].filter(Boolean).join(' · ');
+    if (details) children.push(widgetText(details, 12, WIDGET_COLORS.dim));
   }
-  if (!isSmall && !ok && targetRows.length === 0) {
-    targetRows.push(rowNode('exclamationmark.triangle.fill', WIDGET_COLORS.red, '原因', state.error || '未知错误', WIDGET_COLORS.red, metrics));
-  }
-  const bottomBlock = isSmall ? summaryRow : {
-    type: 'stack',
-    direction: 'column',
-    gap: metrics.bottomGap,
-    children: [
-      { type: 'stack', height: 0.5, backgroundColor: WIDGET_COLORS.line },
-      summaryRow,
-      { type: 'stack', height: 0.5, backgroundColor: WIDGET_COLORS.line },
-      ...targetRows,
-    ],
-  };
-
-  const officialBlock = !isSmall && officialRows.length > 0 ? {
-    type: 'stack',
-    direction: 'column',
-    gap: metrics.bottomGap,
-    children: [sectionTitleNode('官方防火墙', metrics), ...officialRows],
-  } : null;
-  const detailChildren = isSmall ? [
-    publicRows[0],
-    publicRows[1],
-    networkRows[0],
-    ...officialRows.slice(0, 2),
-    bottomBlock,
-  ] : [
-    {
-      type: 'stack',
-      direction: 'row',
-      gap: metrics.columnGap,
-      children: [
-        { type: 'stack', direction: 'column', gap: metrics.columnInnerGap, flex: 1, children: [sectionTitleNode('公网出口', metrics), ...publicRows] },
-        { type: 'stack', direction: 'column', gap: metrics.columnInnerGap, flex: 1, children: [sectionTitleNode('本机状态', metrics), ...networkRows] },
-      ],
-    },
-    ...(officialBlock ? [officialBlock] : []),
-    bottomBlock,
-  ];
-
+  if (!small) children.push(widgetText(note, 11, WIDGET_COLORS.dim));
+  else if (state?.uiNotice) children[0].children[2] = widgetText('上报中', 11, WIDGET_COLORS.yellow);
   return {
-    type: 'widget',
-    padding: metrics.padding,
-    gap: metrics.widgetGap,
+    type: 'widget', padding: metrics.padding, gap: metrics.widgetGap,
     backgroundColor: WIDGET_COLORS.background,
-    refreshAfter: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
-    children: [
-      {
-        type: 'stack',
-        direction: 'row',
-        alignItems: 'center',
-        gap: metrics.headerGap,
-        children: [
-          iconNode(statusIcon, statusColor, metrics.headerIconSize),
-          textNode(REPORT_TITLE, metrics.titleSize, 'semibold', WIDGET_COLORS.text),
-          spacerNode(),
-          textNode(timeText, metrics.timeSize, 'regular', WIDGET_COLORS.dim),
-        ],
-      },
-      ...detailChildren,
-    ],
+    refreshAfter: new Date(Date.now() + 600000).toISOString(), children,
   };
 }
 
@@ -1596,6 +1457,7 @@ async function shouldSkipUnchangedAutoReport(ctx, env, targets, ip, reportedCidr
 function sanitizeOfficialEntry(entry = {}) {
   const clean = {
     name: String(entry.name || ''),
+    accountKey: /^[0-9a-f]{1,8}$/.test(String(entry.accountKey || '')) ? String(entry.accountKey) : '',
     ordinal: Number.isInteger(entry.ordinal) ? entry.ordinal : 0,
     slot: Number.isInteger(entry.slot) ? entry.slot : null,
     fixedSlot: Number.isInteger(entry.fixedSlot) ? entry.fixedSlot : null,
@@ -1742,6 +1604,7 @@ async function runOfficialFirewall(ctx, env, mode = 'report') {
 
   const runOfficialAccount = async (item, index) => {
     const entry = {
+      accountKey: shortHash(item.token),
       name: officialAccountName(env, index),
       ordinal: index + 1,
       slot: item.slot,
@@ -1976,9 +1839,11 @@ async function handleDeviceClearScript(ctx) {
 }
 
 function targetValue(target, env, keys, fallback = '') {
-  for (const key of keys) {
-    const value = target?.[key] ?? env?.[key];
-    if (String(value || '').trim()) return String(value).trim();
+  for (const source of [target, env]) {
+    for (const key of keys) {
+      const value = source?.[key];
+      if (String(value ?? '').trim()) return String(value).trim();
+    }
   }
   return fallback;
 }
@@ -2384,10 +2249,11 @@ async function handleLocalChannelAction(ctx, env, action) {
   }
   const rows = [message,
     '自建防火墙：' + (workerConfigRequested(next) ? boolEnv(next.WORKER_AUTO_ENABLED, true) ? '自动上报启用' : '自动上报停用（配置保留）' : '未配置'),
-    '自建上报周期：' + autoReportIntervalSeconds(next) + ' 秒；TTL：' + (next.TTL_SECONDS || DEFAULT_TTL_SECONDS) + ' 秒（上报目标末列可分别设置）',
+    '自建上报周期：' + autoReportIntervalSeconds(next) + ' 秒（不是白名单 TTL）',
     '官方防火墙：' + (officialTokensConfigured(next) ? boolEnv(next.OFFICIAL_AUTO_ENABLED, true) ? '自动上报启用' : '自动上报停用（配置保留）' : '未配置'),
     '官方周期固定 600 秒；TTL 由官方服务管理。',
     '官方目标名称：' + (next.PO0_FIREWALL_NAMES || '按账号编号显示'),
+    ...widgetTargets(null, next, await storedDeviceId(ctx)).map(target => (target.identity !== 'egern' ? target.identity : target.sourceId) + ' · 生效 TTL ' + target.ttlSeconds + ' 秒'),
     'SSID 跳过：' + (next.SKIP_WIFI_SSIDS || '未设置') + '；匹配时同时跳过两个自动上报通道。',
     '定时 / 网络变化共用两个通道；手动操作仍沿用原有强制上报规则。',
   ].filter(Boolean);
@@ -2560,6 +2426,7 @@ async function runEgernReportUnlocked(ctx) {
         reportedCidr,
         cidrPrefix,
         skipped: true,
+        skipType: 'unchanged',
         checkedAt: new Date().toISOString(),
         targetConfigSignature: skipDecision.currentConfigSignature,
         skipReason: `上报 CIDR 未变化${changedInsideCidr}，距离上次成功 ${skipDecision.ageSeconds}s，小于自动刷新间隔 ${skipDecision.refreshAfter}s`,
@@ -2728,8 +2595,7 @@ async function unavailableReportResult(ctx, status) {
   if (!shouldReturnWidget(ctx)) return { ...(previous || {}), ok: false, status, error: message };
   let panel;
   if (busy && previous) {
-    panel = widgetFromState(previous, ctx, deviceId, env);
-    panel.children.splice(1, 0, textNode('正在上报，暂显示上次结果', 'caption2', 'regular', WIDGET_COLORS.yellow));
+    panel = widgetFromState({ ...previous, uiNotice: '正在上报 · 显示上次结果' }, ctx, deviceId, env);
   } else {
     panel = widgetPanel(REPORT_TITLE, [
       busy ? '正在上报，请稍后刷新。' : message,
