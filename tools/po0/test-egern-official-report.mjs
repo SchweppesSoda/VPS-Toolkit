@@ -226,7 +226,7 @@ async function testMissingReportsWithFixedSlotAndNotifiesUpdate() {
   assert.equal(visibleText(calls.notifications).includes(token), false);
 }
 
-async function testSlotMismatchPostsButStatusAndWidgetRemainReadOnly() {
+async function testSlotMismatchPostsOnWidgetButOfficialStatusRemainsReadOnly() {
   const token = 'pgnfw_egern_slot_not_real';
   const { ctx, calls, storage } = createContext({
     trigger: 'PO0 官方防火墙状态（只读）',
@@ -247,14 +247,82 @@ async function testSlotMismatchPostsButStatusAndWidgetRemainReadOnly() {
     widgetFamily: 'systemMedium',
     env: { PO0_FIREWALL_TOKENS: `${token}@0` },
     httpGet() { return response(officialPayload({ whitelist: [{ ip: '203.0.113.10/24', slot: 1 }] })); },
-    httpPost() { throw new Error('official widget must not POST'); },
+    httpPost() { return response(officialPayload({ whitelist: [{ ip: '203.0.113.10/24', slot: 0 }] })); },
   });
   const widget = await runEgernReport(widgetRun.ctx);
-  assert.equal(widgetRun.calls.post.length, 0);
+  assert.equal(widgetRun.calls.post.length, 1);
+  assert.equal(widgetRun.calls.post[0].url, API_BASE + '/' + token + '/add?slot=0');
+  assert.deepEqual(widgetRun.calls.order, ['GET ' + API_BASE + '/' + token, 'POST ' + API_BASE + '/' + token + '/add?slot=0']);
+  assert.equal((await officialStateOf(widgetRun.storage)).entries[0].status, 'updated');
   assert.equal(widget.type, 'widget');
   assert.equal(visibleText(widget).includes('固定槽位'), true);
   assert.equal(visibleText(widget).includes('#1'), true);
   assert.equal(visibleText(widget).includes(token), false);
+}
+
+async function testWidgetAndReportStatusInitializeSavedToken() {
+  const token = 'pgnfw_egern_widget_initialize_not_real';
+  const now = 1000000000;
+  globalThis.__PO0_EGERN_TEST_NOW = now;
+  for (const scenario of [
+    { trigger: 'PO0 防火墙上报状态', widgetFamily: 'systemMedium', ssid: 'CafeWiFi' },
+    { trigger: 'PO0 防火墙上报状态', widgetFamily: 'systemMedium', ssid: 'HomeWiFi' },
+    { trigger: 'PO0 防火墙上报状态', ssid: 'HomeWiFi' },
+    { trigger: 'PO0 SSH 上报状态', widgetFamily: 'systemMedium', ssid: 'CafeWiFi' },
+    { trigger: 'PO0 SSH 上报状态', widgetFamily: 'systemMedium', ssid: 'HomeWiFi' },
+    { trigger: 'PO0 SSH 上报状态', ssid: 'CafeWiFi' },
+    { trigger: 'schedule', widgetFamily: 'systemMedium', ssid: 'HomeWiFi' },
+  ]) {
+    const storage = createStorage({
+      [CONFIG_STORAGE_KEY]: JSON.stringify({ version: 1, values: {
+        PO0_FIREWALL_TOKENS: token + '@2', SKIP_WIFI_SSIDS: 'HomeWiFi',
+      } }),
+      [OFFICIAL_STORAGE_KEY]: JSON.stringify({
+        version: 1, ok: true, status: 'success', entries: [],
+        lastAttemptAt: new Date(now - 1000).toISOString(),
+      }),
+    });
+    const readOnly = createContext({
+      trigger: 'PO0 官方防火墙状态（只读）', storage, ssid: scenario.ssid,
+    });
+    const before = await runEgernReport(readOnly.ctx);
+    assert.equal(readOnly.calls.get.length, 1);
+    assert.equal(readOnly.calls.post.length, 0);
+    assert.match(visibleText(before), /当前出口未加白（只读）/);
+
+    let whitelist = [];
+    const refresh = createContext({
+      ...scenario, storage,
+      env: { PO0_FIREWALL_TOKENS: 'pgnfw_synced_other_device_not_real@4' },
+      httpGet(url, options) {
+        assert.equal(url, API_BASE + '/' + token);
+        assert.equal(options.policy, 'DIRECT');
+        return response(officialPayload({ whitelist }));
+      },
+      httpPost(url, options) {
+        assert.equal(url, API_BASE + '/' + token + '/add?slot=2');
+        assert.equal(options.policy, 'DIRECT');
+        whitelist = [{ ip: '203.0.113.10/24', slot: 2 }];
+        return response(officialPayload({ whitelist }));
+      },
+    });
+    const widget = await runEgernReport(refresh.ctx);
+    assert.equal(widget.type, 'widget');
+    assert.deepEqual(refresh.calls.order, ['GET ' + API_BASE + '/' + token, 'POST ' + API_BASE + '/' + token + '/add?slot=2']);
+    const official = await officialStateOf(storage);
+    assert.equal(official.status, 'success');
+    assert.equal(official.entries[0].status, 'updated');
+    assert.equal(official.lastAttemptAt, new Date(now).toISOString());
+    assert.equal(official.lastSuccessAt, new Date(now).toISOString());
+    assert.match(visibleText(widget), /已更新当前出口/);
+    assert.doesNotMatch(visibleText(widget), /当前出口未加白/);
+
+    await runEgernReport(refresh.ctx);
+    assert.equal(refresh.calls.get.length, 2, 'each refresh must check even within the automatic interval');
+    assert.equal(refresh.calls.post.length, 1, 'a matching slot must not be written again');
+    assert.equal((await officialStateOf(storage)).entries[0].status, 'hit');
+    assert.equal(visibleText({ widget, official, logs: refresh.calls.logs, notifications: refresh.calls.notifications }).includes(token), false);
+  }
 }
 
 async function testValidMissingStatusReturnsSuccessWithoutPost() {
@@ -900,12 +968,12 @@ async function testFlexibleOfficialSeparators() {
   assert.equal(calls.post.length, 0);
 }
 
-async function testIndependentChannelControlsAndNames() {
+async function checkIndependentChannelControlsAndNames(actionNames) {
   const values = { PO0_HOST: 'po0.example.com', SSH_REPORT_TOKEN: 'ssh-fixture', PO0_PASSWORD: 'password-fixture', IP_CHECK_URLS: 'https://example.com/ip', SKIP_WIFI_SSIDS: 'HomeWiFi', PO0_FIREWALL_TOKENS: 'pgnfw_first,pgnfw_second', PO0_FIREWALL_NAMES: '家庭;办公室', TTL_SECONDS: '7200' };
   const storage = createStorage({ [CONFIG_STORAGE_KEY]: JSON.stringify({ version: 1, values }) });
   const commands = [];
   const call = async (trigger, env = {}, ssid = '') => {
-    const fixture = createContext({ storage, trigger, env, ssid,
+    const fixture = createContext({ storage, trigger: actionNames[trigger] || trigger, env, ssid,
       httpGet(url) { return url.includes('/api/firewall/') ? response(officialPayload({ whitelist: [{ ip: '203.0.113.10/24', slot: 0 }] })) : response({ ip: '203.0.113.50' }); },
       sshConnect() { return { async exec(command) { commands.push(command); return { code: 0, stdout: 'SSH OK' }; }, async close() {} }; },
     });
@@ -930,6 +998,9 @@ async function testIndependentChannelControlsAndNames() {
   assert.equal(report.calls.ssh, 1);
   assert(!report.calls.get.some(x => x.url.includes('/api/firewall/')));
   assert(commands[0].includes("'7200'"), 'existing custom SSH TTL must still enter the original command');
+  report = await call('仅官方防火墙立即上报', {}, 'HomeWiFi');
+  assert.equal(report.calls.ssh, 0);
+  assert.equal(report.calls.get.length, 2, 'official-only force must bypass disabled automatic flags and SSID');
   await call('切换自建 PO0 自动上报');
   report = await call('schedule', {}, 'HomeWiFi');
   assert.equal(report.calls.get.length, 0, 'SSID must still guard the active Worker lane');
@@ -948,15 +1019,57 @@ async function testIndependentChannelControlsAndNames() {
   assert.equal(view.calls.ssh, 0);
 }
 
+async function testIndependentChannelControlsAndNames() {
+  for (const actionNames of [{}, {"保存本机自建 PO0 / 通用设置":"保存本机 PO0 自建防火墙配置","切换自建 PO0 自动上报":"切换自建防火墙自动上报","仅自建 PO0 立即上报":"仅自建防火墙强制上报","清除本机自建 PO0 配置":"清除本机自建防火墙配置","仅官方防火墙立即上报":"仅官方防火墙强制上报"}]) {
+    await checkIndependentChannelControlsAndNames(actionNames);
+  }
+}
+
+async function testNamedForceActionRunsBothLanesDespiteSsidAndDue() {
+  const token = 'pgnfw_force_both_lanes_not_real';
+  const now = 1000000000;
+  globalThis.__PO0_EGERN_TEST_NOW = now;
+  const storage = createStorage({
+    [OFFICIAL_STORAGE_KEY]: JSON.stringify({
+      version: 1, ok: true, status: 'success', entries: [], lastAttemptAt: new Date(now - 1000).toISOString(),
+    }),
+  });
+  const { ctx, calls } = createContext({
+    trigger: '强制上报 PO0 防火墙', ssid: 'HomeWiFi', storage,
+    env: {
+      PO0_FIREWALL_TOKENS: token + '@0', SKIP_WIFI_SSIDS: 'HomeWiFi',
+      SSH_REPORT_TARGETS: '{device}|po0.example.com||||ssh-force-token-not-real',
+      PO0_PASSWORD: 'password-not-real', IP_CHECK_URLS: 'https://example.com/ip',
+    },
+    httpGet(url) {
+      if (url === API_BASE + '/' + token) return response(officialPayload());
+      assert.equal(url, 'https://example.com/ip');
+      return response({ ip: '203.0.113.10', country: 'Test', isp: 'Test' });
+    },
+  });
+  const result = await runEgernReport(ctx);
+  assert.equal(result.ok, true);
+  assert.deepEqual(calls.order, [
+    'GET ' + API_BASE + '/' + token,
+    'POST ' + API_BASE + '/' + token + '/add?slot=0',
+    'GET https://example.com/ip', 'SSH',
+  ]);
+  assert.equal(result.official.entries[0].status, 'updated');
+  assert.equal((await officialStateOf(storage)).lastSuccessAt, new Date(now).toISOString());
+  assert.equal(visibleText(result).includes(token), false);
+}
+
 const tests = [
   testIndependentChannelControlsAndNames,
   testFlexibleOfficialSeparators,
+  testNamedForceActionRunsBothLanesDespiteSsidAndDue,
   testScopedSavesDoNotOverwriteOtherChannel,
   testSavedSlotSurvivesSyncedEnvironment,
   testHitUsesDirectGetOnlyAndStaysQuiet,
   testOfficialOnlyIgnoresSshSchemaDefaults,
   testMissingReportsWithFixedSlotAndNotifiesUpdate,
-  testSlotMismatchPostsButStatusAndWidgetRemainReadOnly,
+  testWidgetAndReportStatusInitializeSavedToken,
+  testSlotMismatchPostsOnWidgetButOfficialStatusRemainsReadOnly,
   testValidMissingStatusReturnsSuccessWithoutPost,
   testGetFailureNeverPostsAndDoesNotLeakToken,
   testHttpGetFailureNeverPosts,

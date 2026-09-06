@@ -435,7 +435,7 @@ async function testMissingConfigIsSilentForAutomaticRunsAndGuidedForManualRuns()
   assert.equal(manualRun.calls.http, 0);
   assert.equal(manualRun.calls.ssh, 0);
   assert.equal(manualRun.calls.notifications.length, 0);
-  assert.equal(serializedResult(manualResult).includes('保存本机自建 PO0 / 通用设置'), true);
+  assert.equal(serializedResult(manualResult).includes('保存本机 PO0 自建防火墙配置'), true);
 }
 
 async function testCompleteLegacyEnvBootstrapsNativeStorage() {
@@ -486,7 +486,65 @@ async function testClearConfigKeepsDeviceId() {
   assert.equal((await readStoredConfig(storage)).values.SSH_REPORT_TOKEN, undefined);
 }
 
+async function testTargetListOnlyConfigurationSavesAndReports() {
+  for (const action of ['保存本机 PO0 自建防火墙配置', '保存本机自建 PO0 / 通用设置']) {
+    for (const scenario of [
+      {
+        targets: '{device}|first.example.com||||target-list-token-one',
+        hosts: ['first.example.com'], ports: [22], users: ['root'], sources: ['local-phone'], ttls: [43200],
+      },
+      {
+        targets: '{device}-one|first.example.com|2222|reporter|/root/custom.sh|target-list-token-one|phone|7200,{device}-two|second.example.com||||target-list-token-two',
+        hosts: ['first.example.com', 'second.example.com'], ports: [2222, 22], users: ['reporter', 'root'],
+        sources: ['local-phone-one', 'local-phone-two'], ttls: [7200, 43200],
+      },
+    ]) {
+      const storage = createStorage({ [DEVICE_ID_KEY]: 'local-phone' });
+      const save = createContext({
+        trigger: action, completeEnv: false, storage,
+        env: {
+          SSH_REPORT_TARGETS: scenario.targets, PO0_PASSWORD: 'target-list-password',
+          IP_CHECK_URLS: 'https://example.com/ip',
+        },
+      });
+      const savedPanel = await runEgernReport(save.ctx);
+      assert.equal(save.calls.http + save.calls.ssh, 0, 'saving either action must not report');
+      const saved = await readStoredConfig(storage);
+      assert.equal(saved.values.SSH_REPORT_TARGETS, scenario.targets);
+      assert.equal(saved.values.PO0_HOST, undefined, 'list setup must not require legacy single-target fields');
+      const connections = [];
+      const commands = [];
+      const report = createContext({
+        trigger: '强制上报 PO0 防火墙', completeEnv: false, storage,
+        sshConnect(config) {
+          connections.push(config);
+          return {
+            async exec(command) { commands.push(command); return { code: 0, stdout: 'OK' }; },
+            async close() {},
+          };
+        },
+      });
+      const result = await runEgernReport(report.ctx);
+      assert.equal(result.ok, true);
+      assert.equal(report.calls.ssh, scenario.hosts.length);
+      assert.deepEqual(connections.map(item => item.host), scenario.hosts);
+      assert.deepEqual(connections.map(item => item.port), scenario.ports);
+      assert.deepEqual(connections.map(item => item.username), scenario.users);
+      assert.ok(connections.every(item => item.password === 'target-list-password'));
+      const state = await readStoredState(storage);
+      assert.deepEqual(state.targets.map(item => item.sourceId), scenario.sources);
+      assert.deepEqual(state.targets.map(item => item.ttlSeconds), scenario.ttls);
+      assert.ok(commands.every(command => command.includes('--ssh-ip-report')));
+      const visible = serializedResult({ savedPanel, result, notifications: [...save.calls.notifications, ...report.calls.notifications] });
+      assert.equal(visible.includes('target-list-password'), false);
+      assert.equal(visible.includes('target-list-token-one'), false);
+      assert.equal(visible.includes('target-list-token-two'), false);
+    }
+  }
+}
+
 const tests = [
+  testTargetListOnlyConfigurationSavesAndReports,
   testAutomaticMatchingSsidSkipsBeforeNetworkCalls,
   testAutomaticMatchingSsidPreservesPreviousSuccessState,
   testAutomaticUnmatchedWifiReports,

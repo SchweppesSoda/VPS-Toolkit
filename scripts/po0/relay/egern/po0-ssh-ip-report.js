@@ -16,8 +16,8 @@ const DEFAULT_AUTO_REPORT_INTERVAL_SECONDS = 3600;
 const MIN_AUTO_REPORT_INTERVAL_SECONDS = 600;
 const MAX_AUTO_REPORT_INTERVAL_SECONDS = 86400;
 const DEFAULT_CELLULAR_CIDR_PREFIX = 24;
-const REPORT_TITLE = 'PO0 出口上报';
-const REPORT_FAILED_TITLE = 'PO0 SSH IP 上报失败';
+const REPORT_TITLE = 'PO0 防火墙上报';
+const REPORT_FAILED_TITLE = 'PO0 防火墙上报失败';
 const PERSISTED_ENV_KEYS = [
   'PO0_HOST',
   'PO0_PORT',
@@ -644,7 +644,7 @@ function isDeviceClearRun(ctx) {
 }
 
 function isWorkerConfigSaveRun(ctx) {
-  return /保存本机自建 PO0 \/ 通用设置/.test(scriptLabel(ctx));
+  return /保存本机(?: PO0 自建防火墙配置|自建 PO0 \/ 通用设置)/.test(scriptLabel(ctx));
 }
 
 function isOfficialConfigSaveRun(ctx) {
@@ -1936,7 +1936,7 @@ async function handleDeviceHttpRequest(ctx) {
       `当前设备 ID: ${deviceDisplayName(deviceId)}`,
       '设置示例: http://po0-egern.local/set-device?id=iphone15pm',
       '清除: http://po0-egern.local/clear-device',
-      '设备 ID 不显示在模块设置表单里；请在 PO0 SSH 上报状态里确认。',
+      '设备 ID 不显示在模块设置表单里；请在 PO0 防火墙上报状态里确认。',
     ]);
   }
 
@@ -2161,7 +2161,7 @@ function reportConfigAuthSummary(targets) {
 }
 
 async function handleScopedConfigSaveScript(ctx, runtimeEnv, storedValues, deviceId, officialOnly) {
-  const title = officialOnly ? '官方防火墙配置' : '自建 PO0 / 通用设置';
+  const title = officialOnly ? '官方防火墙配置' : '自建防火墙 / 通用设置';
   try {
     let candidate;
     if (officialOnly) {
@@ -2180,7 +2180,7 @@ async function handleScopedConfigSaveScript(ctx, runtimeEnv, storedValues, devic
       const channels = validateReportChannels(workerEnv, deviceId);
       if (channels.workerError) throw channels.workerError;
       if (!channels.anyValid && !String(candidate.PO0_FIREWALL_TOKENS || '').trim()) {
-        throw new Error('请先配置自建 PO0 的 SSH 目标，或单独保存官方防火墙配置。');
+        throw new Error('请先填写自建防火墙上报目标和 SSH 认证，或单独保存官方防火墙配置。');
       }
     }
     await saveReportConfig(ctx, candidate);
@@ -2203,7 +2203,7 @@ async function handleReportConfigSaveScript(ctx, runtimeEnv, storedValues, devic
     await saveReportConfig(ctx, candidate);
     const summaryParts = [];
     if (channels.workerTargets.length > 0) {
-      summaryParts.push(`${channels.workerTargets.length} 个 SSH 目标，${reportConfigAuthSummary(channels.workerTargets)}`);
+      summaryParts.push(`${channels.workerTargets.length} 个自建防火墙目标，${reportConfigAuthSummary(channels.workerTargets)}`);
     }
     if (channels.officialTokens.length > 0) {
       summaryParts.push(`官方防火墙 ${channels.officialTokens.length} 个账号（内容不显示）`);
@@ -2235,7 +2235,7 @@ async function handleReportConfigClearScript(ctx) {
   return widgetPanel(REPORT_TITLE, [
     '本机 PO0 上报配置及最近状态已清除。',
     '本机设备 ID 保留不变。',
-    '如需恢复，请重新填写模块环境变量并运行“保存本机自建 PO0 / 通用设置”或“保存本机 PO0 官方防火墙配置”。',
+    '如需恢复，请重新填写模块环境变量并运行“保存本机 PO0 自建防火墙配置”或“保存本机 PO0 官方防火墙配置”。',
   ], true, ctx);
 }
 
@@ -2252,7 +2252,7 @@ async function handleOfficialConfigClearScript(ctx, storedValues) {
   notify(ctx, 'PO0 Egern Config', '本机官方防火墙 token 已清除');
   return widgetPanel(REPORT_TITLE, [
     '本机官方防火墙 token 已清除。',
-    'SSH 上报配置和本机设备 ID 保留不变。',
+    '自建防火墙配置和本机设备 ID 保留不变。',
     '如需恢复，请填写 PO0_FIREWALL_TOKENS 后运行“保存本机 PO0 官方防火墙配置”。',
   ], true, ctx);
 }
@@ -2273,7 +2273,7 @@ function missingReportConfigPanel(ctx, deviceId, error, env = ctx?.env || {}) {
     `设备: ${deviceDisplayName(deviceId)}`,
     '本机尚未保存 PO0 上报配置。',
     redactError(error, env),
-    '请填写模块环境变量并运行“保存本机自建 PO0 / 通用设置”或“保存本机 PO0 官方防火墙配置”。',
+    '请填写模块环境变量并运行“保存本机 PO0 自建防火墙配置”或“保存本机 PO0 官方防火墙配置”。',
     '定时和网络变化任务会保持静默，不会反复报错。',
   ], false, ctx);
 }
@@ -2346,8 +2346,8 @@ function officialNamesForSave(stored, runtime, tokens) {
 
 function localChannelAction(ctx) {
   const label = scriptLabel(ctx);
-  if (/清除本机自建 PO0 配置/.test(label)) return 'clear-worker';
-  if (/切换自建 PO0 自动上报/.test(label)) return 'toggle-worker';
+  if (/清除本机自建(?: PO0 |防火墙)配置/.test(label)) return 'clear-worker';
+  if (/切换自建(?: PO0 |防火墙)自动上报/.test(label)) return 'toggle-worker';
   if (/切换官方防火墙自动上报/.test(label)) return 'toggle-official';
   if (/查看本机上报设置/.test(label)) return 'settings';
   return '';
@@ -2361,17 +2361,17 @@ async function handleLocalChannelAction(ctx, env, action) {
     next.WORKER_AUTO_ENABLED = 'false';
     await saveReportConfig(ctx, next);
     await storageDelete(ctx, STORAGE_KEY);
-    message = '自建 PO0 的本机配置已清除，官方及公共设置保留。';
+    message = '自建防火墙的本机配置已清除，官方及公共设置保留。';
   } else if (action.startsWith('toggle-')) {
     const worker = action === 'toggle-worker';
     const key = worker ? 'WORKER_AUTO_ENABLED' : 'OFFICIAL_AUTO_ENABLED';
     next[key] = boolEnv(next[key], true) ? 'false' : 'true';
     await saveReportConfig(ctx, next);
-    message = (worker ? '自建 PO0' : '官方防火墙') + '自动上报已' + (next[key] === 'true' ? '启用' : '停用') + '；配置保留，手动上报仍可用。';
+    message = (worker ? '自建防火墙' : '官方防火墙') + '自动上报已' + (next[key] === 'true' ? '启用' : '停用') + '；配置保留，手动上报仍可用。';
   }
   const rows = [message,
-    '自建 PO0：' + (workerConfigRequested(next) ? boolEnv(next.WORKER_AUTO_ENABLED, true) ? '自动上报启用' : '自动上报停用（配置保留）' : '未配置'),
-    '自建上报周期：' + autoReportIntervalSeconds(next) + ' 秒；TTL：' + (next.TTL_SECONDS || DEFAULT_TTL_SECONDS) + ' 秒（多目标可分别覆盖）',
+    '自建防火墙：' + (workerConfigRequested(next) ? boolEnv(next.WORKER_AUTO_ENABLED, true) ? '自动上报启用' : '自动上报停用（配置保留）' : '未配置'),
+    '自建上报周期：' + autoReportIntervalSeconds(next) + ' 秒；TTL：' + (next.TTL_SECONDS || DEFAULT_TTL_SECONDS) + ' 秒（上报目标末列可分别设置）',
     '官方防火墙：' + (officialTokensConfigured(next) ? boolEnv(next.OFFICIAL_AUTO_ENABLED, true) ? '自动上报启用' : '自动上报停用（配置保留）' : '未配置'),
     '官方周期固定 600 秒；TTL 由官方服务管理。',
     '官方目标名称：' + (next.PO0_FIREWALL_NAMES || '按账号编号显示'),
@@ -2385,10 +2385,10 @@ async function handleLocalChannelAction(ctx, env, action) {
 function selectReportChannels(ctx, env, channels) {
   const automatic = isAutomaticReportRun(ctx);
   const label = scriptLabel(ctx);
-  if ((automatic && !boolEnv(env.WORKER_AUTO_ENABLED, true)) || /仅官方防火墙立即上报/.test(label)) {
+  if ((automatic && !boolEnv(env.WORKER_AUTO_ENABLED, true)) || /仅官方防火墙(?:立即|强制)上报/.test(label)) {
     channels.workerRequested = false; channels.workerTargets = []; channels.workerError = null;
   }
-  if ((automatic && !boolEnv(env.OFFICIAL_AUTO_ENABLED, true)) || /仅自建 PO0 立即上报/.test(label)) {
+  if ((automatic && !boolEnv(env.OFFICIAL_AUTO_ENABLED, true)) || /仅自建(?: PO0 立即|防火墙强制)上报/.test(label)) {
     channels.officialRequested = false; channels.officialTokens = []; channels.officialError = null;
   }
   channels.anyRequested = channels.workerRequested || channels.officialRequested;
@@ -2453,7 +2453,7 @@ async function runEgernReportUnlocked(ctx) {
       return missingReportConfigPanel(ctx, deviceId, configError, env);
     }
     if (!channels.anyValid && !channels.officialRequested) {
-      const configError = channels.workerError || new Error('本机 PO0 SSH 上报配置无效。');
+      const configError = channels.workerError || new Error('本机 PO0 自建防火墙配置无效。');
       if (isAutomaticReportRun(ctx)) return missingReportConfigState(deviceId, configError, env);
       return missingReportConfigPanel(ctx, deviceId, configError, env);
     }
@@ -2478,7 +2478,7 @@ async function runEgernReportUnlocked(ctx) {
     }
 
     if (channels.officialRequested) {
-      const officialMode = isStatusRun(ctx) || isWidgetRun(ctx) ? 'status' : 'report';
+      const officialMode = isOfficialStatusRun(ctx) ? 'status' : 'report';
       try {
         officialResult = channels.officialError
           ? officialConfigErrorState(channels.officialError, officialMode, await storedOfficialState(ctx))
@@ -2489,7 +2489,7 @@ async function runEgernReportUnlocked(ctx) {
     }
 
     const workerFailures = [];
-    if (channels.workerError) workerFailures.push('SSH 上报配置无效。');
+    if (channels.workerError) workerFailures.push('自建防火墙配置无效。');
 
     if (targets.length === 0 || isOfficialStatusRun(ctx)) {
       const officialState = officialResult.state || null;
@@ -2599,7 +2599,7 @@ async function runEgernReportUnlocked(ctx) {
     }
 
     if (channels.workerError) {
-      failures.push({ error: 'SSH 上报配置无效。' });
+      failures.push({ error: '自建防火墙配置无效。' });
     }
     const officialError = officialFailureSummary(officialResult);
     const overallFailure = failures.length > 0 || Boolean(officialResult.active && !officialResult.ok);
@@ -2631,12 +2631,12 @@ async function runEgernReportUnlocked(ctx) {
         .filter((failure) => failure.sourceId || failure.host)
         .map((failure) => `${targetName(failure)}: ${failure.error}`)
         .join('; ');
-      const errorSummary = [officialError, workerErrorSummary, channels.workerError ? 'SSH 上报配置无效。' : '']
+      const errorSummary = [officialError, workerErrorSummary, channels.workerError ? '自建防火墙配置无效。' : '']
         .filter(Boolean)
         .join('；') || '本轮上报未完成。';
       await storageSet(ctx, ERROR_STORAGE_KEY, errorSummary);
       if (notifyFailure) {
-        notifyLong(ctx, REPORT_FAILED_TITLE, `${ip || officialResult.state?.currentIp || '当前出口'}：${results.length}/${targets.length} 个 SSH 目标完成；${errorSummary}`);
+        notifyLong(ctx, REPORT_FAILED_TITLE, `${ip || officialResult.state?.currentIp || '当前出口'}：${results.length}/${targets.length} 个自建防火墙目标完成；${errorSummary}`);
       }
       return shouldReturnWidget(ctx) ? widgetFromState(state, ctx, deviceId, env) : state;
     }

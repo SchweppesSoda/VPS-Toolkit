@@ -170,7 +170,7 @@ function Test-EgernSsidGuard {
     if ($yamlRaw -notmatch '(?m)^\s+SKIP_WIFI_SSIDS:') {
         throw "Egern YAML lacks SKIP_WIFI_SSIDS env configuration."
     }
-    foreach ($action in @("保存本机自建 PO0 / 通用设置", "保存本机 PO0 官方防火墙配置", "清除本机全部 PO0 上报配置")) {
+    foreach ($action in @("保存本机 PO0 自建防火墙配置", "保存本机 PO0 官方防火墙配置", "清除本机全部 PO0 上报配置")) {
         if (-not $yamlRaw.Contains($action)) {
             throw "Egern YAML lacks native storage action: $action"
         }

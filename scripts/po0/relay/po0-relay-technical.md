@@ -926,7 +926,7 @@ Worker 的 `resource-stats.tsv` 每个 PO0 端点只保留一行累计统计，�
   -> 合并两条车道的结果
 ```
 
-官方账号的槽位上限由接口限制为 5 个；token 的 `@0` 到 `@4` 是内部槽位，界面显示为 1 到 5。状态 GET 必须先于任何 POST；状态页/只读模式只执行 GET。强制运行只绕过本机 due/SSID guard，不能绕过 GET-first，也不能把槽位检查改成无条件加白。官方结果和原有车道结果分别记录，官方失败不能阻止原有车道，原有车道失败也不能撤销已经完成的官方检查，因此允许部分完成。
+官方账号的槽位上限由接口限制为 5 个；token 的 `@0` 到 `@4` 是内部槽位，界面显示为 1 到 5。状态 GET 必须先于任何 POST；明确的只读模式只执行 GET；Egern 普通上报状态页及 Widget 刷新属于强制上报，执行 GET 和必要的 POST，只有“PO0 官方防火墙状态（只读）”保持只读。强制运行只绕过本机 due/SSID guard，不能绕过 GET-first，也不能把槽位检查改成无条件加白。官方结果和原有车道结果分别记录，官方失败不能阻止原有车道，原有车道失败也不能撤销已经完成的官方检查，因此允许部分完成。
 
 SSID guard 位于两条车道真正探测之前：命中时一次运行整体跳过，不上传 SSID；读取 SSID 失败按 fail-open 继续。官方状态文件只保存最近状态、额度、当前出口、白名单/槽位和最近尝试时间，不保存 token。token 只能从权限受限配置或交互设置读取，不放进命令行、计划任务、日志、通知或错误摘要。
 
@@ -979,7 +979,7 @@ PO0 写 entries.tsv：source_type=ssh_report
 Egern 把最近状态写入 ctx.storage，Widget 读取显示
 ```
 
-Egern 同时用版本化 key `po0-ssh-ip-report:config:v1` 在本机 `ctx.storage` 持久化 SSH 上报配置。保存对象只接受模块白名单字段，`DEVICE_ID_SETUP` 与独立的本机设备 ID 不混入其中。读取时只要该 key 存在，storage 就是运行时唯一配置源；`ctx.env` 在“保存本机自建 PO0 / 通用设置”中只合并非官方字段，在“保存本机 PO0 官方防火墙配置”中只合并官方 Token；历史“保存本机 PO0 上报配置”动作保留兼容。新入口分别校验本通道并保留另一通道的已保存参数，避免更换主配置后空值或 schema 默认值覆盖旧凭据。尚无 storage 配置时，完整的旧版 `ctx.env` 会自动 bootstrap；不完整的 schedule/network 任务静默返回 `missing-config`，不进行 HTTP、SSH、通知或状态写入，手动/状态/Widget 才显示设置提示。因此 PO0 模块可默认启用而不会在未配置设备上周期报错。
+Egern 同时用版本化 key `po0-ssh-ip-report:config:v1` 在本机 `ctx.storage` 持久化 SSH 上报配置。保存对象只接受模块白名单字段，`DEVICE_ID_SETUP` 与独立的本机设备 ID 不混入其中。读取时只要该 key 存在，storage 就是运行时唯一配置源；`ctx.env` 在“保存本机 PO0 自建防火墙配置”（兼容旧动作“保存本机自建 PO0 / 通用设置”）中只合并非官方字段，在“保存本机 PO0 官方防火墙配置”中只合并官方 Token；历史“保存本机 PO0 上报配置”动作保留兼容。新入口分别校验本通道并保留另一通道的已保存参数，避免更换主配置后空值或 schema 默认值覆盖旧凭据。尚无 storage 配置时，完整的旧版 `ctx.env` 会自动 bootstrap；不完整的 schedule/network 任务静默返回 `missing-config`，不进行 HTTP、SSH、通知或状态写入，手动/状态/Widget 才显示设置提示。因此 PO0 模块可默认启用而不会在未配置设备上周期报错。
 
 单 PO0 命令等价于：
 
@@ -987,9 +987,9 @@ Egern 同时用版本化 key `po0-ssh-ip-report:config:v1` 在本机 `ctx.storag
 bash /root/nftables-relay-manager.sh --ssh-ip-report <source-id> <ipv4> <token> [identity] [ttl] [cidr-prefix]
 ```
 
-Egern / ssh-report 放行 TTL 默认 `43200` 秒（12 小时）。单 PO0 可在模块环境变量 `TTL_SECONDS` 覆盖；多个 PO0 可在 `SSH_REPORT_TARGETS` 每行最后一列分别覆盖。实际 SSH 自动上报周期由 `AUTO_REPORT_INTERVAL_SECONDS` 控制，默认 `3600` 秒，可设置 `600` 到 `86400` 秒；建议 TTL 大于自动上报周期并留出余量。模块 schedule 每 10 分钟轻量检查一次；如果 TTL 小于自动上报周期，脚本会提前续期，尽量避免过期空窗。Egern 蜂窝网络默认按 `CELLULAR_CIDR_PREFIX=24` 上报 `/24`；Wi-Fi 和未知网络固定 `/32`。`SKIP_WIFI_SSIDS` 是 Egern 本地 guard：仅 schedule/network 自动触发读取 `ctx.device.wifi.ssid` 并按英文分号列表精确匹配；命中时不探测公网 IP、不执行 SSH、不通知，只在 Egern 本地 storage/log/widget 记录跳过状态并优先保留上一轮成功状态。SSID 读取失败、非 Wi-Fi、手动运行、状态页和 Widget 刷新都 fail-open / force-report；SSID 不进入 `--ssh-ip-report` 参数、PO0 状态、LAN Worker `/report` 或任何新协议字段。
+Egern / ssh-report 放行 TTL 默认 `43200` 秒（12 小时）。一台或多台均在“自建防火墙上报目标”（`SSH_REPORT_TARGETS`）最后一列分别设置 TTL；新表单不再重复提供单目标字段，旧版已保存的 `TTL_SECONDS` 等配置仍兼容读取。实际 SSH 自动上报周期由 `AUTO_REPORT_INTERVAL_SECONDS` 控制，默认 `3600` 秒，可设置 `600` 到 `86400` 秒；建议 TTL 大于自动上报周期并留出余量。模块 schedule 每 10 分钟轻量检查一次；如果 TTL 小于自动上报周期，脚本会提前续期，尽量避免过期空窗。Egern 蜂窝网络默认按 `CELLULAR_CIDR_PREFIX=24` 上报 `/24`；Wi-Fi 和未知网络固定 `/32`。`SKIP_WIFI_SSIDS` 是 Egern 本地 guard：仅 schedule/network 自动触发读取 `ctx.device.wifi.ssid` 并按英文分号列表精确匹配；命中时不探测公网 IP、不执行 SSH、不通知，只在 Egern 本地 storage/log/widget 记录跳过状态并优先保留上一轮成功状态。SSID 读取失败、非 Wi-Fi、手动运行、状态页和 Widget 刷新都 fail-open / force-report；SSID 不进入 `--ssh-ip-report` 参数、PO0 状态、LAN Worker `/report` 或任何新协议字段。
 
-多 PO0 上报由模块环境变量 `SSH_REPORT_TARGETS` 控制，一行一个目标：
+自建防火墙统一由模块环境变量 `SSH_REPORT_TARGETS` 配置，一台或多台都使用此列表；目标可用换行、逗号、分号或空格分隔：
 
 ```text
 source-id|host|port|user|script|token|identity|ttl

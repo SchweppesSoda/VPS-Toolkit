@@ -105,7 +105,7 @@ check_egern_ssid_guard() {
         printf 'Egern YAML lacks SKIP_WIFI_SSIDS env configuration.\n' >&2
         exit 1
     }
-    grep -Fq '保存本机自建 PO0 / 通用设置' "${yaml}" || { printf 'Egern YAML lacks native storage save action.\n' >&2; exit 1; }
+    grep -Fq '保存本机 PO0 自建防火墙配置' "${yaml}" || { printf 'Egern YAML lacks native storage save action.\n' >&2; exit 1; }
     grep -Fq '保存本机 PO0 官方防火墙配置' "${yaml}" || { printf 'Egern YAML lacks independent official settings action.\n' >&2; exit 1; }
     grep -Fq '清除本机全部 PO0 上报配置' "${yaml}" || { printf 'Egern YAML lacks native storage clear action.\n' >&2; exit 1; }
     grep -Fq 'normalizeSsidSkipList' "${js}" || { printf 'Egern JS lacks SSID skip list normalizer.\n' >&2; exit 1; }

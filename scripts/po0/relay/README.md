@@ -587,7 +587,7 @@ OpenWrt 页面按“自建防火墙 · LAN Worker”和“PO0 官方防火墙”
 - Linux / OpenWrt 访问设备：在 `po0-outbound-ip-report --menu` 保存 `PO0_FIREWALL_TOKENS`，或交互设置后用 `--official-status` / `--official-only`；OpenWrt 的 WAN 选择由 APK/LuCI 官方绑定及本机源地址设置决定。
 - macOS：`po0-outbound-ip-report-macos.sh --save-config --menu` 保存 token，查询用 `--official-status`，独立运行用 `--official-only`；请求走本机默认出口。
 - Windows：`po0-outbound-ip-report.ps1 -Menu` 进入菜单并在其中配置保存 token，查询用 `-OfficialStatus`，独立运行用 `-OfficialOnly`；计划任务仍按 Windows 默认出口。
-- Egern / 移动端：参数表按【自建 PO0】【官方防火墙】【通用】排列；填写标准 Egern YAML 的 `PO0_FIREWALL_TOKENS` 后运行“保存本机 PO0 官方防火墙配置”，动作 `PO0 官方防火墙状态（只读）` 查看；自动上报使用 `DIRECT`，SSID guard 和通知在 Egern 本机配置。
+- Egern / 移动端：参数表按【自建防火墙】【官方防火墙】【通用】排列，自建一台或多台均填“上报目标”；填写标准 Egern YAML 的 `PO0_FIREWALL_TOKENS` 后运行“保存本机 PO0 官方防火墙配置”，动作 `PO0 官方防火墙状态（只读）` 仅查询；“强制上报 PO0 防火墙”、普通上报状态和 Widget 刷新均绕过本机间隔及 SSID 跳过规则，先 GET，缺失或槽位不符才 POST 加白。自动上报使用 `DIRECT`，SSID guard 和通知在 Egern 本机配置。
 - OpenWrt APK：在 LuCI 的 `PO0 Outbound IP Report` 页面配置官方 token、开关和 WAN 绑定。仅启用 WAN1 或 WAN2 行即可单线上报；两行都启用即可双线上报。旁路网关 88.2 先分配专用本机地址 `192.168.88.250` / `192.168.88.251`，分别填作 WAN1 / WAN2 源地址；88.1 的 mwan3 按这两个源地址分别固定到 `wan1_only` / `wan2_only`，不限定目的服务器，所选 WAN 故障时不可切换。88.2 的 OpenClash 须绕过这两个专用源地址发出的探测和官方请求。配置、Token、定时任务及状态均留在 88.2；88.1 只提供 DNS 和 WAN 转发，完成迁移后无需运行 `po0-wan-probe` HTTP 服务。
 
 ## LAN Worker Self-report
@@ -1044,7 +1044,7 @@ Egern 模块不是 DDNS 模块。它的逻辑是：
 bash /root/nftables-relay-manager.sh --ssh-ip-report <source-id> <ipv4> <token> [identity] [ttl] [cidr-prefix]
 ```
 
-Egern 放行 TTL 默认 `43200` 秒（12 小时）。单 PO0 可在模块环境变量 `TTL_SECONDS` 覆盖；多个 PO0 可在 `SSH_REPORT_TARGETS` 每行最后一列分别覆盖。实际 SSH 自动上报周期由 `AUTO_REPORT_INTERVAL_SECONDS` 控制，默认 `3600` 秒，可设置 `600` 到 `86400` 秒；建议让 TTL 至少大于自动上报周期并留出余量。模块 schedule 每 10 分钟轻量检查一次；如果 TTL 小于自动上报周期，脚本会提前续期，尽量避免过期空窗。Egern 蜂窝网络默认按 `CELLULAR_CIDR_PREFIX=24` 上报 `/24`，同一 `/24` 内 IP 跳动时自动触发会跳过 SSH；Wi-Fi 和未知网络固定 `/32`，出口 IP 变化就会重新上报。把 `CELLULAR_CIDR_PREFIX` 设为 `32` 可关闭蜂窝 `/24`。可选 `SKIP_WIFI_SSIDS` 只对定时/网络变化自动触发生效；当前 Wi-Fi SSID 精确命中分号分隔列表时，本机跳过本次公网 IP 探测、SSH 和官方上报，只写 Egern 本地状态/日志，不上传 SSID，也不改 PO0 或 LAN Worker 协议。读取不到 SSID 时继续上报；手动运行、状态页和 Widget 刷新会强制继续上报。
+Egern 放行 TTL 默认 `43200` 秒（12 小时）。一台或多台均在“自建防火墙上报目标”（`SSH_REPORT_TARGETS`）最后一列分别设置 TTL；新表单不再重复提供单目标字段，旧版已保存的 `TTL_SECONDS` 等配置仍兼容读取。实际 SSH 自动上报周期由 `AUTO_REPORT_INTERVAL_SECONDS` 控制，默认 `3600` 秒，可设置 `600` 到 `86400` 秒；建议让 TTL 至少大于自动上报周期并留出余量。模块 schedule 每 10 分钟轻量检查一次；如果 TTL 小于自动上报周期，脚本会提前续期，尽量避免过期空窗。Egern 蜂窝网络默认按 `CELLULAR_CIDR_PREFIX=24` 上报 `/24`，同一 `/24` 内 IP 跳动时自动触发会跳过 SSH；Wi-Fi 和未知网络固定 `/32`，出口 IP 变化就会重新上报。把 `CELLULAR_CIDR_PREFIX` 设为 `32` 可关闭蜂窝 `/24`。可选 `SKIP_WIFI_SSIDS` 只对定时/网络变化自动触发生效；当前 Wi-Fi SSID 精确命中分号分隔列表时，本机跳过本次公网 IP 探测、SSH 和官方上报，只写 Egern 本地状态/日志，不上传 SSID，也不改 PO0 或 LAN Worker 协议。读取不到 SSID 时继续上报；手动运行、状态页和 Widget 刷新会强制继续上报。
 
 只读检查：
 
