@@ -18,6 +18,13 @@ function Get-OfficialAccountName {
     return "官方账号 $Index"
 }
 
+function Show-OfficialTargetNames {
+    try { $count = @(Get-Po0FirewallTokenItems).Count } catch { return }
+    for ($index = 1; $index -le $count; $index++) {
+        Write-PanelRow "官方目标 $index" (Get-OfficialAccountName $index)
+    }
+}
+
 function Toggle-ChannelAutoInteractive {
     param([ValidateSet("worker", "official")][string]$Channel)
     if ($Channel -eq "worker") { $script:WorkerAutoEnabled = -not $script:WorkerAutoEnabled }

@@ -27,7 +27,7 @@ show_current_config() {
     print_panel_row "设备备注" "${IDENTITY:-未设置}"
     print_panel_row "上报密钥" "${SECRET:-未设置}"
     print_panel_row "HTTP 上报" "$(if http_allowed; then printf '已显式允许'; else printf '默认拒绝'; fi)"
-    print_panel_row "放行时长" "由 LAN Worker 接收端控制，默认 43200 秒"
+    print_panel_row "放行时长" "由 LAN Worker 接收端管理"
     print_panel_row "自建上报间隔" "$(cron_minutes_to_seconds "${CRON_MINUTES}") 秒（安装定时上报时使用）"
     print_panel_section "PO0 官方防火墙"
     print_panel_row "官方目标名称" "${PO0_FIREWALL_NAMES:-未设置，按账号编号显示}"

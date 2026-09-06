@@ -37,6 +37,15 @@ official_account_name() {
     printf '官方账号 %s' "$ordinal"
 }
 
+print_official_target_names() {
+    local count=0 index=1
+    if declare -F official_tokens_count >/dev/null; then count="$(official_tokens_count)"; else count="$(po0_firewall_token_count)"; fi
+    while (( index <= count )); do
+        print_panel_row "官方目标 $index" "$(official_account_name "$index")"
+        index=$((index + 1))
+    done
+}
+
 toggle_channel_auto_interactive() {
     local channel="$1" value=1 label='自建 PO0'
     [[ "$channel" != official ]] || label='官方防火墙'
@@ -112,7 +121,7 @@ show_channel_status() {
         print_panel_row '接收地址' "${WORKER_URL:-未配置}"
         print_panel_row '自动上报' "$(channel_auto_label worker)"
         print_panel_row '上报间隔' "$(cron_minutes_to_seconds "$CRON_MINUTES") 秒"
-        print_panel_row '放行有效期 TTL' '由 LAN Worker 接收端设置，默认 43200 秒'
+        print_panel_row '放行有效期' '由 LAN Worker 接收端管理'
         print_panel_row '设备备注' "${IDENTITY:-未设置}"
         print_panel_row '定时任务' "$(cron_status_summary)"
     fi
@@ -127,11 +136,12 @@ channel_settings_menu() {
         print_panel_row '配置状态' "$(if [[ "$channel" == official ]]; then [[ -n "${PO0_FIREWALL_TOKENS:-}" ]] && printf "已配置" || printf "未配置"; else [[ -n "${WORKER_URL:-}" ]] && printf "已配置" || printf "未配置"; fi)"
         print_panel_row '自动上报' "$(channel_auto_label "$channel")"
         if [[ "$channel" == official ]]; then
+            print_official_target_names
             print_panel_row '检查间隔' '固定 600 秒'
             print_panel_row '放行有效期 TTL' '由官方服务管理，接口未提供自定义 TTL'
         else
             print_panel_row '上报间隔' "$(cron_minutes_to_seconds "$CRON_MINUTES") 秒"
-            print_panel_row '放行有效期 TTL' '由 LAN Worker 接收端设置，默认 43200 秒'
+            print_panel_row '放行有效期' '由 LAN Worker 接收端管理'
         fi
         print_menu_item 1 '编辑并保存参数'
         print_menu_item 2 '设置目标名称'
@@ -223,6 +233,7 @@ show_client_overview() {
     print_panel_row '客户端版本' "$SCRIPT_VERSION"
     print_panel_row '自建 PO0' "${WORKER_NAME:-LAN Worker} · $([[ -n "${WORKER_URL:-}" ]] && channel_auto_label worker || printf '未配置')"
     print_panel_row '官方防火墙' "$([[ "$count" -gt 0 ]] && printf "%s 个目标 · %s" "$count" "$(channel_auto_label official)" || printf "未配置")"
+    print_official_target_names
     print_panel_row '自动上报计划' "$(cron_status_summary)"
     if declare -F wifi_ssid_skip_list_display >/dev/null; then
         print_panel_row 'SSID 跳过' "$(wifi_ssid_skip_list_display)"

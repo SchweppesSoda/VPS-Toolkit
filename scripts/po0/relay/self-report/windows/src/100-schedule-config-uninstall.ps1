@@ -56,7 +56,7 @@ function Show-ClientConfig {
     Write-PanelRow "设备备注" $script:Identity
     Write-PanelRow "上报密钥" $(if ($script:Secret) { $script:Secret } else { "未设置" })
     Write-PanelRow "HTTP 上报" $(if ($script:AllowHttp) { "已显式允许" } else { "默认拒绝" })
-    Write-PanelRow "放行时长" "由 LAN Worker 接收端控制，默认 43200 秒"
+    Write-PanelRow "放行时长" "由 LAN Worker 接收端管理"
     Write-PanelRow "自建上报间隔" ("每 {0} 秒（安装定时上报时使用）" -f (Get-IntervalSeconds))
     Write-PanelSection "PO0 官方防火墙"
     Write-PanelRow "官方目标名称" $(if ($script:Po0FirewallNames) { $script:Po0FirewallNames } else { "按账号编号显示" })

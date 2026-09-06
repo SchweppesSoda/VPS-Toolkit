@@ -8,6 +8,7 @@ function Show-ClientOverview {
     Write-PanelRow "配置" $(if (Test-Path -LiteralPath $script:ConfigPath) { "已保存在本机" } else { "尚未保存" })
     Write-PanelRow "自建 PO0" $(if ($script:WorkerUrl) { "$(if ($script:WorkerName) { $script:WorkerName } else { 'LAN Worker' }) · $(Get-ChannelAutoLabel worker)" } else { "未配置" })
     Write-PanelRow "官方防火墙" $(if (Test-Po0FirewallConfigured) { "$(Get-Po0FirewallTokenSummary) · $(Get-ChannelAutoLabel official)" } else { "未配置" })
+    Show-OfficialTargetNames
     Write-PanelRow "自动上报计划" (Get-ScheduledReporterSummary)
     Write-PanelRow "SSID 跳过" (Format-WifiSsidPolicyList -Ssids $script:SkipWifiSsids)
 }
@@ -60,8 +61,10 @@ function Invoke-ChannelSettingsMenu {
         Write-Title "$title · 设置"
         Write-PanelRow '配置状态' $(if (($Channel -eq 'worker' -and $script:WorkerUrl) -or ($Channel -eq 'official' -and (Test-Po0FirewallConfigured))) { '已配置' } else { '未配置' })
         Write-PanelRow '自动开关' (Get-ChannelAutoLabel $Channel)
+        if ($Channel -eq 'official') { Show-OfficialTargetNames }
         Write-PanelRow '上报间隔' $(if ($Channel -eq 'worker') { "$(Get-IntervalSeconds) 秒" } else { '固定 600 秒' })
-        Write-PanelRow '放行有效期 TTL' $(if ($Channel -eq 'worker') { '由 LAN Worker 接收端设置，默认 43200 秒' } else { '由官方服务管理，接口未提供自定义 TTL' })
+        if ($Channel -eq 'worker') { Write-PanelRow '放行有效期' '由 LAN Worker 接收端管理' }
+        else { Write-PanelRow '放行有效期 TTL' '由官方服务管理，接口未提供自定义 TTL' }
         Write-MenuItem '1' '编辑并保存参数'
         Write-MenuItem '2' '设置目标名称'
         Write-MenuItem '3' '启用 / 停用本通道自动上报'
