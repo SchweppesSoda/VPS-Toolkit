@@ -40,7 +40,7 @@ automatic_enabled() {
 	if [ "$trigger" = network ]; then
 		! is_disabled "$(uci_get "${lane}_network_enabled")"
 	else
-		[ "$(interval_for)" -gt 0 ]
+		! is_disabled "$(uci_get "${lane}_timer_enabled")" && [ "$(interval_for)" -gt 0 ]
 	fi
 }
 

@@ -47,6 +47,7 @@ case "$action" in
  worker-report|test-start) start_manual 0;;
  worker-force-report|test-force-start) start_manual 1;;
  official-report) start_manual 0;;
+ official-force-report) start_manual 1;;
  worker-progress|official-progress|test-status)
   if [ -r "$STATE" ]; then print_pair "$STATE" "$LOG"; else printf 'status=idle
 '; fi;;
@@ -56,6 +57,17 @@ case "$action" in
   elif [ -r "$AUTO_STATE" ]; then print_pair "$AUTO_STATE" "$AUTO_LOG"
   else printf 'status=idle
 '; fi;;
+ worker-clear|official-clear)
+  uci set "po0_outbound_ip_report.main.${lane}_enabled=0" || exit 1
+  if [ "$lane" = worker ]; then
+   for key in worker_url secret worker_name; do uci -q delete "po0_outbound_ip_report.main.$key" || true; done
+  else
+   sections="$(uci -q show po0_outbound_ip_report | sed -n 's/^po0_outbound_ip_report\.\([^.=]*\)=official_\(target\|binding\)$/\1/p')"
+   for section in $sections; do uci -q delete "po0_outbound_ip_report.$section" || exit 1; done
+  fi
+  uci commit po0_outbound_ip_report || exit 1
+  /etc/init.d/po0-outbound-ip-report reload
+  printf '所选通道配置已清除，自动上报已停用；另一通道配置、任务和最近结果保留。\n';;
  official-status) exec /usr/libexec/po0-outbound-ip-report-uci --official-status;;
  discover-wans)
   mode=$(uci -q get po0_outbound_ip_report.main.probe_mode || printf 'router')
@@ -72,7 +84,7 @@ case "$action" in
 ' >&2; exit 1; }
    curl -4 -fsS --connect-timeout 5 --max-time 30 "$url?wan=list"
   fi;;
- reload) exec /etc/init.d/po0-outbound-ip-report restart;;
+ reload) exec /etc/init.d/po0-outbound-ip-report reload;;
  *) printf '未知操作。
 ' >&2; exit 2;;
 esac

@@ -144,7 +144,7 @@ show_recent_self_report_log() {
     local log_path mtime line normalized event target_text max_events=5 i
     local pending_response_parts="" pending_target_count="" pending_target_ip="" pending_target_names=""
     local events=()
-    log_path="$(self_report_display_log_path)"
+    log_path="${1:-$(self_report_display_log_path)}"
     print_panel_section "最近日志"
     print_panel_row "原始日志" "${log_path}"
     print_panel_row "查看原文" "tail -n 40 ${log_path}"

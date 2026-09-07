@@ -60,6 +60,9 @@ worker_channel_requested() {
 }
 
 config_complete() {
+    # A configured official channel is usable independently of Worker validation.
+    if [[ "${WORKER_ONLY:-0}" != 1 && -n "${PO0_FIREWALL_TOKENS:-}" ]]; then return 0; fi
+    [[ "${OFFICIAL_ONLY:-0}" != 1 ]] || return 1
     local worker_requested=0 official_requested=0
     if worker_channel_requested; then
         worker_requested=1

@@ -137,10 +137,6 @@ function Invoke-SelfReportCore {
     if ($officialActive -and $script:Po0FirewallOfficialOnly -and -not (Test-Po0FirewallConfigured)) {
         throw "PO0 官方防火墙未启用（默认关闭）。"
     }
-    if ($workerActive) {
-        Assert-WorkerUrl
-    }
-    if ($workerActive) { Assert-Minutes }
 
     $successCount = 0
     $failureCount = 0
@@ -166,6 +162,8 @@ function Invoke-SelfReportCore {
         $workerDue = (-not $script:Po0FirewallScheduledRun) -or $forceThisRun -or (Test-Po0WorkerDue)
         if ($workerDue) {
             try {
+                Assert-WorkerUrl
+                Assert-Minutes
                 Mark-Po0WorkerAttempt
                 $workerResult = Invoke-WorkerSelfReportCore
                 if ($workerResult.Succeeded) {
@@ -207,7 +205,7 @@ function Invoke-SelfReportCore {
         throw $summary
     }
     if ($successCount -eq 0 -and $skippedCount -gt 0) {
-        Write-SelfReportCompleted "本次定时唤醒没有到达通道 due，未发起请求。"
+        Write-SelfReportCompleted "本次定时唤醒未到上报间隔，未发起请求。"
         return
     }
 

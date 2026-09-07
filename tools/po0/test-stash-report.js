@@ -437,14 +437,14 @@ async function testParallelOfficialAccountsPreserveLaneOrder() {
 function testOverrideContract() {
   assert.match(override, /PO0_FIREWALL_TOKENS/);
   assert.ok(override.includes("cron: '* * * * *'"));
-  assert.match(override, /20260906-v9/);
+  assert.match(override, /20260907-v10/);
   assert.match(override, /先 GET/);
-  assert.match(override, /TTL 由官方服务管理/);
+  assert.match(override, /白名单有效期（TTL） 由官方服务管理/);
   assert.match(override, /"PO0_FIREWALL_TOKENS":""/);
   assert.ok(override.includes("match: ^http://po0-report\\.invalid/status"));
   assert.ok(override.includes("argument: '{\"mode\":\"status\""));
   assert.ok(override.includes("match: ^http://po0-report\\.invalid/report-now"));
-  assert.strictEqual((override.match(/timeout: 90/g) || []).length, 5);
+  assert.strictEqual((override.match(/timeout: 90/g) || []).length, 8);
   assert.strictEqual((sshOverride.match(/timeout: 90/g) || []).length, 3);
   assert.ok(override.includes("/save-worker"));
   assert.ok(sshOverride.includes("match: ^http://po0-ssh-report\\.invalid/status"));
@@ -463,7 +463,9 @@ function testLocalSlotSurvivesSync() {
   const start = source.indexOf('function channelSettings(');
   const end = source.indexOf('function parseFirewallTokens(');
   const parseEnd = source.indexOf('\nfunction ', end + 10);
-  const functions = source.slice(start, parseEnd);
+  const intervalStart = source.indexOf('function reportInterval(');
+  const intervalEnd = source.indexOf('\nfunction ', intervalStart + 10);
+  const functions = source.slice(start, parseEnd) + source.slice(intervalStart, intervalEnd);
   const prefix = `const STORE_ID = 'device-test'; const LEGACY_ID = 'PO0_FIREWALL_TOKENS'; const MAX_ID = 16;`;
   const renamed = functions.replaceAll('STORE_KEY', 'STORE_ID').replaceAll('FIREWALL_TOKENS_KEY', 'LEGACY_ID').replaceAll('MAX_FIREWALL_TOKENS', 'MAX_ID');
   vm.runInContext(prefix + `
@@ -535,7 +537,7 @@ async function testNetworkChangesAndOptionalTimer() {
   assert.equal(JSON.parse(saved.store.get(STORE_KEY + '.channel-settings')).officialIntervalSeconds, 900, 'save action persists interval');
   const workerOff = await execute({argument: reportArgument('save-worker', {worker_url: 'https://saved.example/stash-report/v1', source_id:'fixture-device', secret:'test-secret', auto_report_interval_seconds:0})});
   const view = await execute({store:workerOff.store, argument:reportArgument('settings'), scriptType:'request'});
-  assert(JSON.stringify(view.value).includes('周期：关闭'), 'disabled Worker timer must not display an old 3600s default');
+  assert(JSON.stringify(view.value).includes('600 秒（暂不使用）'), 'disabled Worker timer must not display an old 3600s default');
   const now = Math.floor(Date.now() / 1000);
   for (const interval of [0, 900]) {
     for (const changed of [false, true]) {
@@ -557,7 +559,57 @@ async function testNetworkChangesAndOptionalTimer() {
   assert(result.requests.some(item => item.request.url.includes('/api/firewall/')), 'custom timer fires when due');
 }
 
+
+async function testIndependentPeriodicSettingsAndRetirement() {
+  const store = new Map();
+  const call = args => execute({ store, argument: JSON.stringify(args) });
+  const worker = { mode: 'save-worker', worker_url: 'https://saved.example/stash-report/v1', secret: 'dummy-secret', source_id: 'fixture-device', worker_name: '接收端', auto_report_interval_seconds: 1200, worker_timer_enabled: false };
+  await call(worker);
+  await call({mode:'save-official', PO0_FIREWALL_TOKENS:'pgnfw_independent_fixture@2', official_report_interval_seconds:900, official_timer_enabled:true});
+  const officialConfig = store.get(STORE_KEY + '.official-config');
+  let settings = JSON.parse(store.get(STORE_KEY + '.channel-settings'));
+  assert.equal(settings.workerTimerEnabled, false);
+  assert.equal(settings.officialTimerEnabled, true);
+  assert.equal(settings.officialIntervalSeconds, 900);
+  let result = await call({mode:'auto'});
+  assert(result.requests.some(x => x.request.url.includes('/api/firewall/')), 'official timer must work while Worker periodic reporting is disabled');
+  await call({mode:'toggle-worker'});
+  const beforeState = JSON.parse(store.get(STORE_KEY)).official;
+  await call({mode:'clear-worker'});
+  assert.equal(store.get(STORE_KEY + '.official-config'), officialConfig);
+  assert.deepEqual(JSON.parse(store.get(STORE_KEY)).official, beforeState, 'clearing Worker must preserve official results');
+  result = await call({mode:'auto', trigger:'network'});
+  assert(result.requests.some(x => x.request.url.includes('/api/firewall/')), 'official network trigger must survive Worker retirement');
+  assert(!result.requests.some(x => x.request.url.includes('saved.example')), 'cleared Worker must stay inactive');
+  await call(worker);
+  settings = JSON.parse(store.get(STORE_KEY + '.channel-settings'));
+  assert.equal(settings.workerAutoEnabled, false, 'restoring Worker settings must preserve its paused state');
+  assert.equal(settings.officialIntervalSeconds, 900);
+  assert.equal(store.get(STORE_KEY + '.official-config'), officialConfig);
+  await call({mode:'save-official', official_timer_enabled:false});
+  settings = JSON.parse(store.get(STORE_KEY + '.channel-settings'));
+  assert.equal(settings.officialIntervalSeconds, 900, 'changing the switch must retain the interval');
+  assert.equal(store.get(STORE_KEY + '.official-config'), officialConfig, 'empty Token must preserve credentials and slot');
+  result = await call({mode:'auto', trigger:'network'});
+  assert(result.requests.some(x => x.request.url.includes('/api/firewall/')), 'timer switch must not disable network events');
+  for (const mode of ['settings','recent']) {
+    const before = store.get(STORE_KEY);
+    result = await call({mode});
+    assert.equal(result.requests.length, 0, mode + ' must not access network');
+    assert.equal(store.get(STORE_KEY), before, mode + ' must not advance reporting state');
+  }
+  store.set(STORE_KEY + '.worker-config', JSON.stringify({version:1,values:{worker_url:'http://invalid.example/report',secret:'dummy-secret'}}));
+  result = await call({mode:'force'});
+  assert(result.requests.some(x => x.request.url.includes('/api/firewall/')), 'invalid Worker config must not prevent official report');
+  assert(JSON.parse(store.get(STORE_KEY)).official.accounts.length > 0);
+  await call(Object.assign({},worker,{auto_report_interval_seconds:0,worker_timer_enabled:true}));
+  settings=JSON.parse(store.get(STORE_KEY + '.channel-settings'));
+  assert.equal(settings.workerTimerEnabled,false,'legacy zero must retain its timer-off meaning');
+  assert.equal(settings.officialIntervalSeconds,900);
+}
+
 (async () => {
+  await testIndependentPeriodicSettingsAndRetirement();
   await testNetworkChangesAndOptionalTimer();
   await testLocalChannelControls();
   await testFlexibleOfficialSeparators();

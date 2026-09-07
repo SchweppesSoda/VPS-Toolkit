@@ -62,6 +62,8 @@ function Get-IntervalSeconds {
 }
 
 function Test-ClientConfigComplete {
+    if (-not $script:Po0FirewallWorkerOnly -and (Test-Po0FirewallConfigured)) { return $true }
+    if ($script:Po0FirewallOfficialOnly) { return $false }
     try {
         if ($script:WorkerUrl) {
             Assert-WorkerUrl

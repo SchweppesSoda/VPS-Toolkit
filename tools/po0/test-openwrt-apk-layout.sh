@@ -133,9 +133,9 @@ if rg -n "LOCK_DIR='/tmp|/tmp/po0-outbound-ip-report.run.lock|>>/tmp/po0-outboun
     printf 'OpenWrt official runtime must not use pre-creatable /tmp locks or logs.\n' >&2
     exit 1
 fi
-grep -Fq 'outbound-ip-report-v9' \
+grep -Fq 'outbound-ip-report-v10' \
     "${repo_root}/packaging/openwrt/po0-outbound-ip-report/Makefile"
-grep -Fq 'po0/outbound-ip-report-v9' \
+grep -Fq 'po0/outbound-ip-report-v10' \
     "${repo_root}/packaging/openwrt/po0-outbound-ip-report/files/usr/share/luci/menu.d/po0-outbound-ip-report.json"
 grep -Fq -- '--run-once)' \
     "${repo_root}/scripts/po0/relay/self-report/linux/src/990-cli-parse-dispatch.sh"

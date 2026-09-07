@@ -94,7 +94,7 @@ LAN Worker 命令在内网 Worker 机器上执行，不在 PO0 上执行。PO0 m
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-lan-client.sh | bash
 ```
 
-SSH 认证按向导选择：系统默认 SSH 配置/agent、已有私钥路径，或粘贴专用私钥。粘贴的私钥会保存到本机配置目录并设置 600 权限。`额外 SSH 参数` 是传给 `ssh` 的选项，例如 `-J jump-host` 或 `-o StrictHostKeyChecking=accept-new`，不是私钥短语；带短语的私钥需要 `ssh-agent`。菜单里的 `DDNS 解析上报 -> DDNS 目标 / 上报计划` 管理 DDNS 目标和本机上报间隔；`PO0 目标`、`SSH 私钥 / 参数`、`目标 Token`、`Self-report / WebAuth TTL` 分开管理目标、SSH、Token 和自上报/WebAuth TTL；`PO0 资源更新计划` 只读显示 PO0 端资源任务创建 cron，Worker 本机只安装轮询器领取 pending 任务。
+SSH 认证按向导选择：系统默认 SSH 配置/agent、已有私钥路径，或粘贴专用私钥。粘贴的私钥会保存到本机配置目录并设置 600 权限。`额外 SSH 参数` 是传给 `ssh` 的选项，例如 `-J jump-host` 或 `-o StrictHostKeyChecking=accept-new`，不是私钥短语；带短语的私钥需要 `ssh-agent`。菜单里的 `DDNS 解析上报 -> DDNS 目标 / 上报计划` 管理 DDNS 目标和本机上报间隔；`PO0 目标`、`SSH 私钥 / 参数`、`目标 Token`、`Self-report / WebAuth 白名单有效期（TTL）` 分开管理目标、SSH、Token 和自上报/WebAuth TTL；`PO0 资源更新计划` 只读显示 PO0 端资源任务创建 cron，Worker 本机只安装轮询器领取 pending 任务。
 
 初始化后常用本地命令：
 
@@ -110,7 +110,7 @@ po0-lan-client --probe
 po0-lan-client --version
 ```
 
-PO0 nftables 子系统内带 `SCRIPT_VERSION`、`--version` / `--changelog` 或自更新提示的五个可独立部署脚本（PO0 manager、LAN Worker、三端 PO0 Outbound IP Report）统一使用 `YYYY.MM.DD+build.N` 混合版本格式。最新可下载脚本版本以 GitHub Latest 为准。OpenWrt outbound APK 使用独立包版本（本轮源码为 `2026.09.06-r1`），脚本 Release 不包含 APK。正式 PO0 Release 发布文件的脚本内部版本必须与 release tag 尾号一致：`po0-vYYYY.MM.DD.N` 对应 `YYYY.MM.DD+build.N`，例如 `po0-v2026.07.01.7` 对应 `2026.07.01+build.7`。完整历史写在 [`CHANGELOG.md`](CHANGELOG.md)。
+PO0 nftables 子系统内带 `SCRIPT_VERSION`、`--version` / `--changelog` 或自更新提示的五个可独立部署脚本（PO0 manager、LAN Worker、三端 PO0 Outbound IP Report）统一使用 `YYYY.MM.DD+build.N` 混合版本格式。最新可下载脚本版本以 GitHub Latest 为准。OpenWrt outbound APK 使用独立包版本（本轮源码为 `2026.09.07-r1`），脚本 Release 不包含 APK。正式 PO0 Release 发布文件的脚本内部版本必须与 release tag 尾号一致：`po0-vYYYY.MM.DD.N` 对应 `YYYY.MM.DD+build.N`，例如 `po0-v2026.07.01.7` 对应 `2026.07.01+build.7`。完整历史写在 [`CHANGELOG.md`](CHANGELOG.md)。
 
 更新 LAN Worker 上已安装的 client：
 
@@ -173,19 +173,19 @@ Linux / OpenWrt PO0 Outbound IP Report client：
 
 仅配置官方通道时，安装定时任务不会再询问自建上报间隔。
 
-三端桌面菜单统一为 0–7，两个通道采用同一组子菜单操作，见下文[统一操作](#client-ui)。首次只保存参数不安装任务。自建与官方分别安装、启停、删除，互不影响；升级只刷新已有任务并迁移旧共享任务。每个通道安装页输入 0 可关闭定时，保留可用的网络监听。官方默认 600 秒，可调整；旧自建周期原样保留。
+三端桌面菜单统一为 0–7，两个通道采用同一组子菜单操作，见下文[统一操作](#client-ui)。首次只保存参数不安装任务。自建与官方分别安装、启停、删除，互不影响；升级只刷新已有任务并迁移旧共享任务。每个通道的“定期上报设置”分别提供开关和上报间隔；关闭开关保留原间隔与可用的网络监听。官方默认 600 秒，可调整；旧自建周期原样保留。
 
 Windows 使用网络地址变化事件，macOS 使用系统网络通知；Linux 在 root 且 NetworkManager 或 OpenWrt 事件接口可用时安装监听，其它环境跳过监听。通道暂停同时暂停定时与监听，通道删除同时删除两者。
 
 命令行通过 `--schedule-channel worker|official|all`（Windows 为 `-ScheduleChannel`）选择通道。例如 `--schedule-channel official --official-interval-seconds 900 --install-cron`；macOS 使用 `--install-launchd`；Windows 使用 `-ScheduleChannel official -OfficialIntervalSeconds 900 -InstallTask`。删除使用 `--remove-cron` / `--remove-launchd` / `-RemoveTask`。
 
-Egern、Loon 已有原生网络变化触发，继续使用；两通道的可选定时默认 600 秒。Egern 分别设置“启用定时兜底”和周期；Loon / Stash 周期填 0 关闭定时上报。Stash 每分钟轮询 DIRECT 出口 IPv4，检测到变化后触发，不是即时网络事件，也无法识别出口不变的切网。Surge 未新增支持。
+Egern、Loon 已有原生网络变化触发，继续使用；两通道的可选定时默认 600 秒。Egern、Loon、Stash 分别提供“启用定期上报”开关和“上报间隔（秒）”；旧配置中的间隔 0 继续表示关闭定期上报。Stash 每分钟轮询 DIRECT 出口 IPv4，检测到变化后触发，不是即时网络事件，也无法识别出口不变的切网。Surge 未新增支持。
 
 ```bash
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.sh | bash
 ```
 
-首次保存默认配置并打开菜单，不需要先在命令行写域名和 secret；进菜单后用 `1 自建 PO0 → 1 编辑并保存参数` 填写或修改：
+首次保存默认配置并打开菜单，不需要先在命令行写域名和 secret；进菜单后用 `1 自建防火墙 → 1 保存配置（编辑参数）` 填写或修改：
 
 ```bash
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.sh | bash -s -- --save-config --menu
@@ -247,7 +247,7 @@ po0-outbound-ip-report --changelog
 
 Windows PowerShell PO0 Outbound IP Report client：
 
-首次交互式运行默认进入统一菜单，推荐显式加 `-Menu`。`5 自动上报管理 → 1 安装 / 更新` 创建两个通道共用的 Windows 计划任务；同一子菜单的 `5 通知 / 静默设置` 保存通知偏好并更新已安装的任务。`7 维护与诊断` 提供脚本更新和卸载；卸载默认保留配置和日志。
+首次交互式运行默认进入统一菜单，推荐显式加 `-Menu`。`5 自动上报管理` 中先选择自建或官方，再分别安装该通道的任务；自动管理菜单的 `4 通知 / 静默设置` 保存通知偏好并更新已安装的任务。`7 维护与诊断` 提供脚本更新和卸载；卸载默认保留配置和日志。
 
 ```powershell
 $script = "$env:TEMP\po0-outbound-ip-report.ps1"
@@ -483,7 +483,7 @@ office-sg|office.example.com|sg-po0.example.com|22|root|/root/nftables-relay-man
 po0-lan-client --run --ddns-targets 'home-sg|home.example.com|sg-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_SG|;home-us|home.example.com|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_US|'
 ```
 
-首次部署推荐运行 `po0-lan-client --wizard`。长期维护可进入 `po0-lan-client --menu`，在 `DDNS 解析上报 -> DDNS 目标 / 上报计划` 里查看或编辑 DDNS 目标、安装/更新 DDNS 本机上报计划，并查看 PO0 DDNS TTL 设置位置；也可以分别在 `PO0 目标`、`SSH 私钥 / 参数`、`目标 Token`、`Self-report / WebAuth TTL` 里查看、编辑、删除、启停 PO0 目标，并管理目标 SSH 私钥、SSH 参数、Token 和自上报/WebAuth TTL；底层仍保存到本机配置文件，旧配置继续兼容。
+首次部署推荐运行 `po0-lan-client --wizard`。长期维护可进入 `po0-lan-client --menu`，在 `DDNS 解析上报 -> DDNS 目标 / 上报计划` 里查看或编辑 DDNS 目标、安装/更新 DDNS 本机上报计划，并查看 PO0 DDNS TTL 设置位置；也可以分别在 `PO0 目标`、`SSH 私钥 / 参数`、`目标 Token`、`Self-report / WebAuth 白名单有效期（TTL）` 里查看、编辑、删除、启停 PO0 目标，并管理目标 SSH 私钥、SSH 参数、Token 和自上报/WebAuth TTL；底层仍保存到本机配置文件，旧配置继续兼容。
 
 PO0 不做本地 DDNS 解析。`--refresh-ddns` 只会把已经由 LAN Worker/路由器上报、且仍在 TTL 内的结果重建/应用；它不会延长原上报 TTL：
 
@@ -564,7 +564,7 @@ po0-lan-client --install-cron
 
 官方请求由 LAN Worker 直接通过本机默认路由访问固定 HTTPS 接口。需要指定某条 WAN 时，请在主 OpenWrt 的官方 WAN 绑定配置中完成；通用 LAN Worker 不会假装把默认路由当成指定 WAN。
 
-Windows、macOS、Linux、Egern、Stash、Loon 的官方 Token 均支持逗号、分号、空格或换行分隔，也兼容中文逗号、分号。槽位仍写在 Token 后面，例如 `pgnfw_xxx@0`；同一账号只能填写一次。Windows、macOS、Linux 的“查看完整保存配置”和对应设置入口会显示完整已保存的官方 Token / Worker 密钥；官方 Token 输入可见，支持逐行粘贴，空行结束，直接空行保留，单独 `-` 清空。
+Windows、macOS、Linux、Egern、Stash、Loon 的官方 Token 均支持逗号、分号、空格或换行分隔，也兼容中文逗号、分号。槽位仍写在 Token 后面，例如 `pgnfw_xxx@0`；同一账号只能填写一次。Windows、macOS、Linux 的“查看本机配置”和对应设置入口会显示完整已保存的官方 Token / Worker 密钥；官方 Token 输入可见，支持逐行粘贴，空行结束，直接空行保留，单独 `-` 清空。
 
 访问设备客户端在同一轮总是先执行官方车道，再执行原有车道；两边各自记录结果，任一边失败不会取消另一边，因此可以报告“部分完成”。Windows、macOS、Linux、Egern、Loon 的当前 Wi-Fi SSID 命中本机跳过列表时，两条车道会一起跳过；`--force-report` 只绕过本机的 due/SSID 判断，仍不能跳过官方 GET-first 规则。官方状态摘要（各端支持的状态页或 Widget）只显示状态、已用/上限额度、当前出口和槽位，不显示 token；定时任务默认保持安静，手动、失败或部分完成时才按客户端设置通知。
 
@@ -576,12 +576,12 @@ Token 必须包含 `pgnfw_` 前缀：官方链接 `https://124.221.69.228/api/fi
 
 官方接口的固定槽位为 `0..4`，页面显示为槽位 `1..5`；其它客户端使用 `pgnfw_xxxx@0` 到 `@4`。同一目标的不同设备或 WAN 应手动分配不同固定槽位：本机设备 ID 不会自动转换成官方槽位，也没有跨设备自动分配功能。
 
-- Egern：运行“保存本机 PO0 官方防火墙配置”后，Token 和槽位随配置保存在本机 `ctx.storage`。定时、网络变化和普通手动上报优先使用该配置，不受同步环境变量影响；设备 ID 继续独立保存。
+- Egern：运行“官方防火墙 · 保存配置”后，Token 和槽位随配置保存在本机 `ctx.storage`。定时、网络变化和普通手动上报优先使用该配置，不受同步环境变量影响；设备 ID 继续独立保存。
 - Stash：Worker 在 `/save-worker` 参数填写并保存，官方 Token / 名称只放在 `/save-official` 对应的 `argument`。已保存的官方配置使用本机专用存储，运行时不会被同步模块参数覆盖。修改 `/save-official` 对应的 `argument` 后访问 `http://po0-report.invalid/save-official`，只保存本机 Token/槽位；访问 `/clear-official` 清除，均不上报。
-- Loon：修改插件输入后执行 `官方防火墙 · 保存本机设置`；清除用 `官方防火墙 · 清除本机设置`。正常上报使用本机专用存储中的 Token/槽位。
+- Loon：修改插件输入后执行 `官方防火墙 · 保存配置`；清除用 `官方防火墙 · 清除本机设置`。正常上报使用本机专用存储中的 Token/槽位。
 - Windows、macOS：Token 和 `@槽位` 保存在各自客户端本地配置中。它们支持固定槽位，但不会按其它设备的 ID 自动分配槽位。
 
-OpenWrt 页面按“自建防火墙 · LAN Worker”和“PO0 官方防火墙”分组，每个通道拥有独立后台任务、自动开关、定时间隔、网络变化开关、保存并上报和最近结果。自建定时默认 3600 秒，官方默认 600 秒；可填写至少 60 秒的间隔，填写 0 仅关闭对应定时。本机接口上线、地址或路由变化时可立即触发，不受定时时间限制，也不推迟下一次定时。旁路网关无法直接收到上游 WAN 事件，建议保留定时兜底。关闭通道自动开关同时停用该通道的定时与网络触发，保留配置且不影响另一通道；手动上报和只读查询仍可使用。
+OpenWrt 页面按“自建防火墙 · LAN Worker”和“PO0 官方防火墙”分组，每个通道拥有独立后台任务、自动开关、定期开关、上报间隔、网络变化开关、保存配置、立即上报和查看最近结果。自建定时默认 3600 秒，官方默认 600 秒；可填写至少 60 秒的间隔，关闭“启用定期上报”保留原间隔；旧值 0 仍按关闭处理。本机接口上线、地址或路由变化时可立即触发，不受定时时间限制，也不推迟下一次定时。旁路网关无法直接收到上游 WAN 事件，建议保留定期上报。关闭通道自动开关同时停用该通道的定时与网络触发，保留配置且不影响另一通道；手动上报和只读查询仍可使用。
 
 旁路网关在“出口与探测”选择“本机按源地址直连探测”，一次配置 WAN1/WAN2 对应的本机专用 IPv4。真实 WAN IP 探测和官方 GET/POST 都使用对应源地址，绕过 OpenClash；上游仅按源地址固定到对应 WAN-only 策略，所选 WAN 故障时不回退。向 LAN Worker 提交探测结果时使用本机正常网络，遵循 OpenClash 规则，不绑定这些专用源地址。
 
@@ -593,7 +593,7 @@ OpenWrt 页面按“自建防火墙 · LAN Worker”和“PO0 官方防火墙”
 - Linux / OpenWrt 访问设备：在 `po0-outbound-ip-report --menu` 保存 `PO0_FIREWALL_TOKENS`，或交互设置后用 `--official-status` / `--official-only`；OpenWrt 的 WAN 选择由 APK/LuCI 官方绑定及本机源地址设置决定。
 - macOS：`po0-outbound-ip-report-macos.sh --save-config --menu` 保存 token，查询用 `--official-status`，独立运行用 `--official-only`；请求走本机默认出口。
 - Windows：`po0-outbound-ip-report.ps1 -Menu` 进入菜单并在其中配置保存 token，查询用 `-OfficialStatus`，独立运行用 `-OfficialOnly`；计划任务仍按 Windows 默认出口。
-- Egern / 移动端：参数表按【自建防火墙】【官方防火墙】【通用】排列，自建一台或多台均填“上报目标”；填写标准 Egern YAML 的 `PO0_FIREWALL_TOKENS` 后运行“保存本机 PO0 官方防火墙配置”，动作 `PO0 官方防火墙状态（只读）` 仅查询；“强制上报 PO0 防火墙”、普通上报状态和 Widget 刷新均绕过本机间隔及 SSID 跳过规则，先 GET，缺失或槽位不符才 POST 加白。自动上报使用 `DIRECT`，SSID guard 和通知在 Egern 本机配置。
+- Egern / 移动端：参数表按【自建防火墙】【官方防火墙】【通用】排列，自建一台或多台均填“上报目标”；填写标准 Egern YAML 的 `PO0_FIREWALL_TOKENS` 后运行“官方防火墙 · 保存配置”，动作 `查询官方白名单` 仅查询；“强制上报 PO0 防火墙”、普通上报状态和 Widget 刷新均绕过本机间隔及 SSID 跳过规则，先 GET，缺失或槽位不符才 POST 加白。自动上报使用 `DIRECT`，SSID guard 和通知在 Egern 本机配置。
 - OpenWrt APK：在 LuCI 的 `PO0 Outbound IP Report` 页面配置官方 token、开关和 WAN 绑定。仅启用 WAN1 或 WAN2 行即可单线上报；两行都启用即可双线上报。旁路网关 88.2 先分配专用本机地址 `192.168.88.250` / `192.168.88.251`，分别填作 WAN1 / WAN2 源地址；88.1 的 mwan3 按这两个源地址分别固定到 `wan1_only` / `wan2_only`，不限定目的服务器，所选 WAN 故障时不可切换。88.2 的 OpenClash 须绕过这两个专用源地址发出的探测和官方请求。配置、Token、定时任务及状态均留在 88.2；88.1 只提供 DNS 和 WAN 转发，完成迁移后无需运行 `po0-wan-probe` HTTP 服务。
 
 ## LAN Worker Self-report
@@ -616,7 +616,7 @@ Stash 使用同一套 HTTPS 域名、后台服务、PO0 目标和 `Self-report s
 
 正式方案是 `Stash -> HTTPS LAN Worker /stash-report/v1 -> SSH -> PO0 --client-ip-report`。Stash 脚本和可导入的正式 override 位于 `scripts/po0/nftables/clients/stash/po0-stash-report.js` 与 `PO0.LAN-Report.stoverride`。仓库另带默认关闭的 `PO0.SSH-Report.PoC.stoverride`：`Stash SSH proxy -> PO0 127.0.0.1:8790 receiver -> --ssh-ip-report`；备用 receiver 只监听 PO0 loopback，不经过 LAN Worker，也不应把 `8790` 暴露到公网。
 
-Loon 插件的【通用】跳过 Wi-Fi SSID 可填写多个名称，用分号或换行分隔并精确匹配（SSID 内的空格保留）。默认沿用原来的 `ZTE-47kTee`，填 `-` 可关闭名单；自动命中时同时跳过 Worker 与官方请求，“立即上报”可强制继续。读取不到 SSID 时仍保留原有自动跳过行为。
+Loon 插件的【通用】跳过 Wi-Fi SSID 可填写多个名称，用分号或换行分隔并精确匹配（SSID 内的空格保留）。默认沿用原来的 `ZTE-47kTee`，填 `-` 可关闭名单；自动命中时同时跳过 Worker 与官方请求，“立即上报”遵守 SSID 跳过，“强制上报”可继续。读取不到 SSID 时仍保留原有自动跳过行为。
 
 Stash 的[公开 JS 接口](https://stash.wiki/script/syntax-and-interface)没有提供当前 SSID 的读取方法，因此目前不支持脚本内配置 SSID 跳过名单。`ssid-policy` 属于代理选路，不能当作 JS 读取 SSID 的接口。现有脚本的网络探测不等同于可配置的 SSID 跳过名单。
 
@@ -647,7 +647,7 @@ curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download
 po0-lan-client --install-self-report-https --self-report-https-domain <SELF_REPORT_DOMAIN> --po0-host <PO0_HOST> --po0-script /root/nftables-relay-manager.sh --self-report-source self-report --client-ip-token <CLIENT_REPORT_TOKEN> --self-report-secret <SELF_REPORT_SECRET>
 ```
 
-Self-report / WebAuth 放行 TTL 默认均为 `43200` 秒（12 小时），由 LAN Worker 上报 PO0 时传入；可以在启动接收端时加 `--self-report-ttl <秒数>` / `--webauth-ttl <秒数>`，也可以在 LAN Worker 菜单 `PO0 目标、SSH、Token 与 TTL -> Self-report / WebAuth TTL` 里修改目标覆盖值。访问设备客户端只决定“多久上报一次”，不决定 TTL。Self-report / WebAuth TTL 会被限制在 `60-604800` 秒内。升级旧安装时，本机 `settings.env` 里恰好等于旧默认 `3600` 或 `21600` 的默认 TTL 会在脚本加载时迁移到新默认；目标行里显式写的 TTL 不自动改写。
+Self-report / WebAuth 放行 TTL 默认均为 `43200` 秒（12 小时），由 LAN Worker 上报 PO0 时传入；可以在启动接收端时加 `--self-report-ttl <秒数>` / `--webauth-ttl <秒数>`，也可以在 LAN Worker 菜单 `PO0 目标、SSH、Token 与 TTL -> Self-report / WebAuth 白名单有效期（TTL）` 里修改目标覆盖值。访问设备客户端只决定“多久上报一次”，不决定 TTL。Self-report / WebAuth 白名单有效期（TTL） 会被限制在 `60-604800` 秒内。升级旧安装时，本机 `settings.env` 里恰好等于旧默认 `3600` 或 `21600` 的默认 TTL 会在脚本加载时迁移到新默认；目标行里显式写的 TTL 不自动改写。
 
 PO0 manager 的 `--client-ip-report` 最后一个可选参数可以指定 `24` 或 `32`，省略时继续按 `/32` 处理。该参数保留给受控调用方使用；当前 Stash HTTPS 上报固定传入 `32`，不再根据客户端网络判断扩大网段。PO0 会把地址归一化为实际网段后写入 `client_ip` 白名单，并继续按同一个 `source-id` 做续期和数量裁剪。
 
@@ -673,35 +673,70 @@ Windows、macOS、Linux 主菜单使用同一组编号：
 
 | 编号 | 入口 |
 | --- | --- |
-| 1 | 自建 PO0 |
+| 1 | 自建防火墙 |
 | 2 | 官方防火墙 |
 | 3 | 网络探测 / SSID 跳过（两个通道共用） |
 | 4 | 立即上报全部已配置通道 |
 | 5 | 自动上报管理 |
-| 6 | 查看完整保存配置（包含完整 Token / Worker 密钥） |
+| 6 | 查看本机配置（包含完整 Token / Worker 密钥） |
 | 7 | 维护与诊断 |
 | 0 | 退出 |
 
-两个通道子菜单完全同序：**1 编辑并保存参数、2 设置目标名称、3 启用 / 停用本通道自动上报、4 仅本通道立即上报、5 查看本通道状态、6 清除此通道保存的配置、7 安装 / 更新本通道任务、8 删除本通道任务、0 返回**。自建状态展示本机配置和计划状态；官方状态读取官方 API，始终只读。主菜单与官方通道页按账号逐行展示官方目标名称，未命名的账号显示“官方账号 1”等默认编号；修改名称并保存后，返回菜单即可看到。自建有效期仅说明“由 LAN Worker 接收端管理”，不把接收端默认秒数显示为当前生效 TTL。目标名称只做本机显示，不改变来源 ID、设备备注或请求协议；官方名称按账号绑定，重新排序 Token 或更换槽位时保留对应关系。
+两个通道使用相同的菜单编号：
 
-**自建和官方使用独立任务**，各自定时周期可调整或关闭；官方默认 600 秒。初次仅保存参数不安装任务，保存只更新已有任务。自动管理菜单：1 管理自建、2 管理官方、3 查看两项任务状态和日志；macOS / Windows 的 4 为通知设置。进入通道任务页后，1 安装 / 更新、2 暂停 / 恢复、3 状态和日志、4 删除；均只操作当前通道。维护功能沿用原入口。
+| 编号 | 操作 |
+| --- | --- |
+| 1 | 保存配置（编辑参数） |
+| 2 | 设置目标名称 |
+| 3 | 启用 / 停用自动上报 |
+| 4 | 定期上报设置（开关与间隔） |
+| 5 | 查看本机配置 |
+| 6 | 查看最近结果 |
+| 7 | 立即上报 |
+| 8 | 强制上报（绕过本机跳过条件） |
+| 9 | 安装 / 更新本通道自动任务 |
+| 10 | 删除本通道自动任务 |
+| 11 | 清除本通道配置 |
+| 12 | 查询官方白名单（仅官方通道） |
+| 0 | 返回 |
 
-如果以后不用自建上报，进入 **1 自建 PO0 → 3 停用本通道自动上报** 即可，官方继续自动执行；同样可以反过来停用官方。停用保留地址、名称和凭据，手动上报仍可用。清除某个通道只删除其连接凭据和名称，保留另一通道以及公共网络设置；清除后该通道自动开关关闭，重新保存参数后可从同一入口恢复自动上报。旧配置缺少新开关时保持原来的自动行为。
+保存和查看本机配置 / 最近结果均不提交上报；查询官方白名单只发 GET。立即上报无需等待间隔，仍遵守本机 SSID 条件；强制上报绕过本机跳过条件，仍保持官方 GET-first。目标名称仅用于本机显示，来源 ID 用于记录归属和续期，备注用于审计，三者互不替代。官方名称按 Token 身份保留，重新排序或更换槽位不会串名。未配置自建时收起详情，通过“保存配置”进入填写。
 
-TTL 是白名单的有效期，上报间隔是客户端多久执行一次，界面会分别说明：
+**自建和官方使用独立任务**，各自上报间隔可调整或关闭；官方默认 600 秒。初次仅保存参数不安装任务，保存只更新已有任务。自动管理菜单：1 管理自建、2 管理官方、3 查看两项任务状态和日志；macOS / Windows 的 4 为通知设置。进入通道任务页后，1 安装 / 更新、2 暂停 / 恢复、3 状态和日志、4 删除；均只操作当前通道。维护功能沿用原入口。
 
-| 客户端 | 自建有效期 TTL | 自建自动上报默认间隔 | 官方有效期 / 间隔 | SSID 命中时 |
+如果以后不用自建上报，进入 **1 自建防火墙 → 3 停用本通道自动上报** 即可，官方继续自动执行；同样可以反过来停用官方。停用保留地址、名称和凭据，手动上报仍可用。清除某个通道只删除其连接凭据和名称，保留另一通道以及公共网络设置；清除后该通道自动开关关闭，重新保存参数后可从同一入口恢复自动上报。旧配置缺少新开关时保持原来的自动行为。
+
+七端统一使用下面的字段含义。每个通道都有自己的自动开关、定期开关、上报间隔和目标配置。
+
+| 名称 | 含义 |
+| --- | --- |
+| 自动上报 | 本通道自动触发总开关；关闭保留配置，仍可手动上报 |
+| 启用定期上报 | 只控制本通道定期执行；关闭保留网络变化触发与原间隔 |
+| 上报间隔（秒） | 两次定期上报之间的时间；关闭定期上报时标为“暂不使用” |
+| 白名单有效期（TTL） | 放行记录保留多久，与上报间隔分开 |
+| 出口检测间隔 / 脚本更新间隔 | 分别用于检测出口变化、更新脚本代码，不决定白名单有效期 |
+
+默认值按平台保留，不重置旧配置：
+
+| 客户端 | 自建有效期 TTL | 自建上报间隔默认值 | 官方有效期 / 间隔 | SSID 命中时 |
 | --- | --- | --- | --- | --- |
-| Windows / macOS / Linux | LAN Worker 接收端设置，默认 43200 秒 | 3600 秒，可设置 | 官方服务管理 / 默认 600 秒，可设置或关闭 | 两个通道一起跳过 |
+| Windows / macOS / Linux | 由 LAN Worker 接收端管理 | 3600 秒，可设置 | 官方服务管理 / 默认 600 秒，可设置或关闭 | 两个通道一起跳过 |
+| OpenWrt APK | 由 LAN Worker 接收端管理 | 3600 秒，可设置或关闭 | 官方服务管理 / 默认 600 秒，可设置或关闭 | 仅自建支持所配置的 SSID 条件，官方 WAN 上报不使用 |
 | Egern | 可设置，默认 43200 秒；多目标可分别覆盖 | 600 秒，可设置或关闭 | 官方服务管理 / 默认 600 秒，可设置或关闭 | 两个自动通道一起跳过 |
 | Loon | LAN Worker 接收端设置 | 600 秒，可设置或关闭 | 官方服务管理 / 默认 600 秒，可设置或关闭 | 两个自动通道一起跳过 |
 | Stash | LAN Worker 接收端设置 | 600 秒，可设置或关闭 | 官方服务管理 / 默认 600 秒，可设置或关闭 | 公开 JS 接口无当前 SSID，暂不支持 |
 
 桌面端和 Egern 读取不到 SSID 时继续原有上报；Loon 保留原有未知 SSID 跳过行为。手动强制仍沿用各客户端原规则，不能绕过官方的先 GET 检查。Stash 不使用代理 ssid-policy 代替脚本能力。
 
-Loon 插件操作按通用、自建、官方分组：两个通道分别提供保存、切换自动上报、立即上报和清除；“通用 · 查看本机设置”不访问网络。自建名称与间隔在 worker_name / auto_report_interval_seconds 填写，官方名称在 PO0_FIREWALL_NAMES 填写。名字用分号或换行分隔，名称内部可有空格；Token 仍可用逗号、分号、空格或换行。旧模块参数和本机旧键仍兼容；显式保存后优先使用本机配置，清除后同步参数不会自动恢复凭据。
+Loon 插件操作按通用、自建、官方分组：两个通道分别提供保存、切换自动上报、启用定期上报、立即上报、强制上报和清除；“通用 · 查看本机配置”不访问网络。自建名称与间隔在 worker_name / auto_report_interval_seconds 填写，定期开关为 worker_timer_enabled；官方名称、间隔与定期开关为 PO0_FIREWALL_NAMES / official_report_interval_seconds / official_timer_enabled。名字用分号或换行分隔，名称内部可有空格；Token 仍可用逗号、分号、空格或换行。旧模块参数和本机旧键仍兼容；显式保存后优先使用本机配置，清除后同步参数不会自动恢复凭据。
 
-Stash 打开 http://po0-report.invalid/settings 使用本机管理页。Worker 参数只需在模块的 /save-worker argument 填写一次，再点击“保存参数”；官方对应 /save-official。两边都有停用 / 恢复、单独立即上报、清除入口；/status 只读检查，/report-now 上报全部。旧版脚本直接传入的 Worker 参数继续兼容，新模块的定时 / 状态 / 手动入口统一读取本机保存值。
+Stash 打开 http://po0-report.invalid/settings 使用本机管理页。Worker 参数只需在模块的 /save-worker argument 填写一次，再点击“保存配置”；官方对应 /save-official。两边都有停用 / 恢复、单独立即上报、清除入口；/recent 查看最近结果，/status 查询官方白名单，/report 立即上报，/report-now 强制上报全部。旧版脚本直接传入的 Worker 参数继续兼容，新模块的定时 / 状态 / 手动入口统一读取本机保存值。
+
+升级继续读取旧键和任务标识；历史 refresh_ttl_seconds / ttl_seconds 只是上报间隔别名。Loon、Stash 和 OpenWrt 的旧间隔 0 保持关闭定期的含义；Windows 的未指定间隔 0 仍按原默认值解释。桌面保存只更新已经安装的任务，不自动安装新任务。
+
+停用自建后可继续删除自建自动任务、清除自建配置，官方的配置、任务和最近结果保持完整。恢复自建只修改自建设置；原暂停状态不会自动解除，需自行启用自建自动上报。只使用官方的新设备无需填写自建地址、密钥或 SSH。
+
+Stash 使用每 60 秒的出口轮询，依赖 VPN 扩展运行；script-providers.interval 是脚本更新间隔，不能拿来设置上报周期。参见 [Stash 定时接口](https://stash.wiki/en/script/scheduled-tasks)。Loon 保留 [原生插件开关](https://nsloon.app/docs/Plugin/)，Egern 保留原生表单和一个执行“上报并刷新”的小组件。
 
 ### Linux / OpenWrt PO0 Outbound IP Report client
 
@@ -717,7 +752,7 @@ OpenWrt 多 WAN 可以重复传入 `--wan <逻辑接口>` 选择一条或多条�
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.sh | bash
 ```
 
-首次保存默认配置并打开菜单，不需要先在命令行写域名和 secret；进菜单后用 `1 自建 PO0 → 1 编辑并保存参数` 填写或修改。未传 `--source-id` / `--identity` 时，客户端会用 hostname + machine-id/MAC 生成默认 Source ID，并用设备名作为 Identity；需要固定自定义 ID 时再显式添加 `--source-id <CLIENT_ID>`：
+首次保存默认配置并打开菜单，不需要先在命令行写域名和 secret；进菜单后用 `1 自建防火墙 → 1 保存配置（编辑参数）` 填写或修改。未传 `--source-id` / `--identity` 时，客户端会用 hostname + machine-id/MAC 生成默认 Source ID，并用设备名作为 Identity；需要固定自定义 ID 时再显式添加 `--source-id <CLIENT_ID>`：
 
 ```bash
 curl -fsSL https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/po0-outbound-ip-report.sh | bash -s -- --save-config --menu
@@ -801,7 +836,7 @@ po0-outbound-ip-report --changelog
 
 ### macOS PO0 Outbound IP Report client
 
-macOS 使用专用 Bash 脚本和用户级 launchd LaunchAgent。统一菜单的 `5 自动上报管理 → 1 安装 / 更新` 会保存配置、安装本机脚本，并写入 `~/Library/LaunchAgents/outbound-ip-report.plist`；同一子菜单的 `5 通知 / 静默设置` 控制自动上报结果通知。
+macOS 使用专用 Bash 脚本和用户级 launchd LaunchAgent。统一菜单的 `5 自动上报管理` 中先选择自建或官方，再分别安装该通道的 launchd 任务；自动管理菜单的 `4 通知 / 静默设置` 控制自动上报结果通知。
 
 菜单 `7 维护与诊断 → 3 Wi-Fi SSID 权限诊断` 可以打开定位授权 Helper；`4 删除定位权限 Helper` 只删除本地 app，不修改定位授权记录。`2 卸载客户端` 会删除本客户端的计划、安装脚本和 Helper app。
 
@@ -913,7 +948,7 @@ Windows 默认按普通用户安装和运行，路径在 `%LOCALAPPDATA%\PO0\po0
 
 旧版曾把 Windows 本机脚本写到 `po0-self-report.ps1`。新版从旧路径启动时会迁移到 `po0-outbound-ip-report.ps1` 并刷新计划任务；更新或自愈完成后会把默认旧配置、旧日志、旧 IP 探测状态、旧计划任务启动文件和旧计划任务迁到新命名并删除旧默认残留。旧路径只作为兼容迁移和卸载目标，不再作为新安装入口。
 
-交互式运行默认进入统一菜单，推荐显式加 `-Menu`。`5 自动上报管理 → 1 安装 / 更新` 创建两个通道共用的 Windows 计划任务；同一子菜单的 `5 通知 / 静默设置` 管理通知。`7 维护与诊断` 提供更新与卸载，默认保留配置和日志。
+交互式运行默认进入统一菜单，推荐显式加 `-Menu`。`5 自动上报管理` 中先选择自建或官方，再分别安装该通道的任务；自动管理菜单的 `4 通知 / 静默设置` 管理通知。`7 维护与诊断` 提供更新与卸载，默认保留配置和日志。
 
 首次运行时先下载到临时文件，再打开菜单：
 
@@ -1050,7 +1085,7 @@ Egern 模块不是 DDNS 模块。它的逻辑是：
 bash /root/nftables-relay-manager.sh --ssh-ip-report <source-id> <ipv4> <token> [identity] [ttl] [cidr-prefix]
 ```
 
-Egern 放行 TTL 默认 `43200` 秒（12 小时）。一台或多台均在“自建防火墙上报目标”（`SSH_REPORT_TARGETS`）最后一列分别设置 TTL；新表单不再重复提供单目标字段，旧版已保存的 `TTL_SECONDS` 等配置仍兼容读取。实际 SSH 自动上报周期由 `AUTO_REPORT_INTERVAL_SECONDS` 控制，默认 `3600` 秒，可设置 `600` 到 `86400` 秒；建议让 TTL 至少大于自动上报周期并留出余量。模块 schedule 每 10 分钟轻量检查一次；如果 TTL 小于自动上报周期，脚本会提前续期，尽量避免过期空窗。Egern 蜂窝网络默认按 `CELLULAR_CIDR_PREFIX=24` 上报 `/24`，同一 `/24` 内 IP 跳动时自动触发会跳过 SSH；Wi-Fi 和未知网络固定 `/32`，出口 IP 变化就会重新上报。把 `CELLULAR_CIDR_PREFIX` 设为 `32` 可关闭蜂窝 `/24`。可选 `SKIP_WIFI_SSIDS` 只对定时/网络变化自动触发生效；当前 Wi-Fi SSID 精确命中分号分隔列表时，本机跳过本次公网 IP 探测、SSH 和官方上报，只写 Egern 本地状态/日志，不上传 SSID，也不改 PO0 或 LAN Worker 协议。读取不到 SSID 时继续上报；手动运行、状态页和 Widget 刷新会强制继续上报。
+Egern 放行 TTL 默认 `43200` 秒（12 小时）。一台或多台均在“自建防火墙上报目标”（`SSH_REPORT_TARGETS`）最后一列分别设置 TTL；新表单不再重复提供单目标字段，旧版已保存的 `TTL_SECONDS` 等配置仍兼容读取。自建上报间隔由 `AUTO_REPORT_INTERVAL_SECONDS` 控制，默认 `600` 秒，可设置 `60` 到 `86400` 秒；建议让 TTL 至少大于上报间隔并留出余量。模块 schedule 每分钟轻量检查一次；如果 TTL 小于上报间隔，脚本会提前续期，尽量避免过期空窗。Egern 蜂窝网络默认按 `CELLULAR_CIDR_PREFIX=24` 上报 `/24`，定期触发时同一 `/24` 内 IP 跳动无需立即重复上报；网络变化事件仍会立即上报；Wi-Fi 和未知网络固定 `/32`，出口 IP 变化就会重新上报。把 `CELLULAR_CIDR_PREFIX` 设为 `32` 可关闭蜂窝 `/24`。可选 `SKIP_WIFI_SSIDS` 只对定时/网络变化自动触发生效；当前 Wi-Fi SSID 精确命中分号分隔列表时，本机跳过本次公网 IP 探测、SSH 和官方上报，只写 Egern 本地状态/日志，不上传 SSID，也不改 PO0 或 LAN Worker 协议。读取不到 SSID 时继续上报；新版立即上报遵守 SSID 跳过，强制上报、原有状态页和 Widget 刷新继续上报。
 
 只读检查：
 
@@ -1067,7 +1102,7 @@ bash /root/nftables-relay-manager.sh --show-report-key-denials 80
 
 模块提供：
 
-- `schedule`：每 10 分钟轻量检查一次；实际 SSH 自动上报周期由 `AUTO_REPORT_INTERVAL_SECONDS` 控制，默认 `3600` 秒。
+- `schedule`：每 10 分钟轻量检查一次；自建上报间隔由 `AUTO_REPORT_INTERVAL_SECONDS` 控制，默认 `3600` 秒。
 - `network`：网络变化时上报。
 - `generic`：手动立即上报。
 - `widget`：查看最近成功 IP、时间、TTL、失败原因、网络类型、PO0 host。

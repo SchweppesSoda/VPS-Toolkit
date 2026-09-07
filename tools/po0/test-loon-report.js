@@ -489,15 +489,15 @@ async function testParallelOfficialAccountsPreserveLaneOrder() {
 function testPluginContract() {
   const plugin = fs.readFileSync(pluginPath, "utf8");
   const declarations = plugin.split(/\r?\n/).filter((line) => /^(?:cron|network-changed|generic)\b/.test(line));
-  assert.strictEqual(declarations.length, 13);
-  assert.strictEqual(declarations.filter((line) => /timeout=300/.test(line)).length, 6);
+  assert.strictEqual(declarations.length, 17);
+  assert.strictEqual(declarations.filter((line) => /timeout=300/.test(line)).length, 9);
   assert.match(plugin, /\[Argument\]/);
   assert.match(plugin, /SKIP_WIFI_SSIDS = input/);
-  assert.equal(declarations.filter(line => line.includes("{SKIP_WIFI_SSIDS}")).length, 5);
-  assert.match(plugin, /po0_worker_url = input,tag=【自建 PO0】/);
-  assert.match(plugin, /po0_worker_token = input,tag=【自建 PO0】/);
+  assert.equal(declarations.filter(line => line.includes("{SKIP_WIFI_SSIDS}")).length, 7);
+  assert.match(plugin, /po0_worker_url = input,tag=【自建防火墙】/);
+  assert.match(plugin, /po0_worker_token = input,tag=【自建防火墙】/);
   assert.match(plugin, /PO0_FIREWALL_TOKENS = input,tag=【官方防火墙】/);
-  assert.strictEqual(declarations.filter((line) => line.includes('argument=[{PO0_FIREWALL_TOKENS},{PO0_FIREWALL_NAMES},{official_report_interval_seconds}]')).length, 1);
+  assert.strictEqual(declarations.filter((line) => line.includes('argument=[{PO0_FIREWALL_TOKENS},{PO0_FIREWALL_NAMES},{official_report_interval_seconds},{official_timer_enabled}]')).length, 1);
   assert.ok(declarations.every((line) => line.includes('script-path=' + scriptRawUrl)));
 }
 
@@ -524,7 +524,9 @@ function testLocalSlotSurvivesSync() {
   const start = source.indexOf('function channelSettings(');
   const end = source.indexOf('function parseFirewallTokens(');
   const parseEnd = source.indexOf('\nfunction ', end + 10);
-  const functions = source.slice(start, parseEnd);
+  const intervalStart = source.indexOf('function reportInterval(');
+  const intervalEnd = source.indexOf('\nfunction ', intervalStart + 10);
+  const functions = source.slice(start, parseEnd) + source.slice(intervalStart, intervalEnd);
   const prefix = `const STORE_ID = 'device-test'; const LEGACY_ID = 'PO0_FIREWALL_TOKENS'; const MAX_ID = 16;`;
   const renamed = functions.replaceAll('PO0_STORE_KEY', 'STORE_ID').replaceAll('PO0_FIREWALL_TOKENS_KEY', 'LEGACY_ID').replaceAll('PO0_MAX_FIREWALL_TOKENS', 'MAX_ID');
   vm.runInContext(prefix + `
@@ -631,7 +633,57 @@ async function testNetworkChangesAndOptionalTimer() {
   assert(result.requests.some(item => item.request.url.includes('/api/firewall/')), 'custom timer fires when due');
 }
 
+
+async function testIndependentPeriodicSettingsAndRetirement() {
+  const store = new Map();
+  const call = args => execute({ store, argument: JSON.stringify(args) });
+  const worker = { mode: 'save-worker', worker_url: 'https://saved.example/stash-report/v1', secret: 'dummy-secret', source_id: 'fixture-device', worker_name: '接收端', auto_report_interval_seconds: 1200, worker_timer_enabled: false };
+  await call(worker);
+  await call({mode:'save-official', PO0_FIREWALL_TOKENS:'pgnfw_independent_fixture@2', official_report_interval_seconds:900, official_timer_enabled:true});
+  const officialConfig = store.get(STORE_KEY + '.official-config');
+  let settings = JSON.parse(store.get(STORE_KEY + '.channel-settings'));
+  assert.equal(settings.workerTimerEnabled, false);
+  assert.equal(settings.officialTimerEnabled, true);
+  assert.equal(settings.officialIntervalSeconds, 900);
+  let result = await call({mode:'auto'});
+  assert(result.requests.some(x => x.request.url.includes('/api/firewall/')), 'official timer must work while Worker periodic reporting is disabled');
+  await call({mode:'toggle-worker'});
+  const beforeState = JSON.parse(store.get(STORE_KEY)).official;
+  await call({mode:'clear-worker'});
+  assert.equal(store.get(STORE_KEY + '.official-config'), officialConfig);
+  assert.deepEqual(JSON.parse(store.get(STORE_KEY)).official, beforeState, 'clearing Worker must preserve official results');
+  result = await call({mode:'auto', trigger:'network'});
+  assert(result.requests.some(x => x.request.url.includes('/api/firewall/')), 'official network trigger must survive Worker retirement');
+  assert(!result.requests.some(x => x.request.url.includes('saved.example')), 'cleared Worker must stay inactive');
+  await call(worker);
+  settings = JSON.parse(store.get(STORE_KEY + '.channel-settings'));
+  assert.equal(settings.workerAutoEnabled, false, 'restoring Worker settings must preserve its paused state');
+  assert.equal(settings.officialIntervalSeconds, 900);
+  assert.equal(store.get(STORE_KEY + '.official-config'), officialConfig);
+  await call({mode:'save-official', official_timer_enabled:false});
+  settings = JSON.parse(store.get(STORE_KEY + '.channel-settings'));
+  assert.equal(settings.officialIntervalSeconds, 900, 'changing the switch must retain the interval');
+  assert.equal(store.get(STORE_KEY + '.official-config'), officialConfig, 'empty Token must preserve credentials and slot');
+  result = await call({mode:'auto', trigger:'network'});
+  assert(result.requests.some(x => x.request.url.includes('/api/firewall/')), 'timer switch must not disable network events');
+  for (const mode of ['settings','recent']) {
+    const before = store.get(STORE_KEY);
+    result = await call({mode});
+    assert.equal(result.requests.length, 0, mode + ' must not access network');
+    assert.equal(store.get(STORE_KEY), before, mode + ' must not advance reporting state');
+  }
+  store.set(STORE_KEY + '.worker-config', JSON.stringify({version:1,values:{worker_url:'http://invalid.example/report',secret:'dummy-secret'}}));
+  result = await call({mode:'force'});
+  assert(result.requests.some(x => x.request.url.includes('/api/firewall/')), 'invalid Worker config must not prevent official report');
+  assert(JSON.parse(store.get(STORE_KEY)).official.accounts.length > 0);
+  await call(Object.assign({},worker,{auto_report_interval_seconds:0,worker_timer_enabled:true}));
+  settings=JSON.parse(store.get(STORE_KEY + '.channel-settings'));
+  assert.equal(settings.workerTimerEnabled,false,'legacy zero must retain its timer-off meaning');
+  assert.equal(settings.officialIntervalSeconds,900);
+}
+
 (async () => {
+  await testIndependentPeriodicSettingsAndRetirement();
   await testNetworkChangesAndOptionalTimer();
   await testLocalChannelControls();
   await testConfiguredSsidSkipsBothChannels();

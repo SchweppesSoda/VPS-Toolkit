@@ -938,7 +938,7 @@ async function testParallelOfficialAccountsPreserveLaneOrder() {
 }
 
 function testEgernTimeoutBudget() {
-  assert.equal((yamlSource.match(/timeout: 90/g) || []).length, 6);
+  assert.equal((yamlSource.match(/timeout: 90/g) || []).length, 10);
   assert.equal((yamlSource.match(/timeout: 30/g) || []).length, 0);
 }
 
@@ -1334,7 +1334,7 @@ function actionHttpGet(url) {
 
 async function testEveryPublishedManualActionReturnsVisibleResult() {
   const actions = publishedActions().filter(action => action.type === 'generic');
-  assert.equal(actions.length, 16);
+  assert.equal(actions.length, 21);
   for (const action of actions) {
     for (const mode of ['configured', 'empty', 'busy', 'storage-read-error', 'storage-write-error']) {
       const values = mode === 'empty' ? {} : actionValues;
@@ -1352,10 +1352,10 @@ async function testEveryPublishedManualActionReturnsVisibleResult() {
       assert.equal(result?.type, 'widget', action.name + ' / ' + mode + ' must render a result');
       assert.match(visibleText(result), /text/);
       const networkCalls = fixture.calls.get.length + fixture.calls.post.length + fixture.calls.ssh;
-      const reportAction = /上报状态|强制上报|状态（只读）/.test(action.name);
+      const reportAction = /上报状态|强制上报|状态（只读）|查询官方白名单/.test(action.name);
       if (!reportAction || mode !== 'configured') assert.equal(networkCalls, 0, action.name + ' / ' + mode);
       if (reportAction && mode === 'configured') {
-        assert.equal(fixture.calls.ssh, /仅官方|官方防火墙状态/.test(action.name) ? 0 : 1, 'manual reporting must bypass disabled auto and SSID');
+        assert.equal(fixture.calls.ssh, /仅官方|官方防火墙状态|查询官方白名单/.test(action.name) ? 0 : 1, 'manual reporting must bypass disabled auto and SSID');
         const officialGets = fixture.calls.get.filter(call => call.url.includes('/api/firewall/'));
         assert.equal(officialGets.length, /仅自建/.test(action.name) ? 0 : 1);
         assert.equal(fixture.calls.post.length, 0, 'already allowed or read-only must never POST');
@@ -1461,7 +1461,7 @@ async function testInlineOfficialTargetsPersistAndMatchNames() {
   const result = await runEgernReport(save.ctx);
   assert.match(visibleText(result), /手机/);
   assert.match(visibleText(result), /Office Firewall/);
-  assert.match(visibleText(result), /定时关闭/);
+  assert.match(visibleText(result), /暂不使用/);
   assert.equal(save.calls.get.length + save.calls.post.length, 0);
   let values = JSON.parse(await storage.get(CONFIG_STORAGE_KEY)).values;
   assert.equal(values.PO0_FIREWALL_NAMES, '手机;Office Firewall');
@@ -1507,7 +1507,7 @@ async function testInlineOfficialTargetValidation() {
     assert.equal(await fixture.storage.get(CONFIG_STORAGE_KEY), null);
   }
   const run = createContext({ env: { PO0_FIREWALL_TOKENS: 'pgnfw_invalid|名称|59' } });
-  assert.match(visibleText(await runEgernReport(run.ctx)), /TTL 上报周期/);
+  assert.match(visibleText(await runEgernReport(run.ctx)), /上报间隔/);
   assert.equal(run.calls.get.length + run.calls.post.length, 0);
 }
 
@@ -1584,7 +1584,7 @@ async function testSimpleTtlDefaultsAndLegacyMigration() {
     assert.equal(values.PO0_FIREWALL_TOKENS, normalized);
     assert.equal(values.PO0_FIREWALL_NAMES, '显示名称');
     assert.doesNotMatch(visibleText(result), /interval=|timer=/);
-    if (!normalized.includes('||')) assert.match(visibleText(result), /TTL 600 秒/);
+    if (!normalized.includes('||')) assert.match(visibleText(result), /上报间隔 600 秒/);
     assert.equal(save.calls.get.length + save.calls.post.length, 0);
   }
   const env = { PO0_FIREWALL_TOKENS: 'pgnfw_period|显示名称|43200' };

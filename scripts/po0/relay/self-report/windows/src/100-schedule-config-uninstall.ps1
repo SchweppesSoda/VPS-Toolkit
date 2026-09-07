@@ -46,7 +46,7 @@ function Show-ClientConfig {
     Write-PanelSection "PO0 Outbound IP Report 客户端配置"
     Write-PanelRow "配置文件" $script:ConfigPath
     Write-PanelRow "保存状态" $(if (Test-Path -LiteralPath $script:ConfigPath) { "已保存" } else { "未保存" })
-    Write-PanelSection "自建 PO0 · LAN Worker"
+    Write-PanelSection "自建防火墙 · LAN Worker"
     Write-PanelRow "目标名称" $(if ($script:WorkerName) { $script:WorkerName } else { "LAN Worker" })
     Write-PanelRow "自建自动上报" (Get-ChannelAutoLabel worker)
     Write-PanelRow "LAN Worker URL" $(if ($script:WorkerUrl) { $script:WorkerUrl } else { "未设置" })
@@ -77,7 +77,7 @@ function Show-ClientConfig {
 }
 
 function Set-ClientConfigInteractive {
-    Write-PanelSection "自建 PO0 · LAN Worker 参数"
+    Write-PanelSection "自建防火墙 · LAN Worker 参数"
     $workerDefault = $(if ($script:WorkerUrl) { $script:WorkerUrl } else { "" })
     $workerPrompt = "LAN Worker self-report HTTPS 接收地址（可空；输入 - 清空）"
     if ($workerDefault) { $workerPrompt = "{0} [{1}]" -f $workerPrompt, $workerDefault }
@@ -105,7 +105,7 @@ function Set-ClientConfigInteractive {
     $script:SourceId = Read-Default "来源 ID" $script:SourceId
     $script:Identity = Read-Default "设备备注" $script:Identity
     Read-SecretSetting
-    $seconds = Read-Default "自建 PO0 每几秒上报一次（60-$($script:MaxMinutes * 60)；必须是 60 的倍数）" ([string](Get-IntervalSeconds))
+    $seconds = Read-Default "自建防火墙上报间隔（秒）（60-$($script:MaxMinutes * 60)；必须是 60 的倍数）" ([string](Get-IntervalSeconds))
     $script:Minutes = Convert-IntervalSecondsToMinutes $seconds
     Save-ClientConfig
 }
@@ -158,13 +158,7 @@ function Install-ScheduledReporterInteractive {
     param([ValidateSet('all','worker','official')][string]$Channel='all')
     if ($Channel -eq 'all') { Install-ScheduledReporter -Channel all; return }
     if (-not (Test-ChannelConfigured $Channel)) { throw '请先保存本通道参数。' }
-    $timerEnabled = if ($Channel -eq 'official') { $script:OfficialTimerEnabled } else { $script:WorkerTimerEnabled }
-    $defaultInterval = if ($timerEnabled) { Get-ChannelIntervalSeconds $Channel } else { 0 }
-    $value = Read-Default '定时周期秒数（60..86400，60 的倍数；0 关闭定时）' ([string]$defaultInterval)
-    $seconds = 0
-    if (-not [int]::TryParse($value,[ref]$seconds) -or $seconds -lt 0 -or $seconds -gt 86400 -or ($seconds -gt 0 -and ($seconds -lt 60 -or $seconds % 60))) { throw '无效周期。' }
-    if ($Channel -eq 'official') { $script:OfficialTimerEnabled = $seconds -gt 0; if ($seconds -gt 0) { $script:OfficialIntervalSeconds = $seconds } }
-    else { $script:WorkerTimerEnabled = $seconds -gt 0; if ($seconds -gt 0) { $script:Minutes = $seconds / 60 } }
+    Set-ChannelPeriodicInteractive $Channel
     Install-ScheduledReporter -Channel $Channel
 }
 
@@ -172,7 +166,7 @@ function Show-ScheduledReporter {
     param([ValidateSet('all','worker','official')][string]$Channel=$ScheduleChannel)
     foreach ($lane in @('worker','official')) {
         if ($Channel -ne 'all' -and $Channel -ne $lane) { continue }
-        Write-PanelSection $(if ($lane -eq 'worker') { '自建 PO0 · 定时任务' } else { '官方防火墙 · 定时任务' })
+        Write-PanelSection $(if ($lane -eq 'worker') { '自建防火墙 · 定时任务' } else { '官方防火墙 · 定时任务' })
         $networkTask = Get-ScheduledTask -TaskName (Get-NetworkReporterTaskName $lane) -ErrorAction SilentlyContinue
         Write-PanelRow '网络变化监听' $(if (-not (Test-WindowsNetworkWatchSupported)) { '当前环境不可用，跳过检测' } elseif (-not $networkTask) { '未安装' } elseif ($networkTask.State -eq 'Disabled') { '已暂停' } else { '已启用' })
         Write-PanelRow '任务名称' (Get-ChannelTaskName $lane)

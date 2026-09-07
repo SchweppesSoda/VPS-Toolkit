@@ -335,7 +335,7 @@ manage_target_self_report_ttl_interactive() {
     done < "${CONFIG_FILE}"
     printf '\nSelf-report source 与 TTL 维护；直接回车保留当前值，输入 - 可清空目标覆盖。\n'
     client_ip_source="$(prompt_default "Self-report source id" "${client_ip_source:-${SELF_REPORT_SOURCE}}")"
-    client_ip_ttl="$(prompt_default "Self-report 放行 TTL 秒数" "${client_ip_ttl:-${SELF_REPORT_TTL_SECONDS:-43200}}")"
+    client_ip_ttl="$(prompt_default "Self-report 白名单有效期（TTL，秒）" "${client_ip_ttl:-${SELF_REPORT_TTL_SECONDS:-43200}}")"
     [[ "${client_ip_source}" == "-" ]] && client_ip_source=""
     [[ "${client_ip_ttl}" == "-" ]] && client_ip_ttl=""
     if [[ -n "${client_ip_ttl}" && ! "${client_ip_ttl}" =~ ^[0-9]+$ ]]; then
@@ -365,9 +365,9 @@ manage_target_report_ttl_interactive() {
     done < "${CONFIG_FILE}"
     printf '\nSelf-report / WebAuth source 与 TTL 维护；直接回车保留当前值，输入 - 可清空目标覆盖。\n'
     client_ip_source="$(prompt_default "Self-report source id" "${client_ip_source:-${SELF_REPORT_SOURCE}}")"
-    client_ip_ttl="$(prompt_default "Self-report 放行 TTL 秒数" "${client_ip_ttl:-${SELF_REPORT_TTL_SECONDS:-43200}}")"
+    client_ip_ttl="$(prompt_default "Self-report 白名单有效期（TTL，秒）" "${client_ip_ttl:-${SELF_REPORT_TTL_SECONDS:-43200}}")"
     webauth_source="$(prompt_default "WebAuth source id" "${webauth_source:-${WEBAUTH_SOURCE}}")"
-    webauth_ttl="$(prompt_default "WebAuth 放行 TTL 秒数" "${webauth_ttl:-${WEBAUTH_TTL_SECONDS:-43200}}")"
+    webauth_ttl="$(prompt_default "WebAuth 白名单有效期（TTL，秒）" "${webauth_ttl:-${WEBAUTH_TTL_SECONDS:-43200}}")"
     [[ "${client_ip_source}" == "-" ]] && client_ip_source=""
     [[ "${client_ip_ttl}" == "-" ]] && client_ip_ttl=""
     [[ "${webauth_source}" == "-" ]] && webauth_source=""

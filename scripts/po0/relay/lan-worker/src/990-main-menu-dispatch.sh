@@ -21,7 +21,7 @@ menu_loop() {
         print_menu_section "PO0 目标、SSH、Token 与 TTL"
         print_menu_pair 14 "添加 PO0 目标" 15 "编辑 PO0 目标"
         print_menu_pair 16 "SSH 私钥 / 参数" 17 "目标 Token"
-        print_menu_pair 18 "Self-report / WebAuth TTL" 19 "启用 / 停用目标"
+        print_menu_pair 18 "Self-report / WebAuth 白名单有效期（TTL）" 19 "启用 / 停用目标"
         print_menu_item 20 "删除 PO0 目标"
 
         print_menu_section "全局操作"

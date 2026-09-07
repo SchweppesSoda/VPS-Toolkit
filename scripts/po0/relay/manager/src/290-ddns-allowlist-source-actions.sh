@@ -114,7 +114,7 @@ do_add_ddns_allowlist_source() {
         return 1
     }
     [[ -n "$(trim "${name}")" ]] || name="${domain}"
-    ttl="$(prompt_with_default "请输入刷新 TTL 秒数（60-86400）" "43200")"
+    ttl="$(prompt_with_default "请输入白名单有效期（TTL，秒）（60-86400）" "43200")"
     ttl="$(normalize_source_ttl_seconds "${ttl}")"
     answer="$(read_prompt "是否启用这个 DDNS 来源 [Y/n]: ")" || answer=""
     case "${answer,,}" in
@@ -174,7 +174,7 @@ do_edit_ddns_allowlist_source() {
     [[ -n "$(trim "${new_name}")" ]] || new_name="${new_domain}"
     new_name="$(sanitize_allowlist_source_text "${new_name}")"
     new_domain="$(sanitize_allowlist_source_text "${new_domain}")"
-    new_ttl="$(prompt_with_default "请输入刷新 TTL 秒数（60-86400）" "${old_ttl}")"
+    new_ttl="$(prompt_with_default "请输入白名单有效期（TTL，秒）（60-86400）" "${old_ttl}")"
     new_ttl="$(normalize_source_ttl_seconds "${new_ttl}")"
     if [[ "${old_enabled}" == "1" ]]; then
         answer="$(prompt_with_default "是否启用这个 DDNS 来源 [Y/n]" "Y")"

@@ -5,9 +5,9 @@ command -v rg >/dev/null 2>&1 || { printf 'ripgrep (rg) is required for PO0 refe
 
 repo_root="$(cd "$(git rev-parse --show-toplevel)" && pwd -P)"
 asset_dir="${1:-${repo_root}/.tmp/po0-check-assets-bash}"
-expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.09.06+build.4}"
-expected_po0_release_date="${PO0_EXPECTED_RELEASE_DATE:-2026-09-06}"
-expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.09.06.4}"
+expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.09.07+build.1}"
+expected_po0_release_date="${PO0_EXPECTED_RELEASE_DATE:-2026-09-07}"
+expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.09.07.1}"
 
 manifest_entries() {
     local manifest="$1"
@@ -105,8 +105,8 @@ check_egern_ssid_guard() {
         printf 'Egern YAML lacks SKIP_WIFI_SSIDS env configuration.\n' >&2
         exit 1
     }
-    grep -Fq '保存本机 PO0 自建防火墙配置' "${yaml}" || { printf 'Egern YAML lacks native storage save action.\n' >&2; exit 1; }
-    grep -Fq '保存本机 PO0 官方防火墙配置' "${yaml}" || { printf 'Egern YAML lacks independent official settings action.\n' >&2; exit 1; }
+    grep -Fq '自建防火墙 · 保存配置' "${yaml}" || { printf 'Egern YAML lacks native storage save action.\n' >&2; exit 1; }
+    grep -Fq '官方防火墙 · 保存配置' "${yaml}" || { printf 'Egern YAML lacks independent official settings action.\n' >&2; exit 1; }
     grep -Fq '清除本机全部 PO0 上报配置' "${yaml}" || { printf 'Egern YAML lacks native storage clear action.\n' >&2; exit 1; }
     grep -Fq 'normalizeSsidSkipList' "${js}" || { printf 'Egern JS lacks SSID skip list normalizer.\n' >&2; exit 1; }
     grep -Fq 'currentWifiSsidFromNetwork' "${js}" || { printf 'Egern JS lacks raw Wi-Fi SSID reader.\n' >&2; exit 1; }
@@ -165,7 +165,7 @@ check_egern_official_channel() {
         printf 'Egern YAML lacks the persisted PO0_FIREWALL_TOKENS setting.\n' >&2
         exit 1
     }
-    grep -Fq 'PO0 官方防火墙状态（只读）' "${yaml}" || {
+    grep -Fq '查询官方白名单' "${yaml}" || {
         printf 'Egern YAML lacks the official firewall read-only status action.\n' >&2
         exit 1
     }

@@ -158,7 +158,7 @@ report_once_inner() {
     fi
     if [[ "${failure_count}" -gt 0 ]]; then
         if [[ "${success_count}" -gt 0 ]]; then
-            status_message="部分通道完成；失败通道将在各自 due 到达后重试。"
+            status_message="部分通道完成；失败通道将在各自上报间隔到达后重试。"
             self_report_incomplete "${status_message}"
             notify_report_failure "${status_message}"
             return 1
@@ -169,7 +169,7 @@ report_once_inner() {
         return 1
     fi
     if [[ "${success_count}" == "0" && "${skipped_count}" -gt 0 ]]; then
-        self_report_completed "本次定时唤醒没有到达通道 due，未发起请求。"
+        self_report_completed "本次定时唤醒未到上报间隔，未发起请求。"
         return 0
     fi
     if [[ "${official_active}" == "1" && "${worker_active}" == "1" ]]; then

@@ -21,6 +21,8 @@ start_service() {
 		fallback=0; [ "$lane" != worker ] || fallback=1
 		enabled="$(uci -q get "po0_outbound_ip_report.main.${lane}_enabled" 2>/dev/null || printf '%s' "$fallback")"
 		case "$enabled" in 0|false|no|off) continue ;; esac
+		enabled="$(uci -q get "po0_outbound_ip_report.main.${lane}_timer_enabled" 2>/dev/null || printf 1)"
+		case "$enabled" in 0|false|no|off) continue ;; esac
 		if [ "$lane" = worker ]; then
 			interval="$(uci -q get po0_outbound_ip_report.main.interval_seconds 2>/dev/null || printf 3600)"
 		else

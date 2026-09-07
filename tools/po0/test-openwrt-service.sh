@@ -17,6 +17,8 @@ case "$*" in
  *main.official_enabled) printf '%s' "${OFFICIAL:-1}" ;;
  *main.interval_seconds) printf '%s' "${WORKER_INTERVAL:-3600}" ;;
  *main.official_interval_seconds) printf '%s' "${OFFICIAL_INTERVAL:-600}" ;;
+ *main.worker_timer_enabled) printf '%s' "${WORKER_TIMER:-1}" ;;
+ *main.official_timer_enabled) printf '%s' "${OFFICIAL_TIMER:-1}" ;;
  *main.worker_network_enabled) printf '%s' "${WORKER_NETWORK:-1}" ;;
  *main.official_network_enabled) printf '%s' "${OFFICIAL_NETWORK:-1}" ;;
  *) exit 1 ;;
@@ -131,4 +133,18 @@ WORKER=0 sh "$work/start" > "$work/procd"
 grep -Fqx 'instance=official' "$work/procd" || fail 'pausing Worker removed official'
 TOTAL=0 sh "$work/start" > "$work/procd"
 [[ ! -s "$work/procd" ]] || fail 'total switch ignored'
+# Explicit timer switches preserve positive intervals and independent network events.
+OFFICIAL_TIMER=0 run official
+not_called; [[ ! -s "$work/sleep.log" ]] || fail 'explicit official timer switch ignored'
+WORKER_TIMER=0 run worker
+not_called; [[ ! -s "$work/sleep.log" ]] || fail 'explicit Worker timer switch ignored'
+OFFICIAL_TIMER=0 run official network wan1
+called '--official-only --network-changed --official-wan wan1'
+WORKER_TIMER=0 run worker network
+called '--worker-only --network-changed'
+WORKER=0 NOW=9999 run official
+called '--official-only --timer-trigger'
+OFFICIAL_TIMER=0 sh "$work/start" > "$work/procd"
+! grep -Fqx 'instance=official' "$work/procd" || fail 'explicit timer switch registered official instance'
+grep -Fqx 'instance=worker' "$work/procd" || fail 'official timer switch removed Worker'
 printf 'PASS: OpenWrt independent instances, optional timers, events, and migration.\n'

@@ -66,6 +66,23 @@ for platform in linux macos; do
         WORKER_NAME=''
         . "$CONFIG_FILE"
         [[ "$WORKER_AUTO_ENABLED" == 0 && "$OFFICIAL_AUTO_ENABLED" == 1 && "$WORKER_NAME" == '家用接收端' ]]
+        # The new periodic editor keeps stored intervals and updates only existing tasks.
+        schedule_updates=''
+        update_channel_schedule_if_installed() { schedule_updates="$schedule_updates $1"; }
+        prompt_yes_no() { return 1; }
+        prompt_default() { printf '%s' "$2"; }
+        OFFICIAL_INTERVAL_SECONDS=900
+        OFFICIAL_TIMER_ENABLED=1
+        WORKER_TIMER_ENABLED=1
+        CRON_MINUTES=90
+        configure_channel_periodic_interactive official > /dev/null
+        [[ "$OFFICIAL_INTERVAL_SECONDS" == 900 && "$OFFICIAL_TIMER_ENABLED" == 0 && "$CRON_MINUTES" == 90 && "$WORKER_TIMER_ENABLED" == 1 ]]
+        [[ "$schedule_updates" == ' official' && "$(channel_interval_label official)" == *暂不使用* ]]
+        configure_channel_periodic_interactive worker > /dev/null
+        [[ "$CRON_MINUTES" == 90 && "$WORKER_TIMER_ENABLED" == 0 && "$OFFICIAL_INTERVAL_SECONDS" == 900 && "$OFFICIAL_TIMER_ENABLED" == 0 ]]
+        prompt_yes_no() { return 0; }
+        configure_channel_periodic_interactive official > /dev/null
+        [[ "$OFFICIAL_TIMER_ENABLED" == 1 && "$WORKER_TIMER_ENABLED" == 0 ]]
         prompt_yes_no() { return 0; }
         save_config_file() { real_save_config_file; }
         clear_worker_config_interactive > /dev/null
@@ -82,8 +99,8 @@ for platform in linux macos; do
         cron_status_summary() { printf '未安装'; }
         menu_loop > "$test_dir/menu-$platform"
         exec 9<&-
-        grep -Fq '编辑并保存参数' "$test_dir/menu-$platform"
-        grep -Fq '清除此通道保存的配置' "$test_dir/menu-$platform"
+        grep -Fq '保存配置（编辑参数）' "$test_dir/menu-$platform"
+        grep -Fq '清除本通道配置' "$test_dir/menu-$platform"
         grep -Fq '维护与诊断' "$test_dir/menu-$platform"
         printf 'PASS: %s local settings visibility, multiline save, invalid input retention and clear\n' "$platform"
     )

@@ -165,8 +165,9 @@ function Show-Usage {
     @"
 PO0 Outbound IP Report 客户端（Windows PowerShell）
 
-本脚本探测当前 Windows 设备的公网出口 IPv4，并上报到 LAN Worker 的
-self-report 接收服务。访问设备不直接连接 PO0。
+本脚本支持自建与官方两条独立通道。自建经 LAN Worker 上报，官方直接查询
+并按需加入白名单，无需配置自建。白名单有效期由各自接收端管理；
+自动开关、定期开关和上报间隔分别设置。
 
 用法:
   `$script="`$env:TEMP\po0-outbound-ip-report.ps1"; irm -UseBasicParsing '$DownloadUrl' -OutFile `$script -TimeoutSec 120; powershell -ExecutionPolicy Bypass -File `$script

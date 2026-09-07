@@ -10,9 +10,9 @@ if (-not $OutputDir) {
 }
 
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.09.06+build.4" }
-$ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-09-06" }
-$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.09.06.4" }
+$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.09.07+build.1" }
+$ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-09-07" }
+$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.09.07.1" }
 
 function ConvertTo-RepoRelativePath {
     param([string]$Path)
@@ -170,7 +170,7 @@ function Test-EgernSsidGuard {
     if ($yamlRaw -notmatch '(?m)^\s+SKIP_WIFI_SSIDS:') {
         throw "Egern YAML lacks SKIP_WIFI_SSIDS env configuration."
     }
-    foreach ($action in @("保存本机 PO0 自建防火墙配置", "保存本机 PO0 官方防火墙配置", "清除本机全部 PO0 上报配置")) {
+    foreach ($action in @("自建防火墙 · 保存配置", "官方防火墙 · 保存配置", "清除本机全部 PO0 上报配置")) {
         if (-not $yamlRaw.Contains($action)) {
             throw "Egern YAML lacks native storage action: $action"
         }
@@ -237,7 +237,7 @@ function Test-EgernOfficialChannel {
     $jsRaw = Get-Content -LiteralPath $js -Raw -Encoding UTF8
     foreach ($marker in @(
         "PO0_FIREWALL_TOKENS:",
-        "PO0 官方防火墙状态（只读）"
+        "查询官方白名单"
     )) {
         if (-not $yamlRaw.Contains($marker)) {
             throw "Egern YAML lacks official firewall marker: $marker"

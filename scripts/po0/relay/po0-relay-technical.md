@@ -653,7 +653,7 @@ po0-lan-client --probe
 po0-lan-client --wizard
 ```
 
-SSH 认证按向导选择：系统默认 SSH 配置/agent、已有私钥路径，或粘贴专用私钥。粘贴的私钥会保存到本机配置目录并设置 600 权限。`额外 SSH 参数` 是传给 `ssh` 的选项，例如 `-J jump-host` 或 `-o StrictHostKeyChecking=accept-new`，不是私钥短语；带短语的私钥需要 `ssh-agent`。向导会自动补 `-o BatchMode=yes`，避免 cron/service 卡在交互输入。菜单里的 `PO0 目标`、`SSH 私钥 / 参数`、`目标 Token`、`Self-report / WebAuth TTL` 分开管理目标、SSH、Token 和 TTL；`资源任务` 与 `DDNS resolver` 是分开的执行入口，资源任务在前。
+SSH 认证按向导选择：系统默认 SSH 配置/agent、已有私钥路径，或粘贴专用私钥。粘贴的私钥会保存到本机配置目录并设置 600 权限。`额外 SSH 参数` 是传给 `ssh` 的选项，例如 `-J jump-host` 或 `-o StrictHostKeyChecking=accept-new`，不是私钥短语；带短语的私钥需要 `ssh-agent`。向导会自动补 `-o BatchMode=yes`，避免 cron/service 卡在交互输入。菜单里的 `PO0 目标`、`SSH 私钥 / 参数`、`目标 Token`、`Self-report / WebAuth 白名单有效期（TTL）` 分开管理目标、SSH、Token 和 TTL；`资源任务` 与 `DDNS resolver` 是分开的执行入口，资源任务在前。
 
 如果旧版本安装后没有 `po0-lan-client` 命令，可手动补装：
 
@@ -848,7 +848,7 @@ SSID 跳过是访问设备客户端本地 guard，不属于 LAN Worker 或 PO0 �
 
 访问设备客户端的用户可见结果行统一为 `PO0 Outbound IP Report 已完成：...` 或 `PO0 Outbound IP Report 未完成：...`。一次性上报只有在本机探测到公网 IPv4、LAN Worker HTTP 返回 2xx，且 LAN Worker 已成功代报 PO0 后才打印完成；否则保留底层错误并返回非零状态。LAN Worker 成功返回 `OK <ip>; targets=<N>; target_names=<目标列表>` 时，三个客户端都会把目标列表汇总到完成结果和定时上报状态摘要；连接旧 LAN Worker 只有 `targets=<N>` 时退回显示 `PO0 目标：N 个`。Linux/OpenWrt 和 macOS 定时任务的每次运行输出重定向到 `/tmp/po0-outbound-ip-report.log`，其中也包含同样的结果行。macOS 默认静默；显式启用通知后，成功/失败通知只是附加 UI 提示，通知失败不能影响上报结果。Windows 计划任务不会依赖一闪而过的控制台窗口；`-InstallTask` 会把 `-LogPath` 写入任务参数，管理员安装默认日志为 `%ProgramData%\PO0\po0-outbound-ip-report.log`，普通用户安装默认日志为 `%LOCALAPPDATA%\PO0\po0-outbound-ip-report.log`，运行时会记录可执行到的上报过程、LAN Worker 返回体和完成/未完成结果；参数、配置或探测阶段的早期失败只记录错误路径。Windows 的通知实际行为由计划任务/VBS launcher 是否带 `-Notify` 决定；菜单“查看定时上报状态”会解析 launcher，展示配置通知状态、任务实际通知状态和实际 `-File` 脚本目标，不一致时提示通知或旧路径漂移，同时展示计划任务上次运行结果和最近结果摘要，原始日志路径 / tail 命令仍保留用于排查细节。
 
-Self-report / WebAuth 放行 TTL 默认均为 `43200` 秒（12 小时），由 LAN Worker 上报 PO0 时传入；客户端只控制上报频率，不控制 TTL。TTL 可以通过 `po0-lan-client --self-report-ttl <秒数>` / `--webauth-ttl <秒数>`、bootstrap 向导，或 LAN Worker 菜单 `Self-report / WebAuth TTL` 修改。Self-report / WebAuth TTL 会被限制在 `60-604800` 秒内；WebAuth 由 LAN Worker 传入 expires-at，PO0 端也会把过远的 expires-at 截到 7 天内。旧安装的本机 `settings.env` 如果仍保存旧默认 `3600` 或 `21600`，脚本加载时会迁移到新默认；各 PO0 目标行中显式写入的 TTL 不自动改写。
+Self-report / WebAuth 放行 TTL 默认均为 `43200` 秒（12 小时），由 LAN Worker 上报 PO0 时传入；客户端只控制上报频率，不控制 TTL。TTL 可以通过 `po0-lan-client --self-report-ttl <秒数>` / `--webauth-ttl <秒数>`、bootstrap 向导，或 LAN Worker 菜单 `Self-report / WebAuth 白名单有效期（TTL）` 修改。Self-report / WebAuth 白名单有效期（TTL） 会被限制在 `60-604800` 秒内；WebAuth 由 LAN Worker 传入 expires-at，PO0 端也会把过远的 expires-at 截到 7 天内。旧安装的本机 `settings.env` 如果仍保存旧默认 `3600` 或 `21600`，脚本加载时会迁移到新默认；各 PO0 目标行中显式写入的 TTL 不自动改写。
 
 LAN Worker 的 Self-report `/report` 和 WebAuth HTTP server 会把同一轮多个 PO0 目标并发提交到 SSH worker pool，默认最多同时处理 8 个目标。响应仍保持原有语义：全部 PO0 目标成功才返回 2xx；任一目标失败、被 wrapper 拒绝或 30 秒 SSH 超时则返回 502，并保留目标级错误明细。HTTP 客户端如果先超时断开，server 只记录简短断连警告，不把 BrokenPipe traceback 打进 journal。
 
@@ -1001,7 +1001,7 @@ Egern 同时用版本化 key `po0-ssh-ip-report:config:v1` 在本机 `ctx.storag
 bash /root/nftables-relay-manager.sh --ssh-ip-report <source-id> <ipv4> <token> [identity] [ttl] [cidr-prefix]
 ```
 
-Egern / ssh-report 放行 TTL 默认 `43200` 秒（12 小时）。一台或多台均在“自建防火墙上报目标”（`SSH_REPORT_TARGETS`）最后一列分别设置 TTL；新表单不再重复提供单目标字段，旧版已保存的 `TTL_SECONDS` 等配置仍兼容读取。实际 SSH 自动续期间隔由 `AUTO_REPORT_INTERVAL_SECONDS` 控制，默认 `600` 秒，可设置 `60` 到 `86400` 秒；建议 TTL 大于自动上报周期并留出余量。模块 schedule 每分钟轻量检查一次；如果 TTL 小于自动上报周期，脚本会提前续期，尽量避免过期空窗。Egern 蜂窝网络默认按 `CELLULAR_CIDR_PREFIX=24` 上报 `/24`；Wi-Fi 和未知网络固定 `/32`。`SKIP_WIFI_SSIDS` 是 Egern 本地 guard：仅 schedule/network 自动触发读取 `ctx.device.wifi.ssid` 并按英文分号列表精确匹配；命中时不探测公网 IP、不执行 SSH、不通知，只在 Egern 本地 storage/log/widget 记录跳过状态并优先保留上一轮成功状态。SSID 读取失败、非 Wi-Fi、手动运行、状态页和 Widget 刷新都 fail-open / force-report；SSID 不进入 `--ssh-ip-report` 参数、PO0 状态、LAN Worker `/report` 或任何新协议字段。
+Egern / ssh-report 放行 TTL 默认 `43200` 秒（12 小时）。一台或多台均在“自建防火墙上报目标”（`SSH_REPORT_TARGETS`）最后一列分别设置 TTL；新表单不再重复提供单目标字段，旧版已保存的 `TTL_SECONDS` 等配置仍兼容读取。实际 SSH 自动续期间隔由 `AUTO_REPORT_INTERVAL_SECONDS` 控制，默认 `600` 秒，可设置 `60` 到 `86400` 秒；建议 TTL 大于上报间隔并留出余量。模块 schedule 每分钟轻量检查一次；如果 TTL 小于上报间隔，脚本会提前续期，尽量避免过期空窗。Egern 蜂窝网络默认按 `CELLULAR_CIDR_PREFIX=24` 上报 `/24`；Wi-Fi 和未知网络固定 `/32`。`SKIP_WIFI_SSIDS` 是 Egern 本地 guard：仅 schedule/network 自动触发读取 `ctx.device.wifi.ssid` 并按英文分号列表精确匹配；命中时不探测公网 IP、不执行 SSH、不通知，只在 Egern 本地 storage/log/widget 记录跳过状态并优先保留上一轮成功状态。SSID 读取失败、非 Wi-Fi、手动运行、状态页和 Widget 刷新都 fail-open / force-report；SSID 不进入 `--ssh-ip-report` 参数、PO0 状态、LAN Worker `/report` 或任何新协议字段。
 
 自建防火墙统一由模块环境变量 `SSH_REPORT_TARGETS` 配置，一台或多台都使用此列表；目标可用换行、逗号、分号或空格分隔：
 
@@ -1020,7 +1020,7 @@ iphone-us|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_U
 
 如果使用 PO0 专用受限 SSH 上报 key，Egern 专用 key 的 scope 应为 `egern`。wrapper 拒绝时会把不含 token 的摘要写入 `/etc/nftables.d/po0-report-key-denied.log`，也可以用 `--refresh-report-key-wrapper` 刷新 wrapper，再用 `--show-report-key-denials 80` 查看最近记录。Egern 手动执行和 Status 脚本开启 debug，SSH stderr 会写入脚本日志；长错误会分段通知。
 
-Egern 官方目标在 PO0_FIREWALL_TOKENS 中同时兼容旧 Token 列表和 `Token@slot|name|ttlSeconds` 行。TTL 是用户要求的客户端上报周期称呼，不向官方 API 发送，不改变白名单有效期；0 映射为 timer=false，正整数映射为内部 interval，留空沿用模块默认。兼容读取旧 interval=N / timer=true/false 选项与 ttl=N，写入统一规范为数字第三列，不要求用户输入键名。扩展行保留名称空格，保存时名称拆入 PO0_FIREWALL_NAMES，名称只影响显示并按 Token 身份匹配。每账号独立持久化 lastAttemptAt；旧状态回退到通道时间，新增 / 换槽目标立即检查，只读状态不改变周期。全局定时开关优先，网络和手动绕过 due，自动开关与 SSID guard 保留。
+Egern 官方目标在 PO0_FIREWALL_TOKENS 中同时兼容旧 Token 列表和 `Token@slot|name|intervalSeconds` 行。第三列是上报间隔，不向官方 API 发送；TTL 只表示白名单有效期；0 映射为 timer=false，正整数映射为内部 interval，留空沿用模块默认。兼容读取旧 interval=N / timer=true/false 选项与 ttl=N，写入统一规范为数字第三列，不要求用户输入键名。扩展行保留名称空格，保存时名称拆入 PO0_FIREWALL_NAMES，名称只影响显示并按 Token 身份匹配。每账号独立持久化 lastAttemptAt；旧状态回退到通道时间，新增 / 换槽目标立即检查，只读状态不改变周期。全局定时开关优先，网络和手动绕过 due，自动开关与 SSID guard 保留。
 
 Egern 上报锁覆盖 schedule、network、手动和 Widget 刷新。锁占用时不重复请求；所有原生 generic 手动入口根据 ctx.script.name 识别并返回 Widget DSL，使用上一轮状态并标记正在上报，没有缓存时显示等待提示。存储异常同样返回可渲染提示，不写覆盖原锁或结果。只注册一个 Widget；全部强制上报合并到“PO0 防火墙上报状态”，默认 YAML 移除旧“PO0 SSH 上报状态”和“强制上报 PO0 防火墙”重复项。旧名仅保留 JS 路由兼容。旧 HTTP 设备 ID 拦截不再由默认模块注册，原生设备 ID 保存 / 清除继续保留；旧自定义 HTTP 拦截兼容，无匹配请求时不得进入上报流程。默认模块共 16 个 generic 手动入口和 2 个标有“后台自动”的 schedule / network 入口，后台不要求可视返回；仅选中未配置通道时返回提示，保存 / 清除的存储异常由外层入口转为可渲染结果。自动状态从当前配置和当前 Wi-Fi 计算，两条通道复用相同显示逻辑；SSID guard 不改变持久开关，缓存结果与本次是否上报分别展示。官方显示名称优先采用当前模块的非空名称，按 Token 身份与本机账号匹配，未填模块 Token 时按本机顺序；未填名称或无法匹配时沿用本机名称，不修改已保存的 Token / 槽位 / 上报参数。显式保存后名称进入本机配置，空白保留，单独 - 清空。自建组件与设置总览标签统一使用 sourceId，identity 只参与原上报协议和审计；组件不再展示自建 TTL，目标 TTL 解析与提交保留。普通状态页和 Widget 都必须绕过 SSH unchanged/due 检查，连续刷新仍实际执行 SSH；官方保持 GET-first 和必要的 POST。最近结果通过非凭据账号摘要和固定槽位匹配，换 Token / 槽位或旧缓存无法确认归属时显示待检查，不按账号位置套用成功状态。targetValue 先遍历目标全部别名，再遍历 env 默认值，文本空列和 JSON 缺省一致；目标值不被默认覆盖。
 
@@ -1377,3 +1377,15 @@ ssh 调用被控方非交互导入/应用入口
 ```
 
 不建议直接远程拼接修改命令。
+
+
+### 七端独立上报设置（2026-09-07）
+
+- Windows/macOS/Linux 复用 WorkerAutoEnabled / OfficialAutoEnabled、WORKER_AUTO_ENABLED / OFFICIAL_AUTO_ENABLED 及已有 Timer / Network 配置键。总开关只限制自动运行；定期开关只限制 timer 分支。保存修改只 refresh 已有任务，不 install；清除或删除自建保留官方状态文件与任务。
+- Loon/Stash 的 version=1 channel-settings 增加 workerTimerEnabled、officialTimerEnabled；模块使用 worker_timer_enabled、official_timer_enabled。worker 的 auto_report_interval_seconds 与历史 refresh_ttl_seconds / ttl_seconds、官方 officialIntervalSeconds 均兼容。历史间隔 0 表示 timer disabled，首次规范保存使用原有正间隔或平台默认值，独立开关保留 false。Windows IntervalSeconds=0 是未指定值，不能迁移为 timer disabled。
+- Loon 的 Worker 配置解析与校验移入 Worker 运行分支，官方请求不依赖 Worker；Windows Worker URL / 间隔校验同样在官方执行后单独捕获。官方-only 的配置可用性检查不校验自建。
+- Egern 新的通用设置保存动作只写公共字段；新自建保存入口只写 WORKER_CONFIG_KEYS，历史“自建 / 通用”动作继续兼容。官方第三列名称统一为上报间隔，旧 ttl=N 等历史列仍兼容读取；SSH 最后一列 TTL 仍传给 PO0。最近结果只读本机状态；一个 Widget 刷新继续上报。
+- OpenWrt UCI 增加 worker_timer_enabled、official_timer_enabled，缺省启用并兼容 interval_seconds / official_interval_seconds=0 的旧关闭语义。procd/service/UCI 三层都检查本通道 timer switch，network 分支保留独立设置；定期关闭不移动或删除原截止状态。LuCI 分通道保存只解析所属字段；上报、强制上报及只读查询不隐含保存。
+- Stash 每分钟轮询 DIRECT IPv4 检测出口变化；轮询间隔不等于定期上报间隔，也不等于 script-providers.interval 脚本更新间隔。通知和受支持 SSID 的作用范围按客户端实际能力显示。
+
+LuCI 继续使用原生表单和目标表格，编辑数据由 `form.JSONMap` 的本地数据适配器承载；表格增删不会提前写入 UCI。三个保存入口分别提交自建、官方及通用字段；官方表格变动只在官方保存时落盘。保存后使用 procd reload 比较现有实例，避免重启另一通道。原生行为参照 [LuCI form 源码](https://github.com/openwrt/luci/blob/master/modules/luci-base/htdocs/luci-static/resources/form.js)。

@@ -44,12 +44,12 @@ $ErrorActionPreference = "Stop"
 $ReleaseDownloadBaseUrl = $(if ($env:PO0_RELEASE_DOWNLOAD_BASE_URL) { $env:PO0_RELEASE_DOWNLOAD_BASE_URL } else { "https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download" })
 $DownloadUrl = $(if ($env:PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL) { $env:PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL } elseif ($env:PO0_SELF_REPORT_PS_DOWNLOAD_URL) { $env:PO0_SELF_REPORT_PS_DOWNLOAD_URL } else { "$ReleaseDownloadBaseUrl/po0-outbound-ip-report.ps1" })
 $ScriptName = "po0-outbound-ip-report"
-$ScriptVersion = "2026.09.06+build.4"
-$ScriptReleaseDate = "2026-09-06"
+$ScriptVersion = "2026.09.07+build.1"
+$ScriptReleaseDate = "2026-09-07"
 # CHANGELOG_BEGIN
-# - Windows / macOS / Linux 自建与官方任务分别安装、启停、删除与更新。
-# - 官方周期默认 600 秒，可调整或关闭；网络变化独立触发。
-# - 支持的系统接入网络事件，旧共享任务迁移保留参数和暂停状态。
+# - 七端统一“自动上报、启用定期上报、上报间隔、白名单有效期（TTL）”定义。
+# - 自建和官方独立保存、启停和运行；停用或清除自建不影响官方。
+# - 三端菜单独立设置定期开关并保留间隔；保存和本机查看不触发上报，保存只更新已有任务。
 # CHANGELOG_END
 $PanelValueColumn = 24
 $MenuRightColumn = 46

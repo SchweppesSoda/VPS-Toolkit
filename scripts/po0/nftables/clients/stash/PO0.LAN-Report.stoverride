@@ -1,18 +1,18 @@
 name: PO0 出口上报 · 双通道管理
 desc: |-
   访问 http://po0-report.invalid/settings 打开本机管理页。
-  【自建 PO0】只在 /save-worker 参数填写地址、密钥、来源 ID、名称和周期，然后访问 /save-worker 保存。
+  【自建防火墙】只在 /save-worker 参数填写地址、密钥、来源 ID、名称、定期开关和上报间隔，然后访问 /save-worker 保存。
   【官方防火墙】只在 /save-official 参数填写 Token / 槽位和名称，然后访问 /save-official 保存。
   两边都可单独停用、恢复、清除或立即上报；停用保留参数，清除后同步参数不会自动恢复。
   多个官方 Token 支持逗号、分号、空格或换行（JSON 内用 \n）；名称按 Token 顺序，用分号或换行分隔。
-  每分钟轮询直连出口 IPv4，变化时上报；两通道定时各自可选，默认 600 秒，填 0 关闭。Stash 没有公开原生网络变化事件。
-  Worker 放行 TTL 由 LAN Worker 接收端设置；官方 TTL 由官方服务管理。
-  /status 只读检查，/report-now 手动上报两个通道；官方始终先 GET，缺失时才加白。
+  每分钟轮询直连出口 IPv4，变化时上报；两通道分别启用定期上报，上报间隔默认 600 秒；关闭开关保留原间隔，旧值 0 继续表示关闭。Stash 没有公开原生网络变化事件。
+  自建白名单有效期（TTL）由 LAN Worker 接收端设置；官方白名单有效期（TTL）由官方服务管理。
+  /recent 查看最近结果，/status 查询官方白名单；/report 立即上报，/report-now 强制上报两个通道；官方始终先 GET，缺失时才加白。
   Stash 公开 JS 接口不提供当前 SSID，没有可配置的 SSID 跳过名单。
 
 script-providers:
   po0-stash-report-worker-v2:
-    url: https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/stash/po0-stash-report.js?rev=20260906-v9
+    url: https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/stash/po0-stash-report.js?rev=20260907-v10
     interval: 86400
   po0-stash-status-tile-v2:
     interval: 86400
@@ -93,24 +93,25 @@ http:
       argument: '{"mode":"status"}'
 
     # ── 官方防火墙参数 · 仅在这里填写 Token / 槽位 ──
-    # 定时默认 600 秒，可改为 60..86400；0 关闭定时，出口变化检测仍保留；本次保存不发起上报。
+    # 上报间隔默认 600 秒，可改为 60..86400；独立定期开关关闭后保留间隔与出口检测；保存不发起上报。
+    # script-providers.interval 为脚本更新间隔；cron 每 60 秒检测出口变化。
     - match: ^http://po0-report\.invalid/save-official$
       name: po0-stash-report-worker-v2
       type: request
       timeout: 10
-      argument: '{"mode":"save-official","PO0_FIREWALL_TOKENS":"","PO0_FIREWALL_NAMES":"","official_report_interval_seconds":600}'
+      argument: '{"mode":"save-official","PO0_FIREWALL_TOKENS":"","PO0_FIREWALL_NAMES":"","official_report_interval_seconds":600,"official_timer_enabled":true}'
     - match: ^http://po0-report\.invalid/clear-official$
       name: po0-stash-report-worker-v2
       type: request
       timeout: 10
       argument: '{"mode":"clear-official"}'
 
-    # ── 自建 PO0 参数 · 只需在此填写一次 ──
+    # ── 自建防火墙参数 · 只需在此填写一次 ──
     - match: ^http://po0-report\.invalid/save-worker$
       name: po0-stash-report-worker-v2
       type: request
       timeout: 10
-      argument: '{"mode":"save-worker","worker_url":"https://CHANGE_ME/stash-report/v1","source_id":"iphone-stash","secret":"CHANGE_ME_BEARER","worker_name":"LAN Worker","auto_report_interval_seconds":600,"selected_proxy":"DIRECT"}'
+      argument: '{"mode":"save-worker","worker_url":"https://CHANGE_ME/stash-report/v1","source_id":"iphone-stash","secret":"CHANGE_ME_BEARER","worker_name":"LAN Worker","auto_report_interval_seconds":600,"worker_timer_enabled":true,"selected_proxy":"DIRECT"}'
     - match: ^http://po0-report\.invalid/clear-worker$
       name: po0-stash-report-worker-v2
       type: request
@@ -125,7 +126,7 @@ http:
       name: po0-stash-report-worker-v2
       type: request
       timeout: 90
-      argument: '{"mode":"force","channel":"worker"}'
+      argument: '{"mode":"report","channel":"worker"}'
     # ── 官方与公共操作 ──
     - match: ^http://po0-report\.invalid/toggle-official$
       name: po0-stash-report-worker-v2
@@ -136,9 +137,39 @@ http:
       name: po0-stash-report-worker-v2
       type: request
       timeout: 90
-      argument: '{"mode":"force","channel":"official"}'
+      argument: '{"mode":"report","channel":"official"}'
     - match: ^http://po0-report\.invalid/settings$
       name: po0-stash-report-worker-v2
       type: request
       timeout: 10
       argument: '{"mode":"settings"}'
+    - match: ^http://po0-report\.invalid/recent$
+      name: po0-stash-report-worker-v2
+      type: request
+      timeout: 10
+      argument: '{"mode":"recent"}'
+    - match: ^http://po0-report\.invalid/report$
+      name: po0-stash-report-worker-v2
+      type: request
+      timeout: 90
+      argument: '{"mode":"report"}'
+    - match: ^http://po0-report\.invalid/toggle-worker-timer$
+      name: po0-stash-report-worker-v2
+      type: request
+      timeout: 10
+      argument: '{"mode":"toggle-worker-timer"}'
+    - match: ^http://po0-report\.invalid/toggle-official-timer$
+      name: po0-stash-report-worker-v2
+      type: request
+      timeout: 10
+      argument: '{"mode":"toggle-official-timer"}'
+    - match: ^http://po0-report\.invalid/worker-force$
+      name: po0-stash-report-worker-v2
+      type: request
+      timeout: 90
+      argument: '{"mode":"force","channel":"worker"}'
+    - match: ^http://po0-report\.invalid/official-force$
+      name: po0-stash-report-worker-v2
+      type: request
+      timeout: 90
+      argument: '{"mode":"force","channel":"official"}'

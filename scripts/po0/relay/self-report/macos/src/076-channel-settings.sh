@@ -54,7 +54,7 @@ print_official_target_names() {
 toggle_channel_auto_interactive() { toggle_schedule_interactive "$1"; }
 
 clear_worker_config_interactive() {
-    prompt_yes_no '清除本机自建 PO0 地址、密钥和目标名称（保留官方及通用设置）' n || return 0
+    prompt_yes_no '清除本机自建防火墙地址、密钥和目标名称（保留官方及通用设置）' n || return 0
     WORKER_URL=''
     SECRET=''
     WORKER_NAME=''
@@ -114,55 +114,104 @@ show_channel_status() {
     if [[ "$1" == official ]]; then
         if declare -F official_status_interactive >/dev/null; then official_status_interactive; else official_status_once; fi
     else
-        print_panel_section '自建 PO0 · 本机状态'
+        print_panel_section '自建防火墙 · 本机状态'
         print_panel_row '目标名称' "${WORKER_NAME:-LAN Worker}"
         print_panel_row '接收地址' "${WORKER_URL:-未配置}"
         print_panel_row '自动上报' "$(channel_auto_label worker)"
         print_panel_row '上报间隔' "$(cron_minutes_to_seconds "$CRON_MINUTES") 秒"
-        print_panel_row '放行有效期' '由 LAN Worker 接收端管理'
+        print_panel_row '白名单有效期（TTL）' '由 LAN Worker 接收端管理'
         print_panel_row '设备备注' "${IDENTITY:-未设置}"
-        print_panel_row '定时任务' "$(cron_status_summary worker)"
+        print_panel_row '自动任务' "$(cron_status_summary worker)"
     fi
 }
 
+
+channel_interval_label() {
+    printf '%s 秒' "$(($(schedule_channel_minutes "$1") * 60))"
+    schedule_timer_enabled "$1" || printf '（暂不使用）'
+}
+
+configure_channel_periodic_interactive() {
+    local channel="$1" enabled=0 default=n seconds maximum=86400
+    schedule_timer_enabled "$channel" && default=y
+    if prompt_yes_no '启用定期上报（关闭保留网络变化触发和原间隔）' "$default"; then enabled=1; fi
+    [[ "$channel" != worker ]] || maximum="$(max_interval_seconds)"
+    seconds="$(prompt_default "上报间隔（秒，60..$maximum，60 的倍数；定期关闭时暂不使用）" "$(($(schedule_channel_minutes "$channel") * 60))")" || return 1
+    [[ "$seconds" =~ ^[0-9]+$ ]] && (( seconds >= 60 && seconds <= maximum && seconds % 60 == 0 )) || { printf '无效上报间隔。\n'; return 1; }
+    if [[ "$channel" == official ]]; then OFFICIAL_TIMER_ENABLED="$enabled"; OFFICIAL_INTERVAL_SECONDS="$seconds"
+    else WORKER_TIMER_ENABLED="$enabled"; CRON_MINUTES=$((seconds / 60)); fi
+    save_config_file && update_channel_schedule_if_installed "$channel"
+}
+
+show_channel_config() {
+    local channel="$1"
+    print_panel_section "$(schedule_channel_label "$channel") · 本机配置"
+    print_panel_row '自动上报' "$(channel_auto_label "$channel")"
+    print_panel_row '启用定期上报' "$(schedule_timer_enabled "$channel" && printf '是' || printf '否')"
+    print_panel_row '上报间隔' "$(channel_interval_label "$channel")"
+    if [[ "$channel" == official ]]; then
+        print_official_target_names
+        print_panel_row 'Token / 槽位' "${PO0_FIREWALL_TOKENS:-未配置}"
+        print_panel_row '白名单有效期（TTL）' '由官方服务管理'
+    elif [[ -n "${WORKER_URL:-}" ]]; then
+        print_panel_row '目标名称' "${WORKER_NAME:-LAN Worker}"
+        print_panel_row '接收地址' "$WORKER_URL"
+        print_panel_row '上报密钥' "${SECRET:-未设置}"
+        print_panel_row '来源 ID' "$SOURCE_ID"
+        print_panel_row '备注' "$IDENTITY"
+        print_panel_row '白名单有效期（TTL）' '由 LAN Worker 接收端管理'
+    else print_panel_row '自建防火墙' '未配置（进入保存配置填写）'; fi
+}
+
+force_channel_interactive() {
+    local FORCE_REPORT=1
+    run_channel_interactive "$1"
+}
+
 channel_settings_menu() {
-    local channel="$1" choice title='自建 PO0'
-    [[ "$channel" != official ]] || title='官方防火墙'
+    local channel="$1" choice title='自建防火墙' max_choice=11
+    if [[ "$channel" == official ]]; then title='官方防火墙'; max_choice=12; fi
     while true; do
         menu_clear_screen
         print_title "$title · 设置"
-        print_panel_row '配置状态' "$(if [[ "$channel" == official ]]; then [[ -n "${PO0_FIREWALL_TOKENS:-}" ]] && printf "已配置" || printf "未配置"; else [[ -n "${WORKER_URL:-}" ]] && printf "已配置" || printf "未配置"; fi)"
+        print_panel_row '配置状态' "$(schedule_channel_configured "$channel" && printf '已配置' || printf '未配置')"
         print_panel_row '自动上报' "$(channel_auto_label "$channel")"
-        print_panel_row '定时任务' "$(cron_status_summary "$channel")"
-        if [[ "$channel" == official ]]; then
-            print_official_target_names
-            print_panel_row '定时周期' "${OFFICIAL_INTERVAL_SECONDS:-600} 秒（可关闭）"
-            print_panel_row '放行有效期 TTL' '由官方服务管理，接口未提供自定义 TTL'
-        else
-            print_panel_row '上报间隔' "$(cron_minutes_to_seconds "$CRON_MINUTES") 秒"
-            print_panel_row '放行有效期' '由 LAN Worker 接收端管理'
+        print_panel_row '自动任务' "$(cron_status_summary "$channel")"
+        if schedule_channel_configured "$channel"; then
+            print_panel_row '启用定期上报' "$(schedule_timer_enabled "$channel" && printf '是' || printf '否')"
+            print_panel_row '上报间隔' "$(channel_interval_label "$channel")"
+            if [[ "$channel" == official ]]; then print_official_target_names; print_panel_row '白名单有效期（TTL）' '由官方服务管理'
+            else print_panel_row '白名单有效期（TTL）' '由 LAN Worker 接收端管理'; fi
         fi
-        print_menu_item 1 '编辑并保存参数'
+        print_menu_item 1 '保存配置（编辑参数）'
         print_menu_item 2 '设置目标名称'
-        print_menu_item 3 '启用 / 停用本通道自动上报'
-        print_menu_item 4 '仅本通道立即上报'
-        print_menu_item 5 '查看本通道状态'
-        print_menu_item 6 '清除此通道保存的配置'
-        print_menu_item 7 '安装 / 更新本通道定时任务'
-        print_menu_item 8 '删除本通道自动任务'
+        print_menu_item 3 '启用 / 停用自动上报'
+        print_menu_item 4 '定期上报设置（开关与间隔）'
+        print_menu_item 5 '查看本机配置'
+        print_menu_item 6 '查看最近结果'
+        print_menu_item 7 '立即上报'
+        print_menu_item 8 '强制上报（绕过本机跳过条件）'
+        print_menu_item 9 '安装 / 更新本通道自动任务'
+        print_menu_item 10 '删除本通道自动任务'
+        print_menu_item 11 '清除本通道配置'
+        [[ "$channel" != official ]] || print_menu_item 12 '查询官方白名单'
         print_menu_item 0 '返回主菜单'
-        choice="$(read_prompt '请选择 [0-8]: ')" || return 0
+        choice="$(read_prompt "请选择 [0-$max_choice]: ")" || return 0
         case "$(trim "$choice")" in
             1) if [[ "$channel" == worker ]]; then configure_interactive && update_channel_schedule_if_installed "$channel"; else configure_official_interactive && update_channel_schedule_if_installed "$channel"; fi ;;
             2) set_channel_names_interactive "$channel" ;;
             3) toggle_channel_auto_interactive "$channel" && update_channel_schedule_if_installed "$channel" ;;
-            4) run_channel_interactive "$channel" ;;
-            5) show_channel_status "$channel" ;;
-            6) if [[ "$channel" == worker ]]; then clear_worker_config_interactive && update_channel_schedule_if_installed "$channel"; else clear_official_tokens_interactive && update_channel_schedule_if_installed "$channel"; fi ;;
-            7) install_cron_interactive "$channel" ;;
-            8) if prompt_yes_no '删除本通道自动任务（保留配置）' n; then remove_cron "$channel"; fi ;;
+            4) configure_channel_periodic_interactive "$channel" ;;
+            5) show_channel_config "$channel" ;;
+            6) show_recent_self_report_log "$(schedule_channel_log_path "$channel")" ;;
+            7) run_channel_interactive "$channel" ;;
+            8) force_channel_interactive "$channel" ;;
+            9) install_cron_interactive "$channel" ;;
+            10) if prompt_yes_no '删除本通道自动任务（保留配置）' n; then remove_cron "$channel"; fi ;;
+            11) if [[ "$channel" == worker ]]; then clear_worker_config_interactive && update_channel_schedule_if_installed "$channel"; else clear_official_tokens_interactive && update_channel_schedule_if_installed "$channel"; fi ;;
+            12) if [[ "$channel" == official ]]; then show_channel_status official; else printf '无效选择。\n'; fi ;;
             0) return 0 ;;
-            *) printf '无效选择：请输入 0-8。\n' ;;
+            *) printf '无效选择：请输入 0-%s。\n' "$max_choice" ;;
         esac
         pause_before_return
     done
@@ -173,11 +222,11 @@ automatic_reporting_menu() {
     if declare -F is_macos >/dev/null; then max_choice=4; fi
     while true; do
         menu_clear_screen
-        print_title '自动上报 · 独立定时任务'
-        print_panel_row '自建 PO0 任务' "$(cron_status_summary worker)"
+        print_title '自动上报 · 独立自动任务'
+        print_panel_row '自建防火墙任务' "$(cron_status_summary worker)"
         print_panel_row '官方防火墙任务' "$(cron_status_summary official)"
-        print_menu_item 1 '管理自建 PO0 定时任务'
-        print_menu_item 2 '管理官方防火墙定时任务'
+        print_menu_item 1 '管理自建防火墙自动任务'
+        print_menu_item 2 '管理官方防火墙自动任务'
         print_menu_item 3 '查看两项任务状态和日志'
         if [[ "$max_choice" == 4 ]]; then print_menu_item 4 '通知 / 静默设置'; fi
         print_menu_item 0 '返回主菜单'
@@ -197,10 +246,10 @@ channel_schedule_menu() {
     local channel="$1" choice
     while true; do
         menu_clear_screen
-        print_title "$(schedule_channel_label "$channel") · 定时任务"
+        print_title "$(schedule_channel_label "$channel") · 自动任务"
         print_panel_row '实际状态' "$(cron_status_summary "$channel")"
-        print_panel_row '执行间隔' "$(($(schedule_channel_minutes "$channel") * 60)) 秒"
-        print_menu_item 1 '安装 / 更新本通道定时任务'
+        print_panel_row '上报间隔' "$(channel_interval_label "$channel")"
+        print_menu_item 1 '安装 / 更新本通道自动任务'
         print_menu_item 2 '暂停 / 恢复本通道自动上报'
         print_menu_item 3 '查看本通道任务状态和日志'
         print_menu_item 4 '删除本通道自动任务'
@@ -254,7 +303,7 @@ show_client_overview() {
     if declare -F official_tokens_count >/dev/null; then count="$(official_tokens_count)"; else count="$(po0_firewall_token_count)"; fi
     print_title 'PO0 出口上报'
     print_panel_row '客户端版本' "$SCRIPT_VERSION"
-    print_panel_row '自建 PO0' "${WORKER_NAME:-LAN Worker} · $([[ -n "${WORKER_URL:-}" ]] && channel_auto_label worker || printf '未配置')"
+    print_panel_row '自建防火墙' "${WORKER_NAME:-LAN Worker} · $([[ -n "${WORKER_URL:-}" ]] && channel_auto_label worker || printf '未配置')"
     print_panel_row '官方防火墙' "$([[ "$count" -gt 0 ]] && printf "%s 个目标 · %s" "$count" "$(channel_auto_label official)" || printf "未配置")"
     print_official_target_names
     print_panel_row '自动上报计划' "$(cron_status_summary)"

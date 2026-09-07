@@ -98,7 +98,7 @@ po0_lan_wizard() {
         fi
         generated_secret="$(random_secret)"
         SELF_REPORT_SECRET="$(prompt_default "Self-report secret（访问设备上报 LAN Worker 用）" "${SELF_REPORT_SECRET:-${generated_secret}}")"
-        SELF_REPORT_TTL_SECONDS="$(prompt_default "Self-report 放行 TTL 秒数" "${SELF_REPORT_TTL_SECONDS:-43200}")"
+        SELF_REPORT_TTL_SECONDS="$(prompt_default "Self-report 白名单有效期（TTL，秒）" "${SELF_REPORT_TTL_SECONDS:-43200}")"
         SELF_REPORT_TTL_SECONDS="$(normalize_report_ttl_seconds "${SELF_REPORT_TTL_SECONDS}" 43200)"
     else
         CLIENT_IP_TOKEN=""
@@ -109,7 +109,7 @@ po0_lan_wizard() {
         [[ -n "${WEBAUTH_TOKEN}" ]] || { printf 'WebAuth 需要 webauth token。\n' >&2; return 1; }
         WEBAUTH_SOURCE="$(prompt_default "WebAuth source id" "${WEBAUTH_SOURCE:-cf-access}")"
         WEBAUTH_LISTEN="$(prompt_default "WebAuth 本地监听地址" "${WEBAUTH_LISTEN:-127.0.0.1:8787}")"
-        WEBAUTH_TTL_SECONDS="$(prompt_default "WebAuth 放行 TTL 秒数" "${WEBAUTH_TTL_SECONDS:-43200}")"
+        WEBAUTH_TTL_SECONDS="$(prompt_default "WebAuth 白名单有效期（TTL，秒）" "${WEBAUTH_TTL_SECONDS:-43200}")"
         WEBAUTH_TTL_SECONDS="$(normalize_report_ttl_seconds "${WEBAUTH_TTL_SECONDS}" 43200)"
     else
         WEBAUTH_TOKEN=""

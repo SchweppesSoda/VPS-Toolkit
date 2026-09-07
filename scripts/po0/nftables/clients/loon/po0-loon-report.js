@@ -15,7 +15,7 @@ const PO0_MAX_FIREWALL_TOKENS = 16;
 // Loon exposes persistent storage but no atomic lock primitive, so a bounded
 // expiry is the safest recoverable approximation for a whole run.
 const PO0_RUN_LOCK_TTL_MS = 120_000;
-const PO0_DEFAULT_REFRESH_TTL_SECONDS = 600;
+const PO0_DEFAULT_REPORT_INTERVAL_SECONDS = 600;
 const PO0_EXPIRY_SAFETY_SECONDS = 10 * 60;
 
 let po0Finished = false;
@@ -101,12 +101,19 @@ function getArgument() {
   if (args.mode) return args; // Legacy string / JSON actions retain their explicit mode.
   const name = typeof $script === "undefined" ? "" : String($script.name || "");
   const modes = {
+    "通用 · 查看本机配置": "settings",
+    "通用 · 查看最近结果": "recent",
+    "官方防火墙 · 查询官方白名单": "status",
+    "通用 · 强制上报": "force",
+    "自建防火墙 · 保存配置": "save-worker",
+    "官方防火墙 · 保存配置": "save-official",
+    "自建 PO0 · 保存本机设置": "save-worker",
     "通用 · 自动上报": "auto",
     "通用 · 网络变化上报": "auto",
     "通用 · 查看上报状态": "status",
-    "通用 · 立即上报": "force",
+    "通用 · 立即上报": "report",
     "官方防火墙 · 保存本机设置": "save-official",
-    "自建 PO0 · 保存本机设置": "save-worker",
+    "自建防火墙 · 保存本机设置": "save-worker",
     "通用 · 查看本机设置": "settings",
   };
   if (!modes[name]) throw new Error("无法识别上报操作，请更新 PO0 插件");
@@ -245,6 +252,33 @@ function effectiveWorkerArgs(args) {
   return Object.assign(result, saved, { local_worker_saved: true });
 }
 
+// Keep legacy interval=0 as timer-off; absent values retain the old defaults.
+function timerEnabled(channel, args = {}) {
+  const settings = channelSettings();
+  const effective = channel === 'worker' ? effectiveWorkerArgs(args) : args;
+  const raw = channel === 'worker'
+    ? effective.auto_report_interval_seconds ?? effective.refresh_ttl_seconds ?? effective.ttl_seconds
+    : settings.officialIntervalSeconds ?? args.official_report_interval_seconds;
+  if (reportInterval(raw) === 0) return false;
+  const value = settings[channel + 'TimerEnabled'] ?? effective[channel + '_timer_enabled'];
+  return !/^(false|0|off|no)$/i.test(String(value));
+}
+function saveTimerSettings(settings, channel, args, previousInterval) {
+  const raw = channel === 'worker' ? args.auto_report_interval_seconds ?? args.refresh_ttl_seconds ?? args.ttl_seconds : args.official_report_interval_seconds;
+  const seconds = reportInterval(raw ?? previousInterval);
+  const flag = args[channel + '_timer_enabled'];
+  if (seconds === 0) settings[channel + 'TimerEnabled'] = false;
+  else if (flag !== undefined && flag !== null) settings[channel + 'TimerEnabled'] = !/^(false|0|off|no)$/i.test(String(flag));
+  const auto = args[channel + '_auto_enabled'];
+  if (auto !== undefined && auto !== null) settings[channel + 'AutoEnabled'] = !/^(false|0|off|no)$/i.test(String(auto));
+  return seconds || reportInterval(previousInterval) || 600;
+}
+function intervalLabel(channel, args = {}) {
+  const effective = channel === 'worker' ? effectiveWorkerArgs(args) : args;
+  const raw = channel === 'worker' ? effective.auto_report_interval_seconds ?? effective.refresh_ttl_seconds ?? effective.ttl_seconds : channelSettings().officialIntervalSeconds ?? args.official_report_interval_seconds;
+  return (reportInterval(raw) || 600) + ' 秒' + (timerEnabled(channel, args) ? '' : '（暂不使用）');
+}
+
 function officialAccountName(index) {
   return String(channelSettings().officialNames || '').replace(/\r/g, '').split(/[;；\n]/)[index]?.trim() || '官方账号 ' + (index + 1);
 }
@@ -259,13 +293,13 @@ function saveOfficialNames(args, tokens, clear) {
     const index = oldTokens.findIndex(old => old.split('@')[0] === item.token);
     return index < 0 ? '' : oldNames[index] || '';
   }).join(';');
-  if (args.official_report_interval_seconds !== undefined) settings.officialIntervalSeconds = reportInterval(args.official_report_interval_seconds);
+  if (!clear) settings.officialIntervalSeconds = saveTimerSettings(settings, 'official', args, settings.officialIntervalSeconds);
   if (clear) settings.officialAutoEnabled = false;
   saveChannelSettings(settings);
 }
 
 function isLocalSettingsMode(mode) {
-  return ['save-worker', 'clear-worker', 'toggle-worker', 'toggle-official', 'settings'].includes(mode);
+  return ['save-worker', 'clear-worker', 'toggle-worker', 'toggle-official', 'toggle-worker-timer', 'toggle-official-timer', 'settings'].includes(mode);
 }
 
 function localSettingsSummary(args) {
@@ -277,10 +311,10 @@ function localSettingsSummary(args) {
   const officialCount = String(officialRaw || '').split(/[,;，；\s]+/).filter(Boolean).length;
   const interval = reportInterval(effective.auto_report_interval_seconds ?? effective.refresh_ttl_seconds ?? effective.ttl_seconds);
   return [
-    '自建 PO0：' + (!workerUrl ? '未配置' : settings.workerAutoEnabled === false ? '自动上报已停用' : '自动上报已启用') + '；目标名称：' + (effective.worker_name || 'LAN Worker'),
-    '自建配置：' + (localWorkerConfig() ? '已保存本机设置' : '沿用模块 / 旧设置') + '；地址：' + (workerUrl || '未配置') + '；周期：' + interval + ' 秒',
+    '自建防火墙：' + (!workerUrl ? '未配置' : settings.workerAutoEnabled === false ? '自动上报已停用' : '自动上报已启用') + '；目标名称：' + (effective.worker_name || 'LAN Worker'),
+    ...(workerUrl ? ['自建配置：' + (localWorkerConfig() ? '已保存本机配置' : '沿用模块 / 旧设置') + '；地址：' + workerUrl + '；启用定期上报：' + (timerEnabled('worker', args) ? '是' : '否') + '；上报间隔：' + intervalLabel('worker', args) + '；白名单有效期（TTL）：由 LAN Worker 接收端管理'] : []),
     '官方防火墙：' + (!officialCount ? '未配置' : officialCount + ' 个目标，' + (settings.officialAutoEnabled === false ? '自动上报已停用' : '自动上报已启用')) + '；目标名称：' + (settings.officialNames || '按账号编号显示'),
-    '官方定时：' + (reportInterval(settings.officialIntervalSeconds) || '关闭') + ' 秒；网络变化独立触发；放行 TTL 由接收端管理。',
+    '官方启用定期上报：' + (timerEnabled('official', args) ? '是' : '否') + '；上报间隔：' + intervalLabel('official', args) + '；白名单有效期（TTL）：由官方服务管理。',
     '停用保留配置，手动立即上报仍可用；清除后同步参数不会自动恢复。',
   ].join('\n');
 }
@@ -291,10 +325,12 @@ function runLocalSettingsAction(args, mode) {
     const workerUrl = firstNonEmpty([args.po0_worker_url, args.worker_url, args.workerUrl]);
     const secret = firstNonEmpty([args.po0_worker_token, args.worker_token, args.token, args.secret]);
     if (!/^https:\/\/[^/?#]+\/stash-report\/v1\/?$/.test(workerUrl) || !secret || /^CHANGE_ME/.test(secret)) throw new Error('请填写 HTTPS /stash-report/v1 地址与 Worker 密钥');
-    const seconds = reportInterval(args.auto_report_interval_seconds);
+    const previous = localWorkerConfig() || {};
+    const seconds = saveTimerSettings(settings, 'worker', args, previous.auto_report_interval_seconds ?? previous.refresh_ttl_seconds ?? previous.ttl_seconds);
     const values = { worker_url: workerUrl, secret, worker_name: String(args.worker_name || '').trim(), auto_report_interval_seconds: seconds };
 
     if (!writeJSON(PO0_STORE_KEY + '.worker-config', { version: 1, values })) throw new Error('无法保存本机自建配置');
+    saveChannelSettings(settings);
   } else if (mode === 'clear-worker') {
     if (!writeJSON(PO0_STORE_KEY + '.worker-config', { version: 1, values: { worker_url: '', secret: '' } })) throw new Error('无法清除本机自建配置');
     settings.workerAutoEnabled = false;
@@ -302,8 +338,21 @@ function runLocalSettingsAction(args, mode) {
     const state = readJSON(PO0_STORE_KEY, {});
     if (!writeJSON(PO0_STORE_KEY, state.official ? { official: state.official } : {})) throw new Error('配置已清除，但最近状态未能清除');
   } else if (mode.startsWith('toggle-')) {
-    const key = mode === 'toggle-worker' ? 'workerAutoEnabled' : 'officialAutoEnabled';
-    settings[key] = settings[key] === false;
+    const channel = mode.includes('worker') ? 'worker' : 'official';
+    const periodic = mode.endsWith('-timer');
+    const key = channel + (periodic ? 'TimerEnabled' : 'AutoEnabled');
+    settings[key] = periodic ? !timerEnabled(channel, args) : settings[key] === false;
+    // Enabling a legacy zero-period timer restores its default without changing the other channel.
+    if (periodic && settings[key]) {
+      if (channel === 'official' && settings.officialIntervalSeconds === 0) settings.officialIntervalSeconds = 600;
+      if (channel === 'worker') {
+        const values = Object.assign({}, effectiveWorkerArgs(args));
+        if (reportInterval(values.auto_report_interval_seconds ?? values.refresh_ttl_seconds ?? values.ttl_seconds) === 0) {
+          values.auto_report_interval_seconds = 600;
+          if (!writeJSON(PO0_STORE_KEY + '.worker-config', { version: 1, values })) throw new Error('无法保存本机自建配置');
+        }
+      }
+    }
     saveChannelSettings(settings);
   }
   return (mode === 'settings' ? '' : '本机设置已更新。\n') + localSettingsSummary(args);
@@ -317,7 +366,7 @@ function firewallInput(args) {
 }
 
 function saveLocalFirewall(args, clear) {
-  const input = clear ? "" : firewallInput(args);
+  const input = clear ? "" : firewallInput(args) || String(readJSON(PO0_STORE_KEY + '.official-config', {}).tokens || '');
   const tokens = input === "-" ? "" : input;
   parseFirewallTokens(tokens);
   saveOfficialNames(args, tokens, clear || input === "-");
@@ -620,28 +669,29 @@ function epochSeconds(value, fallback) {
   return Number.isFinite(parsed) ? Math.floor(parsed / 1000) : fallback;
 }
 
-function boundedRefreshTTL(args) {
+function boundedReportInterval(args) {
   const value = reportInterval(args.auto_report_interval_seconds ?? args.refresh_ttl_seconds ?? args.ttl_seconds);
-  if (!Number.isFinite(value)) return PO0_DEFAULT_REFRESH_TTL_SECONDS;
+  if (!Number.isFinite(value)) return PO0_DEFAULT_REPORT_INTERVAL_SECONDS;
   return Math.max(60, Math.min(86400, Math.floor(value)));
 }
 
-function canUseCachedTTL(mode, state, network, nowSeconds, args = {}) {
+function canUseCachedReport(mode, state, network, nowSeconds, args = {}) {
   if (isNetworkTrigger(args)) return false;
-  if (mode === "auto" && reportInterval(effectiveWorkerArgs(args).auto_report_interval_seconds) === 0) return true;
+  if (mode === 'auto' && !timerEnabled('worker', args)) return true;
   if (mode !== "auto" || !state || state.context !== network.context) return false;
   const accepted = Date.parse(state.accepted_at || "") / 1000;
-  const configuredNext = accepted + boundedRefreshTTL(effectiveWorkerArgs(args));
+  const configuredNext = accepted + boundedReportInterval(effectiveWorkerArgs(args));
   const nextRefresh = Number.isFinite(configuredNext) ? Math.min(Number(state.next_refresh_at || configuredNext), configuredNext) : Number(state.next_refresh_at || 0);
   const expiresAt = Number(state.expires_at || 0);
   return nextRefresh > nowSeconds && expiresAt > nowSeconds + PO0_EXPIRY_SAFETY_SECONDS;
 }
 
 function officialDue(mode, state, nowSeconds, args = {}) {
-  if (mode === "force") return true;
+  if (mode === "force" || mode === "report") return true;
   if (mode !== "auto") return false;
   if (isNetworkTrigger(args)) return true;
-  const interval = reportInterval(channelSettings().officialIntervalSeconds);
+  if (!timerEnabled('official', args)) return false;
+  const interval = reportInterval(channelSettings().officialIntervalSeconds ?? args.official_report_interval_seconds);
   if (interval === 0) return false;
   const last = Number(state && state.last_attempt_at || 0);
   return !last || nowSeconds < last || nowSeconds - last >= interval;
@@ -649,7 +699,7 @@ function officialDue(mode, state, nowSeconds, args = {}) {
 function reportInterval(value) {
   if (value === undefined || value === null || value === '') return 600;
   const n = Number(value);
-  if (!Number.isInteger(n) || (n !== 0 && (n < 60 || n > 86400))) throw new Error('定时周期须为 60..86400 秒，0 关闭定时');
+  if (!Number.isInteger(n) || (n !== 0 && (n < 60 || n > 86400))) throw new Error('上报间隔须为 60..86400 秒；兼容旧值 0（关闭定期上报）');
   return n;
 }
 function isNetworkTrigger(args) {
@@ -741,7 +791,7 @@ function finishResult(mode, ok, message, state, meta) {
 
 async function runWorker(credentials, state, args, network, mode, nowSeconds) {
   if (!credentials) return { ok: true, enabled: false, skipped: true };
-  if (canUseCachedTTL(mode, state, network, nowSeconds, args)) {
+  if (canUseCachedReport(mode, state, network, nowSeconds, args)) {
     return { ok: true, enabled: true, skipped: true };
   }
 
@@ -778,10 +828,10 @@ async function runWorker(credentials, state, args, network, mode, nowSeconds) {
 
   const acceptedAt = epochSeconds(response.accepted_at, nowSeconds);
   const expiresAt = epochSeconds(response.expires_at, nowSeconds + 12 * 60 * 60);
-  const refreshTTL = boundedRefreshTTL(args);
+  const reportSeconds = boundedReportInterval(args);
   const nextRefreshAt = Math.max(
     nowSeconds,
-    Math.min(acceptedAt + refreshTTL, expiresAt - PO0_EXPIRY_SAFETY_SECONDS),
+    Math.min(acceptedAt + reportSeconds, expiresAt - PO0_EXPIRY_SAFETY_SECONDS),
   );
   return {
     ok: true,
@@ -806,6 +856,7 @@ async function runWorker(credentials, state, args, network, mode, nowSeconds) {
 async function runUnlocked() {
   const args = getArgument();
   const mode = String(args.mode || "auto").toLowerCase();
+  if (mode === 'recent') { finishResult(mode, true, '最近上报结果', readJSON(PO0_STORE_KEY, {})); return; }
   if (isLocalSettingsMode(mode)) {
     const message = runLocalSettingsAction(args, mode);
     notify("PO0 本机设置", "通道管理", message); finish(); return;
@@ -816,7 +867,7 @@ async function runUnlocked() {
     finish();
     return;
   }
-  if (!["auto", "status", "force"].includes(mode)) throw new Error("不支持的模式：" + mode);
+  if (!["auto", "status", "force", "report", "recent"].includes(mode)) throw new Error("不支持的模式：" + mode);
 
   let state = readJSON(PO0_STORE_KEY, {});
   if (!state || typeof state !== "object" || Array.isArray(state)) state = {};
@@ -848,12 +899,12 @@ async function runUnlocked() {
   }
   const network = mode === "force" ? forceNetwork(classified) : classified;
   const tokens = channelAllowed(args, mode, "official") ? loadFirewallTokens(args) : [];
-  const workerArgs = effectiveWorkerArgs(args);
-  const credentials = channelAllowed(args, mode, "worker") ? loadCredentials(workerArgs) : null;
+  let workerArgs = args;
+  let credentials = null;
   const needsOfficial = tokens.length > 0 && officialDue(mode, state.official || {}, nowSeconds, args);
-  const workerCached = canUseCachedTTL(mode, state, network, nowSeconds, args);
+  const workerCached = !channelAllowed(args, mode, "worker");
   if (!needsOfficial && workerCached) {
-    finishResult(mode, true, "有效 TTL 内无需重复上报", state);
+    finishResult(mode, true, "尚未到上报间隔，无需重复上报", state);
     return;
   }
   let officialResult = { ok: true, added: 0, attempted: false };
@@ -865,7 +916,11 @@ async function runUnlocked() {
 
   let workerResult = { ok: true, enabled: false, skipped: true };
   try {
-    workerResult = await runWorker(credentials, state, workerArgs, network, mode, nowSeconds);
+    if (channelAllowed(args, mode, "worker")) {
+      workerArgs = effectiveWorkerArgs(args);
+      credentials = loadCredentials(workerArgs);
+      workerResult = await runWorker(credentials, state, workerArgs, network, mode, nowSeconds);
+    }
     if (workerResult.state) {
       const official = state.official;
       state = workerResult.state;
@@ -886,7 +941,7 @@ async function runUnlocked() {
     parts.push("官方" + (officialResult.added ? "新增 " + officialResult.added : "检查完成"));
   }
   if (workerResult.enabled) {
-    parts.push(workerResult.skipped ? "Worker 有效 TTL 内跳过" : workerResult.ok ? "Worker 完成" : "Worker 失败");
+    parts.push(workerResult.skipped ? "自建尚未到上报间隔" : workerResult.ok ? "Worker 完成" : "Worker 失败");
   }
   if (!parts.length) parts.push("没有启用的上报通道");
   const message = parts.join("；") + (ok ? "" : "；本轮部分失败");
@@ -902,9 +957,10 @@ async function runUnlocked() {
 async function run() {
   const args = getArgument();
   const mode = String(args.mode || "auto").toLowerCase();
+  if (mode === 'recent') { finishResult(mode, true, '最近上报结果', readJSON(PO0_STORE_KEY, {})); return; }
   if (isLocalSettingsMode(mode)) return runUnlocked();
   if (mode === "save-official" || mode === "clear-official") return runUnlocked();
-  if (!["auto", "status", "force"].includes(mode)) throw new Error("不支持的模式：" + mode);
+  if (!["auto", "status", "force", "report", "recent"].includes(mode)) throw new Error("不支持的模式：" + mode);
 
   // A status request with no configured official channel has no report-side
   // work and keeps the historical read-only/no-write behavior.
@@ -927,6 +983,7 @@ async function run() {
 run().catch((error) => {
   const args = getArgument();
   const mode = String(args.mode || "auto").toLowerCase();
+  if (mode === 'recent') { finishResult(mode, true, '最近上报结果', readJSON(PO0_STORE_KEY, {})); return; }
   const message = redactedError(error, args);
   const state = readJSON(PO0_STORE_KEY, {});
 

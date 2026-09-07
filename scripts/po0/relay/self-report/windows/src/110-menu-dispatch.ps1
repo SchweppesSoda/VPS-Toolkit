@@ -6,7 +6,7 @@ function Show-ClientOverview {
     Write-Title "PO0 出口上报"
     Write-PanelRow "客户端版本" $ScriptVersion
     Write-PanelRow "配置" $(if (Test-Path -LiteralPath $script:ConfigPath) { "已保存在本机" } else { "尚未保存" })
-    Write-PanelRow "自建 PO0" $(if ($script:WorkerUrl) { "$(if ($script:WorkerName) { $script:WorkerName } else { 'LAN Worker' }) · $(Get-ChannelAutoLabel worker)" } else { "未配置" })
+    Write-PanelRow "自建防火墙" $(if ($script:WorkerUrl) { "$(if ($script:WorkerName) { $script:WorkerName } else { 'LAN Worker' }) · $(Get-ChannelAutoLabel worker)" } else { "未配置" })
     Write-PanelRow "官方防火墙" $(if (Test-Po0FirewallConfigured) { "$(Get-Po0FirewallTokenSummary) · $(Get-ChannelAutoLabel official)" } else { "未配置" })
     Show-OfficialTargetNames
     Write-PanelRow "自动上报计划" (Get-ScheduledReporterSummary)
@@ -43,7 +43,7 @@ function Invoke-ChannelInteractive {
         $script:Po0FirewallOfficialOnly = $Channel -eq 'official'
         $script:Po0FirewallWorkerOnly = $Channel -eq 'worker'
         $script:Po0FirewallScheduledRun = $false
-        if ($Channel -eq 'worker' -and -not $script:WorkerUrl) { throw '自建 PO0 尚未配置，请先编辑并保存参数。' }
+        if ($Channel -eq 'worker' -and -not $script:WorkerUrl) { throw '自建防火墙尚未配置，请先编辑并保存参数。' }
         if ($Channel -eq 'official' -and -not (Test-Po0FirewallConfigured)) { throw '官方防火墙尚未配置，请先编辑并保存参数。' }
         if (-not (Test-ClientConfigComplete)) { throw '尚未配置上报通道，请先进入通道设置。' }
         Invoke-SelfReport -PromptForForceOnSkip
@@ -55,50 +55,53 @@ function Invoke-ChannelInteractive {
 }
 
 function Invoke-ChannelSettingsMenu {
-    param([ValidateSet('worker', 'official')][string]$Channel)
-    $title = $(if ($Channel -eq 'worker') { '自建 PO0' } else { '官方防火墙' })
+    param([ValidateSet('worker','official')][string]$Channel)
+    $title = if ($Channel -eq 'worker') { '自建防火墙' } else { '官方防火墙' }
+    $maximum = if ($Channel -eq 'official') { 12 } else { 11 }
     while ($true) {
         Write-Title "$title · 设置"
-        Write-PanelRow '配置状态' $(if (($Channel -eq 'worker' -and $script:WorkerUrl) -or ($Channel -eq 'official' -and (Test-Po0FirewallConfigured))) { '已配置' } else { '未配置' })
-        Write-PanelRow '自动开关' (Get-ChannelAutoLabel $Channel)
-        Write-PanelRow '定时任务' (Get-ScheduledReporterSummary $Channel)
-        if ($Channel -eq 'official') { Show-OfficialTargetNames }
-        Write-PanelRow '上报间隔' $(if ($Channel -eq 'worker') { "$(Get-IntervalSeconds) 秒" } else { "$($script:OfficialIntervalSeconds) 秒（可关闭）" })
-        if ($Channel -eq 'worker') { Write-PanelRow '放行有效期' '由 LAN Worker 接收端管理' }
-        else { Write-PanelRow '放行有效期 TTL' '由官方服务管理，接口未提供自定义 TTL' }
-        Write-MenuItem '1' '编辑并保存参数'
-        Write-MenuItem '2' '设置目标名称'
-        Write-MenuItem '3' '启用 / 停用本通道自动上报'
-        Write-MenuItem '4' '仅本通道立即上报'
-        Write-MenuItem '5' '查看本通道状态'
-        Write-MenuItem '6' '清除此通道保存的配置'
-        Write-MenuItem '7' '安装 / 更新本通道定时任务'
-        Write-MenuItem '8' '删除本通道自动任务'
-        Write-MenuItem '0' '返回主菜单'
-        $choice = Read-Host '请选择 [0-8]'
-        if ($null -eq $choice) { return }
+        Write-PanelRow '配置状态' $(if (Test-ChannelConfigured $Channel) { '已配置' } else { '未配置' })
+        Write-PanelRow '自动上报' (Get-ChannelAutoLabel $Channel)
+        Write-PanelRow '自动任务' (Get-ScheduledReporterSummary $Channel)
+        if (Test-ChannelConfigured $Channel) {
+            $enabled = if ($Channel -eq 'official') { $script:OfficialTimerEnabled } else { $script:WorkerTimerEnabled }
+            Write-PanelRow '启用定期上报' $(if ($enabled) { '是' } else { '否' })
+            Write-PanelRow '上报间隔' (Get-ChannelIntervalLabel $Channel)
+            if ($Channel -eq 'official') { Show-OfficialTargetNames }
+            Write-PanelRow '白名单有效期（TTL）' $(if ($Channel -eq 'worker') { '由 LAN Worker 接收端管理' } else { '由官方服务管理' })
+        }
+        Write-MenuItem 1 '保存配置（编辑参数）'
+        Write-MenuItem 2 '设置目标名称'
+        Write-MenuItem 3 '启用 / 停用自动上报'
+        Write-MenuItem 4 '定期上报设置（开关与间隔）'
+        Write-MenuItem 5 '查看本机配置'
+        Write-MenuItem 6 '查看最近结果'
+        Write-MenuItem 7 '立即上报'
+        Write-MenuItem 8 '强制上报（绕过本机跳过条件）'
+        Write-MenuItem 9 '安装 / 更新本通道自动任务'
+        Write-MenuItem 10 '删除本通道自动任务'
+        Write-MenuItem 11 '清除本通道配置'
+        if ($Channel -eq 'official') { Write-MenuItem 12 '查询官方白名单' }
+        Write-MenuItem 0 '返回主菜单'
+        $choice = Read-Host "请选择 [0-$maximum]"
+        if ($null -eq $choice -or $choice -eq '0') { return }
         try {
-            switch ($choice.Trim()) {
-                '1' { if ($Channel -eq 'worker') { Set-ClientConfigInteractive } else { Set-OfficialConfigInteractive }; Update-ChannelScheduleIfInstalled -Channel $Channel }
+            switch ($choice) {
+                '1' { if ($Channel -eq 'worker') { Set-ClientConfigInteractive } else { Set-OfficialConfigInteractive }; Update-ChannelScheduleIfInstalled $Channel }
                 '2' { Set-ChannelNamesInteractive $Channel }
-                '3' { Toggle-ChannelAutoInteractive $Channel; Update-ChannelScheduleIfInstalled -Channel $Channel }
-                '4' { Invoke-ChannelInteractive $Channel }
-                '5' {
-                    if ($Channel -eq 'official') { Show-OfficialStatusInteractive } else {
-                        Write-PanelSection '自建 PO0 · 本机状态'
-                        Write-PanelRow '目标名称' $(if ($script:WorkerName) { $script:WorkerName } else { 'LAN Worker' })
-                        Write-PanelRow '接收地址' $(if ($script:WorkerUrl) { $script:WorkerUrl } else { '未配置' })
-                        Write-PanelRow '自动上报' (Get-ChannelAutoLabel worker)
-                        Show-ScheduledReporter -Channel worker
-                    }
-                }
-                '6' { if ($Channel -eq 'worker') { Clear-WorkerConfigInteractive } else { Clear-OfficialConfigInteractive }; Update-ChannelScheduleIfInstalled -Channel $Channel }
-                '7' { Install-ScheduledReporterInteractive -Channel $Channel }
-                '8' { if (Read-YesNoDefault '删除本通道任务（保留配置）' $false) { Remove-ScheduledReporter -Channel $Channel } }
-                '0' { return }
-                default { Write-Host '无效选择：请输入 0-8。' }
+                '3' { Toggle-ChannelAutoInteractive $Channel; Update-ChannelScheduleIfInstalled $Channel }
+                '4' { Set-ChannelPeriodicInteractive $Channel }
+                '5' { Show-ChannelConfig $Channel }
+                '6' { Show-SelfReportLogTail -Path (Get-ChannelLogPath $Channel) }
+                '7' { Invoke-ChannelInteractive $Channel }
+                '8' { Invoke-ChannelForceInteractive $Channel }
+                '9' { Install-ScheduledReporterInteractive -Channel $Channel }
+                '10' { if (Read-YesNoDefault '删除本通道自动任务（保留配置）' $false) { Remove-ScheduledReporter -Channel $Channel; Save-ClientConfig } }
+                '11' { if ($Channel -eq 'worker') { Clear-WorkerConfigInteractive } else { Clear-OfficialConfigInteractive }; Update-ChannelScheduleIfInstalled $Channel }
+                '12' { if ($Channel -eq 'official') { Show-OfficialStatusInteractive } else { throw '无效选择。' } }
+                default { throw "无效选择：请输入 0-$maximum。" }
             }
-        } catch { Write-SelfReportIncomplete $_.Exception.Message }
+        } catch { Write-Host $_.Exception.Message -ForegroundColor Red }
         Pause-Menu
     }
 }
@@ -106,9 +109,9 @@ function Invoke-ChannelSettingsMenu {
 function Invoke-AutomaticReportingMenu {
     while ($true) {
         Write-Title '自动上报 · 独立定时任务'
-        Write-PanelRow '自建 PO0 任务' (Get-ScheduledReporterSummary worker)
+        Write-PanelRow '自建防火墙任务' (Get-ScheduledReporterSummary worker)
         Write-PanelRow '官方防火墙任务' (Get-ScheduledReporterSummary official)
-        Write-MenuItem '1' '管理自建 PO0 定时任务'
+        Write-MenuItem '1' '管理自建防火墙定时任务'
         Write-MenuItem '2' '管理官方防火墙定时任务'
         Write-MenuItem '3' '查看两项任务状态和日志'
         Write-MenuItem '4' '通知 / 静默设置'
@@ -131,9 +134,9 @@ function Invoke-AutomaticReportingMenu {
 function Invoke-ChannelScheduleMenu {
     param([ValidateSet('worker','official')][string]$Channel)
     while ($true) {
-        Write-Title $(if ($Channel -eq 'worker') { '自建 PO0 · 定时任务' } else { '官方防火墙 · 定时任务' })
+        Write-Title $(if ($Channel -eq 'worker') { '自建防火墙 · 定时任务' } else { '官方防火墙 · 定时任务' })
         Write-PanelRow '实际状态' (Get-ScheduledReporterSummary $Channel)
-        Write-PanelRow '执行间隔' "$(Get-ChannelIntervalSeconds $Channel) 秒"
+        Write-PanelRow '上报间隔' (Get-ChannelIntervalLabel $Channel)
         Write-MenuItem '1' '安装 / 更新本通道定时任务'
         Write-MenuItem '2' '暂停 / 恢复本通道自动上报'
         Write-MenuItem '3' '查看本通道任务状态和日志'
@@ -190,13 +193,13 @@ function Invoke-InteractiveMenu {
     while ($true) {
         Show-ClientOverview
         Write-MenuSection '通道设置'
-        Write-MenuItem '1' '自建 PO0'
+        Write-MenuItem '1' '自建防火墙'
         Write-MenuItem '2' '官方防火墙'
         Write-MenuSection '通用操作'
         Write-MenuItem '3' '网络探测 / SSID 跳过'
         Write-MenuItem '4' '立即上报全部已配置通道'
         Write-MenuItem '5' '自动上报管理'
-        Write-MenuItem '6' '查看完整保存配置'
+        Write-MenuItem '6' '查看本机配置'
         Write-MenuItem '7' '维护与诊断'
         Write-MenuItem '0' '退出'
         Write-MenuDivider

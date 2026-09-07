@@ -19,7 +19,7 @@ show_current_config() {
     print_panel_section "PO0 Outbound IP Report 客户端配置"
     print_panel_row "配置文件" "${CONFIG_FILE}"
     print_panel_row "保存状态" "$([[ -f "${CONFIG_FILE}" ]] && printf '已保存' || printf '未保存')"
-    print_panel_section "自建 PO0 · LAN Worker"
+    print_panel_section "自建防火墙 · LAN Worker"
     print_panel_row "目标名称" "${WORKER_NAME:-LAN Worker}"
     print_panel_row "自建自动上报" "$(channel_auto_label worker)"
     print_panel_row "LAN Worker URL" "${WORKER_URL:-未设置}"
@@ -48,7 +48,7 @@ show_current_config() {
 }
 
 configure_interactive() {
-    print_panel_section "自建 PO0 · LAN Worker 参数"
+    print_panel_section "自建防火墙 · LAN Worker 参数"
     local secret_input cron_seconds
     WORKER_URL="$(prompt_default "LAN Worker self-report HTTPS 接收地址（可空；域名或 https://域名/report）" "${WORKER_URL}")"
     WORKER_URL="$(normalize_worker_url "${WORKER_URL}")"
@@ -77,7 +77,7 @@ configure_interactive() {
     else
         SECRET="$(prompt_default "Self-report secret，可空" "")"
     fi
-    cron_seconds="$(prompt_default "自建 PO0 每几秒上报一次（60-$(max_interval_seconds)；必须是 60 的倍数）" "$(cron_minutes_to_seconds "${CRON_MINUTES}")")"
+    cron_seconds="$(prompt_default "自建防火墙上报间隔（秒）（60-$(max_interval_seconds)；必须是 60 的倍数）" "$(cron_minutes_to_seconds "${CRON_MINUTES}")")"
     CRON_MINUTES="$(normalize_interval_seconds_to_minutes "${cron_seconds}" "${MAX_CRON_MINUTES}")" || {
         printf '上报间隔秒数无效：请输入 60-%s 且为 60 倍数的整数。\n' "$(max_interval_seconds)" >&2
         return 1
@@ -123,18 +123,10 @@ official_status_interactive() {
 }
 
 install_cron_interactive() {
-    local channel="${1:-all}" seconds
+    local channel="${1:-all}"
     if [[ "$channel" == all ]]; then install_cron all; return $?; fi
     schedule_channel_configured "$channel" || { printf '请先保存本通道参数。\n'; return 1; }
-    seconds="$(prompt_default "定时上报周期秒数（60..86400，60 的倍数；0 关闭定时）" "$(if schedule_timer_enabled "$channel"; then printf '%s' "$(($(schedule_channel_minutes "$channel") * 60))"; else printf 0; fi)")" || return 1
-    [[ "$seconds" =~ ^[0-9]+$ ]] && (( seconds == 0 || (seconds >= 60 && seconds <= 86400 && seconds % 60 == 0) )) || { printf '无效周期。\n'; return 1; }
-    if [[ "$channel" == official ]]; then
-        OFFICIAL_TIMER_ENABLED=0
-        if (( seconds > 0 )); then OFFICIAL_TIMER_ENABLED=1; OFFICIAL_INTERVAL_SECONDS="$seconds"; fi
-    else
-        WORKER_TIMER_ENABLED=0
-        if (( seconds > 0 )); then WORKER_TIMER_ENABLED=1; CRON_MINUTES=$((seconds / 60)); fi
-    fi
+    configure_channel_periodic_interactive "$channel" || return 1
     install_cron "$channel"
 }
 
@@ -146,13 +138,13 @@ menu_loop() {
         menu_clear_screen
         show_client_overview
         print_menu_section "通道设置"
-        print_menu_item 1 "自建 PO0"
+        print_menu_item 1 "自建防火墙"
         print_menu_item 2 "官方防火墙"
         print_menu_section "通用操作"
         print_menu_item 3 "网络探测 / SSID 跳过"
         print_menu_item 4 "立即上报全部已配置通道"
         print_menu_item 5 "自动上报管理"
-        print_menu_item 6 "查看完整保存配置"
+        print_menu_item 6 "查看本机配置"
         print_menu_item 7 "维护与诊断"
         print_menu_item 0 "退出"
         print_menu_footer

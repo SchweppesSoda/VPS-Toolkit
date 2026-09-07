@@ -21,7 +21,7 @@ grep -Fq "form.TableSection, 'official_binding'" "${ui}" || fail "official bindi
 grep -Fq "'worker_enabled'" "${ui}" || fail "independent Worker switch is missing"
 grep -Fq "'official_enabled'" "${ui}" || fail "official switch is missing"
 grep -Fq "'official_source_' + wan" "${ui}" || fail "gateway WAN source settings are missing"
-for key in official_interval_seconds worker_network_enabled official_network_enabled; do
+for key in official_interval_seconds worker_network_enabled official_network_enabled worker_timer_enabled official_timer_enabled; do
 	grep -Fq "$key" "${ui}" || fail "independent trigger setting is missing: $key"
 done
 grep -Fq "String(slot - 1)" "${ui}" || fail "UI does not map slot 1-5 to backend slot 0-4"
@@ -35,7 +35,7 @@ grep -Fq "当前出口尚未加白" "${ui}" || fail "missing status summary is m
 grep -Fq "o.password = false" "${ui}" || fail "tokens must be visible in configuration"
 grep -Fq "s.tab('worker'" "${ui}" || fail "Worker channel tab is missing"
 grep -Fq "s.tab('official'" "${ui}" || fail "official channel tab is missing"
-grep -Fq "保存并立即上报" "${ui}" || fail "consistent save/report action is missing"
+grep -Fq "保存配置" "${ui}" || fail "consistent save/report action is missing"
 grep -Fq "必须包含 pgnfw_ 前缀" "${ui}" || fail "full token explanation is missing"
 
 grep -Fq "'probe_dns_server'" "${ui}" || fail "real DNS server setting is missing"

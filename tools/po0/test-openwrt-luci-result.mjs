@@ -148,3 +148,76 @@ const invalidForm = await exerciseSave(reporterAcl, { saveFails: true });
 if (invalidForm.failure !== 'form validation failed' || invalidForm.events.length !== 1)
     throw new Error('failed form validation must not commit or read results');
 console.log('OpenWrt LuCI narrow-ACL save regression tests passed.');
+
+
+// Saving an official form must neither parse nor validate any Worker/common input.
+const fieldStart = source.indexOf('   function field(');
+const fieldEnd = source.indexOf('   function resultSection(', fieldStart);
+const parsedFields = [];
+const formTypes = { SectionValue: {}, Value: {}, Flag: {}, Button: {} };
+const mapScope = { po0SaveChannel: 'official', channelKeys: {worker:[],official:[],network:[]} };
+const sectionStub = { taboption(tab, type, key) { return {
+    parse() { parsedFields.push(key); if (tab === 'worker') throw new Error('invalid Worker fixture'); return Promise.resolve(); },
+    depends() {}
+}; } };
+const scopedField = Function('s','m','form','_', source.slice(fieldStart, fieldEnd) + '; return field;')(sectionStub, mapScope, formTypes, globalThis._);
+const badWorker = scopedField('worker', formTypes.Value, 'worker_url', 'URL');
+const officialInput = scopedField('official', formTypes.SectionValue, '_official_targets', {}, 'official_target');
+await badWorker.parse();
+await officialInput.parse();
+if (parsedFields.join(',') !== '_official_targets') throw new Error('official save parsed opposite-channel fields');
+mapScope.po0SaveChannel = 'worker';
+parsedFields.length = 0;
+await officialInput.parse();
+if (parsedFields.length) throw new Error('Worker save parsed official target fields');
+
+// Query/report actions use saved configuration and cannot call the save routine.
+const actionStart = source.indexOf('function runChannelAction(');
+const actionEnd = source.indexOf('\nfunction refreshChannelResult(', actionStart);
+const calls = [];
+const runAction = Function('fs','CONTROL','showActionResult','renderOfficialStatus','officialActionSummary','showChannelResult','pollChannelResult','redactOfficialText','_',
+    'var channelActionRunning = {};\n' + source.slice(actionStart, actionEnd) + ';return runChannelAction;')(
+    { exec: async (_, args) => { calls.push(args[0]); return { code:0,stdout:'',stderr:'' }; } }, 'mock-control',
+    () => {}, () => ({rows:[]}), () => '', () => ({}), async () => {}, x => x, globalThis._);
+const neverSave = { save() { throw new Error('read/report must not save'); } };
+for (const action of ['official-status','official-report','worker-force-report']) await runAction(neverSave, action.startsWith('official')?'official':'worker', action);
+if (calls.join(',') !== 'official-status,official-report,worker-force-report') throw new Error('explicit actions did not run independently');
+console.log('OpenWrt LuCI scoped-save and no-implicit-save action tests passed.');
+
+// Pending native table edits must never be committed by the other save button.
+const persistStart = source.indexOf('function persistReporterChannel(map)');
+const persistEnd = source.indexOf('function saveReporter(map)', persistStart);
+const initial = {
+ main: {'.type':'reporter','.name':'main',worker_url:'saved-worker',secret:'saved-secret',source_id:'stable-source',interval_seconds:'5400',worker_timer_enabled:'0',official_enabled:'1',official_interval_seconds:'900',enabled:'1'},
+ account: {'.type':'official_target','.name':'account',token:'pgnfw_saved_fixture',label:'saved-account'},
+ binding: {'.type':'official_binding','.name':'binding',target:'account',wan:'wan1',slot:'3'}
+};
+let stored = structuredClone(initial);
+const draft = structuredClone(initial);
+draft.main.worker_url = 'edited-worker';
+draft.main.official_interval_seconds = '1800';
+delete draft.account;
+draft.new_account = {'.type':'official_target','.name':'new_account',token:'pgnfw_new_fixture',label:'edited-account'};
+draft.binding.target = 'new_account';
+const mutations=[];
+const backend = {
+ unload() {}, async load() {}, async save() {mutations.push('save');},
+ get(_c,id,key) {return key ? stored[id]?.[key] : stored[id];},
+ set(_c,id,key,value) {if(value == null) delete stored[id][key]; else stored[id][key]=value; mutations.push(id+'.'+key);},
+ sections(_c,type) {return Object.values(stored).filter(x=>x['.type']===type);},
+ remove(_c,id) {delete stored[id]; mutations.push('remove:'+id);},
+ add(_c,type,id) {stored[id]={'.type':type,'.name':id};mutations.push('add:'+id);},
+ move() {}
+};
+const persist = Function('uci', source.slice(persistStart,persistEnd)+';return persistReporterChannel;')(backend);
+const pendingMap = {
+ po0SaveChannel:'worker', channelKeys:{worker:['worker_url','secret','source_id','interval_seconds','worker_timer_enabled'],official:['official_enabled','official_interval_seconds'],network:['enabled']},
+ data:{get(_c,id,key){return draft[id]?.[key];},sections(_c,type){return Object.values(draft).filter(x=>x['.type']===type);}}
+};
+await persist(pendingMap);
+if (stored.main.worker_url!=='edited-worker' || JSON.stringify(stored.account)!==JSON.stringify(initial.account) || stored.binding.target!=='account' || stored.new_account || stored.main.official_interval_seconds!=='900') throw new Error('Worker save committed pending official table/interval edits');
+stored=structuredClone(initial); mutations.length=0; pendingMap.po0SaveChannel='official';
+await persist(pendingMap);
+if(stored.main.worker_url!=='saved-worker' || stored.main.secret!=='saved-secret' || stored.main.worker_timer_enabled!=='0' || stored.main.interval_seconds!=='5400' || stored.main.source_id!=='stable-source') throw new Error('official save overwrote Worker parameters');
+if(stored.account || !stored.new_account || stored.binding.target!=='new_account' || stored.binding.slot!=='3' || stored.main.official_interval_seconds!=='1800') throw new Error('official target/binding save lost stable slot or pending edits');
+console.log('OpenWrt LuCI pending table edits and channel persistence isolation tests passed.');

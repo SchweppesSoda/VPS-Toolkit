@@ -16,7 +16,7 @@ const DEFAULT_AUTO_REPORT_INTERVAL_SECONDS = 600;
 const MIN_AUTO_REPORT_INTERVAL_SECONDS = 60;
 const MAX_AUTO_REPORT_INTERVAL_SECONDS = 86400;
 const DEFAULT_CELLULAR_CIDR_PREFIX = 24;
-const REPORT_TITLE = 'PO0 防火墙上报';
+const REPORT_TITLE = 'PO0 出口上报';
 const REPORT_FAILED_TITLE = 'PO0 防火墙上报失败';
 const PERSISTED_ENV_KEYS = [
   'PO0_HOST',
@@ -49,6 +49,7 @@ const PERSISTED_ENV_KEYS = [
 ];
 const OFFICIAL_CONFIG_KEYS = ['PO0_FIREWALL_TOKENS', 'PO0_FIREWALL_NAMES', 'OFFICIAL_AUTO_ENABLED', 'OFFICIAL_INTERVAL_SECONDS', 'OFFICIAL_TIMER_ENABLED'];
 const WORKER_CONFIG_KEYS = ['PO0_HOST', 'PO0_PORT', 'PO0_USER', 'PO0_PASSWORD', 'PO0_PRIVATE_KEY', 'PO0_PASSPHRASE', 'PO0_SCRIPT', 'SSH_REPORT_SOURCE', 'SSH_REPORT_TOKEN', 'REPORT_IDENTITY', 'TTL_SECONDS', 'AUTO_REPORT_INTERVAL_SECONDS', 'CELLULAR_CIDR_PREFIX', 'SSH_REPORT_TARGETS', 'WORKER_AUTO_ENABLED', 'WORKER_TIMER_ENABLED'];
+const COMMON_CONFIG_KEYS = PERSISTED_ENV_KEYS.filter(key => !WORKER_CONFIG_KEYS.includes(key) && !OFFICIAL_CONFIG_KEYS.includes(key));
 const MODULE_DEFAULT_ENV_VALUES = {
   PO0_PORT: '22',
   PO0_USER: 'root',
@@ -393,12 +394,12 @@ function parseOfficialTokenItem(value) {
 
   const [item, name, ...options] = row.split('|').map(part => part.trim());
   const settings = {};
-  // TTL is the user's client-side reporting period, not a server-side expiry.
+  // The third column is a client reporting interval. Legacy ttl= aliases remain readable.
   // Old interval/timer rows remain readable for saved local configuration.
   if (options.length === 1 && /^(?:ttl=)?\d+$/i.test(options[0])) {
     const seconds = Number(options[0].replace(/^ttl=/i, ''));
     if (!Number.isInteger(seconds) || (seconds !== 0 && (seconds < 60 || seconds > 86400))) {
-      throw new Error('官方目标 TTL 上报周期必须为 0 或 60..86400 秒；0 只关闭定时。');
+      throw new Error('官方目标上报间隔必须为 0 或 60..86400 秒；0 只关闭定时。');
     }
     if (seconds === 0) settings.timer = false;
     else settings.interval = seconds;
@@ -407,14 +408,14 @@ function parseOfficialTokenItem(value) {
   for (const option of options) {
     if (!option) continue;
     if (/^ttl\s*=/i.test(option) || /^\d+$/.test(option)) {
-      throw new Error('官方目标格式为 Token@槽位|名称|TTL秒数；TTL 可留空，填 0 或 60..86400。');
+      throw new Error('官方目标格式为 Token@槽位|名称|上报间隔秒数；上报间隔可留空，填 0 或 60..86400。');
     }
     const match = /^(interval|timer)=(.+)$/.exec(option);
-    if (!match) throw new Error('官方目标格式为 Token@槽位|名称|TTL秒数；TTL 可留空，填 0 或 60..86400。');
+    if (!match) throw new Error('官方目标格式为 Token@槽位|名称|上报间隔秒数；上报间隔可留空，填 0 或 60..86400。');
     const [, key, raw] = match;
     if (Object.prototype.hasOwnProperty.call(settings, key)) throw new Error('官方目标可选参数不能重复。');
     if (key === 'interval') {
-      if (!/^\d+$/.test(raw) || Number(raw) < 60 || Number(raw) > 86400) throw new Error('官方目标定时周期必须为 60..86400 秒。');
+      if (!/^\d+$/.test(raw) || Number(raw) < 60 || Number(raw) > 86400) throw new Error('官方目标上报间隔必须为 60..86400 秒。');
       settings.interval = Number(raw);
     } else {
       if (!/^(true|false)$/.test(raw)) throw new Error('官方目标定时开关必须为 timer=true 或 timer=false。');
@@ -603,10 +604,10 @@ async function officialDirectRequest(ctx, item, operation) {
 function officialSafeError(error) {
   const text = String(error?.message || '');
   if ([
-    '官方目标格式为 Token@槽位|名称|TTL秒数；TTL 可留空，填 0 或 60..86400。',
-    '官方目标 TTL 上报周期必须为 0 或 60..86400 秒；0 只关闭定时。',
+    '官方目标格式为 Token@槽位|名称|上报间隔秒数；上报间隔可留空，填 0 或 60..86400。',
+    '官方目标上报间隔必须为 0 或 60..86400 秒；0 只关闭定时。',
     '官方目标可选参数不能重复。',
-    '官方目标定时周期必须为 60..86400 秒。',
+    '官方目标上报间隔必须为 60..86400 秒。',
     '官方目标定时开关必须为 timer=true 或 timer=false。',
   ].includes(text)) return text;
   if (text === '官方防火墙网络请求失败。' || text === 'Egern HTTP 能力不可用。') return text;
@@ -651,6 +652,7 @@ function escapeHtml(value) {
 }
 
 function scriptLabel(ctx) {
+  const aliases = {"查看本机配置":"查看本机上报设置","自建防火墙 · 保存配置":"保存本机 PO0 自建防火墙配置","官方防火墙 · 保存配置":"保存本机 PO0 官方防火墙配置","查询官方白名单":"PO0 官方防火墙状态（只读）"};
   return [
     ctx?.name,
     ctx?.script?.name,
@@ -658,7 +660,7 @@ function scriptLabel(ctx) {
     ctx?.trigger,
     ctx?.type,
     ctx?.executionType,
-  ].filter(Boolean).join(' ');
+  ].filter(Boolean).map(value => aliases[value] || value).join(' ');
 }
 
 function isManualRun(ctx) {
@@ -997,7 +999,7 @@ function widgetFromState(state, ctx, deviceId = '', env = ctx?.env || {}) {
   const note = state?.uiNotice || (state?.error ? '上报未完成 · ' + redactSensitiveText(state.error) : state?.skipped && state?.skipType === 'wifi-ssid'
     ? '本次 SSID 跳过 · 保留上次结果'
     : state?.skipped ? '本次无需续报 · 保留上次结果'
-    : shouldReturnWidget(ctx) ? '本次强制上报 · 自动开关保持不变' : '最近上报结果');
+    : shouldReturnWidget(ctx) ? (/查看最近结果/.test(scriptLabel(ctx)) ? '最近结果 · 本次未上报' : '上报并刷新 · 自动开关保持不变') : '最近上报结果');
   const children = [
     widgetRow([widgetText(small ? 'PO0 防火墙' : REPORT_TITLE, metrics.titleSize, WIDGET_COLORS.text, 'semibold'), spacerNode(), widgetText(lastTime ? formatTime(lastTime) : '未上报', 11, WIDGET_COLORS.dim)]),
     widgetRow([{ ...widgetText(ip, metrics.bodySize), flex: 1 }, ...(!small && networkText ? [widgetText(networkText, 11, WIDGET_COLORS.dim)] : [])]),
@@ -1056,7 +1058,7 @@ function currentWifiSsidFromNetwork(ctx, network) {
 }
 
 function ssidSkipDecision(ctx, env, network) {
-  if (!isAutomaticReportRun(ctx)) return { skip: false };
+  if (!isAutomaticReportRun(ctx) && !/立即上报/.test(String(ctx?.script?.name || ''))) return { skip: false };
   const skipList = normalizeSsidSkipList(env?.SKIP_WIFI_SSIDS);
   if (skipList.length === 0) return { skip: false };
   const ssid = currentWifiSsidFromNetwork(ctx, network);
@@ -1626,7 +1628,7 @@ function isNetworkChangeRun(ctx) {
 }
 function officialIntervalSeconds(env, item = {}) {
   const value = Number(item.interval ?? env?.OFFICIAL_INTERVAL_SECONDS ?? DEFAULT_OFFICIAL_INTERVAL_SECONDS);
-  if (!Number.isInteger(value) || value < 60 || value > 86400) throw new Error('官方定时周期必须为 60..86400 秒');
+  if (!Number.isInteger(value) || value < 60 || value > 86400) throw new Error('官方上报间隔必须为 60..86400 秒');
   return value;
 }
 function officialTimerEnabled(env, item = {}) {
@@ -2163,7 +2165,7 @@ function reportConfigAuthSummary(targets) {
 }
 
 async function handleScopedConfigSaveScript(ctx, runtimeEnv, storedValues, deviceId, officialOnly) {
-  const title = officialOnly ? '官方防火墙配置' : '自建防火墙 / 通用设置';
+  const title = officialOnly ? '官方防火墙配置' : ctx?.script?.name === '自建防火墙 · 保存配置' ? '自建防火墙配置' : '自建防火墙 / 通用设置';
   try {
     let candidate;
     if (officialOnly) {
@@ -2180,6 +2182,7 @@ async function handleScopedConfigSaveScript(ctx, runtimeEnv, storedValues, devic
     } else {
       const scopedEnv = { ...runtimeEnv };
       for (const key of OFFICIAL_CONFIG_KEYS) delete scopedEnv[key];
+      if (ctx?.script?.name === '自建防火墙 · 保存配置') for (const key of COMMON_CONFIG_KEYS) delete scopedEnv[key];
       candidate = reportConfigSaveCandidate(storedValues, scopedEnv);
       const workerEnv = { ...candidate };
       delete workerEnv.PO0_FIREWALL_TOKENS;
@@ -2373,7 +2376,7 @@ function officialSavedNameRows(env) {
   let items;
   try { items = parseOfficialTokens(env.PO0_FIREWALL_TOKENS); } catch (_) { return []; }
   return items.map((item, index) => '官方目标：' + officialAccountName(env, index) + ' · ' + (officialDisplaySlot(item.slot) ? '固定槽位 #' + officialDisplaySlot(item.slot) : '自动槽位')
-    + ' · ' + (officialTimerEnabled(env, item) ? 'TTL ' + officialIntervalSeconds(env, item) + ' 秒（上报周期）' : '定时关闭') + ' · 网络变化检查');
+    + ' · ' + ('上报间隔 ' + officialIntervalSeconds(env, item) + ' 秒' + (officialTimerEnabled(env, item) ? '' : '（暂不使用）')) + ' · 网络变化检查');
 }
 
 function officialNamesForSave(stored, runtime, tokens) {
@@ -2398,13 +2401,27 @@ function localChannelAction(ctx) {
   if (/停用官方防火墙自动上报/.test(label)) return 'disable-official';
   if (/切换自建(?: PO0 |防火墙)自动上报/.test(label)) return 'toggle-worker';
   if (/切换官方防火墙自动上报/.test(label)) return 'toggle-official';
+  if (/通用设置 · 保存配置/.test(label)) return 'save-common';
   if (/查看本机上报设置/.test(label)) return 'settings';
+  if (/查看最近结果/.test(label)) return 'recent';
   return '';
 }
 
 async function handleLocalChannelAction(ctx, env, action) {
   const next = { ...env };
   let message = '';
+  if (action === 'save-common') {
+    const input = {};
+    for (const key of COMMON_CONFIG_KEYS) if (ctx.env?.[key] !== undefined) input[key] = ctx.env[key];
+    await saveReportConfig(ctx, reportConfigSaveCandidate(env, input));
+    return widgetPanel(REPORT_TITLE, ['通用设置已保存。', '仅更新通知、SSID 跳过与公共出口探测参数，两个通道配置保持不变；本次未上报。'], true, ctx);
+  }
+  if (action === 'recent') {
+    const state = sanitizedStoredState(await storageGet(ctx, STORAGE_KEY)) || {};
+    state.official = await storedOfficialState(ctx);
+    state.uiNotice = '查看最近结果 · 本次未上报';
+    return widgetFromState(state, ctx, await storedDeviceId(ctx), env);
+  }
   if (action === 'clear-worker') {
     for (const key of WORKER_CONFIG_KEYS) delete next[key];
     next.WORKER_AUTO_ENABLED = 'false';
@@ -2429,15 +2446,16 @@ async function handleLocalChannelAction(ctx, env, action) {
   }
   const rows = [message,
     '自建防火墙：' + (workerConfigRequested(next) ? boolEnv(next.WORKER_AUTO_ENABLED, true) ? '自动上报启用' : '自动上报停用（配置保留）' : '未配置'),
-    '自建定期开关：' + (boolEnv(next.WORKER_TIMER_ENABLED, true) ? '开启，间隔 ' + autoReportIntervalSeconds(next) + ' 秒' : '已关闭，间隔设置暂不使用'),
-    '自建网络切换：自动上报启用且未命中 SSID 跳过时立即上报，不受定期开关和间隔限制。',
+    ...(workerConfigRequested(next) ? [
+      '自建启用定期上报：' + (boolEnv(next.WORKER_TIMER_ENABLED, true) ? '是' : '否') + '；上报间隔：' + autoReportIntervalSeconds(next) + ' 秒' + (boolEnv(next.WORKER_TIMER_ENABLED, true) ? '' : '（暂不使用）'),
+    '自建网络切换：自动上报启用且未命中 SSID 跳过时立即上报，不受定期开关和间隔限制。'] : []),
     '官方防火墙：' + (officialTokensConfigured(next) ? boolEnv(next.OFFICIAL_AUTO_ENABLED, true) ? '自动上报启用' : '自动上报停用（配置保留）' : '未配置'),
-    '官方定时：' + (boolEnv(next.OFFICIAL_TIMER_ENABLED, true) ? officialIntervalSeconds(next) + ' 秒' : '已关闭') + '；网络变化立即检查，白名单有效期由官方服务管理。',
+    '官方启用定期上报：' + (boolEnv(next.OFFICIAL_TIMER_ENABLED, true) ? '是' : '否') + '；上报间隔：' + officialIntervalSeconds(next) + ' 秒' + (boolEnv(next.OFFICIAL_TIMER_ENABLED, true) ? '' : '（暂不使用）') + '；白名单有效期（TTL）：由官方服务管理。',
     ...officialSavedNameRows(officialDisplayEnv(next, ctx?.env)),
     ...widgetTargets(null, next, await storedDeviceId(ctx)).map(target => target.sourceId + ' · 白名单有效期 ' + target.ttlSeconds + ' 秒（TTL）'),
-    '自建有效期：停止上报后，白名单还能保留多久；每次成功上报重新计时。',
+    workerConfigRequested(next) ? '自建白名单有效期（TTL）：停止上报后白名单还能保留多久；每次成功上报重新计时。' : '',
     'SSID 跳过：' + (next.SKIP_WIFI_SSIDS || '未设置') + '；匹配时同时跳过两个自动上报通道。',
-    '定时 / 网络变化共用两个通道；手动操作仍沿用原有强制上报规则。',
+    '自动上报分别控制各通道的定期与网络变化触发；立即上报无需等待，强制上报绕过本机跳过条件；小组件上报并刷新。',
   ].filter(Boolean);
   if (message) notify(ctx, REPORT_TITLE, message);
   return widgetPanel(REPORT_TITLE + ' · 本机设置', rows, true, ctx);
@@ -2447,10 +2465,10 @@ function selectReportChannels(ctx, env, channels) {
   const automatic = isAutomaticReportRun(ctx);
   const label = scriptLabel(ctx);
   const timer = automatic && !isNetworkChangeRun(ctx);
-  if ((timer && !boolEnv(env.WORKER_TIMER_ENABLED, true)) || (automatic && !boolEnv(env.WORKER_AUTO_ENABLED, true)) || /仅官方防火墙(?:立即|强制)上报/.test(label)) {
+  if (isOfficialStatusRun(ctx) || (timer && !boolEnv(env.WORKER_TIMER_ENABLED, true)) || (automatic && !boolEnv(env.WORKER_AUTO_ENABLED, true)) || /仅官方防火墙(?:立即|强制)上报/.test(label)) {
     channels.workerRequested = false; channels.workerTargets = []; channels.workerError = null;
   }
-  if ((timer && !boolEnv(env.OFFICIAL_TIMER_ENABLED, true)) || (automatic && !boolEnv(env.OFFICIAL_AUTO_ENABLED, true)) || /仅自建(?: PO0 立即|防火墙强制)上报/.test(label)) {
+  if ((timer && !boolEnv(env.OFFICIAL_TIMER_ENABLED, true)) || (automatic && !boolEnv(env.OFFICIAL_AUTO_ENABLED, true)) || /仅自建(?: PO0 立即|防火墙(?:立即|强制))上报/.test(label)) {
     channels.officialRequested = false; channels.officialTokens = []; channels.officialError = null;
   }
   channels.anyRequested = channels.workerRequested || channels.officialRequested;

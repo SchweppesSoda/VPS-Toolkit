@@ -533,6 +533,15 @@ try {
     Assert-False ($statusText.Contains($tokenMarker)) "Token must not enter state."
     $stateText = $statusText
 
+    # A malformed Worker URL must not prevent either an official-only menu run or the official part of a combined run.
+    Set-TestMode -Scenario "hit" -Tokens $tokenA -Worker "invalid://worker" -Scheduled $false -Force $true
+    Assert-True (Test-ClientConfigComplete) 'Official configuration must be usable without valid Worker settings.'
+    Invoke-ChannelInteractive official
+    Assert-True (@($script:RunOrder) -contains 'official') 'Official-only menu must ignore invalid Worker configuration.'
+    Set-TestMode -Scenario "hit" -Tokens $tokenA -Worker "invalid://worker" -Scheduled $false -Force $true
+    try { Invoke-SelfReport } catch { }
+    Assert-True (@($script:RunOrder) -contains 'official') 'Combined run must execute official before Worker validation.'
+
     # Each automatic lane can stop independently without affecting manual runs.
     foreach ($enabled in @(@($false, $true), @($true, $false), @($false, $false))) {
         Set-TestMode -Scenario "hit" -Tokens $tokenA -Worker "https://worker.invalid/report" -Scheduled $true -Force $true

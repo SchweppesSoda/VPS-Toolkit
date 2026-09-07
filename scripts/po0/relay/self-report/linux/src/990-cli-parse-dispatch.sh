@@ -2,9 +2,9 @@ usage() {
     printf '%s\n' \
         "PO0 Outbound IP Report 客户端（Linux/OpenWrt）" \
         "" \
-        "本脚本探测当前设备的公网出口 IPv4，并上报到 LAN Worker 的 self-report" \
-        "接收服务。访问设备不直接连接 PO0。放行时长由 LAN Worker" \
-        "接收端配置，不由客户端决定。" \
+        "本脚本支持自建与官方两条独立通道。自建经 LAN Worker 上报，" \
+        "官方直接查询并按需加入白名单，无需配置自建。白名单有效期由各自" \
+        "接收端管理；自动开关、定期开关和上报间隔分别设置。" \
         "" \
         "用法:" \
         "  curl -fsSL ${DOWNLOAD_URL} | bash" \
@@ -51,7 +51,7 @@ usage() {
         "  --resume-schedule     恢复本脚本管理的定时上报。" \
         "  --schedule-status     查看本脚本管理的定时上报状态。" \
         "  --schedule-channel worker|official|all  选择安装、启停、删除的通道。" \
-        "  --official-interval-seconds N  官方周期默认 600 秒，60..86400 且为 60 的倍数。" \
+        "  --official-interval-seconds N  官方上报间隔默认 600 秒，60..86400 且为 60 的倍数。" \
         "  --remove-cron / --remove-launchd  删除所选通道的定时和网络事件任务。" \
         "  --refresh-schedules  更新已有任务并迁移旧共享任务。" \
         "  --interval-seconds N  设置 cron 上报间隔秒数，必须是 60 的倍数，默认 3600。" \

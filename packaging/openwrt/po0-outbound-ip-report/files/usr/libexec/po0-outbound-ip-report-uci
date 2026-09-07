@@ -249,6 +249,8 @@ if [ -n "$auto_trigger" ]; then
 		is_disabled "$(uci_get main worker_network_enabled)" && worker_run=0
 		is_disabled "$(uci_get main official_network_enabled)" && official_run=0
 	else
+		is_disabled "$(uci_get main worker_timer_enabled)" && worker_run=0
+		is_disabled "$(uci_get main official_timer_enabled)" && official_run=0
 		[ "$(uci_get main interval_seconds)" != 0 ] || worker_run=0
 		[ "$(uci_get main official_interval_seconds)" != 0 ] || official_run=0
 	fi

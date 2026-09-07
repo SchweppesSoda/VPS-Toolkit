@@ -89,6 +89,18 @@ try {
     try { Sync-ScheduledReporterTasks -Mode refresh | Out-Null } catch { $failed=$true }
     Assert-Test ($failed -and $script:Tasks.ContainsKey($script:TaskName) -and -not $script:Tasks.ContainsKey($worker) -and -not $script:Tasks.ContainsKey($official)) 'failed migration preserves legacy and rolls back replacements'
     $script:FailTaskName=''
+    # The periodic editor preserves a disabled channel's interval without installing tasks.
+    $script:Tasks.Clear(); $script:Calls.Clear()
+    function Read-YesNoDefault { param($Prompt,$Default) return $false }
+    function Read-Default { param($Prompt,$Default) return $Default }
+    $script:Minutes=90; $script:OfficialIntervalSeconds=900
+    $script:WorkerTimerEnabled=$true; $script:OfficialTimerEnabled=$true
+    Set-ChannelPeriodicInteractive official
+    Assert-Test (-not $script:OfficialTimerEnabled -and $script:OfficialIntervalSeconds -eq 900 -and $script:Minutes -eq 90 -and $script:WorkerTimerEnabled) 'periodic editor preserves other channel and stored interval'
+    Assert-Test ((Get-ChannelIntervalLabel official) -match '暂不使用') 'disabled periodic interval label'
+    Set-ChannelPeriodicInteractive worker
+    Assert-Test (-not $script:WorkerTimerEnabled -and $script:Minutes -eq 90 -and $script:OfficialIntervalSeconds -eq 900) 'Worker periodic editor keeps official interval'
+    Assert-Test ($script:Tasks.Count -eq 0 -and $script:Calls.Count -eq 0) 'saving periodic settings must not install tasks'
     $script:Po0FirewallScheduledRun=$true; $TimerTrigger=$false; $NetworkChanged=$false
     function Get-Po0FirewallLastAttempt { return 1000 }
     function Get-Po0FirewallNow { return 1600 }

@@ -74,6 +74,33 @@ function effectiveWorkerArgs(args) {
   return Object.assign(result, saved, { local_worker_saved: true });
 }
 
+// Keep legacy interval=0 as timer-off; absent values retain the old defaults.
+function timerEnabled(channel, args = {}) {
+  const settings = channelSettings();
+  const effective = channel === 'worker' ? effectiveWorkerArgs(args) : args;
+  const raw = channel === 'worker'
+    ? effective.auto_report_interval_seconds ?? effective.refresh_ttl_seconds ?? effective.ttl_seconds
+    : settings.officialIntervalSeconds ?? args.official_report_interval_seconds;
+  if (reportInterval(raw) === 0) return false;
+  const value = settings[channel + 'TimerEnabled'] ?? effective[channel + '_timer_enabled'];
+  return !/^(false|0|off|no)$/i.test(String(value));
+}
+function saveTimerSettings(settings, channel, args, previousInterval) {
+  const raw = channel === 'worker' ? args.auto_report_interval_seconds ?? args.refresh_ttl_seconds ?? args.ttl_seconds : args.official_report_interval_seconds;
+  const seconds = reportInterval(raw ?? previousInterval);
+  const flag = args[channel + '_timer_enabled'];
+  if (seconds === 0) settings[channel + 'TimerEnabled'] = false;
+  else if (flag !== undefined && flag !== null) settings[channel + 'TimerEnabled'] = !/^(false|0|off|no)$/i.test(String(flag));
+  const auto = args[channel + '_auto_enabled'];
+  if (auto !== undefined && auto !== null) settings[channel + 'AutoEnabled'] = !/^(false|0|off|no)$/i.test(String(auto));
+  return seconds || reportInterval(previousInterval) || 600;
+}
+function intervalLabel(channel, args = {}) {
+  const effective = channel === 'worker' ? effectiveWorkerArgs(args) : args;
+  const raw = channel === 'worker' ? effective.auto_report_interval_seconds ?? effective.refresh_ttl_seconds ?? effective.ttl_seconds : channelSettings().officialIntervalSeconds ?? args.official_report_interval_seconds;
+  return (reportInterval(raw) || 600) + ' 秒' + (timerEnabled(channel, args) ? '' : '（暂不使用）');
+}
+
 function officialAccountName(index) {
   return String(channelSettings().officialNames || '').replace(/\r/g, '').split(/[;；\n]/)[index]?.trim() || '官方账号 ' + (index + 1);
 }
@@ -88,13 +115,13 @@ function saveOfficialNames(args, tokens, clear) {
     const index = oldTokens.findIndex(old => old.split('@')[0] === item.token);
     return index < 0 ? '' : oldNames[index] || '';
   }).join(';');
-  if (args.official_report_interval_seconds !== undefined) settings.officialIntervalSeconds = reportInterval(args.official_report_interval_seconds);
+  if (!clear) settings.officialIntervalSeconds = saveTimerSettings(settings, 'official', args, settings.officialIntervalSeconds);
   if (clear) settings.officialAutoEnabled = false;
   saveChannelSettings(settings);
 }
 
 function isLocalSettingsMode(mode) {
-  return ['save-worker', 'clear-worker', 'toggle-worker', 'toggle-official', 'settings'].includes(mode);
+  return ['save-worker', 'clear-worker', 'toggle-worker', 'toggle-official', 'toggle-worker-timer', 'toggle-official-timer', 'settings'].includes(mode);
 }
 
 function localSettingsSummary(args) {
@@ -106,10 +133,10 @@ function localSettingsSummary(args) {
   const officialCount = String(officialRaw || '').split(/[,;，；\s]+/).filter(Boolean).length;
   const interval = reportInterval(effective.auto_report_interval_seconds ?? effective.refresh_ttl_seconds ?? effective.ttl_seconds);
   return [
-    '自建 PO0：' + (!workerUrl ? '未配置' : settings.workerAutoEnabled === false ? '自动上报已停用' : '自动上报已启用') + '；目标名称：' + (effective.worker_name || 'LAN Worker'),
-    '自建配置：' + (localWorkerConfig() ? '已保存本机设置' : '沿用模块 / 旧设置') + '；地址：' + (workerUrl || '未配置') + '；周期：' + (interval === 0 ? '关闭' : interval + ' 秒'),
+    '自建防火墙：' + (!workerUrl ? '未配置' : settings.workerAutoEnabled === false ? '自动上报已停用' : '自动上报已启用') + '；目标名称：' + (effective.worker_name || 'LAN Worker'),
+    ...(workerUrl ? ['自建配置：' + (localWorkerConfig() ? '已保存本机配置' : '沿用模块 / 旧设置') + '；地址：' + workerUrl + '；启用定期上报：' + (timerEnabled('worker', args) ? '是' : '否') + '；上报间隔：' + intervalLabel('worker', args) + '；白名单有效期（TTL）：由 LAN Worker 接收端管理'] : []),
     '官方防火墙：' + (!officialCount ? '未配置' : officialCount + ' 个目标，' + (settings.officialAutoEnabled === false ? '自动上报已停用' : '自动上报已启用')) + '；目标名称：' + (settings.officialNames || '按账号编号显示'),
-    '官方定时：' + (reportInterval(settings.officialIntervalSeconds) || '关闭') + ' 秒；出口变化轮询独立触发；放行 TTL 由接收端管理。',
+    '官方启用定期上报：' + (timerEnabled('official', args) ? '是' : '否') + '；上报间隔：' + intervalLabel('official', args) + '；白名单有效期（TTL）：由官方服务管理。',
     '停用保留配置，手动立即上报仍可用；清除后同步参数不会自动恢复。',
   ].join('\n');
 }
@@ -120,12 +147,14 @@ function runLocalSettingsAction(args, mode) {
     const workerUrl = firstNonEmpty([args.po0_worker_url, args.worker_url, args.workerUrl]);
     const secret = firstNonEmpty([args.po0_worker_token, args.worker_token, args.token, args.secret]);
     if (!/^https:\/\/[^/?#]+\/stash-report\/v1\/?$/.test(workerUrl) || !secret || /^CHANGE_ME/.test(secret)) throw new Error('请填写 HTTPS /stash-report/v1 地址与 Worker 密钥');
-    const seconds = reportInterval(args.auto_report_interval_seconds);
+    const previous = localWorkerConfig() || {};
+    const seconds = saveTimerSettings(settings, 'worker', args, previous.auto_report_interval_seconds ?? previous.refresh_ttl_seconds ?? previous.ttl_seconds);
     const values = { worker_url: workerUrl, secret, worker_name: String(args.worker_name || '').trim(), auto_report_interval_seconds: seconds };
     if (!String(args.source_id || '').trim()) throw new Error('请填写来源 ID');
     values.source_id = String(args.source_id).trim();
     if (args.selected_proxy) values.selected_proxy = args.selected_proxy;
     if (!writeJSON(STORE_KEY + '.worker-config', { version: 1, values })) throw new Error('无法保存本机自建配置');
+    saveChannelSettings(settings);
   } else if (mode === 'clear-worker') {
     if (!writeJSON(STORE_KEY + '.worker-config', { version: 1, values: { worker_url: '', secret: '' } })) throw new Error('无法清除本机自建配置');
     settings.workerAutoEnabled = false;
@@ -133,8 +162,21 @@ function runLocalSettingsAction(args, mode) {
     const state = readJSON(STORE_KEY, {});
     if (!writeJSON(STORE_KEY, state.official ? { official: state.official } : {})) throw new Error('配置已清除，但最近状态未能清除');
   } else if (mode.startsWith('toggle-')) {
-    const key = mode === 'toggle-worker' ? 'workerAutoEnabled' : 'officialAutoEnabled';
-    settings[key] = settings[key] === false;
+    const channel = mode.includes('worker') ? 'worker' : 'official';
+    const periodic = mode.endsWith('-timer');
+    const key = channel + (periodic ? 'TimerEnabled' : 'AutoEnabled');
+    settings[key] = periodic ? !timerEnabled(channel, args) : settings[key] === false;
+    // Enabling a legacy zero-period timer restores its default without changing the other channel.
+    if (periodic && settings[key]) {
+      if (channel === 'official' && settings.officialIntervalSeconds === 0) settings.officialIntervalSeconds = 600;
+      if (channel === 'worker') {
+        const values = Object.assign({}, effectiveWorkerArgs(args));
+        if (reportInterval(values.auto_report_interval_seconds ?? values.refresh_ttl_seconds ?? values.ttl_seconds) === 0) {
+          values.auto_report_interval_seconds = 600;
+          if (!writeJSON(STORE_KEY + '.worker-config', { version: 1, values })) throw new Error('无法保存本机自建配置');
+        }
+      }
+    }
     saveChannelSettings(settings);
   }
   return (mode === 'settings' ? '' : '本机设置已更新。\n') + localSettingsSummary(args);
@@ -148,7 +190,7 @@ function firewallInput(args) {
 }
 
 function saveLocalFirewall(args, clear) {
-  const input = clear ? "" : firewallInput(args);
+  const input = clear ? "" : firewallInput(args) || String(readJSON(STORE_KEY + '.official-config', {}).tokens || '');
   const tokens = input === "-" ? "" : input;
   parseFirewallTokens(tokens);
   saveOfficialNames(args, tokens, clear || input === "-");
@@ -399,10 +441,11 @@ function officialSummary(official) {
 }
 
 function officialDue(mode, state, nowSeconds, args = {}) {
-  if (mode === "force") return true;
+  if (mode === "force" || mode === "report") return true;
   if (mode !== "auto") return false;
   if (isNetworkTrigger(args)) return true;
-  const interval = reportInterval(channelSettings().officialIntervalSeconds);
+  if (!timerEnabled('official', args)) return false;
+  const interval = reportInterval(channelSettings().officialIntervalSeconds ?? args.official_report_interval_seconds);
   if (interval === 0) return false;
   const last = Number(state && state.last_attempt_at || 0);
   return !last || nowSeconds < last || nowSeconds - last >= interval;
@@ -410,7 +453,7 @@ function officialDue(mode, state, nowSeconds, args = {}) {
 function reportInterval(value) {
   if (value === undefined || value === null || value === '') return 600;
   const n = Number(value);
-  if (!Number.isInteger(n) || (n !== 0 && (n < 60 || n > 86400))) throw new Error('定时周期须为 60..86400 秒，0 关闭定时');
+  if (!Number.isInteger(n) || (n !== 0 && (n < 60 || n > 86400))) throw new Error('上报间隔须为 60..86400 秒；兼容旧值 0（关闭定期上报）');
   return n;
 }
 function isNetworkTrigger(args) {
@@ -533,7 +576,7 @@ async function runWorker(args, state, network, mode, nowSeconds) {
   const ip = args.detected_ip || await detectIPv4();
   const lastAcceptedMs = Number(state.accepted_at || 0) * 1000;
   const unchanged = state.ip === ip && state.network === network.network;
-  if (mode === "auto" && !isNetworkTrigger(args) && (reportInterval(args.auto_report_interval_seconds) === 0 || (unchanged && nowSeconds * 1000 - lastAcceptedMs < reportInterval(args.auto_report_interval_seconds) * 1000))) {
+  if (mode === "auto" && !isNetworkTrigger(args) && (!timerEnabled('worker', args) || (unchanged && nowSeconds * 1000 - lastAcceptedMs < reportInterval(args.auto_report_interval_seconds) * 1000))) {
     return { ok: true, enabled: true, skipped: true };
   }
   const requestId = String(args.source_id) + "-" + nowSeconds + "-" + Math.random().toString(36).slice(2, 10);
@@ -602,11 +645,11 @@ function htmlResult(ok, message, state, mode) {
   const link = (path, label, danger) => '<a class="action' + (danger ? ' danger' : '') + '" href="http://po0-report.invalid/' + path + '"' + (danger ? ' onclick="return confirm(\'确认清除此通道的本机保存配置？\')"' : '') + '>' + label + '</a>';
   return '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PO0 · ' + heading + '</title>' +
     '<style>body{margin:0;background:#f4f6f9;color:#172333;font:16px/1.65 -apple-system,sans-serif}main{max-width:680px;margin:auto;padding:28px 18px 48px}h1{font-size:28px;margin:4px 0}h2{font-size:18px;margin:0 0 12px}.eyebrow{font-size:12px;letter-spacing:2px;color:#59718c}.card{background:white;border:1px solid #e0e6ee;border-radius:16px;padding:20px;margin:16px 0}.detail{white-space:pre-wrap;overflow-wrap:anywhere}.actions{display:flex;gap:8px;flex-wrap:wrap}.action{display:block;background:#edf3fa;color:#245581;text-decoration:none;padding:10px 14px;border-radius:10px;font-size:14px}.danger{color:#a13535;background:#fceded}.muted{color:#637286;font-size:13px}</style>' +
-    '<main><div class="eyebrow">PO0 · 出口上报</div><h1>' + heading + '</h1><p class="muted">自建与官方分别设置周期；每分钟检查出口 IP 变化。</p>' +
+    '<main><div class="eyebrow">PO0 · 出口上报</div><h1>' + heading + '</h1><p class="muted">自建与官方分别设置周期；出口检测间隔 60 秒，通过轮询检测出口 IP 变化。</p>' +
     '<section class="card"><h2>' + (ok ? '✓ ' : '！ ') + heading + '</h2><div class="detail">' + escapeHtml(message === 'status' ? officialSummary(state && state.official) : message) + '</div><p class="muted">最近自建出口：' + escapeHtml(state && (state.accepted_cidr || state.ip) || '尚无记录') + '</p></section>' +
-    '<section class="card"><h2>自建 PO0 · LAN Worker</h2><div class="actions">' + link('save-worker','保存参数') + link('toggle-worker','停用 / 恢复自动') + link('worker-now','仅自建立即上报') + link('clear-worker','清除本机配置',true) + '</div><p class="muted">名称、地址、密钥和上报间隔在模块的 /save-worker 参数中填写；TTL 由接收端设置。</p></section>' +
-    '<section class="card"><h2>官方防火墙</h2><div class="actions">' + link('save-official','保存参数') + link('toggle-official','停用 / 恢复自动') + link('official-now','仅官方立即上报') + link('clear-official','清除本机配置',true) + '</div><p class="muted">Token、名称、定时周期在模块的 /save-official 参数中填写；周期默认 600 秒，0 关闭；出口变化由每分钟轮询检测。</p></section>' +
-    '<div class="actions">' + link('settings','本机设置') + link('status','只读检查状态') + link('report-now','立即上报两个通道') + '<a class="action" href="stash://">返回 Stash</a></div><p class="muted">Stash 公开脚本接口不提供当前 SSID，因此此客户端没有 SSID 跳过名单。</p></main></html>';
+    '<details class="card"><summary>自建防火墙 · LAN Worker（展开配置）</summary><div class="actions">' + link('save-worker','保存配置') + link('toggle-worker-timer','启用 / 停用定期上报') + link('toggle-worker','停用 / 恢复自动') + link('worker-now','立即上报') + link('worker-force','强制上报') + link('clear-worker','清除本机配置',true) + '</div><p class="muted">名称、地址、密钥、定期开关和上报间隔在模块的 /save-worker 参数中填写；白名单有效期（TTL）由 LAN Worker 接收端管理。</p></details>' +
+    '<section class="card"><h2>官方防火墙</h2><div class="actions">' + link('save-official','保存配置') + link('toggle-official-timer','启用 / 停用定期上报') + link('toggle-official','停用 / 恢复自动') + link('official-now','立即上报') + link('official-force','强制上报') + link('clear-official','清除本机配置',true) + '</div><p class="muted">Token、名称、定期开关和上报间隔在模块的 /save-official 参数中填写；上报间隔默认 600 秒；关闭定期上报保留原间隔；出口变化由每分钟轮询检测。</p></section>' +
+    '<div class="actions">' + link('settings','查看本机配置') + link('recent','查看最近结果') + link('status','查询官方白名单') + link('report','立即上报') + link('report-now','强制上报') + '<a class="action" href="stash://">返回 Stash</a></div><p class="muted">Stash 公开脚本接口不提供当前 SSID，因此此客户端没有 SSID 跳过名单。</p></main></html>';
 }
 
 function finish(mode, ok, message, state, meta) {
@@ -631,6 +674,7 @@ function finish(mode, ok, message, state, meta) {
 async function runUnlocked() {
   const args = parseArgument();
   const mode = $script.type === "tile" ? "status" : String(args.mode || "auto").toLowerCase();
+  if (mode === 'recent') return finish(mode, true, officialSummary(readJSON(STORE_KEY, {}).official), readJSON(STORE_KEY, {}), {});
   if (isLocalSettingsMode(mode)) {
     const message = runLocalSettingsAction(args, mode);
     return finish("settings", true, message, readJSON(STORE_KEY, {}), {});
@@ -639,7 +683,7 @@ async function runUnlocked() {
     saveLocalFirewall(args, mode === "clear-official");
     return finish("force", true, mode === "clear-official" ? "已清除本机官方配置；同步参数不会自动恢复它" : "已保存本机官方 Token 和槽位；后续同步参数不会覆盖", readJSON(STORE_KEY, {}), {});
   }
-  if (["auto", "status", "force", "save-official", "clear-official"].indexOf(mode) < 0) throw new Error("不支持的模式：" + mode);
+  if (["auto", "status", "force", "report", "recent", "save-official", "clear-official"].indexOf(mode) < 0) throw new Error("不支持的模式：" + mode);
   let state = readJSON(STORE_KEY, {});
   if (!state || typeof state !== "object" || Array.isArray(state)) state = {};
   const now = Date.now();
@@ -704,7 +748,7 @@ async function runUnlocked() {
   const ok = officialResult.ok && workerResult.ok;
   const parts = [];
   if (officialResult.attempted) parts.push("官方" + (officialResult.added ? "新增 " + officialResult.added : "检查完成"));
-  if (workerResult.enabled) parts.push(workerResult.skipped ? "Worker 一小时内跳过" : workerResult.ok ? "Worker 完成" : "Worker 失败");
+  if (workerResult.enabled) parts.push(workerResult.skipped ? "自建尚未到上报间隔" : workerResult.ok ? "Worker 完成" : "Worker 失败");
   if (!parts.length) parts.push("没有启用的上报通道");
   const message = parts.join("；") + (ok ? "" : "；本轮部分失败");
   state.last_error = ok
@@ -719,8 +763,9 @@ async function runUnlocked() {
 async function run() {
   const args = parseArgument();
   const mode = $script.type === "tile" ? "status" : String(args.mode || "auto").toLowerCase();
+  if (mode === 'recent') return finish(mode, true, officialSummary(readJSON(STORE_KEY, {}).official), readJSON(STORE_KEY, {}), {});
   if (isLocalSettingsMode(mode)) return runUnlocked();
-  if (["auto", "status", "force", "save-official", "clear-official"].indexOf(mode) < 0) throw new Error("不支持的模式：" + mode);
+  if (["auto", "status", "force", "report", "recent", "save-official", "clear-official"].indexOf(mode) < 0) throw new Error("不支持的模式：" + mode);
 
   // A status request with no configured official channel has no report-side
   // work and keeps the historical read-only/no-write behavior.
@@ -744,6 +789,7 @@ async function run() {
 run().catch((error) => {
   const args = parseArgument();
   const mode = $script.type === "tile" ? "status" : String(args.mode || "auto").toLowerCase();
+  if (mode === 'recent') return finish(mode, true, officialSummary(readJSON(STORE_KEY, {}).official), readJSON(STORE_KEY, {}), {});
   const state = readJSON(STORE_KEY, {});
   const message = redactedError(error, args, null);
   if (mode !== "status") {

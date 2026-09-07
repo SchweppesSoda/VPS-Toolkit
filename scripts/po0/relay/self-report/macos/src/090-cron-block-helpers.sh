@@ -1,5 +1,5 @@
 schedule_channel_label() {
-    case "$1" in worker) printf '自建 PO0' ;; official) printf '官方防火墙' ;; *) return 1 ;; esac
+    case "$1" in worker) printf '自建防火墙' ;; official) printf '官方防火墙' ;; *) return 1 ;; esac
 }
 
 schedule_channel_configured() {
