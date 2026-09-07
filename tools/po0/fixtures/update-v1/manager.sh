@@ -159,4 +159,3 @@ do_upgrade_manager_from_lan() {
         fi
     fi
 }
-

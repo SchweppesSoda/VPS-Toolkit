@@ -532,10 +532,10 @@ function Test-WindowsSsidGuard {
         throw "Windows asset lacks an SSID guard inside Invoke-SelfReportCore."
     }
     if (-not $http.Success) {
-        throw "Windows asset Worker submit delegation point was not found."
+        throw "Windows asset official report call point was not found."
     }
     if ($guard.Index -ge $http.Index) {
-        throw "Windows asset SSID guard must run before Worker submit delegation."
+        throw "Windows asset SSID guard must run before official report call."
     }
 }
 

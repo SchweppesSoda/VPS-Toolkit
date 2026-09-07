@@ -529,7 +529,7 @@ if ($raw -notmatch "(?is)(ssid.{0,160}(continue|continued|fail|failed|failure|er
 $fn = [regex]::Match($raw, "(?ms)^function Invoke-SelfReportCore\s*\{.*?(?=^function\s+[A-Za-z_][A-Za-z0-9_-]*\s*\{|\z)")
 if (-not $fn.Success) { throw "Windows Invoke-SelfReportCore function was not found." }
 $guard = [regex]::Match($fn.Value, "(?is)ssid.{0,160}(skip|guard|allow|match|local|璺宠繃|鍖归厤|鏈湴)|(skip|guard|allow|match|local|璺宠繃|鍖归厤|鏈湴).{0,160}ssid")
-$http = [regex]::Match($fn.Value, "(Invoke-Po0FirewallReport -Mode "report"|Invoke-WebRequest)")
+$http = [regex]::Match($fn.Value, "Invoke-Po0FirewallReport\s+-Mode\s+\x22report\x22")
 if (-not $guard.Success) { throw "Windows asset lacks an SSID guard inside Invoke-SelfReportCore." }
 if (-not $http.Success) { throw "Windows asset HTTP submit point was not found." }
 if ($guard.Index -ge $http.Index) { throw "Windows asset SSID guard must run before HTTP report submission." }
