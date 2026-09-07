@@ -860,7 +860,6 @@ function widgetPanel(title, content, ok, ctx) {
   return {
     type: 'widget', padding: metrics.padding, gap: metrics.widgetGap,
     backgroundColor: WIDGET_COLORS.background,
-    refreshAfter: new Date(Date.now() + 600000).toISOString(),
     children: [
       widgetRow([iconNode(ok ? 'checkmark.shield.fill' : 'exclamationmark.triangle.fill', ok ? WIDGET_COLORS.green : WIDGET_COLORS.red, 15), widgetText(title, metrics.titleSize, WIDGET_COLORS.text, 'semibold')]),
       ...lines.slice(0, maxLines).map(line => ({ ...widgetText(line, metrics.bodySize), maxLines: 2 })),
@@ -939,6 +938,8 @@ function widgetOfficialEntries(state, env, runtimeEnv = {}) {
       ordinal: index + 1,
       name: officialAccountName(displayEnv, index),
       fixedSlot: item.slot,
+      intervalSeconds: officialIntervalSeconds(env, item),
+      timerEnabled: officialTimerEnabled(env, item),
     }));
   } catch (_) { return previous.map((entry, index) => ({ ...entry, name: officialAccountName(displayEnv, index) })); }
 }
@@ -948,6 +949,15 @@ function widgetAutoState(configured, enabled, ssidMatched) {
   if (!enabled) return { text: '自动停用', icon: 'pause.circle.fill', color: WIDGET_COLORS.yellow };
   if (ssidMatched) return { text: 'SSID跳过', icon: 'wifi.slash', color: WIDGET_COLORS.blue };
   return { text: '自动开启', icon: 'clock.arrow.circlepath', color: WIDGET_COLORS.green };
+}
+
+function widgetRefreshSchedule(env, workerAuto, officialAuto, entries) {
+  const intervals = [];
+  if (workerAuto.text === '自动开启' && boolEnv(env.WORKER_TIMER_ENABLED, true)) intervals.push(autoReportIntervalSeconds(env));
+  if (officialAuto.text === '自动开启') {
+    for (const entry of entries) if (entry.timerEnabled && entry.intervalSeconds) intervals.push(entry.intervalSeconds);
+  }
+  return intervals.length ? { refreshAfter: new Date(Date.now() + Math.min(...intervals) * 1000).toISOString() } : {};
 }
 
 function widgetLane(title, auto, entries, official, ctx, env) {
@@ -972,15 +982,18 @@ function widgetLane(title, auto, entries, official, ctx, env) {
       ...(family === 'large' && official ? [widgetText((entry.status === 'shared' ? officialCoveredSlotText(entry) : '#' + (officialDisplaySlot(entry.fixedSlot) || '自动')) + ' · ' + (entry.used ?? '?') + '/' + (entry.limit ?? 5), 11, WIDGET_COLORS.dim)] : []),
       widgetText(result, 12, color),
     ]));
+    if (official && family !== 'small') {
+      const period = entry.intervalSeconds ? formatDurationSeconds(entry.intervalSeconds) : '未知';
+      children.push(widgetText(entry.timerEnabled ? '周期 ' + period : '定时关闭 · 间隔暂不使用', 11, WIDGET_COLORS.dim));
+    }
   });
   if (!shown.length && family !== 'small') children.push(widgetText(auto.text === '未配置' ? '尚未设置目标' : '等待首次结果', metrics.bodySize, WIDGET_COLORS.dim));
   if (family !== 'small') {
-    const first = shown[0];
-    const fixed = officialDisplaySlot(first?.fixedSlot);
-    const detail = entries.length > 1 || family === 'large'
-      ? `${entries.length} 个${official ? '账号 · 检查 10分钟' : '目标 · 周期 ' + formatDurationSeconds(autoReportIntervalSeconds(env))}`
-      : official ? (first ? `${first.status === 'shared' ? '共用' + officialCoveredSlotText(first) : '配置槽位 ' + (fixed ? '#' + fixed : '自动')} · 名额 ${first.used ?? '?'}/${first.limit ?? 5}` : '检查周期 10 分钟')
-      : `自动周期 ${formatDurationSeconds(autoReportIntervalSeconds(env))}`;
+    const detail = official
+      ? entries.length + ' 个账号'
+      : boolEnv(env.WORKER_TIMER_ENABLED, true)
+        ? '周期 ' + formatDurationSeconds(autoReportIntervalSeconds(env))
+        : '定时关闭 · 间隔暂不使用';
     children.push(widgetText(detail, 11, WIDGET_COLORS.dim));
   }
   return { type: 'stack', direction: 'column', alignItems: 'start', gap: metrics.cardGap, flex: family === 'medium' ? 1 : 0, children };
@@ -1039,7 +1052,7 @@ function widgetFromState(state, ctx, deviceId = '', env = ctx?.env || {}) {
   return {
     type: 'widget', padding: metrics.padding, gap: metrics.widgetGap,
     backgroundColor: WIDGET_COLORS.background,
-    refreshAfter: new Date(Date.now() + 600000).toISOString(), children,
+    ...widgetRefreshSchedule(env, workerAuto, officialAuto, entries), children,
   };
 }
 

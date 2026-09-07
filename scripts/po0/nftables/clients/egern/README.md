@@ -215,3 +215,5 @@ PO0 端如果使用专用受限 SSH 上报 key，Egern 专用 key 的 scope 应�
 bash /root/nftables-relay-manager.sh --refresh-report-key-wrapper
 bash /root/nftables-relay-manager.sh --show-report-key-denials 80
 ```
+
+小组件的官方账号周期读取本机已保存的逐账号间隔，自建周期读取自建配置；关闭定时时显示“间隔暂不使用”。组件请求的下次刷新时间采用已开启通道的最短定时间隔，全部停用、定时关闭或命中 SSID 跳过时不指定刷新时间。该时间是刷新请求，不保证准时执行；每次实际刷新仍按上述约定强制上报两个已配置通道，因此不代表各通道请求的最短间隔。
