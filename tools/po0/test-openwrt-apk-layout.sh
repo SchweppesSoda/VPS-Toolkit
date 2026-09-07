@@ -63,7 +63,7 @@ expected_apk_runtime_version="$(sed -n 's/^SCRIPT_VERSION="\([^"]*\)"/\1/p' "${r
 [[ "${expected_apk_runtime_version}" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}\+build\.[0-9]+$ ]] || { printf 'Invalid APK runtime version.\n' >&2; exit 1; }
 for package in po0-outbound-ip-report; do
     grep -Fq 'PKGARCH:=all' "${repo_root}/packaging/openwrt/${package}/Makefile"
-    grep -Fq 'PKG_VERSION:=2026.09.06' "${repo_root}/packaging/openwrt/${package}/Makefile"
+    grep -Fq 'PKG_VERSION:=2026.09.07' "${repo_root}/packaging/openwrt/${package}/Makefile"
     grep -Fq 'PKG_RELEASE:=1' "${repo_root}/packaging/openwrt/${package}/Makefile"
     grep -Fq "$(printf '$(TOPDIR)/po0-assets')" "${repo_root}/packaging/openwrt/${package}/Makefile"
     grep -Fq "po0-outbound-ip-report ${expected_apk_runtime_version} (OpenWrt APK)" \
