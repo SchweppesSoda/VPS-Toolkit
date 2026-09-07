@@ -75,7 +75,10 @@ function execute(options = {}) {
           if (isOfficial) {
             result = invokeSpec(spec, officialBody([]));
           } else if (String(request.url || "").includes("generate_204")) {
-            result = { response: { status: 204 }, data: "" };
+            const group = decodeURIComponent(request.headers['X-Stash-Selected-Proxy'] || '');
+            const network = options.network || 'wifi';
+            const blocked = group === '📡 PO0 Wi-Fi 探测' ? network !== 'wifi' : group === '📡 PO0 蜂窝探测' ? network !== 'cellular' : false;
+            result = blocked && network !== 'both' ? { error: 'mock blocked probe' } : { response: { status: 204 }, data: '' };
           } else {
             result = { response: { status: 200 }, data: JSON.stringify({ ip: "8.8.8.8" }) };
           }
@@ -437,9 +440,10 @@ async function testParallelOfficialAccountsPreserveLaneOrder() {
 function testOverrideContract() {
   assert.match(override, /PO0_FIREWALL_TOKENS/);
   assert.ok(override.includes("cron: '* * * * *'"));
-  assert.match(override, /20260907-v10/);
+  assert.match(override, /20260907-network-targets-v1/);
   assert.match(override, /先 GET/);
-  assert.match(override, /白名单有效期（TTL）\s*由官方服务管理/);
+  assert.match(override, /官方只配置客户端上报间隔/);
+  assert.doesNotMatch(override, /官方白名单有效期/);
   assert.match(override, /"PO0_FIREWALL_TOKENS":""/);
   assert.ok(override.includes("match: ^http://po0-report\\.invalid/status"));
   assert.ok(override.includes("argument: '{\"mode\":\"status\""));
@@ -608,7 +612,67 @@ async function testIndependentPeriodicSettingsAndRetirement() {
   assert.equal(settings.officialIntervalSeconds,900);
 }
 
+
+async function testOfficialNetworkTargets() {
+  const store = new Map();
+  const token = 'pgnfw_network_fixture';
+  const call = async (args, network = 'wifi', extra = {}) => { const result = await execute(Object.assign({ store, argument: JSON.stringify(args), network, ssid: network === 'cellular' ? 'cellular' : network === 'unknown' ? '' : 'Cafe-WiFi' }, extra)); await new Promise(resolve => setImmediate(resolve)); return result; };
+  const posts = result => result.requests.filter(x => x.method === 'post' && x.request.url.includes('/api/firewall/'));
+  const officialRequests = result => result.requests.filter(x => x.request.url.includes('/api/firewall/'));
+  const save = { mode: 'save-official', PO0_FIREWALL_TOKENS: token + '@1', PO0_FIREWALL_WIFI_TOKENS: token, PO0_FIREWALL_WIFI_NAMES: 'Wi-Fi 自填名称', OFFICIAL_NETWORK_TARGETS_ENABLED: true };
+  let result = await call(save);
+  assert.equal(result.requests.length, 0, 'saving network targets must stay offline');
+  const snapshot = store.get(STORE_KEY + '.official-config');
+  assert.equal(JSON.parse(snapshot).networkTargetsEnabled, true);
+  result = await call({mode:'auto', channel:'official'}, 'cellular', {officialPosts:[{body:officialBody([{ip:'8.8.8.8/24',slot:1}])}]});
+  assert(posts(result)[0].request.url.endsWith('/add?slot=1'), 'cellular must use the original user slot');
+  result = await call({mode:'auto', channel:'official', PO0_FIREWALL_WIFI_TOKENS:'pgnfw_synced_other@4'});
+  assert(posts(result)[0].request.url.endsWith('/add'), 'Wi-Fi uses the saved unslotted target exactly');
+  assert.equal(JSON.parse(store.get(STORE_KEY)).official.accounts[0].name, 'Wi-Fi 自填名称');
+  assert.equal(store.get(STORE_KEY + '.official-config'), snapshot, 'sync cannot change saved network settings');
+  result = await call({mode:'auto', channel:'official'});
+  assert.equal(officialRequests(result).length, 0, 'same network respects report interval');
+  result = await call({mode:'auto', channel:'official'}, 'cellular', {officialPosts:[{body:officialBody([{ip:'8.8.8.8/24',slot:1}])}]});
+  assert(posts(result)[0].request.url.endsWith('/add?slot=1'), 'switching back must not reuse Wi-Fi due cache');
+  result = await call({mode:'status'});
+  assert.equal(posts(result).length, 0, 'network-selected status stays read-only');
+  result = await call({mode:'auto', channel:'official'});
+  assert(posts(result).length, 'read-only on a new network cannot suppress its next report');
+  result = await call({mode:'force', channel:'official'}, 'unknown');
+  assert.equal(officialRequests(result).length, 0, 'unknown network must not select either official list');
+  result = await call({mode:'force', channel:'official'}, 'both');
+  assert.equal(officialRequests(result).length, 0, 'ambiguous complementary probes must not select a target');
+  await call(Object.assign({},save,{PO0_FIREWALL_WIFI_TOKENS:token+'@4'}));
+  result = await call({mode:'force', channel:'official'}, 'wifi', {officialPosts:[{body:officialBody([{ip:'8.8.8.8/24',slot:4}])}]});
+  assert(posts(result)[0].request.url.endsWith('/add?slot=4'), 'Wi-Fi fixed slot must never be stripped');
+  const valid = store.get(STORE_KEY + '.official-config');
+  result = await call(Object.assign({},save,{PO0_FIREWALL_WIFI_TOKENS:token+'@2,'+token+'@3'}));
+  assert.equal(result.requests.length, 0);
+  assert.equal(store.get(STORE_KEY + '.official-config'), valid, 'invalid list must not overwrite saved config');
+  await call({mode:'save-official', OFFICIAL_NETWORK_TARGETS_ENABLED:false});
+  result = await call({mode:'force', channel:'official'}, 'wifi', {officialPosts:[{body:officialBody([{ip:'8.8.8.8/24',slot:1}])}]});
+  assert(posts(result)[0].request.url.endsWith('/add?slot=1'), 'disabled switch restores original behavior');
+  assert.equal(JSON.parse(store.get(STORE_KEY + '.official-config')).wifiTokens, token+'@4', 'disable retains Wi-Fi configuration');
+  await call(save);
+  const seconds = Math.floor(Date.now()/1000);
+  store.set(STORE_KEY, JSON.stringify({ip:'8.8.8.8', detected_ip:'8.8.8.8', network:'wifi', context:'wifi:Cafe-WiFi', accepted_at:seconds, expires_at:seconds+43200, next_refresh_at:seconds+600, official:{network:'cellular',last_attempt_at:seconds}}));
+  result = await call({mode:'auto', worker_url:'https://report.example.com/stash-report/v1', secret:'worker-fixture', token:'worker-fixture', source_id:'phone'});
+  assert(posts(result).length, 'official selection change checks its new target');
+  assert.equal(result.requests.filter(x=>x.method==='post'&&!x.request.url.includes('/api/firewall/')).length,0,'official network selection must not force a cached self-report');
+  assert.equal(JSON.parse(store.get(STORE_KEY)).expires_at,seconds+43200,'official report must preserve self-report TTL');
+  await call(Object.assign({},save,{PO0_FIREWALL_WIFI_TOKENS:'pgnfw_second@2,'+token,PO0_FIREWALL_WIFI_NAMES:'第二个;第一个'}));
+  await call({mode:'save-official',PO0_FIREWALL_WIFI_TOKENS:token+',pgnfw_second@2'});
+  assert.equal(JSON.parse(store.get(STORE_KEY+'.official-config')).wifiNames,'第一个;第二个','Wi-Fi names follow account identity on reorder');
+  await call({mode:'clear-official'});
+  const cleared = JSON.parse(store.get(STORE_KEY + '.official-config'));
+  assert.equal(cleared.tokens, '');
+  assert.equal(cleared.wifiTokens, undefined);
+  result = await call({mode:'force', PO0_FIREWALL_TOKENS:token, OFFICIAL_NETWORK_TARGETS_ENABLED:true, PO0_FIREWALL_WIFI_TOKENS:token+'@2'});
+  assert.equal(officialRequests(result).length, 0, 'clear cannot be undone by synced parameters');
+}
+
 (async () => {
+  await testOfficialNetworkTargets();
   await testIndependentPeriodicSettingsAndRetirement();
   await testNetworkChangesAndOptionalTimer();
   await testLocalChannelControls();

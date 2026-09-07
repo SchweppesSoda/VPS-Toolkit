@@ -718,15 +718,15 @@ Windows、macOS、Linux 主菜单使用同一组编号：
 
 默认值按平台保留，不重置旧配置：
 
-| 客户端 | 自建有效期 TTL | 自建上报间隔默认值 | 官方有效期 / 间隔 | SSID 命中时 |
+| 客户端 | 自建有效期 TTL | 自建上报间隔默认值 | 官方上报间隔 | SSID 命中时 |
 | --- | --- | --- | --- | --- |
-| Windows / macOS / Linux | 由 LAN Worker 接收端管理 | 3600 秒，可设置 | 官方服务管理 / 默认 600 秒，可设置或关闭 | 两个通道一起跳过 |
-| OpenWrt APK | 由 LAN Worker 接收端管理 | 3600 秒，可设置或关闭 | 官方服务管理 / 默认 600 秒，可设置或关闭 | 仅自建支持所配置的 SSID 条件，官方 WAN 上报不使用 |
-| Egern | 可设置，默认 43200 秒；多目标可分别覆盖 | 600 秒，可设置或关闭 | 官方服务管理 / 默认 600 秒，可设置或关闭 | 两个自动通道一起跳过 |
-| Loon | LAN Worker 接收端设置 | 600 秒，可设置或关闭 | 官方服务管理 / 默认 600 秒，可设置或关闭 | 两个自动通道一起跳过 |
-| Stash | LAN Worker 接收端设置 | 600 秒，可设置或关闭 | 官方服务管理 / 默认 600 秒，可设置或关闭 | 公开 JS 接口无当前 SSID，暂不支持 |
+| Windows / macOS / Linux | 由 LAN Worker 接收端管理 | 3600 秒，可设置 | 默认 600 秒，可设置或关闭 | 两个通道一起跳过 |
+| OpenWrt APK | 由 LAN Worker 接收端管理 | 3600 秒，可设置或关闭 | 默认 600 秒，可设置或关闭 | 仅自建支持所配置的 SSID 条件，官方 WAN 上报不使用 |
+| Egern | 可设置，默认 43200 秒；多目标可分别覆盖 | 600 秒，可设置或关闭 | 默认 600 秒，可设置或关闭 | 两个自动通道一起跳过 |
+| Loon | LAN Worker 接收端设置 | 600 秒，可设置或关闭 | 默认 600 秒，可设置或关闭 | 两个自动通道一起跳过 |
+| Stash | LAN Worker 接收端设置 | 600 秒，可设置或关闭 | 默认 600 秒，可设置或关闭 | 公开 JS 接口无当前 SSID，暂不支持 |
 
-桌面端和 Egern 读取不到 SSID 时继续原有上报；Loon 保留原有未知 SSID 跳过行为。手动强制仍沿用各客户端原规则，不能绕过官方的先 GET 检查。Stash 不使用代理 ssid-policy 代替脚本能力。
+桌面端和 Egern 读取不到 SSID 时继续原有上报；Loon 保留原有未知 SSID 跳过行为。手动强制仍沿用各客户端原规则，不能绕过官方的先 GET 检查。Stash 不通过策略组读取 SSID。
 
 Loon 插件操作按通用、自建、官方分组：两个通道分别提供保存、切换自动上报、启用定期上报、立即上报、强制上报和清除；“通用 · 查看本机配置”不访问网络。自建名称与间隔在 worker_name / auto_report_interval_seconds 填写，定期开关为 worker_timer_enabled；官方名称、间隔与定期开关为 PO0_FIREWALL_NAMES / official_report_interval_seconds / official_timer_enabled。名字用分号或换行分隔，名称内部可有空格；Token 仍可用逗号、分号、空格或换行。旧模块参数和本机旧键仍兼容；显式保存后优先使用本机配置，清除后同步参数不会自动恢复凭据。
 
@@ -737,6 +737,14 @@ Stash 打开 http://po0-report.invalid/settings 使用本机管理页。Worker �
 停用自建后可继续删除自建自动任务、清除自建配置，官方的配置、任务和最近结果保持完整。恢复自建只修改自建设置；原暂停状态不会自动解除，需自行启用自建自动上报。只使用官方的新设备无需填写自建地址、密钥或 SSH。
 
 Stash 使用每 60 秒的出口轮询，依赖 VPN 扩展运行；script-providers.interval 是脚本更新间隔，不能拿来设置上报周期。参见 [Stash 定时接口](https://stash.wiki/en/script/scheduled-tasks)。Loon 保留 [原生插件开关](https://nsloon.app/docs/Plugin/)，Egern 保留原生表单和一个执行“上报并刷新”的小组件。
+
+### 手机客户端按网络选择官方目标
+
+Egern、Loon、Stash 的 OFFICIAL_NETWORK_TARGETS_ENABLED 默认关闭；开启后，原 PO0_FIREWALL_TOKENS 用于蜂窝（5G/4G），PO0_FIREWALL_WIFI_TOKENS 用于所有 Wi-Fi。两套输入分别沿用各客户端原写法：Egern 为 Token@槽位|名称|上报间隔秒数，Loon/Stash 保留 Token 列表、独立名称和上报间隔字段；不会改写用户指定的槽位。Loon/Stash 的 Wi-Fi 名称可另填 PO0_FIREWALL_WIFI_NAMES。
+
+在 Egern/Loon 原生表单或 Stash /save-official 参数中填写后，运行官方“保存配置”。开关和两套目标保存到本机，普通同步不覆盖；Wi-Fi 留空保留旧值，填 - 清空。开启前需填好 Wi-Fi 目标，每套列表内不能重复 Token，跨网络可以相同。关闭只恢复原目标，清除官方配置会同时清除两套目标。自建的白名单 TTL 与上报间隔不受此功能影响；官方只有客户端上报间隔，没有 TTL 设置。
+
+Stash 开启后通过两条互补的内部探测策略区分 Wi-Fi 与蜂窝：恰好一条返回 204 才使用对应目标，两条都成功或都失败均按未知网络处理，不发送官方请求。它仍依赖每分钟轮询和 VPN 扩展，不能承诺即时切换；需一起更新模块/主配置以获得探测组。此探测不读取具体 SSID，也不新增 SSID 跳过功能。参见 [Stash 策略组接口](https://stash.wiki/proxy-protocols/proxy-groups)。
 
 ### Linux / OpenWrt PO0 Outbound IP Report client
 

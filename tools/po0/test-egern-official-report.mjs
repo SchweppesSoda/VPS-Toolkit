@@ -1568,7 +1568,7 @@ async function testLegacyAccountTimesAndNewTarget() {
 }
 
 
-async function testSimpleTtlDefaultsAndLegacyMigration() {
+async function testOfficialIntervalDefaultsAndLegacyAlias() {
   for (const [row, normalized] of [
     ['pgnfw_simple@0|显示名称|600', 'pgnfw_simple@0||600'],
     ['pgnfw_simple@0|显示名称|ttl=600', 'pgnfw_simple@0||600'],
@@ -1605,8 +1605,59 @@ async function testSimpleTtlDefaultsAndLegacyMigration() {
   assert.equal(due.calls.get.length, 1, 'plain TTL seconds must actually control the report interval');
 }
 
+
+async function testOfficialNetworkTargets() {
+  const token='pgnfw_network_fixture';
+  const env={PO0_FIREWALL_TOKENS:token+'@1|蜂窝标签|600', PO0_FIREWALL_WIFI_TOKENS:token+'|Wi-Fi 标签|900', OFFICIAL_NETWORK_TARGETS_ENABLED:'true'};
+  const store=createStorage();
+  const invoke=async (name, network='wifi', input={})=>{
+    const run=createContext({trigger:name,env:input,storage:store,ssid:network==='wifi'?'Cafe':'',httpPost(url){
+      const slot=new URL(url).searchParams.get('slot');
+      return response(officialPayload({whitelist:[{ip:'203.0.113.10/24',slot:slot===null?null:Number(slot)}]}));
+    }});
+    run.ctx.env=input;
+    if(network==='cellular')run.ctx.device.cellular={carrier:'Test',radio:'NR'};
+    run.result=await runEgernReport(run.ctx);
+    return run;
+  };
+  let run=await invoke('官方防火墙 · 保存配置','wifi',env);
+  assert.equal(run.calls.get.length+run.calls.post.length,0);
+  const snapshot=await store.get(CONFIG_STORAGE_KEY);
+  const values=JSON.parse(snapshot).values;
+  assert.equal(values.PO0_FIREWALL_WIFI_TOKENS,token+'||900');
+  assert.equal(values.PO0_FIREWALL_WIFI_NAMES,'Wi-Fi 标签');
+  run=await invoke('schedule','cellular');
+  assert(run.calls.post[0].url.endsWith('?slot=1'));
+  run=await invoke('schedule','wifi',{PO0_FIREWALL_WIFI_TOKENS:'pgnfw_other@4'});
+  assert(run.calls.post[0].url.endsWith('/add'));
+  assert.equal(run.result.official.entries[0].name,'Wi-Fi 标签');
+  assert.equal(await store.get(CONFIG_STORAGE_KEY),snapshot);
+  run=await invoke('schedule');
+  assert.equal(run.calls.get.length,0,'same network uses interval');
+  run=await invoke('schedule','cellular');
+  assert(run.calls.post[0].url.endsWith('?slot=1'));
+  run=await invoke('查询官方白名单');
+  assert.equal(run.calls.post.length,0);
+  run=await invoke('schedule');
+  assert.equal(run.calls.post.length,1,'read-only after switching cannot advance due');
+  run=await invoke('强制上报 PO0 防火墙','unknown');
+  assert.equal(run.calls.get.length+run.calls.post.length,0);
+  assert.match(JSON.stringify(run.result),/无法识别当前网络/);
+  await invoke('官方防火墙 · 保存配置','wifi',{PO0_FIREWALL_WIFI_TOKENS:token+'@4|Wi-Fi 固定|120'});
+  run=await invoke('schedule');
+  assert(run.calls.post[0].url.endsWith('?slot=4'),'preserve explicit Wi-Fi fixed slot');
+  const valid=await store.get(CONFIG_STORAGE_KEY);
+  await invoke('官方防火墙 · 保存配置','wifi',{PO0_FIREWALL_WIFI_TOKENS:token+'@0,'+token+'@1'});
+  assert.equal(await store.get(CONFIG_STORAGE_KEY),valid,'reject duplicates within Wi-Fi list');
+  await invoke('官方防火墙 · 保存配置','wifi',{OFFICIAL_NETWORK_TARGETS_ENABLED:'false'});
+  run=await invoke('强制上报 PO0 防火墙');
+  assert(run.calls.post[0].url.endsWith('?slot=1'));
+  assert.equal(JSON.parse(await store.get(CONFIG_STORAGE_KEY)).values.PO0_FIREWALL_WIFI_TOKENS,token+'@4||120');
+}
+
 const tests = [
-  testSimpleTtlDefaultsAndLegacyMigration,
+  testOfficialNetworkTargets,
+  testOfficialIntervalDefaultsAndLegacyAlias,
   testLegacyAccountTimesAndNewTarget,
   testInlineOfficialTargetsPersistAndMatchNames,
   testInlineOfficialTargetValidation,

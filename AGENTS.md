@@ -26,6 +26,8 @@
 - LAN Worker client 才使用 `po0-lan-client --upgrade-self`；LAN Worker 的 manager 更新镜像只服务固定脚本路径，不做任意 URL 代理。
 - PO0 manager 日常增量刷新 NAT/MANGLE 托管表必须把必要的 `delete table` 和完整新表定义放进同一个临时 nftables batch；完整事务先 `nft -c`，再只执行一次正式 `nft -f`，禁止在正式应用前单独删除运行中的托管表。
 
+- Egern/Loon/Stash 官方按网络选择目标默认关闭：原目标用于蜂窝，Wi-Fi 使用另填列表；保留各客户端原目标语法与用户填写的槽位。跨网络允许同一 Token，单列表内仍去重。官方只配置上报间隔，不把它称为 TTL；自建 TTL 与上报间隔分别保留。
+
 ## 发布与构建
 
 - PO0 正式下载源是 GitHub Release：五个脚本 `nftables-relay-manager.sh`、`po0-lan-client.sh`、`po0-outbound-ip-report.sh`、`po0-outbound-ip-report-macos.sh`、`po0-outbound-ip-report.ps1`，一个 APK `po0-outbound-ip-report.apk`，以及覆盖全部资产的 `checksums.txt`。

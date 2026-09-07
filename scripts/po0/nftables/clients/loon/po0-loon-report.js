@@ -314,7 +314,8 @@ function localSettingsSummary(args) {
     '自建防火墙：' + (!workerUrl ? '未配置' : settings.workerAutoEnabled === false ? '自动上报已停用' : '自动上报已启用') + '；目标名称：' + (effective.worker_name || 'LAN Worker'),
     ...(workerUrl ? ['自建配置：' + (localWorkerConfig() ? '已保存本机配置' : '沿用模块 / 旧设置') + '；地址：' + workerUrl + '；启用定期上报：' + (timerEnabled('worker', args) ? '是' : '否') + '；上报间隔：' + intervalLabel('worker', args) + '；白名单有效期（TTL）：由 LAN Worker 接收端管理'] : []),
     '官方防火墙：' + (!officialCount ? '未配置' : officialCount + ' 个目标，' + (settings.officialAutoEnabled === false ? '自动上报已停用' : '自动上报已启用')) + '；目标名称：' + (settings.officialNames || '按账号编号显示'),
-    '官方启用定期上报：' + (timerEnabled('official', args) ? '是' : '否') + '；上报间隔：' + intervalLabel('official', args) + '；白名单有效期（TTL）：由官方服务管理。',
+    '官方启用定期上报：' + (timerEnabled('official', args) ? '是' : '否') + '；上报间隔：' + intervalLabel('official', args) + '；仅控制客户端上报间隔。',
+    networkSettingsSummary(args),
     '停用保留配置，手动立即上报仍可用；清除后同步参数不会自动恢复。',
   ].join('\n');
 }
@@ -365,13 +366,56 @@ function firewallInput(args) {
   ]);
 }
 
+function officialNetworkEnabled(args) {
+  const saved = readJSON(PO0_STORE_KEY + '.official-config', null);
+  return /^(true|1|on|yes)$/i.test(String(saved ? saved.networkTargetsEnabled : args.OFFICIAL_NETWORK_TARGETS_ENABLED));
+}
+
+function selectedFirewallTokens(args, network) {
+  const raw = firewallRawValue(args);
+  if (!officialNetworkEnabled(args)) return parseFirewallTokens(raw);
+  if (!['wifi', 'cellular'].includes(network)) return [];
+  const saved = readJSON(PO0_STORE_KEY + '.official-config', {});
+  const tokens = parseFirewallTokens(network === 'wifi' ? saved.wifiTokens : raw);
+  if (network === 'wifi') {
+    const names = String(saved.wifiNames || '').replace(/\r/g, '').split(/[;；\n]/);
+    tokens.forEach((item, index) => { item.networkName = names[index]?.trim() || '官方账号 ' + (index + 1); });
+  }
+  return tokens;
+}
+
+function networkSettingsSummary(args) {
+  const saved = readJSON(PO0_STORE_KEY + '.official-config', {});
+  return '官方按网络选择目标：' + (officialNetworkEnabled(args) ? '开启；原目标用于蜂窝，Wi-Fi ' + parseFirewallTokens(saved.wifiTokens).length + ' 个目标' : '关闭；使用原目标');
+}
+
 function saveLocalFirewall(args, clear) {
   const input = clear ? "" : firewallInput(args) || String(readJSON(PO0_STORE_KEY + '.official-config', {}).tokens || '');
   const tokens = input === "-" ? "" : input;
   parseFirewallTokens(tokens);
+  const previous = readJSON(PO0_STORE_KEY + '.official-config', {});
+  const config = { version: 1, tokens };
+  if (!(clear || input === '-')) {
+    const enabled = args.OFFICIAL_NETWORK_TARGETS_ENABLED ?? previous.networkTargetsEnabled;
+    const wifiInput = String(args.PO0_FIREWALL_WIFI_TOKENS || '').trim();
+    const wifiTokens = wifiInput === '-' ? '' : wifiInput || previous.wifiTokens || '';
+    const wifiNames = String(args.PO0_FIREWALL_WIFI_NAMES || '').trim();
+    if (enabled !== undefined || wifiTokens) {
+      config.networkTargetsEnabled = /^(true|1|on|yes)$/i.test(String(enabled));
+      config.wifiTokens = wifiTokens;
+      const wifiItems = parseFirewallTokens(wifiTokens);
+      const previousItems = parseFirewallTokens(previous.wifiTokens);
+      const previousNames = String(previous.wifiNames || '').replace(/\r/g, '').split(/[;；\n]/);
+      config.wifiNames = wifiNames === '-' ? '' : wifiNames || wifiItems.map(item => {
+        const index = previousItems.findIndex(old => old.token === item.token);
+        return index < 0 ? '' : previousNames[index] || '';
+      }).join(';');
+      if (config.networkTargetsEnabled && !wifiTokens) throw new Error('开启按网络选择目标前，请填写 Wi-Fi 官方上报目标');
+    }
+  }
   saveOfficialNames(args, tokens, clear || input === "-");
-  if (!writeJSON(PO0_STORE_KEY + ".official-config", { version: 1, tokens })) throw new Error("无法保存本机官方配置");
-  if (clear || input === '-') {
+  if (!writeJSON(PO0_STORE_KEY + ".official-config", config)) throw new Error("无法保存本机官方配置");
+  if (clear || input === '-' || previous.tokens !== tokens || previous.wifiTokens !== config.wifiTokens || previous.networkTargetsEnabled !== config.networkTargetsEnabled) {
     const state = readJSON(PO0_STORE_KEY, {});
     delete state.official;
     if (!writeJSON(PO0_STORE_KEY, state)) throw new Error('配置已清除，但最近状态未能清除');
@@ -535,7 +579,7 @@ function officialHit(response, item) {
 
 function officialAccountState(index, item, response, nowSeconds, status, added, error) {
   return {
-    name: officialAccountName(index - 1),
+    name: item.networkName || officialAccountName(index - 1),
     account: index,
     fixed_slot: item.fixedSlot,
     enabled: response ? response.enabled : false,
@@ -879,13 +923,17 @@ async function runUnlocked() {
   }
 
   if (mode === "status") {
-    const tokens = loadFirewallTokens(args);
+    firewallRawValue(args);
+    const kind = officialNetworkEnabled(args) ? forceNetwork(classifyNetwork(readRuntimeConfig(), args)).network : undefined;
+    const tokens = selectedFirewallTokens(args, kind);
+    if (officialNetworkEnabled(args) && kind === 'unknown') { finishResult(mode, false, '无法识别当前网络，已跳过官方查询', state); return; }
     if (!tokens.length) {
       finishResult(mode, true, "status", state);
       return;
     }
-    const officialResult = await runOfficial(tokens, mode, state.official || {}, nowSeconds);
+    const officialResult = await runOfficial(tokens, mode, kind && state.official?.network !== kind ? {} : state.official || {}, nowSeconds);
     state.official = officialResult.official;
+    if (kind) state.official.network = kind;
     if (!officialResult.ok) state.last_error = officialResult.official.last_error;
     writeJSON(PO0_STORE_KEY, state);
     finishResult(mode, officialResult.ok, officialSummary(state.official), state, officialResult);
@@ -898,16 +946,18 @@ async function runUnlocked() {
     return;
   }
   const network = mode === "force" ? forceNetwork(classified) : classified;
-  const tokens = channelAllowed(args, mode, "official") ? loadFirewallTokens(args) : [];
+  const tokens = channelAllowed(args, mode, "official") ? selectedFirewallTokens(args, network.network) : [];
+  const unknownOfficialNetwork = channelAllowed(args, mode, 'official') && officialNetworkEnabled(args) && network.network === 'unknown';
+  const officialNetworkChanged = officialNetworkEnabled(args) && state.official?.network !== network.network;
   let workerArgs = args;
   let credentials = null;
-  const needsOfficial = tokens.length > 0 && officialDue(mode, state.official || {}, nowSeconds, args);
+  const needsOfficial = tokens.length > 0 && officialDue(mode, state.official || {}, nowSeconds, officialNetworkChanged ? Object.assign({}, args, { trigger: 'network' }) : args);
   const workerCached = !channelAllowed(args, mode, "worker");
-  if (!needsOfficial && workerCached) {
+  if (!needsOfficial && workerCached && !unknownOfficialNetwork) {
     finishResult(mode, true, "尚未到上报间隔，无需重复上报", state);
     return;
   }
-  let officialResult = { ok: true, added: 0, attempted: false };
+  let officialResult = { ok: !unknownOfficialNetwork, added: 0, attempted: false, official: unknownOfficialNetwork ? { last_error: '无法识别当前网络，已跳过官方上报' } : undefined };
   if (tokens.length && (needsOfficial || mode === "force")) {
     officialResult = await runOfficial(tokens, mode, state.official || {}, nowSeconds);
     state.official = officialResult.official;
@@ -937,6 +987,7 @@ async function runUnlocked() {
 
   const ok = officialResult.ok && workerResult.ok;
   const parts = [];
+  if (unknownOfficialNetwork) parts.push('无法识别当前网络，已跳过官方上报');
   if (officialResult.attempted) {
     parts.push("官方" + (officialResult.added ? "新增 " + officialResult.added : "检查完成"));
   }

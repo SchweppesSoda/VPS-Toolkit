@@ -6,58 +6,51 @@ desc: |-
   两边都可单独停用、恢复、清除或立即上报；停用保留参数，清除后同步参数不会自动恢复。
   多个官方 Token 支持逗号、分号、空格或换行（JSON 内用 \n）；名称按 Token 顺序，用分号或换行分隔。
   每分钟轮询直连出口 IPv4，变化时上报；两通道分别启用定期上报，上报间隔默认 600 秒；关闭开关保留原间隔，旧值 0 继续表示关闭。Stash 没有公开原生网络变化事件。
-  自建白名单有效期（TTL）由 LAN Worker 接收端设置；官方白名单有效期（TTL）由官方服务管理。
+  自建白名单有效期（TTL）由 LAN Worker 接收端设置；官方只配置客户端上报间隔。
+  按网络选择默认关闭；将 /save-official 的 OFFICIAL_NETWORK_TARGETS_ENABLED 设为 true 并填写 PO0_FIREWALL_WIFI_TOKENS 后保存。
+  开启后原目标用于蜂窝（5G/4G），Wi-Fi 使用另填的目标；沿用 Token 列表写法，槽位由你填写。
   /recent 查看最近结果，/status 查询官方白名单；/report 立即上报，/report-now 强制上报两个通道；官方始终先 GET，缺失时才加白。
   Stash 公开 JS 接口不提供当前 SSID，没有可配置的 SSID 跳过名单。
 
+# 内部网络探测，不承载正常流量。两条探测必须恰好一条成功。
+proxy-groups:
+  - name: 📡 PO0 Wi-Fi 探测
+    type: select
+    icon: https://raw.githubusercontent.com/Orz-3/mini/master/Color/Urltest.png
+    proxies: [REJECT, DIRECT]
+    ssid-policy:
+      default: DIRECT
+      cellular: REJECT
+  - name: 📡 PO0 蜂窝探测
+    type: select
+    icon: https://raw.githubusercontent.com/Orz-3/mini/master/Color/Urltest.png
+    proxies: [REJECT, DIRECT]
+    ssid-policy:
+      default: REJECT
+      cellular: DIRECT
+
 script-providers:
   po0-stash-report-worker-v2:
-    url: https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/stash/po0-stash-report.js?rev=20260907-v10
+    url: https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/stash/po0-stash-report.js?rev=20260907-network-targets-v1
     interval: 86400
   po0-stash-status-tile-v2:
     interval: 86400
     payload: |
-      const key = "proxyconfig.po0.stash-report.v1";
-        const statusUrl = "http://po0-report.invalid/status";
-      const clean = (value, limit) => String(typeof value === "string" || typeof value === "number" ? value : "-").replace(/pgnfw_[A-Za-z0-9._~-]+/g, "[REDACTED]").replace(/Bearer\s+[^\s,;]+/gi, "Bearer [REDACTED]").replace(/\s+/g, " ").slice(0, limit);
-      let state = {};
-      try { state = JSON.parse($persistentStore.read(key) || "{}") || {}; } catch (_) {}
-        const official = state.official && Array.isArray(state.official.accounts) ? state.official : {};
-        const officialAccounts = Array.isArray(official.accounts) ? official.accounts : [];
-        const officialOk = officialAccounts.filter((item) => item.status !== "error").length;
-        const officialMissing = officialAccounts.filter((item) => item.status === "missing" || item.status === "slot-mismatch").length;
-        let settings = {};
-        try { settings = JSON.parse($persistentStore.read(key + ".channel-settings") || "{}") || {}; } catch (_) {}
-        const workerAutoText = settings.workerAutoEnabled === false ? " · 自建自动已停用" : "";
-        let officialText = officialAccounts.length
-          ? `官方 ${officialOk}/${officialAccounts.length}${officialMissing ? ` · 未命中 ${officialMissing}` : ""}`
-          : "官方未配置";
-        if (settings.officialAutoEnabled === false) officialText += " · 自动已停用";
-        const acceptedAt = Number(state.accepted_at);
-        if (!Number.isFinite(acceptedAt) || acceptedAt <= 0) {
-          $done({
-          title: officialAccounts.length && !official.last_error ? "PO0 官方状态" : "PO0 尚未上报",
-          content: `${officialText}\n${clean(state.last_error || "等待首次定时任务", 80)}`,
-          icon: "antenna.radiowaves.left.and.right",
-          backgroundColor: "#6b7280",
-          url: statusUrl,
-        });
-      } else {
-        const expiresAt = Number(state.expires_at);
-        const remaining = Number.isFinite(expiresAt)
-          ? Math.max(0, Math.min(99999, Math.floor((expiresAt * 1000 - Date.now()) / 60000)))
-          : 0;
-        const age = Math.max(0, Math.min(99999, Math.floor((Date.now() - acceptedAt * 1000) / 60000)));
-        const cidr = clean(state.accepted_cidr || state.ip, 45);
-        const error = state.last_error ? clean(state.last_error, 80) : "";
-        $done({
-          title: error ? "PO0 上报异常" : remaining > 0 ? "PO0 已上报" : "PO0 放行已过期",
-          content: error ? `${cidr}\n${error}\n${officialText}` : `${cidr}\n${clean(state.network, 12)}${workerAutoText} · ${age} 分钟前 · 剩余 ${remaining} 分钟\n${officialText}`,
-          icon: error || remaining <= 0 ? "exclamationmark.triangle.fill" : "checkmark.shield.fill",
-          backgroundColor: error || remaining <= 0 ? "#b45309" : "#178f55",
-          url: statusUrl,
-        });
-      }
+      const key="proxyconfig.po0.stash-report.v1";
+      const clean=(v,n)=>String(typeof v==="string"||typeof v==="number"?v:"-").replace(/pgnfw_[A-Za-z0-9._~-]+/g,"[REDACTED]").replace(/Bearer\s+[^\s,;]+/gi,"Bearer [REDACTED]").replace(/\s+/g," ").slice(0,n);
+      let state={},settings={};
+      try{state=JSON.parse($persistentStore.read(key)||"{}")||{};}catch(_){}
+      try{settings=JSON.parse($persistentStore.read(key+".channel-settings")||"{}")||{};}catch(_){}
+      const official=state.official||{},accounts=Array.isArray(official.accounts)?official.accounts:[];
+      const ok=accounts.filter(x=>x&&x.status!=="error").length;
+      const summary=accounts.length?"官方 "+ok+"/"+accounts.length+(official.network?" · "+clean(official.network,12):""):"官方未配置";
+      const accepted=Number(state.accepted_at),expires=Number(state.expires_at);
+      const hasWorker=Number.isFinite(accepted)&&accepted>0;
+      const left=Number.isFinite(expires)?Math.max(0,Math.min(99999,Math.floor((expires*1000-Date.now())/60000))):0;
+      const age=hasWorker?Math.max(0,Math.min(99999,Math.floor((Date.now()-accepted*1000)/60000))):0;
+      const error=state.last_error?clean(state.last_error,70):"";
+      const paused=settings.officialAutoEnabled===false?" · 自动停用":"";
+      $done({title:error?"PO0 上报异常":hasWorker?(left>0?"PO0 已上报":"PO0 放行已过期"):accounts.length?"PO0 官方状态":"PO0 尚未上报",content:hasWorker?clean(state.accepted_cidr||state.ip,45)+" · "+summary+paused+"\n"+(error||clean(state.network,12)+" · "+age+" 分钟前 · 剩余 "+left+" 分钟") :summary+paused+"\n"+(error||"点击管理本机上报配置"),icon:error?"exclamationmark.triangle.fill":"antenna.radiowaves.left.and.right",backgroundColor:error||hasWorker&&!left?"#b45309":"#178f55",url:"http://po0-report.invalid/settings"});
 
 
 # ── 公共自动触发 · 两个通道读取各自本机保存配置 ──
@@ -75,7 +68,7 @@ tiles:
     content: 等待首次定时任务
     icon: antenna.radiowaves.left.and.right
     backgroundColor: '#6b7280'
-    url: http://po0-report.invalid/status
+    url: http://po0-report.invalid/settings
 
 http:
   force-http-engine:
@@ -99,7 +92,7 @@ http:
       name: po0-stash-report-worker-v2
       type: request
       timeout: 10
-      argument: '{"mode":"save-official","PO0_FIREWALL_TOKENS":"","PO0_FIREWALL_NAMES":"","official_report_interval_seconds":600,"official_timer_enabled":true}'
+      argument: '{"mode":"save-official","PO0_FIREWALL_TOKENS":"","PO0_FIREWALL_NAMES":"","official_report_interval_seconds":600,"official_timer_enabled":true,"OFFICIAL_NETWORK_TARGETS_ENABLED":false,"PO0_FIREWALL_WIFI_TOKENS":"","PO0_FIREWALL_WIFI_NAMES":""}'
     - match: ^http://po0-report\.invalid/clear-official$
       name: po0-stash-report-worker-v2
       type: request

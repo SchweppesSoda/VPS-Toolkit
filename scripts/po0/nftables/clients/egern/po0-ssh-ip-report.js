@@ -30,6 +30,9 @@ const PERSISTED_ENV_KEYS = [
   'SSH_REPORT_TOKEN',
   'PO0_FIREWALL_TOKENS',
   'PO0_FIREWALL_NAMES',
+  'OFFICIAL_NETWORK_TARGETS_ENABLED',
+  'PO0_FIREWALL_WIFI_TOKENS',
+  'PO0_FIREWALL_WIFI_NAMES',
   'WORKER_AUTO_ENABLED',
   'OFFICIAL_AUTO_ENABLED',
   'OFFICIAL_INTERVAL_SECONDS',
@@ -47,7 +50,7 @@ const PERSISTED_ENV_KEYS = [
   'NOTIFY_SUCCESS',
   'NOTIFY_FAILURE',
 ];
-const OFFICIAL_CONFIG_KEYS = ['PO0_FIREWALL_TOKENS', 'PO0_FIREWALL_NAMES', 'OFFICIAL_AUTO_ENABLED', 'OFFICIAL_INTERVAL_SECONDS', 'OFFICIAL_TIMER_ENABLED'];
+const OFFICIAL_CONFIG_KEYS = ['PO0_FIREWALL_TOKENS', 'PO0_FIREWALL_NAMES', 'OFFICIAL_NETWORK_TARGETS_ENABLED', 'PO0_FIREWALL_WIFI_TOKENS', 'PO0_FIREWALL_WIFI_NAMES', 'OFFICIAL_AUTO_ENABLED', 'OFFICIAL_INTERVAL_SECONDS', 'OFFICIAL_TIMER_ENABLED'];
 const WORKER_CONFIG_KEYS = ['PO0_HOST', 'PO0_PORT', 'PO0_USER', 'PO0_PASSWORD', 'PO0_PRIVATE_KEY', 'PO0_PASSPHRASE', 'PO0_SCRIPT', 'SSH_REPORT_SOURCE', 'SSH_REPORT_TOKEN', 'REPORT_IDENTITY', 'TTL_SECONDS', 'AUTO_REPORT_INTERVAL_SECONDS', 'CELLULAR_CIDR_PREFIX', 'SSH_REPORT_TARGETS', 'WORKER_AUTO_ENABLED', 'WORKER_TIMER_ENABLED'];
 const COMMON_CONFIG_KEYS = PERSISTED_ENV_KEYS.filter(key => !WORKER_CONFIG_KEYS.includes(key) && !OFFICIAL_CONFIG_KEYS.includes(key));
 const MODULE_DEFAULT_ENV_VALUES = {
@@ -444,8 +447,8 @@ function parseOfficialTokenItem(value) {
 }
 
 function officialTokenWithoutName(item) {
-  const ttl = item.timer === false ? 0 : item.interval;
-  return item.token + (item.slot === null ? '' : '@' + item.slot) + (ttl === undefined ? '' : '||' + ttl);
+  const interval = item.timer === false ? 0 : item.interval;
+  return item.token + (item.slot === null ? '' : '@' + item.slot) + (interval === undefined ? '' : '||' + interval);
 }
 
 function parseOfficialTokens(raw) {
@@ -468,6 +471,25 @@ function parseOfficialTokens(raw) {
     throw new Error(`PO0 官方防火墙 token 数量超过上限（最多 ${OFFICIAL_FIREWALL_MAX_TOKENS} 个）。`);
   }
   return tokens;
+}
+
+// Select an entire user-supplied target list. Never assign or remove slots.
+function officialNetworkEnv(env, network) {
+  if (!boolEnv(env.OFFICIAL_NETWORK_TARGETS_ENABLED, false)) return env;
+  const kind = network?.kind || 'unknown';
+  return { ...env, _officialNetwork: kind,
+    ...(kind === 'wifi' ? {
+      PO0_FIREWALL_TOKENS: env.PO0_FIREWALL_WIFI_TOKENS || '',
+      PO0_FIREWALL_NAMES: env.PO0_FIREWALL_WIFI_NAMES || '',
+    } : {}),
+  };
+}
+
+function officialNetworkSettingsRows(env) {
+  const enabled = boolEnv(env.OFFICIAL_NETWORK_TARGETS_ENABLED, false);
+  return ['官方按网络选择目标：' + (enabled ? '开启；原目标用于蜂窝' : '关闭；使用原目标'),
+    ...(enabled ? officialSavedNameRows(officialNetworkEnv(env, { kind: 'wifi' })).map(row => 'Wi-Fi · ' + row) : []),
+  ];
 }
 
 function officialTokensConfigured(env) {
@@ -602,6 +624,7 @@ async function officialDirectRequest(ctx, item, operation) {
 }
 
 function officialSafeError(error) {
+  if (error?.message === '无法识别当前网络，已跳过官方上报。') return error.message;
   const text = String(error?.message || '');
   if ([
     '官方目标格式为 Token@槽位|名称|上报间隔秒数；上报间隔可留空，填 0 或 60..86400。',
@@ -1292,6 +1315,13 @@ async function saveReportConfig(ctx, env) {
     if (names.some(Boolean)) values.PO0_FIREWALL_NAMES = names.join(';');
     else delete values.PO0_FIREWALL_NAMES;
   }
+  if (String(values.PO0_FIREWALL_WIFI_TOKENS || '').includes('|')) {
+    const items = parseOfficialTokens(values.PO0_FIREWALL_WIFI_TOKENS);
+    const names = items.map((item, index) => officialAccountLabel({ PO0_FIREWALL_NAMES: values.PO0_FIREWALL_WIFI_NAMES }, item, index));
+    values.PO0_FIREWALL_WIFI_TOKENS = items.map(officialTokenWithoutName).join('\n');
+    if (names.some(Boolean)) values.PO0_FIREWALL_WIFI_NAMES = names.join(';');
+    else delete values.PO0_FIREWALL_WIFI_NAMES;
+  }
   const savedAt = new Date().toISOString();
   const saved = await storageSet(ctx, CONFIG_STORAGE_KEY, JSON.stringify({
     version: CONFIG_STORAGE_VERSION,
@@ -1596,6 +1626,7 @@ function sanitizeOfficialState(raw) {
   const entries = Array.isArray(state.entries) ? state.entries.map(sanitizeOfficialEntry) : [];
   const clean = {
     version: 1,
+    networkContext: String(state.networkContext || ''),
     ok: Boolean(state.ok),
     status: String(state.status || 'unknown'),
     skipped: Boolean(state.skipped),
@@ -1679,7 +1710,12 @@ function officialConfigErrorState(error, mode, previous) {
 }
 
 async function runOfficialFirewall(ctx, env, mode = 'report') {
-  const previous = await storedOfficialState(ctx);
+  let previous = await storedOfficialState(ctx);
+  const networkContext = env._officialNetwork || '';
+  if (networkContext === 'unknown') {
+    return officialConfigErrorState(new Error('无法识别当前网络，已跳过官方上报。'), mode, previous);
+  }
+  if (networkContext && previous?.networkContext !== networkContext) previous = null;
   let items;
   try {
     items = parseOfficialTokens(env?.PO0_FIREWALL_TOKENS);
@@ -1714,6 +1750,7 @@ async function runOfficialFirewall(ctx, env, mode = 'report') {
       version: 1,
       ok: false,
       status: 'running',
+      networkContext,
       skipped: false,
       checkedAt: now,
       lastAttemptAt: now,
@@ -1797,6 +1834,7 @@ async function runOfficialFirewall(ctx, env, mode = 'report') {
   needsNotification = results.some((result) => result.needsNotification);
 
   const state = officialStateFromEntries(entries, mode, now, previous);
+  state.networkContext = networkContext;
   await storageSet(ctx, OFFICIAL_STORAGE_KEY, JSON.stringify(state));
   return {
     active: true,
@@ -2178,6 +2216,19 @@ async function handleScopedConfigSaveScript(ctx, runtimeEnv, storedValues, devic
       for (const key of ['OFFICIAL_INTERVAL_SECONDS', 'OFFICIAL_TIMER_ENABLED']) {
         if (runtimeEnv[key] !== undefined && String(runtimeEnv[key]).trim()) candidate[key] = String(runtimeEnv[key]);
       }
+      for (const key of ['OFFICIAL_NETWORK_TARGETS_ENABLED', 'PO0_FIREWALL_WIFI_TOKENS']) {
+        if (runtimeEnv[key] !== undefined && String(runtimeEnv[key]).trim()) candidate[key] = String(runtimeEnv[key]);
+      }
+      if (candidate.PO0_FIREWALL_WIFI_TOKENS === '-') delete candidate.PO0_FIREWALL_WIFI_TOKENS;
+      if (candidate.PO0_FIREWALL_WIFI_TOKENS) {
+        parseOfficialTokens(candidate.PO0_FIREWALL_WIFI_TOKENS);
+        candidate.PO0_FIREWALL_WIFI_NAMES = officialNamesForSave(
+          officialNetworkEnv({ ...storedValues, OFFICIAL_NETWORK_TARGETS_ENABLED: 'true' }, { kind: 'wifi' }),
+          { PO0_FIREWALL_TOKENS: runtimeEnv.PO0_FIREWALL_WIFI_TOKENS }, candidate.PO0_FIREWALL_WIFI_TOKENS);
+      }
+      if (boolEnv(candidate.OFFICIAL_NETWORK_TARGETS_ENABLED, false) && !candidate.PO0_FIREWALL_WIFI_TOKENS) {
+        throw new Error('开启按网络选择目标前，请填写 Wi-Fi 官方上报目标。');
+      }
       officialIntervalSeconds(candidate);
     } else {
       const scopedEnv = { ...runtimeEnv };
@@ -2194,7 +2245,7 @@ async function handleScopedConfigSaveScript(ctx, runtimeEnv, storedValues, devic
     }
     await saveReportConfig(ctx, candidate);
     notify(ctx, 'PO0 Egern Config', title + '已保存');
-    return widgetPanel(REPORT_TITLE, [title + '已保存。', ...(officialOnly ? officialSavedNameRows(candidate) : []), '另一通道的已保存参数保持不变；本次只保存，不发起上报。'], true, ctx);
+    return widgetPanel(REPORT_TITLE, [title + '已保存。', ...(officialOnly ? [...officialSavedNameRows(candidate), ...officialNetworkSettingsRows(candidate)] : []), '另一通道的已保存参数保持不变；本次只保存，不发起上报。'], true, ctx);
   } catch (error) {
     return widgetPanel(REPORT_TITLE, [title + '未保存。', redactError(error, { ...(storedValues || {}), ...runtimeEnv })], false, ctx);
   }
@@ -2355,6 +2406,7 @@ function officialAccountName(env, index) {
 }
 
 function officialDisplayEnv(env, runtimeEnv) {
+  if (env._officialNetwork) runtimeEnv = officialNetworkEnv({ ...runtimeEnv, OFFICIAL_NETWORK_TARGETS_ENABLED: 'true' }, { kind: env._officialNetwork });
   if (!String(runtimeEnv?.PO0_FIREWALL_NAMES || '').trim() && !String(runtimeEnv?.PO0_FIREWALL_TOKENS || '').includes('|')) return env;
   try {
     const accounts = parseOfficialTokens(env.PO0_FIREWALL_TOKENS);
@@ -2450,8 +2502,9 @@ async function handleLocalChannelAction(ctx, env, action) {
       '自建启用定期上报：' + (boolEnv(next.WORKER_TIMER_ENABLED, true) ? '是' : '否') + '；上报间隔：' + autoReportIntervalSeconds(next) + ' 秒' + (boolEnv(next.WORKER_TIMER_ENABLED, true) ? '' : '（暂不使用）'),
     '自建网络切换：自动上报启用且未命中 SSID 跳过时立即上报，不受定期开关和间隔限制。'] : []),
     '官方防火墙：' + (officialTokensConfigured(next) ? boolEnv(next.OFFICIAL_AUTO_ENABLED, true) ? '自动上报启用' : '自动上报停用（配置保留）' : '未配置'),
-    '官方启用定期上报：' + (boolEnv(next.OFFICIAL_TIMER_ENABLED, true) ? '是' : '否') + '；上报间隔：' + officialIntervalSeconds(next) + ' 秒' + (boolEnv(next.OFFICIAL_TIMER_ENABLED, true) ? '' : '（暂不使用）') + '；白名单有效期（TTL）：由官方服务管理。',
+    '官方启用定期上报：' + (boolEnv(next.OFFICIAL_TIMER_ENABLED, true) ? '是' : '否') + '；上报间隔：' + officialIntervalSeconds(next) + ' 秒' + (boolEnv(next.OFFICIAL_TIMER_ENABLED, true) ? '' : '（暂不使用）') + '；仅控制客户端上报间隔。',
     ...officialSavedNameRows(officialDisplayEnv(next, ctx?.env)),
+    ...officialNetworkSettingsRows(next),
     ...widgetTargets(null, next, await storedDeviceId(ctx)).map(target => target.sourceId + ' · 白名单有效期 ' + target.ttlSeconds + ' 秒（TTL）'),
     workerConfigRequested(next) ? '自建白名单有效期（TTL）：停止上报后白名单还能保留多久；每次成功上报重新计时。' : '',
     'SSID 跳过：' + (next.SKIP_WIFI_SSIDS || '未设置') + '；匹配时同时跳过两个自动上报通道。',
@@ -2535,6 +2588,9 @@ async function runEgernReportUnlocked(ctx) {
       return await handleOfficialConfigClearScript(ctx, storedConfig.values);
     }
 
+    const configEnv = env;
+    network = networkInfo(ctx);
+    env = officialNetworkEnv(env, network);
     channels = validateReportChannels(env, deviceId);
     if (!channels.anyRequested) {
       const configError = channels.workerError || new Error('本机尚未配置 PO0 上报通道。');
@@ -2547,7 +2603,7 @@ async function runEgernReportUnlocked(ctx) {
       return missingReportConfigPanel(ctx, deviceId, configError, env);
     }
     if (!storedConfig.exists && channels.anyValid && !channels.officialError && !channels.workerError) {
-      await saveReportConfig(ctx, env);
+      await saveReportConfig(ctx, configEnv);
     }
 
     channels = selectReportChannels(ctx, env, channels);
