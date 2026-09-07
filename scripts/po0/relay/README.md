@@ -110,7 +110,7 @@ po0-lan-client --probe
 po0-lan-client --version
 ```
 
-PO0 nftables 子系统内带 `SCRIPT_VERSION`、`--version` / `--changelog` 或自更新提示的五个可独立部署脚本（PO0 manager、LAN Worker、三端 PO0 Outbound IP Report）统一使用 `YYYY.MM.DD+build.N` 混合版本格式。最新可下载脚本版本以 GitHub Latest 为准。OpenWrt outbound APK 使用独立包版本（本轮源码为 `2026.09.07-r1`），脚本 Release 不包含 APK。正式 PO0 Release 发布文件的脚本内部版本必须与 release tag 尾号一致：`po0-vYYYY.MM.DD.N` 对应 `YYYY.MM.DD+build.N`，例如 `po0-v2026.07.01.7` 对应 `2026.07.01+build.7`。完整历史写在 [`CHANGELOG.md`](CHANGELOG.md)。
+PO0 nftables 子系统内带 `SCRIPT_VERSION`、`--version` / `--changelog` 或自更新提示的五个可独立部署脚本（PO0 manager、LAN Worker、三端 PO0 Outbound IP Report）统一使用 `YYYY.MM.DD+build.N` 混合版本格式。最新可下载脚本版本以 GitHub Latest 为准。OpenWrt outbound APK 使用独立包版本（本轮源码为 `2026.09.07-r2`），脚本 Release 不包含 APK。正式 PO0 Release 发布文件的脚本内部版本必须与 release tag 尾号一致：`po0-vYYYY.MM.DD.N` 对应 `YYYY.MM.DD+build.N`，例如 `po0-v2026.07.01.7` 对应 `2026.07.01+build.7`。完整历史写在 [`CHANGELOG.md`](CHANGELOG.md)。
 
 更新 LAN Worker 上已安装的 client：
 
@@ -574,7 +574,7 @@ Linux、macOS、Windows、Egern 和普通 LAN Worker 使用本机默认出口（
 
 Token 必须包含 `pgnfw_` 前缀：官方链接 `https://124.221.69.228/api/firewall/pgnfw_xxxx/add` 中应复制 `pgnfw_xxxx` 整段。OpenWrt 页面显示完整 Token，也接受直接粘贴该链接；Token 字段不填写 `@槽位`，槽位在出口绑定中单独选择。
 
-官方接口的固定槽位为 `0..4`，页面显示为槽位 `1..5`；其它客户端使用 `pgnfw_xxxx@0` 到 `@4`。同一目标的不同设备或 WAN 应手动分配不同固定槽位：本机设备 ID 不会自动转换成官方槽位，也没有跨设备自动分配功能。
+APK 同时显示界面槽位与 `@编号`：槽位 1 = `@0`、槽位 2 = `@1`、槽位 3 = `@2`、槽位 4 = `@3`、槽位 5 = `@4`，与其它客户端 Token 后的编号一致。“自动”不指定固定槽位，不等于 `@0`。同一目标的不同设备或 WAN 应手动分配不同固定槽位：本机设备 ID 不会自动转换成官方槽位，也没有跨设备自动分配功能。
 
 - Egern：运行“官方防火墙 · 保存配置”后，Token 和槽位随配置保存在本机 `ctx.storage`。定时、网络变化和普通手动上报优先使用该配置，不受同步环境变量影响；设备 ID 继续独立保存。
 - Stash：Worker 在 `/save-worker` 参数填写并保存，官方 Token / 名称只放在 `/save-official` 对应的 `argument`。已保存的官方配置使用本机专用存储，运行时不会被同步模块参数覆盖。修改 `/save-official` 对应的 `argument` 后访问 `http://po0-report.invalid/save-official`，只保存本机 Token/槽位；访问 `/clear-official` 清除，均不上报。

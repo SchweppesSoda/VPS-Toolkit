@@ -837,7 +837,7 @@ function Sync-NetworkReporterTask {
     $params = @{
         TaskName=$name
         Action=(New-ScheduledTaskAction -Execute 'wscript.exe' -Argument ('//B //Nologo ' + (Quote-TaskArg $launcher)))
-        Trigger=(New-ScheduledTaskTrigger -AtLogOn)
+        Trigger=(New-ScheduledTaskTrigger -AtLogOn -User ([Security.Principal.WindowsIdentity]::GetCurrent().Name))
         Settings=(New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries)
         Description='Watch local network changes and report only this channel. Independent from the optional periodic task.'
         Force=$true

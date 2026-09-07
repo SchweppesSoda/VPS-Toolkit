@@ -14,25 +14,35 @@ try {
     function Get-DefaultDataDir { return $script:TestDir }
     function Get-DefaultScriptPath { return Join-Path $script:TestDir 'po0-outbound-ip-report.ps1' }
     function Get-DefaultLogPath { return Join-Path $script:TestDir 'report.log' }
-    function Save-ClientConfig {}
+    $script:CompletedMessages=[Collections.Generic.List[string]]::new()
+    function Write-SelfReportCompleted { param([string]$Message) $script:CompletedMessages.Add($Message) }
     function Assert-WorkerUrl {}
     function Assert-Minutes {}
     function Test-WindowsNetworkWatchSupported { return $true }
     function Get-ScheduledTask { param($TaskName,$ErrorAction) return $script:Tasks[$TaskName] }
     function Get-ScheduledTaskInfo { param($TaskName,$ErrorAction) return $null }
     function New-ScheduledTaskAction { param($Execute,$Argument) return [pscustomobject]@{Execute=$Execute;Arguments=$Argument} }
-    function New-ScheduledTaskTrigger { param([switch]$Once,$At,$RepetitionInterval,$RepetitionDuration,[switch]$AtLogOn) return [pscustomobject]@{RepetitionInterval=$RepetitionInterval;AtLogOn=[bool]$AtLogOn} }
+    function New-ScheduledTaskTrigger {
+        param([switch]$Once,$At,$RepetitionInterval,$RepetitionDuration,[switch]$AtLogOn,$User)
+        if ($AtLogOn -and $User -ne [Security.Principal.WindowsIdentity]::GetCurrent().Name) { throw 'FAIL: ordinary-user logon trigger must target the current user' }
+        return [pscustomobject]@{RepetitionInterval=$RepetitionInterval;AtLogOn=[bool]$AtLogOn;User=$User}
+    }
     function New-ScheduledTaskSettingsSet { param($ExecutionTimeLimit,$MultipleInstances,[switch]$AllowStartIfOnBatteries,[switch]$DontStopIfGoingOnBatteries) return [pscustomobject]@{} }
     function Register-ScheduledTask {
         param($TaskName,$Action,$Trigger,$Description,$Settings,$Principal,[switch]$Force)
+        if ($script:RejectRegistration) { throw 'FAIL: automatic toggle must not register a task' }
         if ($script:FailTaskName -and $TaskName -eq $script:FailTaskName) { throw 'fixture registration failure' }
         $script:Calls.Add('register '+$TaskName)
         $script:Tasks[$TaskName]=[pscustomobject]@{TaskName=$TaskName;Actions=@($Action);Triggers=@($Trigger);State='Ready';Settings=$Settings;Principal=$Principal}
     }
     function Disable-ScheduledTask { param($TaskName,$ErrorAction) $script:Tasks[$TaskName].State='Disabled'; $script:Calls.Add('disable '+$TaskName) }
-    function Enable-ScheduledTask { param($TaskName,$ErrorAction) $script:Tasks[$TaskName].State='Ready'; $script:Calls.Add('enable '+$TaskName) }
-    function Start-ScheduledTask { param($TaskName) $script:Calls.Add('start '+$TaskName) }
-    function Stop-ScheduledTask { param($TaskName,$ErrorAction) $script:Calls.Add('stop '+$TaskName) }
+    function Enable-ScheduledTask {
+        param($TaskName,$ErrorAction)
+        if ($TaskName -eq $script:FailEnableTaskName) { throw [UnauthorizedAccessException]::new('拒绝访问。') }
+        $script:Tasks[$TaskName].State='Ready'; $script:Calls.Add('enable '+$TaskName)
+    }
+    function Start-ScheduledTask { param($TaskName,$ErrorAction) $script:Tasks[$TaskName].State='Running'; $script:Calls.Add('start '+$TaskName) }
+    function Stop-ScheduledTask { param($TaskName,$ErrorAction) if ($script:Tasks[$TaskName] -and $script:Tasks[$TaskName].State -ne 'Disabled') { $script:Tasks[$TaskName].State='Ready' }; $script:Calls.Add('stop '+$TaskName) }
     function Unregister-ScheduledTask { param($TaskName,$Confirm,$ErrorAction) $script:Tasks.Remove($TaskName); $script:Calls.Add('remove '+$TaskName) }
     function Assert-Test { param($Value,$Message) if (-not $Value) { throw "FAIL: $Message" } }
     $script:ConfigPath=Join-Path $testRoot 'settings.json'; $script:LogPath=Get-DefaultLogPath
@@ -49,11 +59,26 @@ try {
     Assert-Test ($command -match '-OfficialOnly' -and $command -notmatch '-WorkerOnly') 'official command scope'
     Assert-Test ($command -notmatch 'dummy-secret|pgnfw_') 'credentials excluded from task'
     $workerBefore=$script:Tasks[$worker] | ConvertTo-Json -Depth 8
+    $script:RejectRegistration=$true
     Set-ScheduledReporterPaused -Paused $true -Channel official | Out-Null
     Assert-Test ($script:Tasks[$official].State -eq 'Disabled') 'official pause'
     Assert-Test (($script:Tasks[$worker] | ConvertTo-Json -Depth 8) -eq $workerBefore) 'official pause keeps worker task'
     Assert-Test ($script:Tasks[(Get-NetworkReporterTaskName official)].State -eq 'Disabled') 'official watcher pause'
+    $savedBefore=[IO.File]::ReadAllText($script:ConfigPath)
+    $script:CompletedMessages.Clear()
+    $script:FailEnableTaskName=Get-NetworkReporterTaskName official
+    $failed=$false; $failureMessage=''
+    try { Set-ScheduledReporterPaused -Paused $false -Channel official | Out-Null } catch { $failed=$true; $failureMessage=$_.Exception.Message }
+    Assert-Test ($failed -and $failureMessage.Contains($script:FailEnableTaskName) -and $failureMessage.Contains('权限不足')) 'access denial identifies the failing task'
+    Assert-Test (-not $script:OfficialAutoEnabled -and [IO.File]::ReadAllText($script:ConfigPath) -eq $savedBefore) 'failed resume restores memory and exact saved config'
+    Assert-Test ($script:Tasks[$official].State -eq 'Disabled' -and $script:Tasks[$script:FailEnableTaskName].State -eq 'Disabled') 'failed watcher resume rolls back the timer'
+    Assert-Test ($script:CompletedMessages.Count -eq 0) 'failed toggle cannot announce config or operation success'
+    Assert-Test (($script:Tasks[$worker] | ConvertTo-Json -Depth 8) -eq $workerBefore) 'failed official resume keeps worker task'
+    $script:FailEnableTaskName=''
     Set-ScheduledReporterPaused -Paused $false -Channel official | Out-Null
+    Assert-Test ($script:Tasks[(Get-NetworkReporterTaskName official)].State -eq 'Running') 'resume starts the existing watcher'
+    Assert-Test ($script:Tasks[$official].Triggers[0].RepetitionInterval.TotalSeconds -eq 900) 'resume preserves interval'
+    $script:RejectRegistration=$false
     $script:Calls.Clear()
     Sync-ScheduledReporterTasks -Mode refresh | Out-Null
     Assert-Test ($script:Calls.Count -eq 0) 'current tasks must not refresh'
@@ -107,6 +132,10 @@ try {
     Invoke-ChannelInteractive official
     Assert-Test ($script:LogPath -eq $manualBase) 'manual report restores common log path'
     Assert-Test ((Get-Content -LiteralPath (Get-ChannelLogPath official) -Raw) -match 'manual-official-fixture') 'manual result visible in official recent log'
+    $script:Tasks.Clear(); $script:RejectRegistration=$true
+    Set-ScheduledReporterPaused -Paused $false -Channel official | Out-Null
+    Assert-Test ($script:Tasks.Count -eq 0) 'toggle cannot recreate a missing timer or watcher'
+    $script:RejectRegistration=$false
     $script:Po0FirewallScheduledRun=$true; $TimerTrigger=$false; $NetworkChanged=$false
     function Get-Po0FirewallLastAttempt { return 1000 }
     function Get-Po0FirewallNow { return 1600 }
@@ -116,7 +145,25 @@ try {
     Assert-Test (Test-Po0FirewallDue) 'network event immediately checks'
     $NetworkChanged=$false; $TimerTrigger=$true
     Assert-Test (Test-Po0FirewallDue) 'independent system timer is not suppressed by a recent network report'
-    Write-Host 'PASS: Windows independent timers, network watchers, pause/remove/migration and refresh'
+    $script:MenuInputs=[Collections.Generic.Queue[string]]::new()
+    $script:MenuInputs.Enqueue('3'); $script:MenuInputs.Enqueue('0')
+    $script:MenuItems=[Collections.Generic.List[object]]::new()
+    $script:MenuPrompts=[Collections.Generic.List[string]]::new()
+    function Read-Host { param([string]$Prompt) $script:MenuPrompts.Add($Prompt); if (-not $script:MenuInputs.Count) { throw 'Unexpected menu input' }; return $script:MenuInputs.Dequeue() }
+    function Pause-Menu {}
+    function Write-Title {}
+    function Write-PanelRow {}
+    function Write-MenuSection {}
+    function Write-MenuDivider {}
+    function Write-MenuItem { param([string]$Number,[string]$Label) $script:MenuItems.Add([pscustomobject]@{Number=$Number;Label=$Label}) }
+    function Update-ChannelScheduleIfInstalled { throw 'FAIL: toggle menu must not refresh task registration' }
+    Invoke-ChannelSettingsMenu official
+    Assert-Test ($script:MenuPrompts.Count -eq 2 -and $script:MenuPrompts[0] -eq '请选择 [0-12]') 'channel menu input range'
+    Assert-Test ($script:MenuItems[12].Number -eq '0' -and $script:MenuItems[12].Label -eq '返回主菜单') 'channel menu return is displayed as zero'
+    $script:MenuInputs.Enqueue('0')
+    Invoke-InteractiveMenu
+    Assert-Test ($script:MenuInputs.Count -eq 0) 'main menu exits on zero'
+    Write-Host 'PASS: Windows independent timers, network watchers, pause/remove/migration, rollback and menus'
 } finally {
     $resolved=[IO.Path]::GetFullPath($testRoot)
     if (-not $resolved.StartsWith([IO.Path]::GetFullPath((Join-Path $repo '.tmp/po0-windows-channel-schedules-')),[StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe test cleanup path' }

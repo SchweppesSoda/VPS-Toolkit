@@ -10,6 +10,9 @@ var commitReporter = rpc.declare({ object: 'uci', method: 'commit', params: [ 'c
 var CONTROL = '/usr/libexec/po0-outbound-ip-report-control';
 var channelActionRunning = {};
 var RESULT_CSS = [
+	".po0-report-page div[id$=\".secret\"]>.control-group,.po0-report-page div[id$=\".token\"]>.control-group{display:flex;flex-wrap:nowrap;align-items:center;gap:.4em;}",
+	".po0-report-page div[id$=\".secret\"]>.control-group>.cbi-input-password,.po0-report-page div[id$=\".token\"]>.control-group>.cbi-input-password{flex:1 1 0;min-width:0!important;width:0!important;margin:0;}",
+	".po0-report-page div[id$=\".secret\"]>.control-group>button,.po0-report-page div[id$=\".token\"]>.control-group>button{flex:0 0 auto;width:auto;margin:0;white-space:nowrap;}",
 	'.po0-report-page [data-tab-active="false"]{display:none!important;}',
 	'.po0-result-card{border:1px solid rgba(127,127,127,.22);border-left:4px solid #5e72e4;border-radius:14px;padding:16px 18px;background:rgba(127,127,127,.06);box-shadow:0 8px 24px rgba(0,0,0,.06);transition:border-color .2s ease,background .2s ease;}',
 	'.po0-result-head{display:flex;align-items:center;gap:12px;}',
@@ -234,7 +237,7 @@ function officialSlotLabel(value) {
 		return _('自动');
 	if (/^[0-4]$/.test(slot)) {
 		numericSlot = parseInt(slot, 10) + 1;
-		return _('槽位 %s').format(numericSlot);
+		return _('槽位 %s（@%s）').format(numericSlot, slot);
 	}
 	return _('未知');
 }
@@ -747,8 +750,8 @@ return view.extend({
    };
    o = bindings.option(form.Value, 'wan', _('出口')); o.value('wan1','WAN1'); o.value('wan2','WAN2'); o.rmempty = false;
    o = bindings.option(form.ListValue, 'slot', _('槽位')); o.value('', _('自动（可能被轮换）'));
-   for (var slot = 1; slot <= 5; slot++) o.value(String(slot - 1), _('固定槽位 %s').format(slot));
-   o.description = _('界面槽位 1–5 对应 API 的 0–4；更换槽位可能替换该位置已有的网段。');
+   for (var slot = 1; slot <= 5; slot++) o.value(String(slot - 1), _('固定槽位 %s（@%s）').format(slot, slot - 1));
+   o.description = _('槽位 1 = @0，槽位 2 = @1，槽位 3 = @2，槽位 4 = @3，槽位 5 = @4，与其它客户端 Token 后的 @编号一一对应。“自动”不指定固定槽位；本页 Token 只填 Token，槽位在此选择。更换槽位可能替换该位置已有的网段。');
    actions('official');
    s.taboption('official', form.SectionValue, '_official_status', OfficialStatusSection, 'main', 'reporter');
 

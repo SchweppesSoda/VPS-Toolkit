@@ -64,7 +64,7 @@ expected_apk_runtime_version="$(sed -n 's/^SCRIPT_VERSION="\([^"]*\)"/\1/p' "${r
 for package in po0-outbound-ip-report; do
     grep -Fq 'PKGARCH:=all' "${repo_root}/packaging/openwrt/${package}/Makefile"
     grep -Fq 'PKG_VERSION:=2026.09.07' "${repo_root}/packaging/openwrt/${package}/Makefile"
-    grep -Fq 'PKG_RELEASE:=1' "${repo_root}/packaging/openwrt/${package}/Makefile"
+    grep -Fq 'PKG_RELEASE:=2' "${repo_root}/packaging/openwrt/${package}/Makefile"
     grep -Fq "$(printf '$(TOPDIR)/po0-assets')" "${repo_root}/packaging/openwrt/${package}/Makefile"
     grep -Fq "po0-outbound-ip-report ${expected_apk_runtime_version} (OpenWrt APK)" \
         "${repo_root}/packaging/openwrt/${package}/files/usr/sbin/po0-outbound-ip-report"
@@ -133,9 +133,9 @@ if rg -n "LOCK_DIR='/tmp|/tmp/po0-outbound-ip-report.run.lock|>>/tmp/po0-outboun
     printf 'OpenWrt official runtime must not use pre-creatable /tmp locks or logs.\n' >&2
     exit 1
 fi
-grep -Fq 'outbound-ip-report-v10' \
+grep -Fq 'outbound-ip-report-v11' \
     "${repo_root}/packaging/openwrt/po0-outbound-ip-report/Makefile"
-grep -Fq 'po0/outbound-ip-report-v10' \
+grep -Fq 'po0/outbound-ip-report-v11' \
     "${repo_root}/packaging/openwrt/po0-outbound-ip-report/files/usr/share/luci/menu.d/po0-outbound-ip-report.json"
 grep -Fq -- '--run-once)' \
     "${repo_root}/scripts/po0/relay/self-report/linux/src/990-cli-parse-dispatch.sh"

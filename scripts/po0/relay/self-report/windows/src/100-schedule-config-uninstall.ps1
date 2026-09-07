@@ -183,16 +183,90 @@ function Show-ScheduledReporter {
     }
 }
 
+function Set-ExistingReporterTaskState {
+    param([string]$TaskName, [bool]$Disabled, [bool]$Network, [bool]$RunNetwork=$true)
+    $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop
+    if (($task.State -eq 'Disabled') -ne $Disabled) {
+        if ($Disabled) { Disable-ScheduledTask -TaskName $TaskName -ErrorAction Stop | Out-Null }
+        else { Enable-ScheduledTask -TaskName $TaskName -ErrorAction Stop | Out-Null }
+    }
+    if ($Network) {
+        if ($Disabled) { Stop-ScheduledTask -TaskName $TaskName -ErrorAction Stop }
+        elseif ($RunNetwork -and $task.State -ne 'Running') { Start-ScheduledTask -TaskName $TaskName -ErrorAction Stop }
+    }
+}
+
 function Set-ScheduledReporterPaused {
     param([bool]$Paused, [ValidateSet('all','worker','official')][string]$Channel=$ScheduleChannel)
     if ((Get-LegacyReporterRecord).Task) { Sync-ScheduledReporterTasks -Mode refresh | Out-Null }
-    if ($Channel -eq 'all') { $script:SchedulePaused = $Paused }
-    else {
-        if ($script:SchedulePaused) { $script:WorkerAutoEnabled=$false; $script:OfficialAutoEnabled=$false; $script:SchedulePaused=$false }
-        if ($Channel -eq 'worker') { $script:WorkerAutoEnabled = -not $Paused } else { $script:OfficialAutoEnabled = -not $Paused }
+    $previousPaused = $script:SchedulePaused
+    $previousWorker = $script:WorkerAutoEnabled
+    $previousOfficial = $script:OfficialAutoEnabled
+    $configExisted = Test-Path -LiteralPath $script:ConfigPath
+    $previousJson = if ($configExisted) { [IO.File]::ReadAllText($script:ConfigPath) } else { $null }
+    $saved = $false
+    $changedTasks = [Collections.Generic.List[object]]::new()
+    $operation = '保存自动上报开关'
+    try {
+        if ($Channel -eq 'all') { $script:SchedulePaused = $Paused }
+        else {
+            if ($script:SchedulePaused) { $script:WorkerAutoEnabled=$false; $script:OfficialAutoEnabled=$false; $script:SchedulePaused=$false }
+            if ($Channel -eq 'worker') { $script:WorkerAutoEnabled = -not $Paused } else { $script:OfficialAutoEnabled = -not $Paused }
+        }
+        # Watchers reload this file; persist quietly before enabling any task.
+        Save-ClientConfig -Quiet
+        $saved = $true
+        foreach ($lane in @('worker','official')) {
+            if ($Channel -ne 'all' -and $Channel -ne $lane) { continue }
+            foreach ($network in @($false,$true)) {
+                $name = if ($network) { Get-NetworkReporterTaskName $lane } else { Get-ChannelTaskName $lane }
+                $operation = "更新任务「$name」的自动状态"
+                try { $task = Get-ScheduledTask -TaskName $name -ErrorAction Stop }
+                catch {
+                    if ($_.FullyQualifiedErrorId -like 'CmdletizationQuery_NotFound_TaskName*') { continue }
+                    throw
+                }
+                if (-not $task) { continue }
+                $disabled = Test-ChannelPaused $lane
+                if ($network) {
+                    $networkEnabled = if ($lane -eq 'official') { $script:OfficialNetworkEnabled } else { $script:WorkerNetworkEnabled }
+                    $disabled = (Test-ChannelAutoPaused $lane) -or -not $networkEnabled
+                }
+                if (-not (Test-ChannelConfigured $lane)) { $disabled = $true }
+                $wasDisabled = $task.State -eq 'Disabled'
+                $wasRunning = $task.State -eq 'Running'
+                if ($wasDisabled -eq $disabled -and (-not $network -or $disabled -or $wasRunning)) { continue }
+                $changedTasks.Add([pscustomobject]@{ Name=$name; Disabled=$wasDisabled; Network=$network; Running=$wasRunning })
+                Set-ExistingReporterTaskState -TaskName $name -Disabled $disabled -Network $network
+            }
+        }
+    } catch {
+        $failure = $_
+        $script:SchedulePaused = $previousPaused
+        $script:WorkerAutoEnabled = $previousWorker
+        $script:OfficialAutoEnabled = $previousOfficial
+        $restoreFailed = $false
+        if ($saved) {
+            try {
+                if ($configExisted) { Write-Po0ClientConfigAtomic -Path $script:ConfigPath -Json $previousJson }
+                else { Remove-Item -LiteralPath $script:ConfigPath -Force -ErrorAction Stop }
+            } catch { $restoreFailed = $true }
+        }
+        for ($index = $changedTasks.Count - 1; $index -ge 0; $index--) {
+            $before = $changedTasks[$index]
+            try {
+                $current = Get-ScheduledTask -TaskName $before.Name -ErrorAction Stop
+                if (($current.State -eq 'Disabled') -eq $before.Disabled -and (-not $before.Network -or (($current.State -eq 'Running') -eq $before.Running))) { continue }
+                Set-ExistingReporterTaskState -TaskName $before.Name -Disabled $before.Disabled -Network $before.Network -RunNetwork $before.Running
+            } catch { $restoreFailed = $true }
+        }
+        $reason = 'Windows 未能完成此操作。'
+        if (($failure.Exception.HResult -band 0xffff) -eq 5 -or $failure.Exception.Message -match '拒绝访问|access.*denied') {
+            $reason = '权限不足；请使用安装任务时的 Windows 账号和权限，并继续指定当前配置文件重试。'
+        }
+        $restore = if ($restoreFailed) { '部分原状态未能恢复，请查看所选通道的任务状态和配置。' } else { '已恢复原自动开关和任务启停状态。' }
+        throw "${operation}失败：$reason $restore"
     }
-    Save-ClientConfig
-    Sync-ScheduledReporterTasks -Mode refresh -Channel $Channel | Out-Null
     Write-SelfReportCompleted '所选通道自动状态已更新；手动上报仍可使用。'
 }
 

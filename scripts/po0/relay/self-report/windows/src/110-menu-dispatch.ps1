@@ -95,7 +95,7 @@ function Invoke-ChannelSettingsMenu {
             switch ($choice) {
                 '1' { if ($Channel -eq 'worker') { Set-ClientConfigInteractive } else { Set-OfficialConfigInteractive }; Update-ChannelScheduleIfInstalled $Channel }
                 '2' { Set-ChannelNamesInteractive $Channel }
-                '3' { Toggle-ChannelAutoInteractive $Channel; Update-ChannelScheduleIfInstalled $Channel }
+                '3' { Toggle-ChannelAutoInteractive $Channel }
                 '4' { Set-ChannelPeriodicInteractive $Channel }
                 '5' { Show-ChannelConfig $Channel }
                 '6' { Show-SelfReportLogTail -Path (Get-ChannelLogPath $Channel) }

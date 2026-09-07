@@ -5,12 +5,10 @@ PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.c
 DOWNLOAD_URL="${PO0_LAN_CLIENT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-lan-client.sh}"
 MANAGER_DOWNLOAD_URL="${PO0_MANAGER_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/nftables-relay-manager.sh}"
 SCRIPT_NAME="po0-lan-worker-client"
-SCRIPT_VERSION="2026.09.07+build.1"
+SCRIPT_VERSION="2026.09.07+build.2"
 SCRIPT_RELEASE_DATE="2026-09-07"
 # CHANGELOG_BEGIN
-# - 七端统一“自动上报、启用定期上报、上报间隔、白名单有效期（TTL）”定义。
-# - 自建和官方独立保存、启停和运行；停用或清除自建不影响官方。
-# - 三端菜单独立设置定期开关并保留间隔；保存和本机查看不触发上报，保存只更新已有任务。
+# - 跟随本次客户端修复统一发布版本。
 # CHANGELOG_END
 DEFAULT_PO0_SCRIPT="/root/nftables-relay-manager.sh"
 PO0_HOST="${PO0_HOST:-}"

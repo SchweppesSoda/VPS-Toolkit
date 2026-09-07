@@ -126,6 +126,7 @@ function Write-Po0ClientConfigAtomic {
 }
 
 function Save-ClientConfig {
+    param([switch]$Quiet)
     Assert-Minutes
     $dir = Split-Path -Parent $script:ConfigPath
     if ($dir -and -not (Test-Path -LiteralPath $dir)) {
@@ -158,7 +159,7 @@ function Save-ClientConfig {
     }
     $json = $config | ConvertTo-Json -Depth 4
     Write-Po0ClientConfigAtomic -Path $script:ConfigPath -Json $json
-    Write-SelfReportCompleted "配置已保存：$script:ConfigPath"
+    if (-not $Quiet) { Write-SelfReportCompleted "配置已保存：$script:ConfigPath" }
 }
 
 function Show-Usage {
