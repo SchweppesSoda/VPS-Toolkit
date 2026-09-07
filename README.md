@@ -8,7 +8,7 @@
 
 | 使用场景 | 入口 | 维护状态 |
 | --- | --- | --- |
-| PO0 nftables 中转、源 IP 白名单、LAN Worker、Self-report、WebAuth、Egern、Stash、Loon、iplist/ipdb | [`scripts/po0/relay/README.md`](./scripts/po0/relay/README.md) | 核心功能，持续维护 |
+| PO0 转发、LAN 更新镜像与七端官方上报 | [`scripts/po0/relay/README.md`](./scripts/po0/relay/README.md) | 核心功能，持续维护 |
 | PO0 Debian 重装 | [`scripts/po0/reinstall/README.md`](./scripts/po0/reinstall/README.md) | 按需维护；会重装系统盘 |
 | PO0 代理服务增强 sidecar | [`scripts/po0/proxy-services/README.md`](./scripts/po0/proxy-services/README.md) | 按需维护 |
 | VPS 代理栈部署、接管与复刻 | [`scripts/vps/proxy-stack/README.md`](./scripts/vps/proxy-stack/README.md) | Inventory 驱动；上层调用 Argosbx、Proxy Gateway Plus 和 sidecar |
@@ -96,9 +96,9 @@ po0-lan-client --menu
 
 ## PO0 发布架构与边界
 
-PO0 正式发布由五个独立脚本组成：manager 负责 PO0 nftables 与受控任务，LAN Worker 负责内网任务/接收端，Linux/macOS/Windows Outbound IP Report 运行在访问设备。OpenWrt APK 承载 outbound 上报器；APK 的 UCI、procd、LuCI 与 mwan3 绑定只在 OpenWrt 端维护，不把主路由行为扩散到普通客户端。
+PO0 主线分为转发管理器、LAN Worker 更新镜像、Windows/macOS/Linux 官方上报器及 OpenWrt 官方 APK；Egern、Stash、Loon 使用独立手机模块。自建白名单、接收器、DDNS/WebAuth/学习与资源任务已退役。旧版完整资产固定保存在非 Latest 的 `archive/po0-full-20260907.1` Release。
 
-官方防火墙是默认关闭的独立第二车道：先 GET 查看当前出口、额度和槽位，缺失或固定槽位不匹配时才 POST；官方固定 600 秒，和原有 Worker / Self-report 的计划与 TTL 独立。SSID 本地跳过会同时跳过两条车道；强制上报只绕过本地 due/SSID guard，仍不能绕过 GET。token 只进权限受限配置，不进日志、参数或状态；主 OpenWrt 才能用 mwan3 指定 wan1/wan2，其它端使用各自默认出口。用户入口和实现细节以 [`scripts/po0/relay/README.md`](./scripts/po0/relay/README.md) 与 technical 文档为准。
+PO0 仍通过 Worker HTTP 镜像更新，以 nonce/HMAC 校验脚本。官方账号保留 GET-first、槽位、名称、开关、间隔及各客户端原有网络行为；配置迁移先备份。操作与恢复见 [PO0 README](scripts/po0/relay/README.md)。
 
 ## 发布与下载
 

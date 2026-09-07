@@ -44,9 +44,9 @@ run() { : > "$work/worker.calls"; : > "$work/official.calls"; ACTION="${ACTION:-
 has() { grep -Fqx -- "$2" "$work/$1.calls" || fail "missing $1 event: $2"; }
 empty() { [[ ! -s "$work/$1.calls" ]] || fail "unexpected $1 event"; }
 run
-has worker 'worker network '; has official 'official network wan1'
+empty worker; has official 'official network wan1'
 ACTION=ifupdate IFUPDATE_ROUTES=1 run
-has worker 'worker network '; has official 'official network wan1'
+empty worker; has official 'official network wan1'
 ACTION=ifupdate IFUPDATE_ADDRESSES=1 run
 has official 'official network wan1'
 ACTION=ifupdate run
@@ -58,7 +58,7 @@ empty worker; empty official
 WORKER_NETWORK=0 run
 empty worker; has official 'official network wan1'
 OFFICIAL_NETWORK=0 run
-empty official; has worker 'worker network '
+empty official; empty worker
 WORKER=0 run
 empty worker; has official 'official network wan1'
 TOTAL=0 run
@@ -66,11 +66,11 @@ empty worker; empty official
 INTERFACE=lan run
 empty worker; empty official
 MODE=source INTERFACE=lan run
-has worker 'worker network '; has official 'official network '
+empty worker; has official 'official network '
 WANS=wan2 run
 empty worker; has official 'official network wan1'
 WANS=all run
-has worker 'worker network '
+empty worker
 WANS=all INTERFACE=lan run
 empty worker; empty official
 printf 'PASS: OpenWrt hotplug recovery/address/route events and channel switches.\n'

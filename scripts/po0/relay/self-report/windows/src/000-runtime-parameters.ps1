@@ -1,9 +1,9 @@
 ﻿param(
     [string]$ConfigPath = $(if ($env:PO0_OUTBOUND_IP_REPORT_CONFIG) { $env:PO0_OUTBOUND_IP_REPORT_CONFIG } elseif ($env:PO0_SELF_REPORT_CONFIG) { $env:PO0_SELF_REPORT_CONFIG } else { "" }),
-    [string]$WorkerUrl = $(if ($env:PO0_OUTBOUND_IP_REPORT_WORKER_URL) { $env:PO0_OUTBOUND_IP_REPORT_WORKER_URL } elseif ($env:PO0_LAN_WORKER_URL) { $env:PO0_LAN_WORKER_URL } else { $env:WORKER_URL }),
-    [string]$SourceId = $(if ($env:PO0_OUTBOUND_IP_REPORT_SOURCE) { $env:PO0_OUTBOUND_IP_REPORT_SOURCE } elseif ($env:PO0_SELF_REPORT_SOURCE) { $env:PO0_SELF_REPORT_SOURCE } elseif ($env:SOURCE_ID) { $env:SOURCE_ID } elseif ($env:PO0_OUTBOUND_IP_REPORT_IDENTITY) { $env:PO0_OUTBOUND_IP_REPORT_IDENTITY } elseif ($env:PO0_SELF_REPORT_IDENTITY) { $env:PO0_SELF_REPORT_IDENTITY } elseif ($env:IDENTITY) { $env:IDENTITY } elseif ($env:COMPUTERNAME) { $env:COMPUTERNAME } else { "windows-outbound-ip-report" }),
-    [string]$Identity = $(if ($env:PO0_OUTBOUND_IP_REPORT_IDENTITY) { $env:PO0_OUTBOUND_IP_REPORT_IDENTITY } elseif ($env:PO0_SELF_REPORT_IDENTITY) { $env:PO0_SELF_REPORT_IDENTITY } elseif ($env:IDENTITY) { $env:IDENTITY } elseif ($env:COMPUTERNAME) { $env:COMPUTERNAME } else { "windows-outbound-ip-report" }),
-    [string]$Secret = $(if ($env:PO0_OUTBOUND_IP_REPORT_SECRET) { $env:PO0_OUTBOUND_IP_REPORT_SECRET } elseif ($env:PO0_SELF_REPORT_SECRET) { $env:PO0_SELF_REPORT_SECRET } else { $env:SELF_REPORT_SECRET }),
+    [string]$WorkerUrl = "",
+    [string]$SourceId = "",
+    [string]$Identity = "",
+    [string]$Secret = "",
     [string]$IpCheckUrl = $(if ($env:PO0_OUTBOUND_IP_REPORT_IP_CHECK_URL) { $env:PO0_OUTBOUND_IP_REPORT_IP_CHECK_URL } elseif ($env:IP_CHECK_URL) { $env:IP_CHECK_URL } else { "https://ip9.com.cn/get" }),
     [string[]]$IpCheckUrls = @(),
     [string[]]$SkipWifiSsids = @(),
@@ -20,11 +20,12 @@
     [switch]$TimerTrigger,
     [switch]$NetworkChanged,
     [switch]$WatchNetwork,
-    [ValidateSet("all","worker","official")][string]$ScheduleChannel = "all",
+    [ValidateSet("all","worker","official")][string]$ScheduleChannel = "official",
     [switch]$RunOnce,
+    [switch]$MigrateRetiredState,
     [ValidateRange(60,86400)][int]$OfficialIntervalSeconds = 600,
-    [int]$Minutes = $(if ($env:PO0_OUTBOUND_IP_REPORT_MINUTES) { [int]$env:PO0_OUTBOUND_IP_REPORT_MINUTES } elseif ($env:PO0_SELF_REPORT_MINUTES) { [int]$env:PO0_SELF_REPORT_MINUTES } elseif ($env:MINUTES) { [int]$env:MINUTES } else { 60 }),
-    [int]$IntervalSeconds = $(if ($env:PO0_OUTBOUND_IP_REPORT_INTERVAL_SECONDS) { [int]$env:PO0_OUTBOUND_IP_REPORT_INTERVAL_SECONDS } elseif ($env:PO0_SELF_REPORT_INTERVAL_SECONDS) { [int]$env:PO0_SELF_REPORT_INTERVAL_SECONDS } elseif ($env:INTERVAL_SECONDS) { [int]$env:INTERVAL_SECONDS } else { 0 }),
+    [int]$Minutes = 10,
+    [int]$IntervalSeconds = 0,
     [string]$LogPath = $(if ($env:PO0_OUTBOUND_IP_REPORT_LOG) { $env:PO0_OUTBOUND_IP_REPORT_LOG } elseif ($env:PO0_SELF_REPORT_LOG) { $env:PO0_SELF_REPORT_LOG } elseif ($env:SELF_REPORT_LOG) { $env:SELF_REPORT_LOG } else { "" }),
     [switch]$AllowHttp,
     [switch]$SaveConfig,
@@ -44,11 +45,11 @@ $ErrorActionPreference = "Stop"
 $ReleaseDownloadBaseUrl = $(if ($env:PO0_RELEASE_DOWNLOAD_BASE_URL) { $env:PO0_RELEASE_DOWNLOAD_BASE_URL } else { "https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download" })
 $DownloadUrl = $(if ($env:PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL) { $env:PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL } elseif ($env:PO0_SELF_REPORT_PS_DOWNLOAD_URL) { $env:PO0_SELF_REPORT_PS_DOWNLOAD_URL } else { "$ReleaseDownloadBaseUrl/po0-outbound-ip-report.ps1" })
 $ScriptName = "po0-outbound-ip-report"
-$ScriptVersion = "2026.09.07+build.2"
-$ScriptReleaseDate = "2026-09-07"
+$ScriptVersion = "2026.09.08+build.1"
+$ScriptReleaseDate = "2026-09-08"
 # CHANGELOG_BEGIN
-# - 修复普通权限注册网络监听任务时的拒绝访问，登录触发器限定当前用户。
-# - 自动开关只启停已有任务，失败恢复原开关和任务状态，不提前提示成功。
+# - 只保留官方上报与精简菜单，旧自建动作停止执行。
+# - 迁移先备份设置与旧任务，保留官方账号、槽位、间隔和停用选择。
 # CHANGELOG_END
 $PanelValueColumn = 24
 $MenuRightColumn = 46

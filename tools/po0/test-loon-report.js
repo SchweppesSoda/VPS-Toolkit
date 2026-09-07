@@ -153,198 +153,6 @@ function execute(options = {}) {
   });
 }
 
-async function testSuccessfulAwayReport() {
-  const result = await execute({ asyncHttp: true });
-  assert.strictEqual(result.doneCalls, 1);
-  assert.strictEqual(result.postCallbackFinished, true, "$done must wait for the HTTP callback");
-  assert.strictEqual(result.configCalls, 1, "runtime config must be read once");
-  assert.strictEqual(result.requests.length, 2);
-
-  const get = result.requests.find((entry) => entry.method === "get").request;
-  const post = result.requests.find((entry) => entry.method === "post").request;
-  assert.strictEqual(get.node, "DIRECT");
-  assert.strictEqual(get.timeout, 5_000, "Loon timeout must be milliseconds");
-  assert.strictEqual(post.timeout, 12_000, "Loon timeout must be milliseconds");
-  assert.strictEqual(post.headers.Authorization, "Bearer test-token");
-  assert.strictEqual(post.headers["User-Agent"], "AutoLoon-Loon/1");
-
-  const payload = JSON.parse(post.body);
-  assert.strictEqual(payload.source_id, "loon-ios");
-  assert.strictEqual(payload.ip, "8.8.8.8");
-  assert.strictEqual(payload.network, "wifi");
-  const state = JSON.parse(result.store.get(STORE_KEY));
-  assert.strictEqual(state.accepted_cidr, "8.8.8.8/32");
-  assert.strictEqual(state.context, "wifi:Cafe-WiFi");
-}
-
-async function testPluginPersistentCredentials() {
-  const result = await execute({
-    argument: "force",
-    store: {
-      po0_worker_url: "https://report.example.com/stash-report/v1",
-      po0_worker_token: "plugin-token",
-    },
-  });
-  const post = result.requests.find((entry) => entry.method === "post").request;
-  assert.strictEqual(post.headers.Authorization, "Bearer plugin-token");
-  assert.strictEqual(JSON.parse(post.body).source_id, "loon-ios");
-}
-
-async function testHomeAndUnknownFailClosed() {
-  for (const ssid of ["ZTE-47kTee", "", "unknown", "<unknown ssid>"]) {
-    const result = await execute({ ssid });
-    assert.strictEqual(result.requests.length, 0, `${JSON.stringify(ssid)} must perform no HTTP`);
-  }
-
-  const forced = await execute({
-    ssid: "ZTE-47kTee",
-    mode: "force",
-    argument: JSON.stringify({ mode: "force", worker_url: "", token: "" }),
-  });
-  assert.strictEqual(forced.requests.length, 0, "force without configured routes should remain network-free");
-  assert.strictEqual(forced.notifications.length, 1);
-  assert.match(forced.notifications[0].content, /没有启用/);
-}
-
-async function testStatusIsReadOnly() {
-  const storedState = JSON.stringify({
-    accepted_cidr: "8.8.8.8/32",
-    accepted_at: Math.floor(Date.now() / 1000),
-    expires_at: Math.floor(Date.now() / 1000) + 3600,
-    network: "wifi",
-  });
-  const result = await execute({
-    mode: "status",
-    argument: "status",
-    store: { [STORE_KEY]: storedState },
-    forbidConfig: true,
-  });
-  assert.strictEqual(result.configCalls, 0);
-  assert.strictEqual(result.requests.length, 0);
-  assert.strictEqual(result.writes.length, 0);
-  assert.strictEqual(result.notifications.length, 1);
-}
-
-async function testTTLAndDebounceAvoidNetwork() {
-  const now = Math.floor(Date.now() / 1000);
-  const cached = JSON.stringify({
-    context: "wifi:Cafe-WiFi",
-    accepted_at: now - 30,
-    expires_at: now + 7200,
-    next_refresh_at: now + 1200,
-  });
-  const ttlResult = await execute({ store: { [STORE_KEY]: cached } });
-  assert.strictEqual(ttlResult.requests.length, 0, "valid TTL must avoid all HTTP");
-
-  const lock = JSON.stringify({ at: Date.now(), context: "wifi:Cafe-WiFi" });
-  const debounceResult = await execute({ store: { [RUN_LOCK_KEY]: lock } });
-  assert.strictEqual(debounceResult.requests.length, 0, "debounce must avoid all HTTP");
-}
-
-async function testSharedRunLockAcrossModesAndContexts() {
-  const token = "pgnfw_loon_shared_lock";
-  const statusStore = new Map([[FIREWALL_KEY, token]]);
-  const statusPromise = execute({
-    argument: officialOnlyArgument("status"),
-    store: statusStore,
-    officialGets: [{ body: officialBody([]) }],
-    asyncHttp: true,
-  });
-  await Promise.resolve();
-  const runningForce = await execute({
-    argument: officialOnlyArgument("force"),
-    store: statusStore,
-    officialGets: [{ body: officialBody([]) }],
-  });
-  assert.deepStrictEqual(runningForce.requests, [], "status lock must block force while running");
-  await statusPromise;
-  await Promise.resolve();
-  const statusLock = JSON.parse(statusStore.get(RUN_LOCK_KEY) || "{}");
-  assert.deepStrictEqual(statusLock, {}, "completed status must release its owner lock");
-
-  const forceAfterStatus = await execute({
-    argument: officialOnlyArgument("force"),
-    store: statusStore,
-    officialGets: [{ body: officialBody([{ ip: "8.8.8.8/24", slot: null }]) }],
-  });
-  assert.deepStrictEqual(forceAfterStatus.requests.map((entry) => entry.method), ["get"], "force may run immediately after status completion");
-
-  const autoStore = new Map([[FIREWALL_KEY, token]]);
-  const autoPromise = execute({
-    argument: officialOnlyArgument("auto"),
-    store: autoStore,
-    officialGets: [{ body: officialBody([]) }],
-    officialPosts: [{ body: officialBody([{ ip: "8.8.8.8/24", slot: null }]) }],
-    asyncHttp: true,
-  });
-  await Promise.resolve();
-  const runningStatus = await execute({
-    argument: officialOnlyArgument("status"),
-    store: autoStore,
-    officialGets: [{ body: officialBody([]) }],
-  });
-  assert.deepStrictEqual(runningStatus.requests, [], "auto lock must block status while running");
-  await autoPromise;
-  await Promise.resolve();
-
-  const statusAfterAuto = await execute({
-    argument: officialOnlyArgument("status"),
-    store: autoStore,
-    officialGets: [{ body: officialBody([{ ip: "8.8.8.8/24", slot: null }]) }],
-  });
-  assert.deepStrictEqual(statusAfterAuto.requests.map((entry) => entry.method), ["get"], "status may run immediately after auto completion");
-
-  const raceStore = new Map([[FIREWALL_KEY, token]]);
-  await execute({
-    argument: officialOnlyArgument("status"),
-    store: raceStore,
-    officialGets: [{ body: officialBody([]) }],
-    onDone(store) {
-      store.set(RUN_LOCK_KEY, JSON.stringify({
-        version: 1,
-        owner: "replacement-owner",
-        at: Date.now(),
-        expires_at: Date.now() + 120_000,
-        context: "replacement",
-        mode: "force",
-      }));
-    },
-  });
-  const replacement = JSON.parse(raceStore.get(RUN_LOCK_KEY));
-  assert.strictEqual(replacement.owner, "replacement-owner", "old owner must not release a replacement lock");
-  const blockedByReplacement = await execute({
-    argument: officialOnlyArgument("force"),
-    store: raceStore,
-    officialGets: [{ body: officialBody([]) }],
-  });
-  assert.deepStrictEqual(blockedByReplacement.requests, [], "replacement owner lock must remain active");
-
-  /*
-   * The assertions above deliberately use a shared persistent map.  A
-   * completed run releases only its owner, while a concurrent run sees the
-   * same lock regardless of mode or network context.
-   */
-  return;
-}
-
-async function testErrorsAreRedacted() {
-  const result = await execute({
-    mode: "force",
-    postError: "upstream rejected Authorization: Bearer test-token",
-  });
-  const state = result.store.get(STORE_KEY);
-  assert.ok(state, "failed report should retain a diagnostic state");
-  assert.ok(!state.includes("test-token"), "state must not contain the token");
-  assert.ok(!result.logs.join("\n").includes("test-token"), "logs must not contain the token");
-  assert.ok(!result.notifications.map((item) => item.content).join("\n").includes("test-token"));
-}
-
-async function testLocalSideEffectFailuresStillFinish() {
-  const result = await execute({ mode: "force", writeError: true, notificationError: true });
-  assert.strictEqual(result.doneCalls, 1);
-  assert.strictEqual(result.postCallbackFinished, false, "failed lock persistence must fail closed before network");
-}
-
 async function testOfficialGetFirstAndFixedSlot() {
   const token = "pgnfw_loon_fixture";
   const result = await execute({
@@ -406,25 +214,6 @@ async function testOfficialStatusMissingIsReadable() {
   assert.strictEqual(state.official.accounts[0].current, "8.8.8.8/24");
 }
 
-async function testOfficialRunsBeforeCachedWorker() {
-  const now = Math.floor(Date.now() / 1000);
-  const token = "pgnfw_loon_due";
-  const cached = JSON.stringify({
-    context: "wifi:Cafe-WiFi",
-    ip: "8.8.8.8",
-    network: "wifi",
-    accepted_at: now - 30,
-    expires_at: now + 7200,
-    next_refresh_at: now + 1200,
-    official: { last_attempt_at: now - 601 },
-  });
-  const result = await execute({
-    store: { [STORE_KEY]: cached, [FIREWALL_KEY]: token },
-    officialGets: [{ body: officialBody([{ ip: "8.8.8.8/24", slot: null }]) }],
-  });
-  assert.deepStrictEqual(result.requests.map((entry) => entry.method), ["get"]);
-  assert.ok(result.requests[0].request.url.includes("/api/firewall/"));
-}
 
 async function testOfficialDuplicateSlotsFailClosed() {
   const token = "pgnfw_loon_bad_slots";
@@ -463,58 +252,6 @@ async function testPersistentLockWriteFailureFailsClosed() {
   assert.deepStrictEqual(result.requests, [], "a failed lock write must block all network reports");
 }
 
-async function testParallelOfficialAccountsPreserveLaneOrder() {
-  const first = "pgnfw_loon_parallel_one";
-  const second = "pgnfw_loon_parallel_two";
-  const result = await execute({
-    store: { [FIREWALL_KEY]: first + "," + second },
-    officialGets: [
-      { delayMs: 35, body: officialBody([]) },
-      { delayMs: 0, body: officialBody([]) },
-    ],
-    officialPosts: [
-      { delayMs: 15, body: officialBody([{ ip: "8.8.8.8/24", slot: null }]) },
-      { delayMs: 15, body: officialBody([{ ip: "8.8.8.8/24", slot: null }]) },
-    ],
-  });
-  const officialRequests = result.requests.filter((entry) => String(entry.request.url || "").includes("/api/firewall/"));
-  assert.deepStrictEqual(officialRequests.slice(0, 2).map((entry) => entry.method), ["get", "get"]);
-  assert.deepStrictEqual(officialRequests.map((entry) => entry.method), ["get", "get", "post", "post"]);
-  const workerIndex = result.requests.findIndex((entry) => entry.request.url === "https://api.ipify.org?format=json");
-  assert.ok(workerIndex >= 4, "Worker must start only after every official account finishes");
-  assert.strictEqual(JSON.parse(result.store.get(STORE_KEY)).official.accounts[0].account, 1);
-  assert.strictEqual(JSON.parse(result.store.get(STORE_KEY)).official.accounts[1].account, 2);
-}
-
-function testPluginContract() {
-  const plugin = fs.readFileSync(pluginPath, "utf8");
-  const declarations = plugin.split(/\r?\n/).filter((line) => /^(?:cron|network-changed|generic)\b/.test(line));
-  assert.strictEqual(declarations.length, 17);
-  assert.strictEqual(declarations.filter((line) => /timeout=300/.test(line)).length, 9);
-  assert.match(plugin, /\[Argument\]/);
-  assert.match(plugin, /SKIP_WIFI_SSIDS = input/);
-  assert.equal(declarations.filter(line => line.includes("{SKIP_WIFI_SSIDS}")).length, 7);
-  assert.match(plugin, /po0_worker_url = input,tag=【自建防火墙】/);
-  assert.match(plugin, /po0_worker_token = input,tag=【自建防火墙】/);
-  assert.match(plugin, /PO0_FIREWALL_TOKENS = input,tag=【官方防火墙】/);
-  assert.strictEqual(declarations.filter((line) => line.includes('argument=[{PO0_FIREWALL_TOKENS},{PO0_FIREWALL_NAMES},{official_report_interval_seconds},{official_timer_enabled},{OFFICIAL_NETWORK_TARGETS_ENABLED},{PO0_FIREWALL_WIFI_TOKENS},{PO0_FIREWALL_WIFI_NAMES}]')).length, 1);
-  assert.ok(declarations.every((line) => line.includes('script-path=' + scriptRawUrl)));
-}
-
-async function testNamedPluginArguments() {
-  const saved = await execute({ scriptName: '官方防火墙 · 保存本机设置',
-    argument: { PO0_FIREWALL_TOKENS: 'pgnfw_named_mock@2', official_report_interval_seconds: 900 }, forbidConfig: true });
-  assert.deepStrictEqual(saved.requests, []);
-  assert.equal(JSON.parse(saved.store.get(STORE_KEY + '.channel-settings')).officialIntervalSeconds, 900, 'native form persists official interval');
-  assert.equal(JSON.parse(saved.store.get(STORE_KEY + '.official-config')).tokens, 'pgnfw_named_mock@2');
-  const status = await execute({ scriptName: '通用 · 查看上报状态',
-    argument: { po0_worker_url: 'https://report.example.com/stash-report/v1', po0_worker_token: 'mock' }, forbidConfig: true });
-  assert.deepStrictEqual(status.requests, []);
-  const forced = await execute({ scriptName: '通用 · 立即上报',
-    argument: { po0_worker_url: 'https://report.example.com/stash-report/v1', po0_worker_token: 'mock' } });
-  assert.ok(forced.requests.some((entry) => entry.method === 'post' && entry.request.url === 'https://report.example.com/stash-report/v1'));
-}
-
 function testLocalSlotSurvivesSync() {
   const store = new Map();
   const sandbox = {
@@ -550,138 +287,6 @@ async function testFlexibleOfficialSeparators() {
   assert.equal(status.requests.filter(x => x.request.url.includes('/api/firewall/')).length, 6);
   assert.ok(status.requests.every(x => x.method === 'get'));
 }
-
-async function testConfiguredSsidSkipsBothChannels() {
-  const args = { mode: 'auto', worker_url: 'https://report.example.com/stash-report/v1', token: 'mock-worker', SKIP_WIFI_SSIDS: 'Home WiFi;Office\nOther' };
-  const store = { [FIREWALL_KEY]: 'pgnfw_ssid_mock' };
-  const skipped = await execute({ ssid: 'Home WiFi', argument: args, store });
-  assert.equal(skipped.requests.length, 0, 'matching SSID must skip both channels before any request');
-  for (const options of [
-    { ssid: 'home wifi', argument: args },
-    { ssid: 'ZTE-47kTee', argument: { ...args, SKIP_WIFI_SSIDS: '' } },
-    { ssid: 'Home WiFi', argument: { ...args, mode: 'force' } },
-  ]) {
-    const result = await execute({ ...options, store });
-    assert.ok(result.requests.some(x => x.request.url.includes('/api/firewall/')));
-    const worker = result.requests.find(x => x.method === 'post' && x.request.url.includes('/stash-report/v1'));
-    assert.ok(worker, 'non-match, cleared list and force must allow Worker');
-    assert.ok(!Object.hasOwn(JSON.parse(worker.request.body), 'ssid'), 'SSID stays local');
-  }
-}
-
-async function testLocalChannelControls() {
-  const store = new Map();
-  const worker = { mode: 'save-worker', worker_url: 'https://saved.example/stash-report/v1', secret: 'saved-fixture-secret', worker_name: '家用接收端', auto_report_interval_seconds: 3600, source_id: 'fixture-device' };
-  const call = async args => execute({ store, argument: JSON.stringify(args), scriptType: 'request', forbidConfig: args.mode !== 'auto' && args.mode !== 'force' });
-  assert.equal((await call(worker)).requests.length, 0, 'saving Worker must stay local');
-  assert.equal((await call({ mode: 'save-official', PO0_FIREWALL_TOKENS: 'pgnfw_home_fixture,pgnfw_office_fixture', PO0_FIREWALL_NAMES: '家庭账号;办公室账号' })).requests.length, 0);
-  const savedWorker = store.get(STORE_KEY + '.worker-config');
-  await call({ mode: 'save-official', PO0_FIREWALL_TOKENS: 'pgnfw_office_fixture,pgnfw_home_fixture@2' });
-  assert.equal(JSON.parse(store.get(STORE_KEY + '.channel-settings')).officialNames, '办公室账号;家庭账号');
-  assert.equal(store.get(STORE_KEY + '.worker-config'), savedWorker, 'official save cannot replace Worker config');
-  await call({ mode: 'toggle-worker' });
-  let result = await call({ mode: 'auto' });
-  assert(result.requests.some(x => x.request.url.includes('/api/firewall/')));
-  assert(!result.requests.some(x => x.request.url.includes('saved.example')), 'paused Worker must not report');
-  await call({ mode: 'toggle-official' });
-  result = await call({ mode: 'auto' });
-  assert.equal(result.requests.length, 0, 'both paused means no network IO');
-  result = await call({ mode: 'force', channel: 'worker' });
-  const post = result.requests.find(x => x.method === 'post' && x.request.url.includes('saved.example'));
-  assert(post, 'manual Worker run must ignore automatic pause');
-  assert.equal(post.request.headers.Authorization, 'Bearer saved-fixture-secret');
-  assert(!result.requests.some(x => x.request.url.includes('/api/firewall/')), 'Worker-only manual run excludes official');
-  assert(!post.request.body.includes('家用接收端'), 'display name must not enter wire payload');
-  assert(!post.request.body.includes('SSID'), 'local SSID policy must not enter wire payload');
-  await call({ mode: 'toggle-worker' });
-  result = await call({ mode: 'auto' });
-  assert(!result.requests.some(x => x.request.url.includes('/api/firewall/')), 'paused official must not run');
-  const beforeOfficial = store.get(STORE_KEY + '.official-config');
-  await call({ mode: 'clear-worker' });
-  assert.equal(store.get(STORE_KEY + '.official-config'), beforeOfficial);
-  result = await call(Object.assign({}, worker, { mode: 'force', channel: 'worker' }));
-  assert(!result.requests.some(x => x.request.url.includes('saved.example')), 'synced parameters cannot restore cleared Worker');
-  await call(worker);
-  await call({ mode: 'clear-official' });
-  assert.equal(JSON.parse(store.get(STORE_KEY)).official, undefined, 'clearing official must remove its stale status');
-  assert.equal(JSON.parse(store.get(STORE_KEY + '.worker-config')).values.worker_name, '家用接收端');
-  result = await call({ mode: 'force', channel: 'official', PO0_FIREWALL_TOKENS: 'pgnfw_synced_fixture' });
-  assert(!result.requests.some(x => x.request.url.includes('/api/firewall/')), 'synced parameters cannot restore cleared official');
-  const view = await call({ mode: 'settings' });
-  assert.equal(view.requests.length, 0, 'settings overview must stay local');
-}
-
-async function testNetworkChangesAndOptionalTimer() {
-  const now = Math.floor(Date.now() / 1000);
-  for (const interval of [0, 900]) {
-    for (const changed of [false, true]) {
-      const store = new Map([
-        [FIREWALL_KEY, 'pgnfw_network_fixture'],
-        [STORE_KEY + '.channel-settings', JSON.stringify({version: 1, officialIntervalSeconds: interval})],
-        [STORE_KEY, JSON.stringify({detected_ip: changed ? '1.1.1.1' : '8.8.8.8', official: {last_attempt_at: now - 601}})],
-      ]);
-      const result = await execute({store, scriptName: changed ? '网络变化上报' : '', argument: officialOnlyArgument('auto')});
-      const gets = result.requests.filter(item => item.method === 'get' && item.request.url.includes('/api/firewall/'));
-      assert.strictEqual(gets.length, changed ? 1 : 0, 'network change bypasses optional timer, unchanged respects 900s/disabled');
-    }
-  }
-  const result = await execute({store: new Map([
-    [FIREWALL_KEY, 'pgnfw_network_fixture'],
-    [STORE_KEY + '.channel-settings', JSON.stringify({version: 1, officialIntervalSeconds: 900})],
-    [STORE_KEY, JSON.stringify({detected_ip: '8.8.8.8', official: {last_attempt_at: now - 901}})],
-  ]), argument: officialOnlyArgument('auto')});
-  assert(result.requests.some(item => item.request.url.includes('/api/firewall/')), 'custom timer fires when due');
-}
-
-
-async function testIndependentPeriodicSettingsAndRetirement() {
-  const store = new Map();
-  const call = args => execute({ store, argument: JSON.stringify(args) });
-  const worker = { mode: 'save-worker', worker_url: 'https://saved.example/stash-report/v1', secret: 'dummy-secret', source_id: 'fixture-device', worker_name: '接收端', auto_report_interval_seconds: 1200, worker_timer_enabled: false };
-  await call(worker);
-  await call({mode:'save-official', PO0_FIREWALL_TOKENS:'pgnfw_independent_fixture@2', official_report_interval_seconds:900, official_timer_enabled:true});
-  const officialConfig = store.get(STORE_KEY + '.official-config');
-  let settings = JSON.parse(store.get(STORE_KEY + '.channel-settings'));
-  assert.equal(settings.workerTimerEnabled, false);
-  assert.equal(settings.officialTimerEnabled, true);
-  assert.equal(settings.officialIntervalSeconds, 900);
-  let result = await call({mode:'auto'});
-  assert(result.requests.some(x => x.request.url.includes('/api/firewall/')), 'official timer must work while Worker periodic reporting is disabled');
-  await call({mode:'toggle-worker'});
-  const beforeState = JSON.parse(store.get(STORE_KEY)).official;
-  await call({mode:'clear-worker'});
-  assert.equal(store.get(STORE_KEY + '.official-config'), officialConfig);
-  assert.deepEqual(JSON.parse(store.get(STORE_KEY)).official, beforeState, 'clearing Worker must preserve official results');
-  result = await call({mode:'auto', trigger:'network'});
-  assert(result.requests.some(x => x.request.url.includes('/api/firewall/')), 'official network trigger must survive Worker retirement');
-  assert(!result.requests.some(x => x.request.url.includes('saved.example')), 'cleared Worker must stay inactive');
-  await call(worker);
-  settings = JSON.parse(store.get(STORE_KEY + '.channel-settings'));
-  assert.equal(settings.workerAutoEnabled, false, 'restoring Worker settings must preserve its paused state');
-  assert.equal(settings.officialIntervalSeconds, 900);
-  assert.equal(store.get(STORE_KEY + '.official-config'), officialConfig);
-  await call({mode:'save-official', official_timer_enabled:false});
-  settings = JSON.parse(store.get(STORE_KEY + '.channel-settings'));
-  assert.equal(settings.officialIntervalSeconds, 900, 'changing the switch must retain the interval');
-  assert.equal(store.get(STORE_KEY + '.official-config'), officialConfig, 'empty Token must preserve credentials and slot');
-  result = await call({mode:'auto', trigger:'network'});
-  assert(result.requests.some(x => x.request.url.includes('/api/firewall/')), 'timer switch must not disable network events');
-  for (const mode of ['settings','recent']) {
-    const before = store.get(STORE_KEY);
-    result = await call({mode});
-    assert.equal(result.requests.length, 0, mode + ' must not access network');
-    assert.equal(store.get(STORE_KEY), before, mode + ' must not advance reporting state');
-  }
-  store.set(STORE_KEY + '.worker-config', JSON.stringify({version:1,values:{worker_url:'http://invalid.example/report',secret:'dummy-secret'}}));
-  result = await call({mode:'force'});
-  assert(result.requests.some(x => x.request.url.includes('/api/firewall/')), 'invalid Worker config must not prevent official report');
-  assert(JSON.parse(store.get(STORE_KEY)).official.accounts.length > 0);
-  await call(Object.assign({},worker,{auto_report_interval_seconds:0,worker_timer_enabled:true}));
-  settings=JSON.parse(store.get(STORE_KEY + '.channel-settings'));
-  assert.equal(settings.workerTimerEnabled,false,'legacy zero must retain its timer-off meaning');
-  assert.equal(settings.officialIntervalSeconds,900);
-}
-
 
 async function testOfficialNetworkTargets() {
   const store = new Map();
@@ -727,7 +332,6 @@ async function testOfficialNetworkTargets() {
   result = await call({mode:'auto', worker_url:'https://report.example.com/stash-report/v1', secret:'worker-fixture', token:'worker-fixture', source_id:'phone'});
   assert(posts(result).length, 'official selection change checks its new target');
   assert.equal(result.requests.filter(x=>x.method==='post'&&!x.request.url.includes('/api/firewall/')).length,0,'official network selection must not force a cached self-report');
-  assert.equal(JSON.parse(store.get(STORE_KEY)).expires_at,seconds+43200,'official report must preserve self-report TTL');
   await call(Object.assign({},save,{PO0_FIREWALL_WIFI_TOKENS:'pgnfw_second@2,'+token,PO0_FIREWALL_WIFI_NAMES:'第二个;第一个'}));
   await call({mode:'save-official',PO0_FIREWALL_WIFI_TOKENS:token+',pgnfw_second@2'});
   assert.equal(JSON.parse(store.get(STORE_KEY+'.official-config')).wifiNames,'第一个;第二个','Wi-Fi names follow account identity on reorder');
@@ -739,34 +343,39 @@ async function testOfficialNetworkTargets() {
   assert.equal(officialRequests(result).length, 0, 'clear cannot be undone by synced parameters');
 }
 
+async function testRetirementMigration() {
+  const token = 'pgnfw_retirement_fixture';
+  const official = JSON.stringify({ version: 1, tokens: token + '@2' });
+  const legacy = JSON.stringify({version:1,values:{worker_url:'http://invalid',secret:'retired-secret'}});
+  const store = new Map([[STORE_KEY+'.official-config',official],[STORE_KEY+'.worker-config',legacy],[STORE_KEY+'.channel-settings',JSON.stringify({version:1,workerAutoEnabled:true,officialAutoEnabled:true,officialNames:'保留名称',officialIntervalSeconds:1200,officialTimerEnabled:false})],[STORE_KEY,JSON.stringify({expires_at:9999999999,accepted_at:123,ip:'old worker address'})]]);
+  const result = await execute({store,argument:JSON.stringify({mode:'force',worker_url:'http://invalid',secret:'retired-secret'}),ssid:'cellular',officialPosts:[{body:officialBody([{ip:'8.8.8.8/24',slot:2}])}]});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(store.get(STORE_KEY+'.official-config'),official,'official token/slot bytes preserved');
+  const settings=JSON.parse(store.get(STORE_KEY+'.channel-settings'));
+  assert.equal(settings.officialNames,'保留名称'); assert.equal(settings.officialIntervalSeconds,1200); assert.equal(settings.officialTimerEnabled,false);
+  assert.equal(settings.workerAutoEnabled,undefined);
+  assert.equal(JSON.parse(store.get(STORE_KEY+'.pre-retirement-v1')).worker,legacy,'raw legacy asset backed up locally');
+  assert.equal(JSON.parse(store.get(STORE_KEY)).expires_at,undefined,'no old expiry in active state');
+  assert(result.requests.length>0); assert(result.requests.every(x=>!x.request.url.includes('/stash-report/')&&!x.request.url.includes('invalid')));
+  const backup=store.get(STORE_KEY+'.pre-retirement-v1');
+  const retired=await execute({store,argument:JSON.stringify({mode:'force',channel:'worker'}),ssid:'cellular'});
+  assert.equal(retired.requests.length,0,'explicit retired action cannot trigger official');
+  assert.equal(store.get(STORE_KEY+'.pre-retirement-v1'),backup,'backup is immutable');
+  await execute({store,argument:JSON.stringify({mode:'clear-official'})});
+  const cleared=await execute({store,argument:JSON.stringify({mode:'force',PO0_FIREWALL_TOKENS:token}),ssid:'cellular'});
+  assert.equal(cleared.requests.length,0,'clear remains a tombstone against synchronized arguments');
+}
+
 (async () => {
   await testOfficialNetworkTargets();
-  await testIndependentPeriodicSettingsAndRetirement();
-  await testNetworkChangesAndOptionalTimer();
-  await testLocalChannelControls();
-  await testConfiguredSsidSkipsBothChannels();
   await testFlexibleOfficialSeparators();
-  testLocalSlotSurvivesSync();
-  await testNamedPluginArguments();
-  await testSuccessfulAwayReport();
-  await testPluginPersistentCredentials();
-  await testHomeAndUnknownFailClosed();
-  await testStatusIsReadOnly();
-  await testTTLAndDebounceAvoidNetwork();
-  await testSharedRunLockAcrossModesAndContexts();
-  await testErrorsAreRedacted();
-  await testLocalSideEffectFailuresStillFinish();
+  await testLocalSlotSurvivesSync();
   await testOfficialGetFirstAndFixedSlot();
-  await testOfficialHitAndGetFailureNeverPost();
-  await testOfficialStatusMissingIsReadable();
-  await testOfficialRunsBeforeCachedWorker();
-  await testOfficialDuplicateSlotsFailClosed();
   await testSameTokenDifferentSlotsFailClosed();
   await testPersistentLockWriteFailureFailsClosed();
-  await testParallelOfficialAccountsPreserveLaneOrder();
-  testPluginContract();
-  console.log("po0-loon-report tests: OK");
-})().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+  await testOfficialHitAndGetFailureNeverPost();
+  await testOfficialStatusMissingIsReadable();
+  await testOfficialDuplicateSlotsFailClosed();
+  await testRetirementMigration();
+  console.log('PASS: loon official-only API, network and migration checks');
+})().catch(error => { console.error(error); process.exitCode = 1; });

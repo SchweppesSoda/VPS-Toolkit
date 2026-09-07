@@ -22,6 +22,7 @@ set +e
 output="$(
     env \
         "PO0_OUTBOUND_IP_REPORT_CONFIG=${tmp_dir}/settings.env" \
+        "XDG_STATE_HOME=${tmp_dir}/state" \
         'PO0_FIREWALL_TOKENS=not-a-token' \
         'PO0_OUTBOUND_IP_REPORT_WANS=bad?' \
         'PO0_OUTBOUND_IP_REPORT_INTERVAL_SECONDS=not-an-interval' \
@@ -31,7 +32,7 @@ rc=$?
 set -e
 
 [[ "${rc}" == "1" ]] || fail "official status returned unexpected rc ${rc}"
-[[ "${output}" == *"官方防火墙 token 配置无效"* ]] || fail "official status did not reach official validation"
+[[ "${output}" == *"官方防火墙 token 配置无效"* ]] || { printf "%s\n" "$output" >&2; fail "official status did not reach official validation"; }
 [[ "${output}" != *"上报间隔秒数无效"* ]] || fail "official status was blocked by Worker interval validation"
 
 printf 'PASS: Linux official status remains independent from Worker validation.\n'

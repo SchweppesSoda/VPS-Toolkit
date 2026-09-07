@@ -64,16 +64,6 @@ to_lower() {
     printf '%s\n' "${out}"
 }
 
-digits_only() {
-    local value="$1" out="" ch i
-    for ((i = 0; i < ${#value}; i++)); do
-        ch="${value:i:1}"
-        case "${ch}" in
-            [0-9]) out="${out}${ch}" ;;
-        esac
-    done
-    printf '%s\n' "${out}"
-}
 
 prompt_yes_no() {
     local prompt="$1"

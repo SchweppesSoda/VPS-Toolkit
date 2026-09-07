@@ -26,8 +26,8 @@ for platform in linux macos; do
         save_config_file() { printf '%s\n' "$PO0_FIREWALL_TOKENS" > "$CONFIG_FILE"; }
         current_wifi_ssid_label() { printf 'Fixture Wi-Fi'; }
         show_current_config > "$test_dir/view-$platform"
-        grep -Fq '上报密钥=worker-visible-fixture' "$test_dir/view-$platform"
-        grep -Fq '官方 Token=pgnfw_visible_fixture@3' "$test_dir/view-$platform"
+        ! grep -Fq '上报密钥=worker-visible-fixture' "$test_dir/view-$platform"
+        grep -Fq 'Token / 槽位=pgnfw_visible_fixture@3' "$test_dir/view-$platform"
         if ! { : < /dev/tty; } 2>/dev/null; then
             reader=official_read_secret_prompt
             [[ "$platform" != macos ]] || reader=po0_firewall_read_secret_prompt
@@ -65,7 +65,8 @@ for platform in linux macos; do
         OFFICIAL_AUTO_ENABLED=0
         WORKER_NAME=''
         . "$CONFIG_FILE"
-        [[ "$WORKER_AUTO_ENABLED" == 0 && "$OFFICIAL_AUTO_ENABLED" == 1 && "$WORKER_NAME" == '家用接收端' ]]
+        [[ "$OFFICIAL_AUTO_ENABLED" == 1 ]]
+        ! grep -Eq "^(WORKER_|SECRET=)" "$CONFIG_FILE"
         # The new periodic editor keeps stored intervals and updates only existing tasks.
         schedule_updates=''
         update_channel_schedule_if_installed() { schedule_updates="$schedule_updates $1"; }
@@ -78,16 +79,11 @@ for platform in linux macos; do
         configure_channel_periodic_interactive official > /dev/null
         [[ "$OFFICIAL_INTERVAL_SECONDS" == 900 && "$OFFICIAL_TIMER_ENABLED" == 0 && "$CRON_MINUTES" == 90 && "$WORKER_TIMER_ENABLED" == 1 ]]
         [[ "$schedule_updates" == ' official' && "$(channel_interval_label official)" == *暂不使用* ]]
-        configure_channel_periodic_interactive worker > /dev/null
-        [[ "$CRON_MINUTES" == 90 && "$WORKER_TIMER_ENABLED" == 0 && "$OFFICIAL_INTERVAL_SECONDS" == 900 && "$OFFICIAL_TIMER_ENABLED" == 0 ]]
         prompt_yes_no() { return 0; }
         configure_channel_periodic_interactive official > /dev/null
-        [[ "$OFFICIAL_TIMER_ENABLED" == 1 && "$WORKER_TIMER_ENABLED" == 0 ]]
+        [[ "$OFFICIAL_TIMER_ENABLED" == 1 ]]
         prompt_yes_no() { return 0; }
         save_config_file() { real_save_config_file; }
-        clear_worker_config_interactive > /dev/null
-        [[ -z "$WORKER_URL" && -z "$SECRET" && -z "$WORKER_NAME" ]]
-        [[ "$PO0_FIREWALL_TOKENS" == 'pgnfw_second@2,pgnfw_first@0' && "$PO0_FIREWALL_NAMES" == '家庭;First office' ]]
         SECRET='worker-fixture'
         clear_official_tokens_interactive > /dev/null
         [[ -z "$PO0_FIREWALL_TOKENS" && -z "$PO0_FIREWALL_NAMES" && "$OFFICIAL_AUTO_ENABLED" == 0 && "$SECRET" == worker-fixture ]]
@@ -99,7 +95,7 @@ for platform in linux macos; do
         grep -Fq 'manual-official-result' "$(schedule_channel_log_path official)"
         [[ ! -e "$(schedule_channel_log_path worker)" ]]
         # Read each menu through the actual dispatcher without installing or reporting.
-        printf '1\n0\n2\n0\n5\n0\n7\n0\n0\n' > "$test_dir/menu-input"
+        printf '1\n0\n6\n0\n0\n' > "$test_dir/menu-input"
         exec 9< "$test_dir/menu-input"
         read_prompt() { local line; IFS= read -r line <&9 || return 1; printf '%s' "$line"; }
         menu_clear_screen() { :; }

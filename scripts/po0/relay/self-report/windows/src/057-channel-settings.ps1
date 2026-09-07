@@ -1,4 +1,4 @@
-﻿# Local controls and scheduler entries are independent for each channel.
+# Local controls and scheduler entries are independent for each channel.
 $script:OfficialIntervalSeconds = $OfficialIntervalSeconds
 $script:WorkerTimerEnabled = $true
 $script:OfficialTimerEnabled = $true
@@ -34,15 +34,6 @@ function Toggle-ChannelAutoInteractive {
     param([ValidateSet("worker", "official")][string]$Channel)
     Set-ScheduledReporterPaused -Paused (-not (Test-ChannelAutoPaused $Channel)) -Channel $Channel
     Write-Host "自动上报：$(Get-ChannelAutoLabel $Channel)。手动上报仍可使用。"
-}
-
-function Clear-WorkerConfigInteractive {
-    if (-not (Read-YesNoDefault "清除本机自建防火墙地址、密钥和目标名称（保留官方及通用设置）" $false)) { return }
-    $script:WorkerUrl = ""
-    $script:Secret = ""
-    $script:WorkerName = ""
-    $script:WorkerAutoEnabled = $false
-    Save-ClientConfig
 }
 
 function Update-ChannelScheduleIfInstalled {
@@ -91,22 +82,12 @@ function Set-ChannelPeriodicInteractive {
 }
 
 function Show-ChannelConfig {
-    param([string]$Channel)
-    Write-PanelSection '本机配置'
-    Write-PanelRow '自动上报' (Get-ChannelAutoLabel $Channel)
-    Write-PanelRow '上报间隔' (Get-ChannelIntervalLabel $Channel)
-    if ($Channel -eq 'official') {
-        Show-OfficialTargetNames
-        Write-PanelRow 'Token / 槽位' $script:Po0FirewallTokens
-        Write-PanelRow '白名单有效期（TTL）' '由官方服务管理'
-    } elseif (Test-ChannelConfigured worker) {
-        Write-PanelRow '目标名称' $script:WorkerName
-        Write-PanelRow '接收地址' $script:WorkerUrl
-        Write-PanelRow '上报密钥' $script:Secret
-        Write-PanelRow '来源 ID' $script:SourceId
-        Write-PanelRow '备注' $script:Identity
-        Write-PanelRow '白名单有效期（TTL）' '由 LAN Worker 接收端管理'
-    } else { Write-PanelRow '自建防火墙' '未配置（进入保存配置填写）' }
+    param([string]$Channel = 'official')
+    Write-PanelSection '官方防火墙 · 本机配置'
+    Write-PanelRow '自动上报' (Get-ChannelAutoLabel official)
+    Write-PanelRow '上报间隔' (Get-ChannelIntervalLabel official)
+    Show-OfficialTargetNames
+    Write-PanelRow 'Token / 槽位' $script:Po0FirewallTokens
 }
 
 function Invoke-ChannelForceInteractive {

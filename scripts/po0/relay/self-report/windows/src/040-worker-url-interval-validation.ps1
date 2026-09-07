@@ -1,4 +1,4 @@
-function Normalize-WorkerUrl {
+﻿function Normalize-WorkerUrl {
     param([string]$Value)
     if (-not $Value) { return "" }
     $value = $Value.Trim()

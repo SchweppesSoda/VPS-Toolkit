@@ -42,7 +42,7 @@ show_manager_update_http_status() {
     print_panel_row "本机监听" "${MANAGER_UPDATE_LISTEN}"
     print_panel_row "Caddy 后端" "${MANAGER_UPDATE_BACKEND}"
     print_panel_row "Caddy snippet" "${MANAGER_UPDATE_CADDY_SNIPPET}"
-    print_panel_row "可用 token" "${token_count} 个 resource token"
+    print_panel_row "可用 token" "${token_count} 个 更新密钥"
     print_panel_row "镜像服务" "$(manager_update_service_summary)"
     if have_cmd systemctl; then
         print_panel_row "Caddy 服务" "active=$(systemctl is-active "${name}" 2>/dev/null || true) enabled=$(systemctl is-enabled "${name}" 2>/dev/null || true)"
@@ -65,7 +65,7 @@ install_manager_update_mirror_service() {
     }
     tokens="$(manager_update_tokens_env)" || return 1
     [[ -n "${tokens}" ]] || {
-        printf '没有可用的 resource token，无法安装 manager 更新镜像服务。\n' >&2
+        printf '没有可用的 更新密钥，无法安装 manager 更新镜像服务。\n' >&2
         return 1
     }
     script_path="$(ensure_persistent_script)" || return 1

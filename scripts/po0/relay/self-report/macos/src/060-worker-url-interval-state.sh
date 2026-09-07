@@ -67,16 +67,7 @@ validate_worker_url() {
 }
 
 config_complete() {
-    # A configured official channel is usable independently of Worker validation.
-    if [[ "${WORKER_ONLY:-0}" != 1 && -n "${PO0_FIREWALL_TOKENS:-}" ]]; then return 0; fi
-    [[ "${OFFICIAL_ONLY:-0}" != 1 ]] || return 1
-    if command -v po0_reporter_validate_config >/dev/null 2>&1; then
-        po0_reporter_validate_config >/dev/null 2>&1
-        return "$?"
-    fi
-    [[ -n "${WORKER_URL:-}" ]] || return 1
-    validate_worker_url >/dev/null 2>&1 || return 1
-    validate_cron_minutes >/dev/null 2>&1 || return 1
+    [[ -n "${PO0_FIREWALL_TOKENS:-}" ]]
 }
 
 pause_before_return() {
@@ -110,34 +101,6 @@ normalize_interval_seconds_to_minutes() {
     (( 10#${seconds} >= 60 && 10#${seconds} <= max_seconds )) || return 1
     (( 10#${seconds} % 60 == 0 )) || return 1
     printf '%s\n' "$((10#${seconds} / 60))"
-}
-
-cron_minutes_to_seconds() {
-    local minutes="${1:-}"
-    [[ "${minutes}" =~ ^[0-9]+$ && "${minutes}" -ge 1 ]] || minutes="60"
-    printf '%s\n' "$((10#${minutes} * 60))"
-}
-
-po0_reporter_wakeup_minutes() {
-    local minutes="${CRON_MINUTES:-60}"
-    [[ "${minutes}" =~ ^[0-9]+$ && "${minutes}" -ge 1 ]] || minutes="60"
-    if command -v po0_firewall_configured >/dev/null 2>&1; then
-        if po0_firewall_configured && (( 10#${minutes} > 10 )); then
-            printf '10\n'
-            return 0
-        fi
-    fi
-    printf '%s\n' "$((10#${minutes}))"
-}
-
-po0_reporter_wakeup_seconds() {
-    cron_minutes_to_seconds "$(po0_reporter_wakeup_minutes)"
-}
-
-max_interval_seconds() {
-    local max="${MAX_CRON_MINUTES:-10080}"
-    [[ "${max}" =~ ^[0-9]+$ && "${max}" -ge 1 ]] || max="10080"
-    printf '%s\n' "$((10#${max} * 60))"
 }
 
 apply_interval_seconds_override() {

@@ -7,7 +7,7 @@ UCI_RUNNER='/usr/libexec/po0-outbound-ip-report-uci'
 lane="${1:-}"
 trigger="${2:-timer}"
 wan="${3:-}"
-case "$lane" in worker|official) ;; *) exit 2 ;; esac
+case "$lane" in official) ;; worker) exit 0 ;; *) exit 2 ;; esac
 case "$trigger" in timer|network) ;; *) exit 2 ;; esac
 case "$wan" in *[!A-Za-z0-9_.-]*) exit 2 ;; esac
 LOG="${BASE}.${lane}.log"
@@ -21,7 +21,7 @@ is_disabled() {
 uci_get() { uci -q get "po0_outbound_ip_report.main.$1" 2>/dev/null || true; }
 
 interval_for() {
-	case "$lane" in worker) key=interval_seconds; fallback=3600 ;; official) key=official_interval_seconds; fallback=600 ;; esac
+	key=official_interval_seconds; fallback=600
 	value="$(uci_get "$key")"
 	case "$value" in ''|*[!0-9]*) value="$fallback" ;; esac
 	value="$(printf '%s' "$value" | sed 's/^0*//')"
@@ -35,7 +35,7 @@ automatic_enabled() {
 	overall="$(uci_get enabled)"
 	case "$overall" in 1|true|yes|on) ;; *) return 1 ;; esac
 	enabled="$(uci_get "${lane}_enabled")"
-	[ -n "$enabled" ] || { [ "$lane" = worker ] && enabled=1 || enabled=0; }
+	[ -n "$enabled" ] || { enabled=0; }
 	is_disabled "$enabled" && return 1
 	if [ "$trigger" = network ]; then
 		! is_disabled "$(uci_get "${lane}_network_enabled")"
@@ -48,7 +48,7 @@ read_timer_time() {
 	file="$TIMER_STATE"
 	# Seed from the previous APK's result without rewriting the saved switches.
 	if [ ! -r "$file" ] && [ -r "$STATE" ] && ! grep -q '^trigger=network$' "$STATE"; then file="$STATE"; fi
-	case "$lane" in worker) field=finished_at ;; official) field=observed_at ;; esac
+	field=observed_at
 	value=''
 	[ ! -r "$file" ] || value="$(sed -n "s/^${field}=//p" "$file" | head -n 1)"
 	case "$value" in ''|*[!0-9]*) value=0 ;; esac

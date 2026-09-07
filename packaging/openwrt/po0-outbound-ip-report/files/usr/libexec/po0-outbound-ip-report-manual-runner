@@ -1,8 +1,8 @@
 #!/bin/sh
 set -u
-lane="${1:-worker}"
+lane="${1:-official}"
 force="${2:-0}"
-case "$lane" in worker|official) :;; --force-report) lane=worker; force=1;; *) exit 2;; esac
+case "$lane" in official) :;; worker) exit 0;; --force-report) lane=official; force=1;; *) exit 2;; esac
 BASE='/tmp/po0-outbound-ip-report'
 STATE_FILE="${PO0_MANUAL_STATE_FILE:-${BASE}.${lane}.manual.state}"
 LOG_FILE="${PO0_MANUAL_LOG_FILE:-${BASE}.${lane}.manual.log}"

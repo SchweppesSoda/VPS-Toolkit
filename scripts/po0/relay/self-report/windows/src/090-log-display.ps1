@@ -1,26 +1,4 @@
-function Get-ScheduledReporterLogPath {
-    param($Task)
-    if ($script:LogPath) { return $script:LogPath }
-    if (-not $Task) { return "" }
-    foreach ($action in $Task.Actions) {
-        $args = [string]$action.Arguments
-        if ($args -match '(?i)-LogPath\s+"([^"]+)"') { return $matches[1] }
-        if ($args -match '(?i)-LogPath\s+(\S+)') { return $matches[1].Trim('"') }
-        $launcher = ""
-        if ($args -match '(?i)"([^"]+\.vbs)"') {
-            $launcher = $matches[1]
-        } elseif ($args -match '(?i)(\S+\.vbs)') {
-            $launcher = $matches[1].Trim('"')
-        }
-        if ($launcher -and (Test-Path -LiteralPath $launcher)) {
-            $launcherRaw = Get-Content -LiteralPath $launcher -Raw
-            if ($launcherRaw -match '(?i)-LogPath\s+""([^""]+)""') { return $matches[1] }
-            if ($launcherRaw -match '(?i)-LogPath\s+(\S+)') { return $matches[1].Trim('"') }
-        }
-    }
-    return ""
-}
-
+﻿
 function Get-SelfReportLogDisplayKind {
     param([string]$Level)
     $normalized = ""
@@ -78,20 +56,6 @@ function Convert-SelfReportLogLineForDisplay {
         $message = $message -replace '^PO0 Outbound IP Report 未完成：', ''
         $message = $message -replace '^Self-report 已完成：', ''
         $message = $message -replace '^Self-report 未完成：', ''
-        if ($message -match '^上报当前公网出口 IPv4\s+([0-9.]+)\s+到 LAN Worker：') {
-            $message = "上报公网出口 IPv4 $($matches[1]) 到 LAN Worker"
-        } elseif ($kind -eq "返回") {
-            $responseSummary = Get-SelfReportResponseSummary -Content $message
-            if ($responseSummary) {
-                $targetCount = [int]$responseSummary.TargetCount
-                $responseIp = [string]$responseSummary.Ip
-                $targetNames = @($responseSummary.TargetNames | Where-Object { $_ })
-                $targetSummary = Format-SelfReportTargetSuccessSummary -ResponseSummary $responseSummary
-                if ($targetSummary) {
-                    $message = "$targetSummary（公网出口 IPv4 $responseIp）"
-                }
-            }
-        }
         return [pscustomobject]@{
             Stamp = $stampLabel
             Kind = $kind
@@ -116,35 +80,7 @@ function Convert-SelfReportLogLineForDisplay {
 
 function Merge-SelfReportResponseSummaries {
     param($Entries)
-    $displayEntries = New-Object System.Collections.Generic.List[object]
-    $pendingResponse = $null
-    foreach ($entry in $Entries) {
-        if ($entry.Level -eq "RESPONSE" -and $entry.TargetCount -gt 0) {
-            if ($pendingResponse) {
-                [void]$displayEntries.Add($pendingResponse)
-            }
-            $pendingResponse = $entry
-            continue
-        }
-        if ($entry.Level -eq "OK" -and $pendingResponse) {
-            if ($entry.Message -notmatch 'PO0 目标：') {
-                $message = $entry.Message -replace '。$', ''
-                $targetSummary = Format-SelfReportTargetSuccessSummary -ResponseSummary $pendingResponse
-                if ($targetSummary) {
-                    $entry.Message = "$message；$targetSummary。"
-                }
-            }
-            $pendingResponse = $null
-        } elseif ($pendingResponse) {
-            [void]$displayEntries.Add($pendingResponse)
-            $pendingResponse = $null
-        }
-        [void]$displayEntries.Add($entry)
-    }
-    if ($pendingResponse) {
-        [void]$displayEntries.Add($pendingResponse)
-    }
-    return $displayEntries.ToArray()
+    return @($Entries | Where-Object { $_.Level -ne "RESPONSE" })
 }
 
 function Show-SelfReportLogTail {

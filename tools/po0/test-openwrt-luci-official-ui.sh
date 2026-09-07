@@ -18,10 +18,9 @@ fail() {
 grep -Fq "'require uci';" "${ui}" || fail "LuCI view does not load UCI"
 grep -Fq "form.TableSection, 'official_target'" "${ui}" || fail "official target table is missing"
 grep -Fq "form.TableSection, 'official_binding'" "${ui}" || fail "official binding table is missing"
-grep -Fq "'worker_enabled'" "${ui}" || fail "independent Worker switch is missing"
 grep -Fq "'official_enabled'" "${ui}" || fail "official switch is missing"
 grep -Fq "'official_source_' + wan" "${ui}" || fail "gateway WAN source settings are missing"
-for key in official_interval_seconds worker_network_enabled official_network_enabled worker_timer_enabled official_timer_enabled; do
+for key in official_interval_seconds official_network_enabled official_timer_enabled; do
 	grep -Fq "$key" "${ui}" || fail "independent trigger setting is missing: $key"
 done
 grep -Fq "String(slot - 1)" "${ui}" || fail "UI does not map slot 1-5 to backend slot 0-4"
@@ -33,7 +32,6 @@ grep -Fq "status === 'missing'" "${ui}" || fail "normal missing status is not re
 grep -Fq "当前出口尚未加白" "${ui}" || fail "missing status summary is missing"
 
 grep -Fq "o.password = false" "${ui}" || fail "tokens must be visible in configuration"
-grep -Fq "s.tab('worker'" "${ui}" || fail "Worker channel tab is missing"
 grep -Fq "s.tab('official'" "${ui}" || fail "official channel tab is missing"
 grep -Fq "保存配置" "${ui}" || fail "consistent save/report action is missing"
 grep -Fq "必须包含 pgnfw_ 前缀" "${ui}" || fail "full token explanation is missing"
@@ -41,7 +39,6 @@ grep -Fq "必须包含 pgnfw_ 前缀" "${ui}" || fail "full token explanation is
 grep -Fq "'probe_dns_server'" "${ui}" || fail "real DNS server setting is missing"
 grep -Fq "o.default = '192.168.88.1'" "${ui}" || fail "probe DNS default must use the upstream router"
 grep -Fq "'192.168.88.250' : '192.168.88.251'" "${ui}" || fail "dedicated WAN source examples are missing"
-grep -Fq "提交使用本机正常网络，遵循 OpenClash 规则" "${ui}" || fail "Worker submission routing explanation is missing"
 if grep -Eq 'direct_probe_resolve|103\.217\.192\.99' "${ui}"; then
     fail "LuCI must not restore static probe server resolution"
 fi

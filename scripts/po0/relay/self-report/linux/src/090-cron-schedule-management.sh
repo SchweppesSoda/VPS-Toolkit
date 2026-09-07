@@ -3,7 +3,7 @@ schedule_channel_label() {
 }
 
 schedule_channel_configured() {
-    case "$1" in worker) [[ -n "${WORKER_URL:-}" && -n "${SECRET:-}" ]] ;; official) [[ -n "${PO0_FIREWALL_TOKENS:-}" ]] ;; *) return 1 ;; esac
+    case "$1" in worker) return 1 ;; official) [[ -n "${PO0_FIREWALL_TOKENS:-}" ]] ;; *) return 1 ;; esac
 }
 
 schedule_channel_validate() {

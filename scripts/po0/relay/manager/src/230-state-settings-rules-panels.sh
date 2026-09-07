@@ -1,69 +1,24 @@
-install_ipdb_parser_dependency() {
-    ensure_layout || return 1
-    install_ipdb_python_base_if_needed || return 1
-    if ! ipdb_venv_has_pip; then
-        if [[ -x "${IPDB_VENV_PYTHON}" ]]; then
-            warn "检测到旧的 IPDB venv 缺少 pip，将删除并重建。"
-        fi
-        if ! create_ipdb_venv; then
-            warn "首次创建 IPDB 专用 venv 失败，尝试重新安装 Python venv 组件后重试。"
-            install_ipdb_python_base_if_needed || return 1
-            create_ipdb_venv || {
-                err "创建 IPDB 专用 Python venv 失败：${IPDB_VENV_DIR}"
-                err "如果仍看到 No module named pip，请手动安装 python3-venv 或 python3.x-venv 后重试。"
-                return 1
-            }
-        fi
-    fi
-    install_ipdb_parser_package || {
-        err "安装 ipip-ipdb 失败。"
-        err "如果当前 pip 源不可达，请重新运行安装入口并选择其它镜像源或自定义源。"
-        return 1
-    }
-    if ! "${IPDB_VENV_PYTHON}" - <<'PY' >/dev/null 2>&1
-import ipdb
-assert hasattr(ipdb, "City")
-PY
-    then
-        err "ipip-ipdb 安装后仍无法导入。"
-        return 1
-    fi
-    success "IPDB 解析依赖已安装到 ${IPDB_VENV_DIR}。"
-}
+
 
 warn_conflicts() {
-    local found=0
     if systemctl is-active --quiet firewalld 2>/dev/null; then
-        warn "检测到 firewalld 正在运行，托管式 nftables 中转脚本不建议与其混用。"
-        found=1
+        warn "firewalld 正在运行；请在原防火墙中允许所需转发流量。"
     fi
-    if command -v ufw &>/dev/null && ufw status 2>/dev/null | grep -qw active; then
-        warn "检测到 UFW 正在运行，托管式 nftables 中转脚本不建议与其混用。"
-        found=1
+    if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -qw active; then
+        warn "UFW 正在运行；请在原防火墙中允许所需转发流量。"
     fi
-    (( found == 1 )) && warn "如继续初始化，将由 nftables 独占接管这台中转机。"
 }
 
 ensure_layout() {
-    mkdir -p "${CONF_DIR}" "${BACKUP_DIR}" "${EXPORT_DIR}" "${ALLOWLIST_PROFILE_DIR}" "${RESOURCE_INBOX_DIR}" || return 1
-    [[ -f "${SETTINGS_FILE}" ]] || save_settings
-    [[ -f "${RULES_FILE}" ]] || save_rules
-    [[ -f "${ALLOWLIST_SETS_FILE}" ]] || save_allowlist_sets
-    [[ -f "${ALLOWLIST_ENTRIES_FILE}" ]] || ensure_allowlist_entries_file
-    [[ -f "${ALLOWLIST_SOURCES_FILE}" ]] || ensure_allowlist_sources_file
-    [[ -f "${BLOCK_LOG_FILE}" ]] || ensure_block_log_file
-    [[ -f "${BLOCK_SUMMARY_FILE}" ]] || regenerate_block_summary
-    [[ -f "${AUTO_PENDING_FILE}" ]] || ensure_auto_pending_file
-    [[ -f "${CLIENT_IP_REPORT_STATS_FILE}" ]] || ensure_generic_report_stats_file "${CLIENT_IP_REPORT_STATS_FILE}"
-    [[ -f "${SSH_REPORT_STATS_FILE}" ]] || ensure_generic_report_stats_file "${SSH_REPORT_STATS_FILE}"
-    [[ -f "${WEBAUTH_REPORT_STATS_FILE}" ]] || ensure_generic_report_stats_file "${WEBAUTH_REPORT_STATS_FILE}"
-    [[ -f "${RESOURCE_TASKS_FILE}" ]] || resource_task_write_header "${RESOURCE_TASKS_FILE}"
+    mkdir -p "${CONF_DIR}" "${BACKUP_DIR}" "${EXPORT_DIR}" || return 1
+    [[ -f "${SETTINGS_FILE}" ]] || save_settings || return 1
+    [[ -f "${RULES_FILE}" ]] || save_rules || return 1
 }
 
 manager_controls_main_conf() {
-    [[ -f "${MAIN_CONF}" ]] || return 1
-    [[ -f "${NFT_CONF}" ]] || return 1
-    grep -Fq 'include "/etc/nftables.d/*.conf"' "${MAIN_CONF}" 2>/dev/null
+    [[ -f "${MAIN_CONF}" && -f "${NFT_CONF}" ]] || return 1
+    grep -Fq "include \"${NFT_CONF}\"" "${MAIN_CONF}" ||
+        grep -Fq "include \"${CONF_DIR}/*.conf\"" "${MAIN_CONF}"
 }
 
 apply_or_save_notice() {
@@ -74,25 +29,16 @@ apply_or_save_notice() {
         success "${applied_msg}"
     else
         success "${saved_msg}"
-        info "当前运行中的 nftables 尚未由脚本接管；执行 [1] 安装 / 初始化 nftables 后，托管配置才会统一接管并生效。"
+        info "配置已保存；执行 [1] 安装 / 应用转发后生效。"
     fi
-}
-
-backup_takeover_files() {
-    local ts file
-    ts="$(date '+%Y%m%d_%H%M%S')"
-    [[ -f "${MAIN_CONF}" ]] && mv "${MAIN_CONF}" "${MAIN_CONF}.bak.${ts}" 2>/dev/null || true
-    for file in "${CONF_DIR}"/*.conf; do
-        [[ -f "${file}" ]] || continue
-        mv "${file}" "${file}.bak.${ts}" 2>/dev/null || true
-    done
 }
 
 backup_managed_files() {
     local ts file
     ts="$(date '+%Y%m%d_%H%M%S')"
-    for file in "${NFT_CONF}" "${SETTINGS_FILE}" "${RULES_FILE}" "${SRC_ALLOWLIST_CACHE}" "${CUSTOM_SRC_ALLOWLIST_FILE}" "${ALLOWLIST_SETS_FILE}" "${ALLOWLIST_ENTRIES_FILE}" "${ALLOWLIST_SOURCES_FILE}" "${DDNS_REPORT_STATS_FILE}" "${CLIENT_IP_REPORT_STATS_FILE}" "${SSH_REPORT_STATS_FILE}" "${WEBAUTH_REPORT_STATS_FILE}" "${AUTO_PENDING_FILE}" "${BLOCK_LOG_FILE}" "${BLOCK_SUMMARY_FILE}"; do
-        [[ -f "${file}" ]] && cp "${file}" "${BACKUP_DIR}/$(basename "${file}").${ts}" 2>/dev/null || true
+    mkdir -p "${BACKUP_DIR}" || return 1
+    for file in "${NFT_CONF}" "${SETTINGS_FILE}" "${RULES_FILE}" "${UPDATE_TOKEN_FILE}"; do
+        [[ ! -f "${file}" ]] || cp -p -- "${file}" "${BACKUP_DIR}/$(basename "${file}").${ts}" || return 1
     done
 }
 
@@ -150,15 +96,6 @@ read_settings_file() {
             ENABLE_SRC_ALLOWLIST)
                 ENABLE_SRC_ALLOWLIST="${value}"
                 ;;
-            SRC_ALLOWLIST_MODE)
-                SRC_ALLOWLIST_MODE="${value}"
-                ;;
-            SRC_ALLOWLIST_REGION_IDS)
-                SRC_ALLOWLIST_REGION_IDS="${value}"
-                ;;
-            AUTOMATION_MODE)
-                AUTOMATION_MODE="${value}"
-                ;;
             MANAGER_UPDATE_URL)
                 MANAGER_UPDATE_URL="${value}"
                 ;;
@@ -179,12 +116,9 @@ load_settings() {
     PUBLIC_IP_CACHE_SOURCE="none"
     ENABLE_MSS_CLAMP="1"
     MSS_VALUE="1452"
-    MANAGE_INPUT_FIREWALL="1"
+    MANAGE_INPUT_FIREWALL="0"
     SSH_PORTS=""
     ENABLE_SRC_ALLOWLIST="0"
-    SRC_ALLOWLIST_MODE="trusted_dynamic"
-    SRC_ALLOWLIST_REGION_IDS=""
-    AUTOMATION_MODE="regular"
     MANAGER_UPDATE_URL=""
     RELAY_LAN_IP_SOURCE="none"
     PUBLIC_IP_SOURCE="none"
@@ -210,24 +144,19 @@ load_settings() {
     fi
     [[ "${ENABLE_MSS_CLAMP}" == "0" || "${ENABLE_MSS_CLAMP}" == "1" ]] || ENABLE_MSS_CLAMP="1"
     validate_mss "${MSS_VALUE}" || MSS_VALUE="1452"
-    [[ "${MANAGE_INPUT_FIREWALL}" == "0" || "${MANAGE_INPUT_FIREWALL}" == "1" ]] || MANAGE_INPUT_FIREWALL="1"
+    [[ "${MANAGE_INPUT_FIREWALL}" == "0" || "${MANAGE_INPUT_FIREWALL}" == "1" ]] || MANAGE_INPUT_FIREWALL="0"
     SSH_PORTS="$(normalize_port_list "${SSH_PORTS}")"
     if [[ "${MANAGE_INPUT_FIREWALL}" == "1" && -z "${SSH_PORTS}" ]]; then
         SSH_PORTS="$(detect_ssh_ports || true)"
     fi
     SSH_PORTS="$(normalize_port_list "${SSH_PORTS}")"
     [[ "${ENABLE_SRC_ALLOWLIST}" == "0" || "${ENABLE_SRC_ALLOWLIST}" == "1" ]] || ENABLE_SRC_ALLOWLIST="0"
-    SRC_ALLOWLIST_MODE="$(normalize_src_allowlist_mode "${SRC_ALLOWLIST_MODE}" 2>/dev/null || printf 'trusted_dynamic')"
-    SRC_ALLOWLIST_REGION_IDS="$(normalize_region_ids "${SRC_ALLOWLIST_REGION_IDS}")"
-    case "${AUTOMATION_MODE}" in
-        regular|attack) ;;
-        *) AUTOMATION_MODE="regular" ;;
-    esac
     SETTINGS_CACHE_READY="1"
 }
 
 save_settings() {
     local tmp
+    relay_retirement_guard || return 1
     make_temp_file "${SETTINGS_FILE}" || return 1
     tmp="${TEMP_FILE_RESULT}"
     validate_node_name "${NODE_NAME}" || NODE_NAME=""
@@ -242,11 +171,6 @@ save_settings() {
         PUBLIC_IP=""
         PUBLIC_IP_SOURCE="none"
     fi
-    SRC_ALLOWLIST_MODE="$(normalize_src_allowlist_mode "${SRC_ALLOWLIST_MODE}" 2>/dev/null || printf 'trusted_dynamic')"
-    case "${AUTOMATION_MODE}" in
-        regular|attack) ;;
-        *) AUTOMATION_MODE="regular" ;;
-    esac
     cat > "${tmp}" <<EOF
 NODE_NAME="${NODE_NAME}"
 RELAY_MODE="${RELAY_MODE}"
@@ -258,9 +182,6 @@ MSS_VALUE="${MSS_VALUE}"
 MANAGE_INPUT_FIREWALL="${MANAGE_INPUT_FIREWALL}"
 SSH_PORTS="${SSH_PORTS}"
 ENABLE_SRC_ALLOWLIST="${ENABLE_SRC_ALLOWLIST}"
-SRC_ALLOWLIST_MODE="${SRC_ALLOWLIST_MODE}"
-SRC_ALLOWLIST_REGION_IDS="${SRC_ALLOWLIST_REGION_IDS}"
-AUTOMATION_MODE="${AUTOMATION_MODE}"
 MANAGER_UPDATE_URL="${MANAGER_UPDATE_URL}"
 EOF
     mv -f "${tmp}" "${SETTINGS_FILE}"
@@ -419,42 +340,12 @@ print_runtime_rule_hint() {
 print_settings() {
     load_settings
     load_rules
-    printf '本机名称    : %s\n' "${NODE_NAME:-未设置（导出不加前缀）}"
+    printf '本机名称    : %s\n' "${NODE_NAME:-未设置}"
     printf '中转模式    : %s\n' "$(relay_mode_to_label "${RELAY_MODE}")"
-    if validate_host_ipv4 "${RELAY_LAN_IP}"; then
-        printf '中转机内网 IP : %s (%s)\n' "${RELAY_LAN_IP}" "$(relay_ip_source_label)"
-    else
-        printf '中转机内网 IP : 未设置\n'
-    fi
-    if is_public_ipv4 "${PUBLIC_IP}"; then
-        printf '公网 IP     : %s (%s)\n' "${PUBLIC_IP}" "$(public_ip_source_label)"
-    else
-        printf '公网 IP     : 未探测到（可用菜单 [2] 手动刷新）\n'
-    fi
-    if [[ ${#RULES[@]} -gt 0 && "${RULES_SOURCE}" != "rules_file" ]]; then
-        printf '规则来源    : %s\n' "$(rules_source_label)"
-    fi
-    if [[ "${ENABLE_MSS_CLAMP}" == "1" ]]; then
-        printf 'MSS 修正    : 开启 (%s)\n' "${MSS_VALUE}"
-    else
-        printf 'MSS 修正    : 关闭\n'
-    fi
-    if [[ "${MANAGE_INPUT_FIREWALL}" == "1" ]]; then
-        printf '入站防火墙 : 接管（SSH: %s，其它未托管端口默认 drop）\n' "${SSH_PORTS:-未探测}"
-    else
-        printf '入站防火墙 : 不接管\n'
-    fi
-    if src_allowlist_enabled; then
-        printf '源 IP 白名单 : 开启（%s，地区 %s / 自定义 %s）\n' \
-            "$(src_allowlist_mode_to_label "${SRC_ALLOWLIST_MODE}")" \
-            "$(src_allowlist_region_count)" \
-            "$(custom_allowlist_count)"
-    elif [[ "${ENABLE_SRC_ALLOWLIST}" == "1" ]]; then
-        printf '源 IP 白名单 : 配置不完整（%s）\n' "$(src_allowlist_mode_to_label "${SRC_ALLOWLIST_MODE}")"
-    else
-        printf '源 IP 白名单 : 关闭\n'
-    fi
-    printf '学习服务    : %s\n' "$(learning_service_status_label)"
+    printf '中转机内网 IP : %s\n' "${RELAY_LAN_IP:-未设置}"
+    printf '公网 IP     : %s\n' "${PUBLIC_IP:-未探测到}"
+    printf 'MSS 修正    : %s（%s）\n' "${ENABLE_MSS_CLAMP}" "${MSS_VALUE}"
+    printf '更新方式    : LAN Worker\n'
 }
 
 print_status_panel() {
@@ -485,9 +376,9 @@ print_status_panel() {
     print_panel_row "nftables" "${nft_status}"
     print_panel_row "IPv4 转发" "${ip_forward_status}"
     if manager_controls_main_conf; then
-        print_panel_row "接管状态" "${C_GREEN}已接管${C_RESET}"
+        print_panel_row "转发配置" "${C_GREEN}已安装${C_RESET}"
     else
-        print_panel_row "接管状态" "${C_YELLOW}未接管（仅管理配置文件）${C_RESET}"
+        print_panel_row "转发配置" "${C_YELLOW}尚未安装${C_RESET}"
     fi
 
     print_panel_section "网络与转发"
@@ -515,22 +406,7 @@ print_status_panel() {
         print_panel_row "MSS 修正" "关闭"
     fi
 
-    print_panel_section "安全与来源"
-    if [[ "${MANAGE_INPUT_FIREWALL}" == "1" ]]; then
-        print_panel_row "入站防火墙" "接管（SSH: ${SSH_PORTS:-未探测}，其它未托管端口默认 drop）"
-    else
-        print_panel_row "入站防火墙" "不接管"
-    fi
-    if src_allowlist_enabled; then
-        print_panel_row "源 IP 白名单" "开启（$(src_allowlist_mode_to_label "${SRC_ALLOWLIST_MODE}")，地区 $(src_allowlist_region_count) / 自定义 $(custom_allowlist_count)）"
-    elif [[ "${ENABLE_SRC_ALLOWLIST}" == "1" ]]; then
-        print_panel_row "源 IP 白名单" "配置不完整（$(src_allowlist_mode_to_label "${SRC_ALLOWLIST_MODE}")）"
-    else
-        print_panel_row "源 IP 白名单" "关闭"
-    fi
-
     print_panel_section "运行数据"
-    print_panel_row "学习服务" "$(learning_service_status_label)（$(learning_log_count) 条记录，$(format_bytes "$(learning_log_size_bytes)")；每日汇总 $(learning_summary_count) 天）"
     print_panel_row "规则总数" "${RULE_TOTAL}（启用 ${RULE_ENABLED_COUNT} / 停用 ${RULE_DISABLED_COUNT}）"
     if [[ -n "${runtime_drift_count}" ]]; then
         print_panel_row "额外生效规则" "${runtime_drift_count} 条脚本未管理的 DNAT 转发"

@@ -59,9 +59,9 @@ not_called; wait_is 300
 OFFICIAL_INTERVAL=900 NOW=1000 run official
 called '--official-only --timer-trigger'; wait_is 900
 WORKER_INTERVAL=60 run worker
-called '--worker-only --timer-trigger'; wait_is 60
+not_called; [[ ! -s "$work/sleep.log" ]]
 NOW=200 WORKER_INTERVAL=600 run worker
-not_called; wait_is 500
+not_called
 # Independent timer deadlines survive an event, even with periodic reporting off.
 old_timer="$(cat "$base.official.timer.state")"
 NOW=1050 OFFICIAL_INTERVAL=0 run official network wan2
@@ -73,7 +73,7 @@ not_called; wait_is 800
 NOW=1100 OFFICIAL_INTERVAL=0 run official
 not_called; [[ ! -s "$work/sleep.log" ]] || fail 'disabled timer stayed alive'
 NOW=1100 WORKER_INTERVAL=0 run worker network
-called '--worker-only --network-changed'
+not_called
 WORKER=0 run worker network
 not_called
 OFFICIAL=0 run official network
@@ -97,14 +97,14 @@ grep -Fqx 'exit_code=7' "$base.official.state" || fail 'failure was not recorded
 rm -f "$base.worker.timer.state"
 printf 'observed_at=100\nfinished_at=600\n' > "$base.worker.state"
 NOW=700 WORKER_INTERVAL=600 run worker
-not_called; wait_is 500
+not_called
 
 # An event during upgrade must not erase the legacy timer timestamp.
 rm -f "$base.worker.timer.state"
 NOW=750 WORKER_INTERVAL=0 run worker network
-called '--worker-only --network-changed'
+not_called
 NOW=800 WORKER_INTERVAL=600 run worker
-not_called; wait_is 400
+not_called
 WORKER_INTERVAL=000 run worker
 not_called; [[ ! -s "$work/sleep.log" ]] || fail 'zero with leading digits enabled timer'
 
@@ -121,13 +121,13 @@ procd_close_instance() { :; }
 start_service
 MOCK
 sh "$work/start" > "$work/procd"
-grep -Fqx 'instance=worker' "$work/procd" || fail 'Worker instance missing'
+! grep -Fqx 'instance=worker' "$work/procd" || fail 'retired instance returned'
 grep -Fqx 'instance=official' "$work/procd" || fail 'official instance missing'
-grep -Fqx 'command /usr/libexec/po0-outbound-ip-report-service worker' "$work/procd" || fail 'Worker command not isolated'
+! grep -Fq 'service worker' "$work/procd" || fail 'retired service command returned'
 grep -Fqx 'command /usr/libexec/po0-outbound-ip-report-service official' "$work/procd" || fail 'official command not isolated'
 OFFICIAL_INTERVAL=0 sh "$work/start" > "$work/procd"
 ! grep -Fqx 'instance=official' "$work/procd" || fail 'zero timer registered in procd'
-grep -Fqx 'instance=worker' "$work/procd" || fail 'zero official timer removed Worker'
+! grep -Fqx 'instance=worker' "$work/procd" || fail 'retired instance returned'
 WORKER=0 sh "$work/start" > "$work/procd"
 ! grep -Fqx 'instance=worker' "$work/procd" || fail 'paused Worker registered'
 grep -Fqx 'instance=official' "$work/procd" || fail 'pausing Worker removed official'
@@ -141,10 +141,10 @@ not_called; [[ ! -s "$work/sleep.log" ]] || fail 'explicit Worker timer switch i
 OFFICIAL_TIMER=0 run official network wan1
 called '--official-only --network-changed --official-wan wan1'
 WORKER_TIMER=0 run worker network
-called '--worker-only --network-changed'
+not_called
 WORKER=0 NOW=9999 run official
 called '--official-only --timer-trigger'
 OFFICIAL_TIMER=0 sh "$work/start" > "$work/procd"
 ! grep -Fqx 'instance=official' "$work/procd" || fail 'explicit timer switch registered official instance'
-grep -Fqx 'instance=worker' "$work/procd" || fail 'official timer switch removed Worker'
+! grep -Fqx 'instance=worker' "$work/procd" || fail 'retired instance returned'
 printf 'PASS: OpenWrt independent instances, optional timers, events, and migration.\n'

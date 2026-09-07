@@ -31,15 +31,6 @@ append_wifi_ssid_skip_value() {
     fi
 }
 
-wifi_ssid_skip_list_display() {
-    local value
-    value="$(normalize_wifi_ssid_skip_list "${SKIP_WIFI_SSIDS:-}")"
-    if [[ -n "${value}" ]]; then
-        printf '%s\n' "${value}"
-    else
-        printf '未设置'
-    fi
-}
 
 strip_wifi_ssid_value() {
     local value="$1"

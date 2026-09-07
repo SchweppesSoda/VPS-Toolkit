@@ -1,6 +1,6 @@
-﻿function Get-ScheduledReporterSummary {
-    param([ValidateSet('all','worker','official')][string]$Channel='all')
-    if ($Channel -eq 'all') { return "自建：$(Get-ScheduledReporterSummary worker)；官方：$(Get-ScheduledReporterSummary official)" }
+function Get-ScheduledReporterSummary {
+    param([ValidateSet('all','worker','official')][string]$Channel='official')
+    if ($Channel -eq 'all') { return (Get-ScheduledReporterSummary official) }
     try {
         $record = Get-ScheduledReporterTaskRecord -Channel $Channel
         if (-not $record.Task) { if ((Get-LegacyReporterRecord).Task) { return '旧共享任务，待迁移' }; return '未安装' }
@@ -43,72 +43,11 @@ function Write-NotifyStatusRows {
 }
 
 function Show-ClientConfig {
-    Write-PanelSection "PO0 Outbound IP Report 客户端配置"
-    Write-PanelRow "配置文件" $script:ConfigPath
-    Write-PanelRow "保存状态" $(if (Test-Path -LiteralPath $script:ConfigPath) { "已保存" } else { "未保存" })
-    Write-PanelSection "自建防火墙 · LAN Worker"
-    Write-PanelRow "目标名称" $(if ($script:WorkerName) { $script:WorkerName } else { "LAN Worker" })
-    Write-PanelRow "自建自动上报" (Get-ChannelAutoLabel worker)
-    Write-PanelRow "LAN Worker URL" $(if ($script:WorkerUrl) { $script:WorkerUrl } else { "未设置" })
-    Write-PanelRow "来源 ID" $script:SourceId
-    Write-PanelRow "设备备注" $script:Identity
-    Write-PanelRow "上报密钥" $(if ($script:Secret) { $script:Secret } else { "未设置" })
-    Write-PanelRow "HTTP 上报" $(if ($script:AllowHttp) { "已显式允许" } else { "默认拒绝" })
-    Write-PanelRow "放行时长" "由 LAN Worker 接收端管理"
-    Write-PanelRow "自建上报间隔" ("每 {0} 秒（安装定时上报时使用）" -f (Get-IntervalSeconds))
-    Write-PanelSection "PO0 官方防火墙"
-    Write-PanelRow "官方目标名称" $(if ($script:Po0FirewallNames) { $script:Po0FirewallNames } else { "按账号编号显示" })
-    Write-PanelRow "官方自动上报" (Get-ChannelAutoLabel official)
-    Write-PanelRow "官方 Token" $(if ($script:Po0FirewallTokens) { $script:Po0FirewallTokens } else { "未设置" })
-    Write-PanelRow "官方状态" (Get-Po0FirewallDashboardSummary)
-    Write-PanelRow "下次检查" (Get-Po0FirewallDueSummary)
-    Write-PanelRow "官方检查周期" "$($script:OfficialIntervalSeconds) 秒（可关闭）"
-    Write-PanelSection "通用设置与定时任务"
-    Write-PanelRow "跳过 Wi-Fi SSID" (Format-WifiSsidPolicyList -Ssids $script:SkipWifiSsids)
-    Write-PanelRow "当前 Wi-Fi SSID" (Format-CurrentWifiSsidStatus)
-    Write-NotifyStatusRows
-    Write-PanelRow "定时暂停" $(if ($script:SchedulePaused) { "已暂停" } else { "未暂停" })
-    Write-PanelRow "计划任务" (Get-ScheduledReporterSummary)
-    if ($script:IpCheckUrls.Count -gt 0) {
-        Write-PanelRow "IP 探测列表" ($script:IpCheckUrls -join ",")
-    } else {
-        Write-PanelRow "首选 IP 探测" $script:IpCheckUrl
-    }
+    Show-ChannelConfig official
+    Write-PanelRow 'SSID 跳过' ($script:SkipWifiSsids -join ';')
+    Write-PanelRow '配置文件' $script:ConfigPath
 }
 
-function Set-ClientConfigInteractive {
-    Write-PanelSection "自建防火墙 · LAN Worker 参数"
-    $workerDefault = $(if ($script:WorkerUrl) { $script:WorkerUrl } else { "" })
-    $workerPrompt = "LAN Worker self-report HTTPS 接收地址（可空；输入 - 清空）"
-    if ($workerDefault) { $workerPrompt = "{0} [{1}]" -f $workerPrompt, $workerDefault }
-    $workerInput = Read-Host $workerPrompt
-    if ($null -ne $workerInput -and $workerInput.Trim() -eq "-") {
-        $script:WorkerUrl = ""
-    } elseif ($null -ne $workerInput -and $workerInput.Trim()) {
-        $script:WorkerUrl = Normalize-WorkerUrl $workerInput
-    } elseif ($workerDefault) {
-        $script:WorkerUrl = Normalize-WorkerUrl $workerDefault
-    } else {
-        $script:WorkerUrl = ""
-    }
-    if ($script:WorkerUrl -match "^http://" -and -not $script:AllowHttp) {
-        $confirmHttp = Read-Host "检测到 http:// 地址。仅本地调试/旧环境才允许，是否继续允许 HTTP [y/N]"
-        if ($confirmHttp -match "^(y|yes)$") {
-            $script:AllowHttp = $true
-        } else {
-            throw "已拒绝 HTTP。请改用 https://域名/report。"
-        }
-    }
-    if ($script:WorkerUrl) {
-        Assert-WorkerUrl
-    }
-    $script:SourceId = Read-Default "来源 ID" $script:SourceId
-    $script:Identity = Read-Default "设备备注" $script:Identity
-    Read-SecretSetting
-    $seconds = Read-Default "自建防火墙上报间隔（秒）（60-$($script:MaxMinutes * 60)；必须是 60 的倍数）" ([string](Get-IntervalSeconds))
-    $script:Minutes = Convert-IntervalSecondsToMinutes $seconds
-    Save-ClientConfig
-}
 
 function Set-CommonConfigInteractive {
     Write-PanelSection "通用设置 · 本机探测与 Wi-Fi 跳过"
@@ -274,26 +213,6 @@ function Toggle-ScheduledReporterPaused {
     param([string]$Channel='all')
     if ($Channel -eq 'all') { Set-ScheduledReporterPaused -Paused (-not $script:SchedulePaused) -Channel all }
     else { Set-ScheduledReporterPaused -Paused (-not (Test-ChannelAutoPaused $Channel)) -Channel $Channel }
-}
-
-function Set-ScheduledReporterNotify {
-    param([bool]$Enabled)
-    $script:TaskNotify = $Enabled
-    Save-ClientConfig
-    try {
-        $updated = Update-ScheduledReporterLauncherForExistingTask
-    } catch {
-        throw "重写计划任务启动文件失败：$($_.Exception.Message)"
-    }
-    if ($updated -and $updated -ne "none") {
-        Write-SelfReportCompleted "Windows 通知模式已更新为：$(Format-NotifyStatus)；计划任务启动文件已同步。"
-    } else {
-        Write-SelfReportCompleted "Windows 通知模式已更新为：$(Format-NotifyStatus)；当前未安装计划任务。"
-    }
-}
-
-function Toggle-ScheduledReporterNotify {
-    Set-ScheduledReporterNotify -Enabled (-not $script:TaskNotify)
 }
 
 function Remove-ScheduledReporter {

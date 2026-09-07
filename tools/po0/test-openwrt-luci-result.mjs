@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const viewPath = path.join(repoRoot, 'packaging', 'openwrt', 'po0-outbound-ip-report', 'files', 'www', 'luci-static', 'resources', 'view', 'po0', 'outbound-ip-report.js');
 const source = fs.readFileSync(viewPath, 'utf8');
-const start = source.indexOf('function pad2');
+const start = source.indexOf('function safeOfficialText');
 const end = source.indexOf('\n\nreturn view.extend', start);
 
 if (start < 0 || end < 0)
@@ -16,10 +16,9 @@ if (source.includes("fs.exec(CONTROL, [ 'test' ])") || source.includes("fs.exec(
     throw new Error('PO0 LuCI manual tests must not block one RPC request');
 for (const expectedSource of [
     "channel + '-report'",
-    "'worker-force-report'",
     "channel + '-progress'",
     'po0-result-card',
-    '允许明文 HTTP（不推荐）'
+    '保存配置'
 ]) {
     if (!source.includes(expectedSource))
         throw new Error(`LuCI source missing asynchronous/UI feature: ${expectedSource}`);
@@ -32,56 +31,8 @@ String.prototype.format = function(...args) {
     return this.replace(/%[sd]/g, () => String(args[index++]));
 };
 globalThis._ = value => value;
-const formatRecentResult = Function('_', `${source.slice(start, end)}\nreturn formatRecentResult;`)(globalThis._);
-
-const raw = [
-    'observed_at=1788074964',
-    'finished_at=1788074988',
-    'exit_code=0',
-    '上报上游路由器 WAN wan1的公网出口 IPv4 203.0.113.11 到 LAN Worker：https://report.example.test/report',
-    'OK 203.0.113.11; targets=2; target_names=internal-a,internal-b',
-    'PO0 Outbound IP Report 已完成：上游路由器 WAN wan1的公网出口 IPv4 203.0.113.11 已被 LAN Worker 接收。',
-    'PO0 Outbound IP Report 已完成：上游路由器 WAN wan2的公网出口 IPv4 198.51.100.22 已被 LAN Worker 接收。',
-    'PO0 Outbound IP Report 已完成：WAN 上报结束：成功 2 条，失败 0 条。'
-].join('\n');
-const result = formatRecentResult(raw);
-
-for (const expected of [
-    '任务开始时间：',
-    '任务完成时间：',
-    '执行耗时：24 秒',
-    '执行状态：成功',
-    'wan1：成功',
-    'wan2：成功',
-    '汇总：成功 2 条 · 失败 0 条'
-]) {
-    if (!result.text.includes(expected))
-        throw new Error(`formatted result missing: ${expected}`);
-}
-for (const forbidden of [ 'observed_at=', 'LAN Worker：https://', 'targets=', 'target_names=' ]) {
-    if (result.text.includes(forbidden))
-        throw new Error(`formatted result leaked raw detail: ${forbidden}`);
-}
-if (result.level !== 'success' || result.title !== '上报成功')
-    throw new Error('successful report did not produce the success result card state');
-if (!source.includes('页面刷新时间：%s'))
-    throw new Error('result card must label browser rendering time as page refresh time');
-if (!/任务开始时间：\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(result.text))
-    throw new Error('task start time is not formatted as Chinese 24-hour date-time');
-if (!/任务完成时间：\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(result.text))
-    throw new Error('task finish time is not formatted as Chinese 24-hour date-time');
-
-const legacyResult = formatRecentResult(raw.replace(/^finished_at=.*\n/m, ''));
-if (legacyResult.text.includes('任务完成时间：') || legacyResult.text.includes('执行耗时：'))
-    throw new Error('legacy state without finished_at must not fabricate completion time or duration');
-
-const direct = formatRecentResult(raw.replaceAll('上游路由器 WAN', 'WAN'));
-if (!direct.text.includes('wan1：成功') || !direct.text.includes('wan2：成功'))
-    throw new Error('direct gateway results lost per-WAN status');
-const normalizeToken = Function('_', `${source.slice(start, end)}\nreturn normalizeOfficialToken;`)(globalThis._);
-if (normalizeToken('https://124.221.69.228/api/firewall/pgnfw_example/add') !== 'pgnfw_example')
-    throw new Error('full official URL was not normalized');
-console.log('OpenWrt LuCI result formatting tests passed.');
+const normalizeToken = Function('_', `${source.slice(source.indexOf('function normalizeOfficialToken'), end)}\nreturn normalizeOfficialToken;`)(globalThis._);
+if (normalizeToken('https://124.221.69.228/api/firewall/pgnfw_example/add') !== 'pgnfw_example') throw new Error('token normalization changed');
 
 // rpcd checks ubus method access and UCI config write access independently.
 // Exercise the real page RPC declaration and save function under both checks.
@@ -131,7 +82,7 @@ async function exerciseSave(acl, { saveFails = false, overrideConfig } = {}) {
 const saved = await exerciseSave(reporterAcl);
 const expectedEvents = ['form-save', {
     object: 'uci', method: 'commit', params: { config: configName }
-}, 'cached-result:worker', 'cached-result:official'];
+}, 'cached-result:official'];
 if (saved.failure || JSON.stringify(saved.events) !== JSON.stringify(expectedEvents))
     throw new Error('save must commit exactly the reporter config before reading cached results');
 const withoutCommit = structuredClone(reporterAcl);
@@ -150,27 +101,6 @@ if (invalidForm.failure !== 'form validation failed' || invalidForm.events.lengt
 console.log('OpenWrt LuCI narrow-ACL save regression tests passed.');
 
 
-// Saving an official form must neither parse nor validate any Worker/common input.
-const fieldStart = source.indexOf('   function field(');
-const fieldEnd = source.indexOf('   function resultSection(', fieldStart);
-const parsedFields = [];
-const formTypes = { SectionValue: {}, Value: {}, Flag: {}, Button: {} };
-const mapScope = { po0SaveChannel: 'official', channelKeys: {worker:[],official:[],network:[]} };
-const sectionStub = { taboption(tab, type, key) { return {
-    parse() { parsedFields.push(key); if (tab === 'worker') throw new Error('invalid Worker fixture'); return Promise.resolve(); },
-    depends() {}
-}; } };
-const scopedField = Function('s','m','form','_', source.slice(fieldStart, fieldEnd) + '; return field;')(sectionStub, mapScope, formTypes, globalThis._);
-const badWorker = scopedField('worker', formTypes.Value, 'worker_url', 'URL');
-const officialInput = scopedField('official', formTypes.SectionValue, '_official_targets', {}, 'official_target');
-await badWorker.parse();
-await officialInput.parse();
-if (parsedFields.join(',') !== '_official_targets') throw new Error('official save parsed opposite-channel fields');
-mapScope.po0SaveChannel = 'worker';
-parsedFields.length = 0;
-await officialInput.parse();
-if (parsedFields.length) throw new Error('Worker save parsed official target fields');
-
 // Query/report actions use saved configuration and cannot call the save routine.
 const actionStart = source.indexOf('function runChannelAction(');
 const actionEnd = source.indexOf('\nfunction refreshChannelResult(', actionStart);
@@ -180,8 +110,8 @@ const runAction = Function('fs','CONTROL','showActionResult','renderOfficialStat
     { exec: async (_, args) => { calls.push(args[0]); return { code:0,stdout:'',stderr:'' }; } }, 'mock-control',
     () => {}, () => ({rows:[]}), () => '', () => ({}), async () => {}, x => x, globalThis._);
 const neverSave = { save() { throw new Error('read/report must not save'); } };
-for (const action of ['official-status','official-report','worker-force-report']) await runAction(neverSave, action.startsWith('official')?'official':'worker', action);
-if (calls.join(',') !== 'official-status,official-report,worker-force-report') throw new Error('explicit actions did not run independently');
+for (const action of ['official-status','official-report']) await runAction(neverSave, action.startsWith('official')?'official':'worker', action);
+if (calls.join(',') !== 'official-status,official-report') throw new Error('explicit actions did not run independently');
 console.log('OpenWrt LuCI scoped-save and no-implicit-save action tests passed.');
 
 // Pending native table edits must never be committed by the other save button.
@@ -214,8 +144,6 @@ const pendingMap = {
  po0SaveChannel:'worker', channelKeys:{worker:['worker_url','secret','source_id','interval_seconds','worker_timer_enabled'],official:['official_enabled','official_interval_seconds'],network:['enabled']},
  data:{get(_c,id,key){return draft[id]?.[key];},sections(_c,type){return Object.values(draft).filter(x=>x['.type']===type);}}
 };
-await persist(pendingMap);
-if (stored.main.worker_url!=='edited-worker' || JSON.stringify(stored.account)!==JSON.stringify(initial.account) || stored.binding.target!=='account' || stored.new_account || stored.main.official_interval_seconds!=='900') throw new Error('Worker save committed pending official table/interval edits');
 stored=structuredClone(initial); mutations.length=0; pendingMap.po0SaveChannel='official';
 await persist(pendingMap);
 if(stored.main.worker_url!=='saved-worker' || stored.main.secret!=='saved-secret' || stored.main.worker_timer_enabled!=='0' || stored.main.interval_seconds!=='5400' || stored.main.source_id!=='stable-source') throw new Error('official save overwrote Worker parameters');

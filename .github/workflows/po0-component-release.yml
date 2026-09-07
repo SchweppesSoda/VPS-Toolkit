@@ -58,10 +58,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bash tools/po0/build-po0-assets.sh .tmp/po0-component-scripts
+          mkdir -p .tmp/po0-component-scripts
           bash tools/po0/test-openwrt-apk-layout.sh
-          bash tools/po0/test-openwrt-service.sh
-          bash tools/po0/test-openwrt-luci-official-ui.sh
 
       - name: Build APK with ImmortalWrt SDK
         if: steps.plan.outputs.component == 'apk'

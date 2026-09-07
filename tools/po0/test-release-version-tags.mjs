@@ -32,7 +32,7 @@ fs.writeFileSync(psHarness, '\ufeff' + psSource.replace(/^\ufeff/, '').slice(0, 
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
 const powershell = process.platform === 'win32' ? 'powershell.exe' : 'pwsh';
 const engines = [
-  [bash, [path.relative(root, bashHarness).replaceAll('\\', '/'), path.relative(root, assets).replaceAll('\\', '/')]],
+  [bash, ['-c', 'export PATH="/usr/bin:/bin:$PATH"; exec bash "$@"', '--', path.relative(root, bashHarness).replaceAll('\\', '/'), path.relative(root, assets).replaceAll('\\', '/')]],
   [powershell, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', psHarness, '-OutputDir', assets]],
 ];
 try {

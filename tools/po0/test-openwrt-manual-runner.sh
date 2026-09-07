@@ -22,7 +22,7 @@ PO0_MANUAL_REPORT_COMMAND=/bin/echo \
 grep -Fqx 'status=finished' "${state_file}"
 grep -Fqx 'observed_at=1700000000' "${state_file}"
 grep -Fqx 'exit_code=0' "${state_file}"
-grep -Fqx -- '--worker-report --force-report' "${log_file}"
+grep -Fqx -- '--official-report --force-report' "${log_file}"
 
 printf 'status=running\nobserved_at=1700000001\n' > "${state_file}"
 PO0_MANUAL_STATE_FILE="${state_file}" \
@@ -93,13 +93,7 @@ po0_outbound_ip_report.binding.slot=3
 DATA
 cp "$tmp_dir/original" "$PO0_TEST_UCI"
 sh "$tmp_dir/control" worker-clear > /dev/null
-if grep -Eq '^po0_outbound_ip_report.main.(worker_url|secret|worker_name)=' "$PO0_TEST_UCI"; then exit 1; fi
-grep -Fqx 'po0_outbound_ip_report.main.worker_enabled=0' "$PO0_TEST_UCI"
-for pattern in 'main.official_' 'account' 'binding' 'main.source_id' 'main.interval_seconds' 'main.worker_timer_enabled'; do
- grep -F "po0_outbound_ip_report.$pattern" "$tmp_dir/original" > "$tmp_dir/expected"
- grep -F "po0_outbound_ip_report.$pattern" "$PO0_TEST_UCI" > "$tmp_dir/actual"
- diff "$tmp_dir/expected" "$tmp_dir/actual"
-done
+cmp "$tmp_dir/original" "$PO0_TEST_UCI"
 cp "$tmp_dir/original" "$PO0_TEST_UCI"
 sh "$tmp_dir/control" official-clear > /dev/null
 if grep -Eq '^po0_outbound_ip_report.(account|binding)(=|\.)' "$PO0_TEST_UCI"; then exit 1; fi
@@ -107,6 +101,6 @@ grep -Fqx 'po0_outbound_ip_report.main.official_enabled=0' "$PO0_TEST_UCI"
 grep -E 'main.(worker_[^=]*|secret|source_id|interval_seconds|enabled)=' "$tmp_dir/original" > "$tmp_dir/expected"
 grep -E 'main.(worker_[^=]*|secret|source_id|interval_seconds|enabled)=' "$PO0_TEST_UCI" > "$tmp_dir/actual"
 diff "$tmp_dir/expected" "$tmp_dir/actual"
-printf 'reload\nreload\n' > "$tmp_dir/expected-reload"
+printf 'reload\n' > "$tmp_dir/expected-reload"
 diff "$tmp_dir/expected-reload" "$PO0_TEST_RELOAD"
 printf 'OpenWrt independent clear configuration tests passed.\n'

@@ -1,4 +1,4 @@
-function Set-OutputColumn {
+﻿function Set-OutputColumn {
     param([int]$Column)
     if ([Console]::IsOutputRedirected) {
         Write-Host "    " -NoNewline
@@ -23,37 +23,11 @@ function Write-Title {
     Write-Host "========================"
 }
 
-function Write-MenuDivider {
-    Write-Host "------------------------" -ForegroundColor Cyan
-}
-
-function Write-MenuSection {
-    param([string]$Title)
-    Write-MenuDivider
-    Write-Host $Title -ForegroundColor Cyan
-}
-
 function Write-MenuItem {
     param([string]$Number, [string]$Label)
     Write-Host ("  {0,2}) {1}" -f $Number, $Label) -ForegroundColor Cyan
 }
 
-function Write-MenuPair {
-    param(
-        [string]$LeftNumber,
-        [string]$LeftLabel,
-        [string]$RightNumber,
-        [string]$RightLabel
-    )
-    $left = ("  {0,2}) {1}" -f $LeftNumber, $LeftLabel)
-    if ($RightNumber) {
-        Write-Host $left -NoNewline -ForegroundColor Cyan
-        Set-OutputColumn $MenuRightColumn
-        Write-Host ("{0,2}) {1}" -f $RightNumber, $RightLabel) -ForegroundColor Cyan
-    } else {
-        Write-Host $left -ForegroundColor Cyan
-    }
-}
 
 function Write-PanelDivider {
     Write-Host "------------------------" -ForegroundColor DarkYellow

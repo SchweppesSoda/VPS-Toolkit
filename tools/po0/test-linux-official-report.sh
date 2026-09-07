@@ -53,6 +53,7 @@ source "${repo_root}/scripts/po0/relay/self-report/linux/src/060-worker-url-inte
 # shellcheck source=/dev/null
 source "${repo_root}/scripts/po0/relay/self-report/linux/src/125-official-report.sh"
 # shellcheck source=/dev/null
+source "${repo_root}/scripts/po0/relay/self-report/linux/src/076-channel-settings.sh"
 source "${repo_root}/scripts/po0/relay/self-report/linux/src/130-report-submit.sh"
 
 # Git Bash on Windows does not expose POSIX mode bits through stat.  Keep the
@@ -350,22 +351,18 @@ unset PO0_OUTBOUND_IP_REPORT_OFFICIAL_NOW
 # The cron has one wake-up, but each lane keeps its own last-attempt clock:
 # official is due every 600 seconds and Worker remains hourly. Manual calls
 # are always due and are not coupled to either scheduler clock.
-mkdir -p "$(dirname "$(worker_state_file)")"
-printf 'last_attempt_at=1000\nlast_status=success\n' > "$(worker_state_file)"
 printf 'last_attempt_at=1000\nlast_status=success\n' > "${OFFICIAL_STATE_FILE}"
 SCHEDULED_RUN='1'
 FORCE_REPORT='0'
 PO0_OUTBOUND_IP_REPORT_OFFICIAL_NOW='1100'
 if official_due; then fail 'official lane ignored its 600-second scheduled due gate'; fi
-if worker_due; then fail 'Worker lane followed the ten-minute official wake-up'; fi
 PO0_OUTBOUND_IP_REPORT_OFFICIAL_NOW='1700'
 if ! official_due; then fail 'official lane did not become due after 600 seconds'; fi
-if worker_due; then fail 'Worker lane became due before its hourly interval'; fi
 PO0_OUTBOUND_IP_REPORT_OFFICIAL_NOW='4700'
-if ! official_due || ! worker_due; then fail 'independent lanes did not become due at their own intervals'; fi
+if ! official_due; then fail 'independent lanes did not become due at their own intervals'; fi
 SCHEDULED_RUN='0'
 PO0_OUTBOUND_IP_REPORT_OFFICIAL_NOW='1100'
-if ! official_due || ! worker_due; then fail 'manual run was incorrectly due-gated'; fi
+if ! official_due; then fail 'manual run was incorrectly due-gated'; fi
 FORCE_REPORT='1'
 unset PO0_OUTBOUND_IP_REPORT_OFFICIAL_NOW
 
@@ -445,7 +442,7 @@ run_wrapper() {
 }
 run_wrapper
 assert_eq '0' "${RUN_RC}" 'combined wrapper failed'
-assert_file_eq 'official|a|status| worker' "${order_log}" 'official lane was not executed before Worker'
+assert_file_eq 'official|a|status|' "${order_log}" 'official lane was not executed before Worker'
 
 # Automatic switches are independent of credentials and of manual report selection.
 SCHEDULED_RUN=1
@@ -459,14 +456,14 @@ WORKER_AUTO_ENABLED=1
 OFFICIAL_AUTO_ENABLED=0
 run_wrapper
 assert_eq '0' "$RUN_RC" 'paused official should not fail Worker'
-assert_file_eq 'worker' "$order_log" 'official automatic pause was ignored'
+[[ ! -s "$order_log" ]] || fail 'official automatic pause was ignored'
 WORKER_AUTO_ENABLED=0
 run_wrapper
 assert_eq '0' "$RUN_RC" 'both paused should return quietly'
 [[ ! -s "$order_log" ]] || fail 'both paused ran a lane'
 SCHEDULED_RUN=0
 run_wrapper
-assert_file_eq 'official|a|status| worker' "$order_log" 'manual run must ignore automatic pauses'
+assert_file_eq 'official|a|status|' "$order_log" 'manual run must ignore automatic pauses'
 WORKER_AUTO_ENABLED=1
 OFFICIAL_AUTO_ENABLED=1
 FORCE_REPORT=0
@@ -474,7 +471,7 @@ FORCE_REPORT=0
 SCENARIO='get-fail-a'
 run_wrapper
 [[ "${RUN_RC}" -ne 0 ]] || fail 'combined wrapper hid official failure'
-assert_file_has 'worker' "${order_log}" 'Worker was skipped after official failure'
+! grep -Fq worker "${order_log}" || fail 'retired Worker ran after official failure'
 
 # A second scheduled/manual process must not enter either lane while the
 # package-owned run lock is held by a live process.

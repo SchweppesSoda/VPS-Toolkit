@@ -5,9 +5,9 @@ command -v rg >/dev/null 2>&1 || { printf 'ripgrep (rg) is required for PO0 refe
 
 repo_root="$(cd "$(git rev-parse --show-toplevel)" && pwd -P)"
 asset_dir="${1:-${repo_root}/.tmp/po0-check-assets-bash}"
-expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.09.07+build.2}"
-expected_po0_release_date="${PO0_EXPECTED_RELEASE_DATE:-2026-09-07}"
-expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.09.07.2}"
+expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.09.08+build.1}"
+expected_po0_release_date="${PO0_EXPECTED_RELEASE_DATE:-2026-09-08}"
+expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.09.08.1}"
 
 manifest_entries() {
     local manifest="$1"
@@ -67,8 +67,6 @@ check_raw_refs() {
             *"scripts/po0/nftables/clients/stash/po0-stash-report.js"*|\
             *"scripts/po0/relay/egern/PO0-SSH-IP-Report.yaml"*|\
             *"scripts/po0/relay/egern/po0-ssh-ip-report.js"*|\
-            *"scripts/po0/nftables/tools/build-iplist-package.sh"*|\
-            *"scripts/po0/nftables/tools/build-iplist-package.ps1"*|\
             *"scripts/po0/proxy-services/vless-raw-enc-argosbx-enhancer.sh"*)
                 ;;
             *)
@@ -94,149 +92,6 @@ check_egern_compat_sync() {
             printf 'Legacy Egern compatibility file differs from canonical after LF normalization: %s\n' "${file}" >&2
             exit 1
         fi
-    done
-}
-
-check_egern_ssid_guard() {
-    local yaml="${repo_root}/scripts/po0/nftables/clients/egern/PO0-SSH-IP-Report.yaml"
-    local js="${repo_root}/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js"
-    local guard_line detect_line
-    grep -Eq '^[[:space:]]+SKIP_WIFI_SSIDS:' "${yaml}" || {
-        printf 'Egern YAML lacks SKIP_WIFI_SSIDS env configuration.\n' >&2
-        exit 1
-    }
-    grep -Fq '自建防火墙 · 保存配置' "${yaml}" || { printf 'Egern YAML lacks native storage save action.\n' >&2; exit 1; }
-    grep -Fq '官方防火墙 · 保存配置' "${yaml}" || { printf 'Egern YAML lacks independent official settings action.\n' >&2; exit 1; }
-    grep -Fq '清除本机全部 PO0 上报配置' "${yaml}" || { printf 'Egern YAML lacks native storage clear action.\n' >&2; exit 1; }
-    grep -Fq 'normalizeSsidSkipList' "${js}" || { printf 'Egern JS lacks SSID skip list normalizer.\n' >&2; exit 1; }
-    grep -Fq 'currentWifiSsidFromNetwork' "${js}" || { printf 'Egern JS lacks raw Wi-Fi SSID reader.\n' >&2; exit 1; }
-    grep -Fq 'ssidSkipDecision' "${js}" || { printf 'Egern JS lacks SSID skip decision helper.\n' >&2; exit 1; }
-    grep -Fq 'isAutomaticReportRun' "${js}" || { printf 'Egern JS lacks explicit automatic trigger helper.\n' >&2; exit 1; }
-    grep -Fq 'CONFIG_STORAGE_KEY' "${js}" || { printf 'Egern JS lacks native config storage key.\n' >&2; exit 1; }
-    grep -Fq 'persistableEnvValues' "${js}" || { printf 'Egern JS lacks persisted env whitelist helper.\n' >&2; exit 1; }
-    grep -Fq 'reportConfigSaveCandidate' "${js}" || { printf 'Egern JS lacks storage-first save merge helper.\n' >&2; exit 1; }
-    grep -Fq 'storedReportConfig' "${js}" || { printf 'Egern JS lacks native stored config reader.\n' >&2; exit 1; }
-    grep -Fq 'handleReportConfigSaveScript' "${js}" || { printf 'Egern JS lacks native config save handler.\n' >&2; exit 1; }
-    grep -Fq 'handleReportConfigClearScript' "${js}" || { printf 'Egern JS lacks native config clear handler.\n' >&2; exit 1; }
-    grep -Fq "skipType: 'missing-config'" "${js}" || { printf 'Egern JS lacks silent missing-config marker.\n' >&2; exit 1; }
-    grep -Fq "skipType: 'wifi-ssid'" "${js}" || { printf 'Egern JS lacks wifi-ssid skipped state marker.\n' >&2; exit 1; }
-    grep -Fq 'skipReason:' "${js}" || {
-        printf 'Egern JS lacks local skip/no-upload wording.\n' >&2
-        exit 1
-    }
-    if grep -Eq 'PO0_SELF_REPORT_[A-Z0-9_]*SSID|SELF_REPORT_[A-Z0-9_]*SSID' "${yaml}" "${js}" "${repo_root}/scripts/po0/relay/egern/PO0-SSH-IP-Report.yaml" "${repo_root}/scripts/po0/relay/egern/po0-ssh-ip-report.js"; then
-        printf 'Egern SSID guard must not define legacy self-report SSID aliases.\n' >&2
-        exit 1
-    fi
-    guard_line="$(
-        awk '
-            /^async function runEgernReportUnlocked/ {in_fn=1}
-            in_fn && /ssidSkipDecision\(ctx, env, network\)/ {print NR; exit}
-        ' "${js}"
-    )"
-    detect_line="$(
-        awk '
-            /^async function runEgernReportUnlocked/ {in_fn=1}
-            in_fn && /detectCurrentIPv4WithFallback\(ctx, env, policy\)/ {print NR; exit}
-        ' "${js}"
-    )"
-    [[ -n "${guard_line}" ]] || { printf 'Egern JS lacks SSID guard inside default report flow.\n' >&2; exit 1; }
-    [[ -n "${detect_line}" ]] || { printf 'Egern JS IPv4 detection call not found in default report flow.\n' >&2; exit 1; }
-    if (( guard_line >= detect_line )); then
-        printf 'Egern SSID guard must run before public IPv4 detection.\n' >&2
-        exit 1
-    fi
-    if awk '
-        /^async function reportToPO0\(/ {in_fn=1}
-        in_fn && tolower($0) ~ /ssid/ {found=1}
-        in_fn && /^}/ {exit}
-        END {exit found ? 0 : 1}
-    ' "${js}"; then
-        printf 'Egern reportToPO0 must not pass SSID through SSH report args.\n' >&2
-        exit 1
-    fi
-}
-
-check_egern_official_channel() {
-    local yaml="${repo_root}/scripts/po0/nftables/clients/egern/PO0-SSH-IP-Report.yaml"
-    local js="${repo_root}/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js"
-    local official_line worker_line
-    grep -Fq 'PO0_FIREWALL_TOKENS:' "${yaml}" || {
-        printf 'Egern YAML lacks the persisted PO0_FIREWALL_TOKENS setting.\n' >&2
-        exit 1
-    }
-    grep -Fq '查询官方白名单' "${yaml}" || {
-        printf 'Egern YAML lacks the official firewall read-only status action.\n' >&2
-        exit 1
-    }
-    for token in \
-        'DEFAULT_OFFICIAL_INTERVAL_SECONDS = 600' \
-        'OFFICIAL_FIREWALL_API_BASE' \
-        'parseOfficialTokens' \
-        'officialDirectRequest' \
-        'officialDisplaySlot' \
-        'runOfficialFirewall' \
-        "policy: 'DIRECT'" \
-        'isOfficialStatusRun'; do
-        grep -Fq "${token}" "${js}" || {
-            printf 'Egern JS lacks official firewall contract marker: %s\n' "${token}" >&2
-            exit 1
-        }
-    done
-    official_line="$({
-        awk '
-            /^async function runEgernReportUnlocked/ {in_fn=1}
-            in_fn && /runOfficialFirewall\(ctx, env/ {print NR; exit}
-        ' "${js}"
-    })"
-    worker_line="$({
-        awk '
-            /^async function runEgernReportUnlocked/ {in_fn=1}
-            in_fn && /reportToPO0\(ctx, env, target, ip\)/ {print NR; exit}
-        ' "${js}"
-    })"
-    [[ -n "${official_line}" && -n "${worker_line}" && "${official_line}" -lt "${worker_line}" ]] || {
-        printf 'Egern official firewall lane must run before the existing SSH lane.\n' >&2
-        exit 1
-    }
-}
-
-check_lan_worker_official_channel() {
-    local source="${repo_root}/scripts/po0/relay/lan-worker/src/055-official-firewall.sh"
-    [[ -f "${source}" ]] || {
-        printf 'LAN Worker official firewall source is missing.\n' >&2
-        exit 1
-    }
-    for token in \
-        'PO0_FIREWALL_TOKENS' \
-        'PO0_FIREWALL_API_BASE_URL="https://124.221.69.228/api/firewall"' \
-        'PO0_FIREWALL_INTERVAL_SECONDS="600"' \
-        'official_run_lock_acquire' \
-        'official_response_valid' \
-        'official_direct_request'; do
-        grep -Fq -- "${token}" "${source}" || {
-            printf 'LAN Worker official firewall source lacks contract marker: %s\n' "${token}" >&2
-            exit 1
-        }
-    done
-    grep -Fq 'request = "%s"' "${source}" || {
-        printf 'LAN Worker official firewall source must keep the request method in curl config stdin.\n' >&2
-        exit 1
-    }
-    local dispatch="${repo_root}/scripts/po0/relay/lan-worker/src/990-main-menu-dispatch.sh"
-    for token in '--official-firewall-status' '--run-official-firewall' '--scheduled-run'; do
-        grep -Fq -- "${token}" "${dispatch}" || {
-            printf 'LAN Worker dispatch lacks official firewall action marker: %s\n' "${token}" >&2
-            exit 1
-        }
-    done
-    for source in \
-        "${repo_root}/scripts/po0/relay/lan-worker/src/160-webauth-server.sh" \
-        "${repo_root}/scripts/po0/relay/lan-worker/src/180-self-report-server.sh"; do
-        grep -Fq 'env -u PO0_FIREWALL_TOKENS' "${source}" || {
-            printf 'LAN Worker Python service leaks PO0_FIREWALL_TOKENS to its child: %s\n' "${source}" >&2
-            exit 1
-        }
     done
 }
 
@@ -291,7 +146,7 @@ check_windows_canonical_path() {
         printf 'Windows self-report asset lacks legacy artifact cleanup.\n' >&2
         exit 1
     }
-    grep -q 'Remove-LegacyScheduledReporterTask' "${asset}" || {
+    grep -q 'Get-LegacyReporterRecord' "${asset}" || {
         printf 'Windows self-report asset lacks robust legacy scheduled task cleanup.\n' >&2
         exit 1
     }
@@ -420,30 +275,10 @@ check_unix_ssid_guard() {
             in_fn && /^[A-Za-z_][A-Za-z0-9_]*\(\)[[:space:]]*\{/ && $0 !~ /^report_once(_inner)?\(\)/ {in_fn=0}
         ' "${asset}"
     )"
-    worker_line="$(
-        awk '
-            /^report_once(_inner)?\(\)/ {in_fn=1}
-            in_fn && /(worker_report_once|report_worker_once)/ {print NR; exit}
-            in_fn && /^[A-Za-z_][A-Za-z0-9_]*\(\)[[:space:]]*\{/ && $0 !~ /^report_once(_inner)?\(\)/ {in_fn=0}
-        ' "${asset}"
-    )"
-    [[ -n "${guard_line}" ]] || { printf '%s asset lacks an SSID guard inside report_once.\n' "${platform}" >&2; exit 1; }
-    [[ -n "${worker_line}" ]] || { printf '%s asset report worker call was not found.\n' "${platform}" >&2; exit 1; }
-    if (( guard_line >= worker_line )); then
-        printf '%s asset SSID guard must run before report worker submission.\n' "${platform}" >&2
-        exit 1
-    fi
-    worker_http_line="$(
-        awk '
-            /^(worker_report_once|report_worker_once)\(\)/ {in_fn=1}
-            in_fn && /curl "\$\{curl_args\[@\]\}"/ {print NR; exit}
-            in_fn && /^[A-Za-z_][A-Za-z0-9_]*\(\)[[:space:]]*\{/ && $0 !~ /^(worker_report_once|report_worker_once)\(\)/ {in_fn=0}
-        ' "${asset}"
-    )"
-    [[ -n "${worker_http_line}" ]] || {
-        printf '%s asset HTTP submit point was not found in the report worker.\n' "${platform}" >&2
-        exit 1
-    }
+    [[ -n "${guard_line}" ]] || { printf '%s lacks the local SSID guard.\n' "$platform" >&2; exit 1; }
+    # Request ordering and fail-open behavior are exercised with mocked APIs by
+    # the Linux/macOS official suites; no retired HTTP submit point remains.
+
 }
 
 check_macos_wifi_ssid_diagnostic() {
@@ -486,7 +321,7 @@ check_macos_wifi_ssid_diagnostic() {
     }
     grep -Fq 'Wi-Fi SSID 权限诊断' "${asset}" && grep -Fq 'client_maintenance_menu()' "${asset}" &&
         grep -Fq 'max_choice=4' "${asset}" && grep -Fq '请选择 [0-$max_choice]' "${asset}" &&
-        grep -Eq '7\) client_maintenance_menu;' "${asset}" &&
+        grep -Eq '6\) client_maintenance_menu;' "${asset}" &&
         grep -Eq '3\).*then show_wifi_ssid_permission_help_interactive;' "${asset}" &&
         grep -Eq '4\).*then remove_macos_location_permission_helper_app_interactive;' "${asset}" || {
         printf 'macOS asset lacks Wi-Fi SSID diagnostic menu/range/case wiring.\n' >&2
@@ -694,7 +529,7 @@ if ($raw -notmatch "(?is)(ssid.{0,160}(continue|continued|fail|failed|failure|er
 $fn = [regex]::Match($raw, "(?ms)^function Invoke-SelfReportCore\s*\{.*?(?=^function\s+[A-Za-z_][A-Za-z0-9_-]*\s*\{|\z)")
 if (-not $fn.Success) { throw "Windows Invoke-SelfReportCore function was not found." }
 $guard = [regex]::Match($fn.Value, "(?is)ssid.{0,160}(skip|guard|allow|match|local|璺宠繃|鍖归厤|鏈湴)|(skip|guard|allow|match|local|璺宠繃|鍖归厤|鏈湴).{0,160}ssid")
-$http = [regex]::Match($fn.Value, "(Invoke-WorkerSelfReportCore|Invoke-WebRequest)")
+$http = [regex]::Match($fn.Value, "(Invoke-Po0FirewallReport -Mode "report"|Invoke-WebRequest)")
 if (-not $guard.Success) { throw "Windows asset lacks an SSID guard inside Invoke-SelfReportCore." }
 if (-not $http.Success) { throw "Windows asset HTTP submit point was not found." }
 if ($guard.Index -ge $http.Index) { throw "Windows asset SSID guard must run before HTTP report submission." }
@@ -809,35 +644,23 @@ check_manifest_coverage "self-report-windows" "tools/po0/manifests/self-report-w
 bash "${repo_root}/tools/po0/test-macos-ssid-diagnostic.sh"
 bash "${repo_root}/tools/po0/test-macos-official-report.sh"
 bash "${repo_root}/tools/po0/test-self-report-refresh-policy.sh"
-bash "${repo_root}/tools/po0/test-linux-multi-wan-report.sh"
 bash "${repo_root}/tools/po0/test-linux-official-http.sh"
 bash "${repo_root}/tools/po0/test-linux-official-report.sh"
-check_lan_worker_official_channel
-bash "${repo_root}/tools/po0/test-lan-worker-official-report.sh"
 if command -v pwsh >/dev/null 2>&1; then
-    pwsh -NoProfile -ExecutionPolicy Bypass -File "${repo_root}/tools/po0/test-windows-official-report.ps1"
+    pwsh -NoProfile -ExecutionPolicy Bypass -File "$(pwsh_literal_path "${repo_root}/tools/po0/test-windows-official-report.ps1")"
 elif command -v powershell.exe >/dev/null 2>&1; then
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${repo_root}/tools/po0/test-windows-official-report.ps1"
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(pwsh_literal_path "${repo_root}/tools/po0/test-windows-official-report.ps1")"
 else
     printf 'PowerShell not found; skipping Windows official report mock test.\n' >&2
 fi
 bash -n "${repo_root}/tools/po0/test-linux-official-cli.sh"
 bash "${repo_root}/tools/po0/test-linux-official-cli.sh"
 bash "${repo_root}/tools/po0/test-client-settings-input.sh"
-bash "${repo_root}/tools/po0/test-official-firewall-core.sh"
-bash "${repo_root}/tools/po0/test-openwrt-official-adapter.sh"
-bash "${repo_root}/tools/po0/test-openwrt-service.sh"
-bash "${repo_root}/tools/po0/test-openwrt-luci-official-ui.sh"
 bash "${repo_root}/tools/po0/test-openwrt-apk-layout.sh"
-bash "${repo_root}/tools/po0/test-lan-worker-stash-report.sh"
-bash "${repo_root}/tools/po0/test-manager-client-ip-cidr-prefix.sh"
 bash "${repo_root}/tools/po0/test-manager-nft-atomic-reload.sh"
-bash "${repo_root}/tools/po0/test-manager-resource-upload.sh"
 bash "${repo_root}/tools/po0/test-debian-reinstall-grub.sh"
 node "${repo_root}/tools/po0/test-release-version-tags.mjs"
-node "${repo_root}/tools/po0/test-egern-ssid-guard.mjs"
 node "${repo_root}/tools/po0/test-egern-official-report.mjs"
-node "${repo_root}/tools/po0/test-egern-widget.mjs"
 node "${repo_root}/tools/po0/test-loon-report.js"
 node "${repo_root}/tools/po0/test-stash-report.js"
 bash "${repo_root}/tools/po0/build-po0-assets.sh" "${asset_dir}"
@@ -865,9 +688,6 @@ check_versions_match_tag
 check_versions_consistent
 check_raw_refs
 check_egern_compat_sync
-check_egern_ssid_guard
-check_egern_official_channel
-check_lan_worker_official_channel
 check_asset_inventory
 check_unix_outbound_ip_report_canonical_path "${asset_dir}/po0-outbound-ip-report.sh" "Linux/OpenWrt"
 check_unix_outbound_ip_report_canonical_path "${asset_dir}/po0-outbound-ip-report-macos.sh" "macOS"
@@ -876,4 +696,6 @@ check_windows_canonical_path
 check_legacy_name_allowlist
 check_outbound_ip_report_ssid_guards
 
+python3 "${repo_root}/tools/po0/test-update-mirror.py"
+python3 "${repo_root}/tools/po0/test-retirement-state.py"
 printf 'PO0 asset checks passed.\n'

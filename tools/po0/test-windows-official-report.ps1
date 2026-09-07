@@ -16,6 +16,7 @@ $partNames = @(
     "055-wifi-ssid-policy.ps1"
     "057-channel-settings.ps1"
     "058-official-firewall.ps1"
+    "059-retirement-migration.ps1"
     "060-report-submit.ps1"
     "070-install-upgrade-task.ps1"
     "080-menu-input-formatting.ps1"
@@ -106,7 +107,6 @@ function Assert-PowerShellParses {
 function Remove-TestState {
     foreach ($path in @(
         (Get-Po0FirewallStatePath)
-        (Get-Po0WorkerDueStatePath)
         $configPath
         $logPath
     )) {
@@ -346,7 +346,7 @@ try {
     function Write-PanelRow { param($Label, $Value); $script:VisibleRows.Add("$Label=$Value") }
     function Format-CurrentWifiSsidStatus { return "Fixture Wi-Fi" }
     Show-ClientConfig
-    Assert-True (($script:VisibleRows -join "`n").Contains("worker-visible-fixture")) "Local configuration must show the saved Worker secret."
+    Assert-False (($script:VisibleRows -join "`n").Contains("worker-visible-fixture")) "Retired secret must not occupy the configuration UI."
     Assert-True (($script:VisibleRows -join "`n").Contains("pgnfw_visible_fixture@3")) "Local configuration must show the full official token and slot."
     $script:InputLines = New-Object System.Collections.Generic.Queue[string]
     foreach ($line in @("pgnfw_input_a@0 pgnfw_input_b@1", "pgnfw_input_c@4", "")) { $script:InputLines.Enqueue($line) }
@@ -450,20 +450,6 @@ try {
     Set-TestClock 900
     Assert-True (Test-Po0FirewallDue) "Clock rollback must be treated as due."
     Set-TestClock 1000
-    Mark-Po0WorkerAttempt
-    Set-TestClock 1100
-    Assert-False (Test-Po0WorkerDue) "Worker must keep its own due state."
-    Set-TestClock 4600
-    Assert-True (Test-Po0WorkerDue) "Worker must use its configured hourly due."
-
-    Set-TestMode -Scenario "hit" -Tokens $tokenA
-    $script:Minutes = 60
-    Assert-Equal 10 (Get-Po0FirewallWakeIntervalMinutes) "Official config must wake at most every ten minutes."
-    $script:Minutes = 5
-    Assert-Equal 5 (Get-Po0FirewallWakeIntervalMinutes) "Short configured Worker interval must be preserved."
-    $script:Po0FirewallTokens = ""
-    Assert-Equal 5 (Get-Po0FirewallWakeIntervalMinutes) "Unconfigured official lane must not change Worker wake interval."
-
     $script:Po0FirewallTokens = $tokenA
     $script:Minutes = 10
     $isoTask = [pscustomobject]@{
@@ -492,7 +478,7 @@ try {
     Invoke-SelfReport
     Assert-Equal 1 @($script:MockMethods).Count "Forced run must execute official lane."
     Assert-Equal "official" $script:RunOrder[0] "Official lane must run first."
-    Assert-Equal "worker" $script:RunOrder[1] "Worker lane must run second."
+    Assert-False (@($script:RunOrder) -contains "worker") "Retired Worker must not run."
 
     Set-TestMode -Scenario "hit" -Tokens $tokenA -Worker "http://bad.invalid" -OfficialOnly $true
     Invoke-SelfReport
@@ -501,13 +487,13 @@ try {
     Set-TestMode -Scenario "hit" -Tokens "invalid," -Worker "https://worker.invalid/report" -WorkerOnly $true
     Invoke-SelfReport
     Assert-Equal 0 @($script:MockMethods).Count "WorkerOnly must not execute official."
-    Assert-Equal "worker" $script:RunOrder[0] "WorkerOnly must execute Worker."
+    Assert-False (@($script:RunOrder) -contains "worker") "Retired Worker must not run."
 
     Set-TestMode -Scenario "hit" -Tokens $tokenA -Worker "https://worker.invalid/report" -Force $true
     $script:MockWorkerFail = $true
-    Assert-Throws { Invoke-SelfReport } "Partial Worker failure must return nonzero."
+    Invoke-SelfReport # retired Worker cannot affect official success
     Assert-Equal "official" $script:RunOrder[0] "Partial run must execute official first."
-    Assert-Equal "worker" $script:RunOrder[1] "Partial run must still execute Worker."
+    Assert-False (@($script:RunOrder) -contains "worker") "Retired Worker must not run."
 
     Set-TestMode -Scenario "hit" -Tokens $tokenA -Scheduled $true
     Set-TestClock 500
@@ -548,16 +534,13 @@ try {
         $script:WorkerAutoEnabled = $enabled[0]
         $script:OfficialAutoEnabled = $enabled[1]
         Invoke-SelfReport
-        Assert-Equal ([bool]$enabled[0]) ([bool](@($script:RunOrder) -contains 'worker')) 'Worker automatic switch was ignored.'
+        Assert-Equal $false ([bool](@($script:RunOrder) -contains 'worker')) 'Worker automatic switch was ignored.'
         Assert-Equal ([bool]$enabled[1]) ([bool](@($script:RunOrder) -contains 'official')) 'Official automatic switch was ignored.'
         Assert-Equal $tokenA $script:Po0FirewallTokens 'Pausing must retain the Token.'
     }
     Set-TestMode -Scenario "hit" -Tokens $tokenA -Worker "https://worker.invalid/report" -Scheduled $false -Force $true
     $script:WorkerAutoEnabled = $false
     $script:OfficialAutoEnabled = $false
-    Invoke-ChannelInteractive worker
-    Assert-Equal 'worker' ($script:RunOrder -join ',') 'Manual Worker-only must ignore automatic pause.'
-    Assert-False $script:Po0FirewallWorkerOnly 'Menu must restore one-shot channel selection.'
     $script:Po0FirewallTokens = 'pgnfw_beta@3,pgnfw_alpha@0'
     $script:Po0FirewallNames = '家庭;Office Wi-Fi'
     Sync-OfficialAccountNames 'pgnfw_alpha,pgnfw_beta'
@@ -568,9 +551,9 @@ try {
     $script:OfficialAutoEnabled = $true
     $script:WorkerName = ''
     Load-SavedConfig
-    Assert-False $script:WorkerAutoEnabled 'Worker pause must survive reload.'
+    Assert-False ((Get-Content $script:ConfigPath -Raw).Contains('WorkerAutoEnabled')) 'Retired flags must not be saved.'
     Assert-False $script:OfficialAutoEnabled 'Official pause must survive reload.'
-    Assert-Equal '测试接收端' $script:WorkerName 'Name must survive reload.'
+    Assert-Equal 'Office Wi-Fi;家庭' $script:Po0FirewallNames 'Official names must survive reload.'
     $script:WorkerAutoEnabled = $true
     $script:OfficialAutoEnabled = $true
 
@@ -611,17 +594,3 @@ try {
         Remove-Item -LiteralPath $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-

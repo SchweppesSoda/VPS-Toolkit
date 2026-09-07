@@ -4,10 +4,11 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_OUTBOUND_IP_REPORT_MACOS_DOWNLOAD_URL:-${PO0_SELF_REPORT_MACOS_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report-macos.sh}}"
 SCRIPT_NAME="po0-outbound-ip-report"
-SCRIPT_VERSION="2026.09.07+build.2"
-SCRIPT_RELEASE_DATE="2026-09-07"
+SCRIPT_VERSION="2026.09.08+build.1"
+SCRIPT_RELEASE_DATE="2026-09-08"
 # CHANGELOG_BEGIN
-# - 跟随本次客户端修复统一发布版本。
+# - 只保留官方上报与精简菜单，旧自建动作停止执行。
+# - 迁移先备份原始设置，保留官方账号、槽位、间隔和停用选择。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24

@@ -12,9 +12,6 @@ legacy_launchd_labels() {
     printf '%s\n' "fr.schweppes.po0-self-report"
 }
 
-legacy_launchd_label() {
-    legacy_launchd_labels | tail -n 1
-}
 
 launchd_supported() {
     is_macos || return 1
@@ -174,10 +171,6 @@ launchd_disabled_from_plist() {
     printf '%s\n' "${disabled:-0}"
 }
 
-launchd_plist_has_scheduled_run() {
-    local plist="$1"
-    grep -q '<string>--scheduled-run</string>' "${plist}" 2>/dev/null
-}
 
 launchd_plist_matches_desired() {
     local plist="$1" script="$2" channel="${3:-worker}" tmp rc=0

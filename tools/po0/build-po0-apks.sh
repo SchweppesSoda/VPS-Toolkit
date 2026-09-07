@@ -10,11 +10,6 @@ output_dir="${3:-${repo_root}/.tmp/po0-apks}"
     printf 'Invalid ImmortalWrt SDK directory: %s\n' "${sdk_root}" >&2
     exit 1
 }
-[[ -s "${asset_dir}/po0-outbound-ip-report.sh" ]] || {
-    printf 'Missing PO0 asset: po0-outbound-ip-report.sh\n' >&2
-    exit 1
-}
-
 mkdir -p "${sdk_root}/package" "${sdk_root}/po0-assets" "${output_dir}"
 for package in po0-outbound-ip-report; do
     [[ ! -e "${sdk_root}/package/${package}" ]] || {

@@ -1,61 +1,38 @@
+function retiredAction(ctx) {
+  return /自建|ssh-report|设备 ID|本机设备|Device ID|设备标识/i.test(scriptLabel(ctx)) || Boolean(ctx?.request);
+}
+
+async function migrateRetiredState(ctx) {
+  const marker = CONFIG_STORAGE_KEY + ':official-only-v1';
+  if (await storageGet(ctx, marker)) return;
+  const key = CONFIG_STORAGE_KEY + ':pre-retirement-v1';
+  if (!await storageGet(ctx, key)) {
+    const backup = { config: await storageGet(ctx, CONFIG_STORAGE_KEY), state: await storageGet(ctx, STORAGE_KEY), official: await storageGet(ctx, OFFICIAL_STORAGE_KEY), error: await storageGet(ctx, ERROR_STORAGE_KEY) };
+    if (!await storageSet(ctx, key, JSON.stringify(backup))) throw new Error('无法备份旧本机配置');
+  }
+  const saved = await storedReportConfig(ctx);
+  if (saved.exists) await saveReportConfig(ctx, saved.values);
+  if (!await storageSet(ctx, STORAGE_KEY, JSON.stringify(sanitizedStoredState(await storageGet(ctx, STORAGE_KEY)) || {}))) throw new Error('无法迁移本机状态');
+  await storageDelete(ctx, ERROR_STORAGE_KEY);
+  if (!await storageSet(ctx, marker, '1')) throw new Error('无法完成本机配置迁移');
+}
+
 const STORAGE_KEY = 'po0-ssh-ip-report:last';
 const ERROR_STORAGE_KEY = 'po0-ssh-ip-report:last-error';
 const OFFICIAL_STORAGE_KEY = 'po0-ssh-ip-report:official:v1';
-const IP_CHECK_INDEX_KEY = 'po0-ssh-ip-report:ip-check-index';
-const DEVICE_ID_KEY = 'po0-ssh-ip-report:device-id';
 const CONFIG_STORAGE_KEY = 'po0-ssh-ip-report:config:v1';
 const CONFIG_STORAGE_VERSION = 1;
-const DEVICE_ID_FALLBACK = 'egern';
 const OFFICIAL_FIREWALL_API_BASE = 'https://124.221.69.228/api/firewall';
 const DEFAULT_OFFICIAL_INTERVAL_SECONDS = 600;
 const OFFICIAL_FIREWALL_MAX_TOKENS = 16;
 const REPORT_LOCK_KEY = 'po0-ssh-ip-report:run-lock:v1';
 const REPORT_LOCK_TTL_MS = 120000;
-const DEFAULT_TTL_SECONDS = 43200;
-const DEFAULT_AUTO_REPORT_INTERVAL_SECONDS = 600;
-const MIN_AUTO_REPORT_INTERVAL_SECONDS = 60;
-const MAX_AUTO_REPORT_INTERVAL_SECONDS = 86400;
-const DEFAULT_CELLULAR_CIDR_PREFIX = 24;
-const REPORT_TITLE = 'PO0 出口上报';
+const REPORT_TITLE = 'PO0 官方防火墙';
 const REPORT_FAILED_TITLE = 'PO0 防火墙上报失败';
-// Targets (including TTL), authentication and local automatic switches stay on this device.
-const WORKER_CONFIG_KEYS = ['PO0_HOST', 'PO0_PORT', 'PO0_USER', 'PO0_PASSWORD', 'PO0_PRIVATE_KEY', 'PO0_PASSPHRASE', 'PO0_SCRIPT', 'SSH_REPORT_SOURCE', 'SSH_REPORT_TOKEN', 'REPORT_IDENTITY', 'TTL_SECONDS', 'CELLULAR_CIDR_PREFIX', 'SSH_REPORT_TARGETS', 'WORKER_AUTO_ENABLED'];
+// Official targets and the automatic switch stay on this device.
 const OFFICIAL_CONFIG_KEYS = ['PO0_FIREWALL_TOKENS', 'PO0_FIREWALL_NAMES', 'PO0_FIREWALL_WIFI_TOKENS', 'PO0_FIREWALL_WIFI_NAMES', 'OFFICIAL_AUTO_ENABLED'];
-const PERSISTED_ENV_KEYS = [...WORKER_CONFIG_KEYS, ...OFFICIAL_CONFIG_KEYS];
-const LIVE_ENV_KEYS = ['AUTO_REPORT_INTERVAL_SECONDS', 'WORKER_TIMER_ENABLED', 'OFFICIAL_INTERVAL_SECONDS', 'OFFICIAL_TIMER_ENABLED', 'OFFICIAL_NETWORK_TARGETS_ENABLED', 'SKIP_WIFI_SSIDS', 'IP_CHECK_URL', 'IP_CHECK_URLS', 'POLICY', 'NOTIFY_SUCCESS', 'NOTIFY_FAILURE'];
-const MODULE_DEFAULT_ENV_VALUES = {
-  PO0_PORT: '22',
-  PO0_USER: 'root',
-  PO0_SCRIPT: '/root/nftables-relay-manager.sh',
-  SSH_REPORT_SOURCE: 'egern',
-  REPORT_IDENTITY: 'egern',
-  TTL_SECONDS: '43200',
-  AUTO_REPORT_INTERVAL_SECONDS: '600',
-  CELLULAR_CIDR_PREFIX: '24',
-  IP_CHECK_URL: 'https://ip9.com.cn/get',
-  POLICY: 'DIRECT',
-  NOTIFY_SUCCESS: 'false',
-  NOTIFY_FAILURE: 'true',
-};
-
-function required(env, key) {
-  const value = String(env[key] || '').trim();
-  if (!value) throw new Error(`${key} is required`);
-  return value;
-}
-
-function shQuote(value) {
-  return `'${String(value).replace(/'/g, "'\\''")}'`;
-}
-
-function wrapText(value, width) {
-  const chunks = [];
-  const text = String(value || '');
-  for (let index = 0; index < text.length; index += width) {
-    chunks.push(text.slice(index, index + width));
-  }
-  return chunks;
-}
+const PERSISTED_ENV_KEYS = [...OFFICIAL_CONFIG_KEYS];
+const LIVE_ENV_KEYS = ['OFFICIAL_INTERVAL_SECONDS', 'OFFICIAL_TIMER_ENABLED', 'OFFICIAL_NETWORK_TARGETS_ENABLED', 'SKIP_WIFI_SSIDS', 'IP_CHECK_URL', 'IP_CHECK_URLS', 'POLICY', 'NOTIFY_SUCCESS', 'NOTIFY_FAILURE'];
 
 function redactSensitiveText(value, secrets = []) {
   let text = String(value ?? '');
@@ -77,95 +54,9 @@ function redactSensitiveText(value, secrets = []) {
   return text;
 }
 
-function redactError(error, env = {}, channels = {}, targets = []) {
-  const secrets = [];
-  const add = (value) => {
-    const text = String(value ?? '').trim();
-    if (text) secrets.push(text);
-  };
-
-  for (const key of [
-    'PO0_FIREWALL_TOKENS',
-    'SSH_REPORT_TOKEN',
-    'SSH_REPORT_TARGETS',
-    'PO0_PASSWORD',
-    'PO0_PRIVATE_KEY',
-    'PO0_PASSPHRASE',
-  ]) {
-    add(env?.[key]);
-  }
-  for (const item of channels?.officialTokens || []) add(item?.token);
-  const targetList = Array.isArray(targets) ? targets : [targets];
-  for (const target of targetList) {
-    add(target?.token);
-    add(target?.password);
-    add(target?.privateKey);
-    add(target?.passphrase);
-  }
-
-  return redactSensitiveText(error?.message || String(error || ''), secrets);
-}
-
-function normalizeSshPrivateKey(value) {
-  let key = String(value || '').trim();
-  if (!key) return '';
-
-  key = key
-    .replace(/\\r\\n/g, '\n')
-    .replace(/\\n/g, '\n')
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n')
-    .trim();
-
-  const oneLine = key.replace(/\n+/g, ' ').trim();
-  const match = oneLine.match(/(-----BEGIN ([A-Z0-9 ]*PRIVATE KEY)-----)\s*([\s\S]*?)\s*(-----END \2-----)/);
-  if (!match) return key;
-
-  const body = match[3].replace(/\s+/g, '');
-  if (!body) return `${match[1]}\n${match[4]}\n`;
-  return `${match[1]}\n${wrapText(body, 64).join('\n')}\n${match[4]}\n`;
-}
-
-function isPublicIPv4(ip) {
-  const m = String(ip || '').trim().match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (!m) return false;
-  const o = m.slice(1).map(Number);
-  if (o.some((n) => n < 0 || n > 255)) return false;
-  if (o[0] === 0 || o[0] === 10 || o[0] === 127) return false;
-  if (o[0] === 100 && o[1] >= 64 && o[1] <= 127) return false;
-  if (o[0] === 169 && o[1] === 254) return false;
-  if (o[0] === 172 && o[1] >= 16 && o[1] <= 31) return false;
-  if (o[0] === 192 && o[1] === 168) return false;
-  if (o[0] === 198 && o[1] >= 18 && o[1] <= 19) return false;
-  if (o[0] >= 224) return false;
-  return true;
-}
-
-function extractIPv4FromText(text) {
-  const seen = new Set();
-  const ips = [];
-  const matches = String(text || '').matchAll(/\b(\d{1,3}(?:\.\d{1,3}){3})\b/g);
-  for (const match of matches) {
-    const ip = match[1];
-    if (isPublicIPv4(ip) && !seen.has(ip)) {
-      seen.add(ip);
-      ips.push(ip);
-    }
-  }
-  return ips;
-}
-
-function defaultIpCheckUrls(env) {
-  return [
-    env.IP_CHECK_URL || 'https://ip9.com.cn/get',
-    'https://mail.163.com/fgw/mailsrv-ipdetail/detail',
-    'https://api.live.bilibili.com/client/v1/Ip/getInfoNew',
-    'https://ipservice.ws.126.net/locate/api/getLocByIp',
-    'https://r.inews.qq.com/api/ip2city?otype=json',
-    'https://data.video.iqiyi.com/v.f4v',
-    'https://ip.apps.cntv.cn/whereis?client=json',
-    'https://myip.ipip.net/json',
-  ].filter(Boolean);
+function redactError(error, env = {}) {
+  const values = Object.values(env).filter(value => typeof value === 'string' && value.length > 3);
+  return redactSensitiveText(String(error && error.message || error || ''), values);
 }
 
 async function responseText(resp) {
@@ -175,170 +66,12 @@ async function responseText(resp) {
   return JSON.stringify(resp.body || resp.data || '');
 }
 
-async function detectCurrentIPv4(ctx, url, policy) {
-  const resp = await ctx.http.get(url, { timeout: 10000, policy });
-  if (resp.status < 200 || resp.status >= 300) {
-    throw new Error(`公网 IPv4 探测失败：HTTP ${resp.status}`);
-  }
-
-  let data = null;
-  try {
-    data = await resp.json();
-  } catch (_) {
-    data = null;
-  }
-
-  if (data && typeof data === 'object') {
-    const fields = [data.ip, data.origin, data.query, data.address, data.IPv4, data.ipv4];
-    for (const field of fields) {
-      const ips = extractIPv4FromText(field);
-      if (ips.length > 0) return { ip: ips[0], ipProfile: extractIpProfile(data) };
-    }
-    const ips = extractIPv4FromText(JSON.stringify(data));
-    if (ips.length > 0) return { ip: ips[0], ipProfile: extractIpProfile(data) };
-  }
-
-  const text = await responseText(resp);
-  const ips = extractIPv4FromText(text);
-  if (ips.length === 0) {
-    throw new Error(`未从 ${url} 提取到公网 IPv4`);
-  }
-  return { ip: ips[0], ipProfile: extractIpProfile(text) };
-}
-
-async function detectCurrentIPv4WithFallback(ctx, env, policy) {
-  const urls = String(env.IP_CHECK_URLS || '')
-    .split(',')
-    .map((url) => url.trim())
-    .filter(Boolean);
-  if (urls.length === 0) {
-    urls.push(...defaultIpCheckUrls(env));
-  }
-  const start = await storageIndex(ctx, IP_CHECK_INDEX_KEY, urls.length);
-  const errors = [];
-  for (let i = 0; i < urls.length; i += 1) {
-    const index = (start + i) % urls.length;
-    const url = urls[index];
-    try {
-      const result = await detectCurrentIPv4(ctx, url, policy);
-      await storageSet(ctx, IP_CHECK_INDEX_KEY, String((index + 1) % urls.length));
-      return result;
-    } catch (error) {
-      errors.push(`${url}: ${error?.message || error}`);
-    }
-  }
-  await storageSet(ctx, IP_CHECK_INDEX_KEY, String((start + 1) % urls.length));
-  throw new Error(`所有公网 IPv4 探测地址均失败：${errors.join('; ')}`);
-}
-
 function normalizeIpProfile(value) {
   if (!value || typeof value !== 'object') return { location: '', isp: '' };
   return {
     location: String(value.location || '').trim(),
     isp: String(value.isp || value.org || '').trim(),
   };
-}
-
-function compactParts(parts) {
-  const seen = new Set();
-  return (parts || [])
-    .map((part) => String(part || '').trim())
-    .filter((part) => part && !/^unknown$/i.test(part))
-    .filter((part) => {
-      const key = part.toLowerCase();
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-}
-
-function firstValue(...values) {
-  for (const value of values) {
-    const text = String(value || '').trim();
-    if (text && !/^unknown$/i.test(text)) return text;
-  }
-  return '';
-}
-
-function extractIpProfileFromObject(data) {
-  if (!data || typeof data !== 'object') return { location: '', isp: '' };
-  const candidates = [data, data.data, data.result].filter((item) => item && typeof item === 'object');
-  for (const item of candidates) {
-    if (Array.isArray(item.location)) {
-      const locationParts = compactParts(item.location.slice(0, 4));
-      const isp = firstValue(item.location[4], item.isp, item.org, item.company, item.operator);
-      if (locationParts.length || isp) return { location: locationParts.join(' '), isp };
-    }
-
-    const locationParts = compactParts([
-      item.country,
-      item.prov,
-      item.province,
-      item.regionName,
-      item.city,
-      item.county,
-      item.district,
-    ]);
-    const isp = firstValue(item.isp, item.org, item.company, item.operator);
-    if (locationParts.length || isp) return { location: locationParts.join(' '), isp };
-  }
-  return { location: '', isp: '' };
-}
-
-function extractIpProfileFromText(text) {
-  const value = String(text || '');
-  const iqiyi = value.match(/"t"\s*:\s*"([^"|]+)\|([^"-]+)(?:-[0-9.]+)?"/);
-  if (iqiyi) {
-    return {
-      location: iqiyi[2].replace(/_/g, ' ').trim(),
-      isp: iqiyi[1].trim(),
-    };
-  }
-  return { location: '', isp: '' };
-}
-
-function extractIpProfile(value) {
-  if (value && typeof value === 'object') {
-    const profile = normalizeIpProfile(extractIpProfileFromObject(value));
-    if (profile.location || profile.isp) return profile;
-    return normalizeIpProfile(extractIpProfileFromText(JSON.stringify(value)));
-  }
-  return normalizeIpProfile(extractIpProfileFromText(value));
-}
-
-function trimDisplayText(value, maxLength = 18) {
-  const text = String(value || '').trim();
-  if (text.length <= maxLength) return text;
-  return `${text.slice(0, maxLength - 1)}...`;
-}
-
-async function fetchIpProfile(ctx, ip, policy) {
-  if (!isPublicIPv4(ip)) return { location: '', isp: '' };
-  try {
-    const fields = 'status,message,country,regionName,city,isp,org,query';
-    const url = `http://ip-api.com/json/${encodeURIComponent(ip)}?lang=zh-CN&fields=${fields}`;
-    const resp = await ctx.http.get(url, { timeout: 5000, policy });
-    if (resp.status < 200 || resp.status >= 300) return { location: '', isp: '' };
-    let data = null;
-    try {
-      data = await resp.json();
-    } catch (_) {
-      const text = await responseText(resp);
-      data = JSON.parse(text);
-    }
-    if (!data || data.status === 'fail') return { location: '', isp: '' };
-    const location = [data.country, data.regionName, data.city]
-      .map((part) => String(part || '').trim())
-      .filter(Boolean)
-      .join(' ');
-    const isp = String(data.isp || data.org || '').trim();
-    return {
-      location,
-      isp,
-    };
-  } catch (_) {
-    return { location: '', isp: '' };
-  }
 }
 
 function boolEnv(value, fallback) {
@@ -616,34 +349,6 @@ function officialSafeError(error) {
   return '官方防火墙请求失败。';
 }
 
-function normalizeDeviceId(value) {
-  const id = String(value || '').trim();
-  if (!id) return '';
-  if (!/^[A-Za-z0-9._-]{1,64}$/.test(id)) {
-    throw new Error('设备 ID 只能包含英文、数字、点号、下划线和短横线，长度 1-64。');
-  }
-  return id;
-}
-
-function deviceDisplayName(deviceId) {
-  return deviceId || '未设置';
-}
-
-function expandDevicePlaceholder(value, deviceId) {
-  const text = String(value || '');
-  if (!text.includes('{device}')) return text;
-  return text.replace(/\{device\}/g, deviceId || DEVICE_ID_FALLBACK);
-}
-
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
 function scriptLabel(ctx) {
   const aliases = {"查看本机配置":"查看本机上报设置","自建防火墙 · 保存配置":"保存本机 PO0 自建防火墙配置","官方防火墙 · 保存配置":"保存本机 PO0 官方防火墙配置","查询官方白名单":"PO0 官方防火墙状态（只读）"};
   return [
@@ -735,17 +440,6 @@ function formatTime(value) {
   return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
-function ttlRemaining(expiresAt) {
-  if (!expiresAt) return '未知';
-  const ms = new Date(expiresAt).getTime() - Date.now();
-  if (!Number.isFinite(ms)) return '未知';
-  if (ms <= 0) return 'expired';
-  const minutes = Math.floor(ms / 60000);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return `${hours}h ${rest}m`;
-}
 
 function formatDurationSeconds(seconds) {
   const value = Number(seconds);
@@ -837,11 +531,6 @@ function widgetPanel(title, content, ok, ctx) {
   };
 }
 
-function targetName(target) {
-  const host = target.host || 'PO0';
-  const port = target.port ? `:${target.port}` : '';
-  return `${target.sourceId || 'egern'}@${host}${port}`;
-}
 
 function officialStatusText(entry) {
   if (entry?.status === 'shared') return '当前网段已放行，共用' + officialCoveredSlotText(entry);
@@ -885,18 +574,6 @@ function officialWhitelistText(entry) {
   return rows.length ? rows.map(row => `${row.ip} #${officialDisplaySlot(row.slot) || '自动'}`).join('，') : '空';
 }
 
-function widgetTargets(state, env, deviceId) {
-  const previous = Array.isArray(state?.targets) ? state.targets : [];
-  if (!workerConfigRequested(env)) return [];
-  try {
-    return parseTargets(env, deviceId).map(target => ({
-      ...target,
-      ...previous.find(item => item.sourceId === target.sourceId && item.host === target.host && Number(item.port || 22) === target.port),
-      // Configuration supplies the current display name and effective TTL, even before a new report.
-      identity: target.identity, ttlSeconds: target.ttlSeconds,
-    }));
-  } catch (_) { return previous; }
-}
 
 function widgetOfficialEntries(state, env, runtimeEnv = {}) {
   const displayEnv = officialDisplayEnv(env, runtimeEnv);
@@ -921,52 +598,31 @@ function widgetAutoState(configured, enabled, ssidMatched) {
   return { text: '自动开启', icon: 'clock.arrow.circlepath', color: WIDGET_COLORS.green };
 }
 
-function widgetRefreshSchedule(env, workerAuto, officialAuto, entries) {
-  const intervals = [];
-  if (workerAuto.text === '自动开启' && boolEnv(env.WORKER_TIMER_ENABLED, true)) intervals.push(autoReportIntervalSeconds(env));
-  if (officialAuto.text === '自动开启') {
-    for (const entry of entries) if (entry.timerEnabled && entry.intervalSeconds) intervals.push(entry.intervalSeconds);
-  }
+function widgetRefreshSchedule(env, officialAuto, entries) {
+  const intervals = officialAuto.text === '自动开启' ? entries.filter(entry => entry.timerEnabled && entry.intervalSeconds).map(entry => entry.intervalSeconds) : [];
   return intervals.length ? { refreshAfter: new Date(Date.now() + Math.min(...intervals) * 1000).toISOString() } : {};
 }
 
-function widgetLane(title, auto, entries, official, ctx, env) {
+function widgetLane(title, auto, entries, ctx, env) {
   const metrics = widgetMetrics(ctx);
   const family = widgetFamily(ctx);
-  const limit = family === 'small' ? 1 : family === 'large' ? 3 : 2;
+  const limit = family === 'small' ? 2 : family === 'large' ? 6 : 3;
   const shown = entries.slice(0, limit);
-  const children = [widgetRow([
-    widgetText(title, metrics.bodySize, WIDGET_COLORS.heading, 'semibold'), spacerNode(),
-    iconNode(auto.icon, auto.color, 11), widgetText(auto.text, 11, auto.color),
-  ], 3)];
+  const children = [widgetRow([widgetText(title, metrics.bodySize, WIDGET_COLORS.heading, 'semibold'), spacerNode(), iconNode(auto.icon, auto.color, 11), widgetText(auto.text, 11, auto.color)], 3)];
   shown.forEach(entry => {
-    const name = official ? entry.name : entry.sourceId || entry.host;
-    const success = official ? /^(hit|updated|shared)$/.test(entry.status) : entry.ok === true;
-    const failed = official ? entry.status === 'error' : entry.ok === false;
-    const result = official ? entry.status === 'shared' ? '已放行·共用' : success ? '已加白' : entry.status === 'missing' ? '未加白' : failed ? '失败' : '待检查'
-      : success ? '成功' : failed ? '失败' : '待上报';
-    const color = failed ? WIDGET_COLORS.red : success ? WIDGET_COLORS.green : WIDGET_COLORS.dim;
+    const success = /^(hit|updated|shared)$/.test(entry.status);
+    const failed = entry.status === 'error';
+    const result = entry.status === 'shared' ? '已放行·共用' : success ? '已加白' : entry.status === 'missing' ? '未加白' : failed ? '失败' : '待检查';
     const suffix = entries.length > limit && entry === shown[shown.length - 1] ? ` +${entries.length - limit}` : '';
     children.push(widgetRow([
-      { ...widgetText((name || '目标') + suffix, metrics.bodySize, WIDGET_COLORS.text, 'medium'), flex: 1 },
-      ...(family === 'large' && official ? [widgetText((entry.status === 'shared' ? officialCoveredSlotText(entry) : '#' + (officialDisplaySlot(entry.fixedSlot) || '自动')) + ' · ' + (entry.used ?? '?') + '/' + (entry.limit ?? 5), 11, WIDGET_COLORS.dim)] : []),
-      widgetText(result, 12, color),
+      { ...widgetText((entry.name || '官方账号') + suffix, metrics.bodySize, WIDGET_COLORS.text, 'medium'), flex: 1 },
+      ...(family !== 'small' ? [widgetText((entry.status === 'shared' ? officialCoveredSlotText(entry) : '#' + (officialDisplaySlot(entry.fixedSlot) || '自动')) + ' · ' + (entry.used ?? '?') + '/' + (entry.limit ?? 5), 11, WIDGET_COLORS.dim)] : []),
+      widgetText(result, 12, failed ? WIDGET_COLORS.red : success ? WIDGET_COLORS.green : WIDGET_COLORS.dim),
     ]));
-    if (official && family !== 'small') {
-      const period = entry.intervalSeconds ? formatDurationSeconds(entry.intervalSeconds) : '未知';
-      children.push(widgetText(entry.timerEnabled ? '周期 ' + period : '定时关闭 · 间隔暂不使用', 11, WIDGET_COLORS.dim));
-    }
   });
-  if (!shown.length && family !== 'small') children.push(widgetText(auto.text === '未配置' ? '尚未设置目标' : '等待首次结果', metrics.bodySize, WIDGET_COLORS.dim));
-  if (family !== 'small') {
-    const detail = official
-      ? entries.length + ' 个账号'
-      : boolEnv(env.WORKER_TIMER_ENABLED, true)
-        ? '周期 ' + formatDurationSeconds(autoReportIntervalSeconds(env))
-        : '定时关闭 · 间隔暂不使用';
-    children.push(widgetText(detail, 11, WIDGET_COLORS.dim));
-  }
-  return { type: 'stack', direction: 'column', alignItems: 'start', gap: metrics.cardGap, flex: family === 'medium' ? 1 : 0, children };
+  if (!shown.length) children.push(widgetText('尚未设置官方目标', metrics.bodySize, WIDGET_COLORS.dim));
+  if (family !== 'small') children.push(widgetText(entries.length + ' 个账号 · ' + (officialTimerEnabled(env) ? '周期 ' + formatDurationSeconds(officialIntervalSeconds(env)) : '定时关闭 · 间隔暂不使用'), 11, WIDGET_COLORS.dim));
+  return { type: 'stack', direction: 'column', alignItems: 'start', gap: metrics.cardGap, children };
 }
 
 function officialReadOnlyWidget(state, ctx, env) {
@@ -991,39 +647,22 @@ function widgetFromState(state, ctx, deviceId = '', env = ctx?.env || {}) {
   const metrics = widgetMetrics(ctx);
   const network = ctx?.device ? networkInfo(ctx) : normalizeNetworkInfo(state?.network);
   const ssid = currentWifiSsidFromNetwork(ctx, network);
-  const ssidMatched = Boolean(ssid && normalizeSsidSkipList(env.SKIP_WIFI_SSIDS).includes(ssid));
-  const targets = widgetTargets(state, env, deviceId);
   const entries = widgetOfficialEntries(state, env, ctx?.env);
-  const workerAuto = widgetAutoState(workerConfigRequested(env), boolEnv(env.WORKER_AUTO_ENABLED, true), ssidMatched);
-  const officialAuto = widgetAutoState(officialTokensConfigured(env), boolEnv(env.OFFICIAL_AUTO_ENABLED, true), ssidMatched);
-  const worker = widgetLane('自建', workerAuto, targets, false, ctx, env);
-  const official = widgetLane('官方', officialAuto, entries, true, ctx, env);
-  const lastTime = state?.at || state?.official?.lastSuccessAt || state?.checkedAt;
-  const ip = state?.ip || state?.official?.currentIp?.replace(/\/\d+$/, '') || '暂无出口结果';
-  const small = family === 'small';
-  const networkText = ssid || network.value || '';
-  const note = state?.uiNotice || (state?.error ? '上报未完成 · ' + redactSensitiveText(state.error) : state?.skipped && state?.skipType === 'wifi-ssid'
-    ? '本次 SSID 跳过 · 保留上次结果'
-    : state?.skipped ? '本次无需续报 · 保留上次结果'
-    : shouldReturnWidget(ctx) ? (/查看最近结果/.test(scriptLabel(ctx)) ? '最近结果 · 本次未上报' : '上报并刷新 · 自动开关保持不变') : '最近上报结果');
+  const auto = widgetAutoState(officialTokensConfigured(env), boolEnv(env.OFFICIAL_AUTO_ENABLED, true), Boolean(ssid && normalizeSsidSkipList(env.SKIP_WIFI_SSIDS).includes(ssid)));
+  const lastTime = state?.official?.lastSuccessAt || state?.at || state?.checkedAt;
+  const ip = state?.official?.currentIp?.replace(/\/\d+$/, '') || state?.ip || '暂无出口结果';
   const children = [
-    widgetRow([widgetText(small ? 'PO0 防火墙' : REPORT_TITLE, metrics.titleSize, WIDGET_COLORS.text, 'semibold'), spacerNode(), widgetText(lastTime ? formatTime(lastTime) : '未上报', 11, WIDGET_COLORS.dim)]),
-    widgetRow([{ ...widgetText(ip, metrics.bodySize), flex: 1 }, ...(!small && networkText ? [widgetText(networkText, 11, WIDGET_COLORS.dim)] : [])]),
+    widgetRow([widgetText('PO0 官方防火墙', metrics.titleSize, WIDGET_COLORS.text, 'semibold'), spacerNode(), widgetText(lastTime ? formatTime(lastTime) : '未上报', 11, WIDGET_COLORS.dim)]),
+    widgetRow([{ ...widgetText(ip, metrics.bodySize), flex: 1 }, ...(family !== 'small' ? [widgetText(ssid || network.value || '', 11, WIDGET_COLORS.dim)] : [])]),
+    widgetLane('官方账号', auto, entries, ctx, env),
   ];
-  if (family === 'medium') children.push(widgetRow([worker, official], 14));
-  else children.push(worker, official);
   if (family === 'large') {
     const profile = normalizeIpProfile(state?.ipProfile);
-    const details = [deviceId || state?.deviceId, profile.location, profile.isp].filter(Boolean).join(' · ');
+    const details = [profile.location, profile.isp].filter(Boolean).join(' · ');
     if (details) children.push(widgetText(details, 12, WIDGET_COLORS.dim));
   }
-  if (!small) children.push(widgetText(note, 11, WIDGET_COLORS.dim));
-  else if (state?.uiNotice) children[0].children[2] = widgetText('上报中', 11, WIDGET_COLORS.yellow);
-  return {
-    type: 'widget', padding: metrics.padding, gap: metrics.widgetGap,
-    backgroundColor: WIDGET_COLORS.background,
-    ...widgetRefreshSchedule(env, workerAuto, officialAuto, entries), children,
-  };
+  if (family !== 'small') children.push(widgetText(state?.uiNotice || (state?.error ? '上报未完成' : state?.skipType === 'wifi-ssid' ? '本次 SSID 跳过 · 保留上次结果' : state?.skipped ? '尚未到间隔 · 保留上次结果' : '最近官方上报结果'), 11, WIDGET_COLORS.dim));
+  return { type: 'widget', padding: metrics.padding, gap: metrics.widgetGap, backgroundColor: WIDGET_COLORS.background, ...widgetRefreshSchedule(env, auto, entries), children };
 }
 
 function carrierLabel(carrier) {
@@ -1142,16 +781,13 @@ async function storageSet(ctx, key, value) {
   const storage = ctx?.storage;
   if (!storage) return false;
   if (typeof storage.set === 'function') {
-    await storage.set(key, value);
-    return true;
+    return (await storage.set(key, value)) !== false;
   }
   if (typeof storage.setItem === 'function') {
-    await storage.setItem(key, value);
-    return true;
+    return (await storage.setItem(key, value)) !== false;
   }
   if (typeof storage.write === 'function') {
-    await storage.write(key, value);
-    return true;
+    return (await storage.write(key, value)) !== false;
   }
   return false;
 }
@@ -1217,14 +853,6 @@ async function releaseReportLock(ctx, lock) {
   if (current && current.owner === lock.owner) await storageDelete(ctx, REPORT_LOCK_KEY);
 }
 
-async function storedDeviceId(ctx) {
-  const raw = await storageGet(ctx, DEVICE_ID_KEY);
-  try {
-    return normalizeDeviceId(raw);
-  } catch (_) {
-    return '';
-  }
-}
 
 function persistableEnvValues(env) {
   const values = {};
@@ -1246,19 +874,6 @@ function effectiveReportEnv(localValues, runtimeEnv = {}) {
   return env;
 }
 
-function reportConfigSaveCandidate(storedValues, runtimeEnv) {
-  const candidate = persistableEnvValues(storedValues);
-  const runtimeValues = persistableEnvValues(runtimeEnv);
-  for (const [key, value] of Object.entries(runtimeValues)) {
-    const schemaDefault = MODULE_DEFAULT_ENV_VALUES[key];
-    const hasDifferentStoredValue = String(candidate[key] || '').trim()
-      && schemaDefault === value
-      && candidate[key] !== value;
-    if (hasDifferentStoredValue) continue;
-    candidate[key] = value;
-  }
-  return candidate;
-}
 
 async function storedReportConfig(ctx) {
   const raw = await storageGet(ctx, CONFIG_STORAGE_KEY);
@@ -1323,13 +938,6 @@ async function saveReportConfig(ctx, env) {
   return { values, savedAt };
 }
 
-async function storageIndex(ctx, key, length) {
-  if (!Number.isFinite(length) || length <= 0) return 0;
-  const raw = await storageGet(ctx, key);
-  const index = Number.parseInt(String(raw ?? ''), 10);
-  if (!Number.isFinite(index) || index < 0) return 0;
-  return index % length;
-}
 
 function parseStoredState(raw) {
   if (!raw) return null;
@@ -1339,20 +947,6 @@ function parseStoredState(raw) {
   } catch (_) {
     return null;
   }
-}
-
-function targetSignature(target) {
-  return [
-    target.sourceId || '',
-    target.host || '',
-    String(target.port || ''),
-    target.identity || '',
-    String(target.ttlSeconds || ''),
-  ].join('|');
-}
-
-function targetSignatures(targets) {
-  return (targets || []).map(targetSignature).sort().join('\n');
 }
 
 function shortHash(value) {
@@ -1365,219 +959,13 @@ function shortHash(value) {
   return (hash >>> 0).toString(16);
 }
 
-function targetConfigSignature(target) {
-  return [
-    target.sourceId || '',
-    target.host || '',
-    String(target.port || ''),
-    target.username || '',
-    target.script || '',
-    target.identity || '',
-    String(target.ttlSeconds || ''),
-    String(target.cidrPrefix || 32),
-    shortHash(target.token || ''),
-  ].join('|');
-}
-
-function targetConfigSignatures(targets) {
-  return (targets || []).map(targetConfigSignature).sort().join('\n');
-}
-
-function sanitizedTargetStatus(target, skipped = false) {
-  const clean = {
-    sourceId: target?.sourceId || '',
-    host: target?.host || '',
-    port: target?.port || '',
-    identity: target?.identity || '',
-    ttlSeconds: target?.ttlSeconds || '',
-  };
-  if (target?.ok !== undefined) clean.ok = Boolean(target.ok);
-  if (target?.cidrPrefix !== undefined) clean.cidrPrefix = target.cidrPrefix;
-  if (target?.reportedCidr) clean.reportedCidr = target.reportedCidr;
-  if (target?.expiresAt) clean.expiresAt = target.expiresAt;
-  if (target?.error) clean.error = redactSensitiveText(target.error, [target?.token]);
-  if (skipped || target?.skipped) clean.skipped = true;
-  return clean;
-}
-
 function sanitizedStoredState(raw) {
-  const state = parseStoredState(raw);
-  if (!state || typeof state !== 'object') return null;
-  const clean = {};
-  for (const key of [
-    'ok',
-    'sourceId',
-    'ip',
-    'reportedCidr',
-    'cidrPrefix',
-    'ipProfile',
-    'po0Host',
-    'identity',
-    'network',
-    'at',
-    'checkedAt',
-    'deviceId',
-    'targetCount',
-    'successCount',
-    'failureCount',
-    'targetConfigSignature',
-    'official',
-    'expiresAt',
-    'skipped',
-    'skipType',
-    'skipReason',
-  ]) {
-    if (state[key] !== undefined) {
-      clean[key] = key === 'official'
-        ? sanitizeOfficialState(state[key])
-        : typeof state[key] === 'string' ? redactSensitiveText(state[key]) : state[key];
-    }
-  }
-  if (Array.isArray(state.targets)) {
-    clean.targets = state.targets.map((target) => sanitizedTargetStatus(target));
-  }
-  return clean;
-}
-
-async function buildWifiSsidSkippedState(ctx, targets, network, deviceId, decision) {
-  const now = new Date().toISOString();
-  const previous = sanitizedStoredState(await storageGet(ctx, STORAGE_KEY));
-  const currentTargets = (targets || []).map((target) => sanitizedTargetStatus(target, true));
-  const previousHasSuccess = previous?.ok && (previous.ip || previous.reportedCidr || previous.targets?.length);
-  const base = previousHasSuccess ? previous : {
-    ok: true,
-    sourceId: (targets || []).map((target) => target.sourceId).join(','),
-    po0Host: (targets || []).map((target) => target.host).join(','),
-    identity: (targets || []).map((target) => target.identity).filter(Boolean).join(','),
-    network,
-    deviceId,
-    targetCount: targets.length,
-    successCount: 0,
-    failureCount: 0,
-    targets: currentTargets,
-  };
-  return {
-    ...base,
-    ok: true,
-    skipped: true,
-    skipType: 'wifi-ssid',
-    checkedAt: now,
-    skipReason: `当前 Wi-Fi SSID "${decision.ssid}" 命中跳过列表，本次未探测公网 IP，未上传 PO0。`,
-    network,
-    deviceId,
-    targetConfigSignature: targetConfigSignatures(targets),
-    targetCount: base.targetCount || targets.length,
-    targets: previousHasSuccess && Array.isArray(base.targets) && base.targets.length > 0 ? base.targets : currentTargets,
-  };
-}
-
-function clampInteger(value, fallback, min, max) {
-  if (value === undefined || value === null || String(value).trim() === '') return fallback;
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return fallback;
-  const integer = Math.floor(parsed);
-  if (integer < min) return min;
-  if (integer > max) return max;
-  return integer;
-}
-
-function autoReportIntervalSeconds(env) {
-  return clampInteger(
-    env?.AUTO_REPORT_INTERVAL_SECONDS,
-    DEFAULT_AUTO_REPORT_INTERVAL_SECONDS,
-    MIN_AUTO_REPORT_INTERVAL_SECONDS,
-    MAX_AUTO_REPORT_INTERVAL_SECONDS,
-  );
-}
-
-function normalizeCidrPrefix(value, fallback = 32) {
-  const text = String(value ?? '').trim();
-  const parsed = text ? Number.parseInt(text, 10) : fallback;
-  if (parsed === 24 || parsed === 32) return parsed;
-  return fallback === 24 ? 24 : 32;
-}
-
-function reportCidrPrefixForNetwork(env, network) {
-  if (network?.kind === 'cellular') {
-    return normalizeCidrPrefix(env?.CELLULAR_CIDR_PREFIX, DEFAULT_CELLULAR_CIDR_PREFIX);
-  }
-  return 32;
-}
-
-function cidrForIPv4(ip, prefix) {
-  const parts = String(ip || '').trim().split('.').map((part) => Number.parseInt(part, 10));
-  if (parts.length !== 4 || parts.some((part) => !Number.isFinite(part) || part < 0 || part > 255)) {
-    throw new Error(`invalid IPv4 for CIDR: ${ip}`);
-  }
-  const normalizedPrefix = normalizeCidrPrefix(prefix, 32);
-  if (normalizedPrefix === 24) return `${parts[0]}.${parts[1]}.${parts[2]}.0/24`;
-  return `${parts[0]}.${parts[1]}.${parts[2]}.${parts[3]}/32`;
-}
-
-function stateReportedCidr(state) {
-  if (state?.reportedCidr) return String(state.reportedCidr);
-  if (state?.ip) {
-    try {
-      return cidrForIPv4(state.ip, state?.cidrPrefix || 32);
-    } catch (_) {
-      return String(state.ip);
-    }
-  }
-  return '';
-}
-
-function attachReportCidr(targets, cidrPrefix, reportedCidr) {
-  return (targets || []).map((target) => ({
-    ...target,
-    cidrPrefix,
-    reportedCidr,
-  }));
-}
-
-function minTargetTtlSeconds(targets) {
-  const ttls = (targets || [])
-    .map((target) => Number(target?.ttlSeconds))
-    .filter((ttl) => Number.isFinite(ttl) && ttl > 0);
-  if (!ttls.length) return DEFAULT_TTL_SECONDS;
-  return Math.max(60, Math.min(...ttls));
-}
-
-function effectiveAutoRefreshAfterSeconds(env, targets) {
-  const configured = autoReportIntervalSeconds(env);
-  const ttlSafeRefreshAfter = Math.max(0, minTargetTtlSeconds(targets) - 600);
-  if (ttlSafeRefreshAfter <= 0) return 0;
-  return Math.min(configured, ttlSafeRefreshAfter);
-}
-
-async function shouldSkipUnchangedAutoReport(ctx, env, targets, ip, reportedCidr) {
-  if (isManualRun(ctx) || isWidgetRun(ctx) || isStatusRun(ctx) || isNetworkChangeRun(ctx)) return { skip: false };
-
-  const previous = parseStoredState(await storageGet(ctx, STORAGE_KEY));
-  if (!previous || !previous.ok || stateReportedCidr(previous) !== reportedCidr) return { skip: false };
-
-  const currentConfigSignature = targetConfigSignatures(targets);
-  if (previous.targetConfigSignature) {
-    if (previous.targetConfigSignature !== currentConfigSignature) return { skip: false };
-  } else if (targetSignatures(previous.targets || []) !== targetSignatures(targets)) {
-    return { skip: false };
-  }
-
-  const lastSuccessAt = new Date(previous.at || '').getTime();
-  if (!Number.isFinite(lastSuccessAt)) return { skip: false };
-
-  const ageSeconds = Math.floor((Date.now() - lastSuccessAt) / 1000);
-  const refreshAfter = effectiveAutoRefreshAfterSeconds(env, targets);
-  if (refreshAfter <= 0) return { skip: false, ageSeconds, refreshAfter };
-  if (ageSeconds < 0 || ageSeconds >= refreshAfter) return { skip: false, ageSeconds, refreshAfter };
-
-  return {
-    skip: true,
-    previous,
-    ageSeconds,
-    refreshAfter,
-    currentConfigSignature,
-    previousIp: previous.ip || '',
-  };
+  const old = parseStoredState(raw);
+  if (!old) return null;
+  const state = {};
+  for (const key of ['ok', 'at', 'checkedAt', 'ip', 'ipProfile', 'network', 'skipped', 'skipType', 'uiNotice']) if (old[key] !== undefined) state[key] = old[key];
+  if (old.official) state.official = sanitizeOfficialState(old.official);
+  return state;
 }
 
 function sanitizeOfficialEntry(entry = {}) {
@@ -1839,35 +1227,6 @@ function notify(ctx, title, body) {
   ctx.notify({ title: redactSensitiveText(title), body: redactSensitiveText(body) });
 }
 
-function notifyLong(ctx, title, body) {
-  const text = redactSensitiveText(body).trim();
-  if (!text) return;
-  const chunks = wrapText(text, 180).slice(0, 4);
-  if (chunks.length <= 1) {
-    notify(ctx, title, text);
-    return;
-  }
-  chunks.forEach((chunk, index) => {
-    notify(ctx, `${title} ${index + 1}/${chunks.length}`, chunk);
-  });
-}
-
-function oneLineOutput(value) {
-  return String(value || '')
-    .replace(/\r/g, '\n')
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .join(' | ');
-}
-
-function commandResultError(result) {
-  const stderr = oneLineOutput(result?.stderr);
-  const stdout = oneLineOutput(result?.stdout);
-  const code = result?.code ?? result?.exitCode ?? 'unknown';
-  return stderr || stdout || `exit ${code}`;
-}
-
 function logMessage(ctx, level, message, detail = '') {
   const safeMessage = redactSensitiveText(message);
   const safeDetail = redactSensitiveText(detail);
@@ -1881,321 +1240,11 @@ function logMessage(ctx, level, message, detail = '') {
   } catch (_) {}
 }
 
-function htmlResponse(ctx, status, title, lines) {
-  const bodyLines = (Array.isArray(lines) ? lines : [lines])
-    .filter((line) => line !== undefined && line !== null)
-    .map((line) => `<p>${escapeHtml(redactSensitiveText(line))}</p>`)
-    .join('\n');
-  const body = `<!doctype html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${escapeHtml(title)}</title>
-<style>
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:24px;line-height:1.5;color:#111}
-code{background:#f1f3f5;border-radius:4px;padding:2px 4px}
-</style>
-</head>
-<body>
-<h1>${escapeHtml(title)}</h1>
-${bodyLines}
-</body>
-</html>`;
-  const response = {
-    status,
-    headers: {
-      'Content-Type': 'text/html; charset=utf-8',
-      'Cache-Control': 'no-store',
-    },
-    body,
-  };
-  if (typeof ctx?.respond === 'function') return ctx.respond(response);
-  return response;
-}
-
-function parseRequestUrl(ctx) {
-  const raw = String(ctx?.request?.url || '');
-  if (!raw) return null;
-  try {
-    return new URL(raw);
-  } catch (_) {
-    return null;
-  }
-}
-
-function isLegacyDeviceHttpRun(ctx) {
-  return /PO0 防火墙本机设备 ID/.test(scriptLabel(ctx));
-}
-
-async function handleDeviceHttpRequest(ctx) {
-  const url = parseRequestUrl(ctx);
-  if (!url || url.protocol !== 'http:' || url.hostname !== 'po0-egern.local') return null;
-
-  if (url.pathname === '/set-device') {
-    try {
-      const deviceId = normalizeDeviceId(url.searchParams.get('id') || '');
-      await storageSet(ctx, DEVICE_ID_KEY, deviceId);
-      notify(ctx, 'PO0 Egern Device', `设备 ID 已设置为 ${deviceId}`);
-      return htmlResponse(ctx, 200, 'PO0 Egern Device', [
-        `设备 ID 已设置为: ${deviceId}`,
-        '以后自动上报会用这个本机 ID 展开 {device}。',
-        '写错时重新打开 /set-device?id=新ID 即可覆盖。',
-      ]);
-    } catch (error) {
-      return htmlResponse(ctx, 400, 'PO0 Egern Device', [
-        redactError(error, ctx?.env || {}),
-        '示例: http://po0-egern.local/set-device?id=iphone15pm',
-      ]);
-    }
-  }
-
-  if (url.pathname === '/clear-device') {
-    await storageDelete(ctx, DEVICE_ID_KEY);
-    notify(ctx, 'PO0 Egern Device', '设备 ID 已清除');
-    return htmlResponse(ctx, 200, 'PO0 Egern Device', [
-      '设备 ID 已清除。',
-      `未设置时，上报里的 {device} 会回退为 ${DEVICE_ID_FALLBACK}。`,
-    ]);
-  }
-
-  if (url.pathname === '/' || url.pathname === '/device') {
-    const deviceId = await storedDeviceId(ctx);
-    return htmlResponse(ctx, 200, 'PO0 Egern Device', [
-      `当前设备 ID: ${deviceDisplayName(deviceId)}`,
-      '设置示例: http://po0-egern.local/set-device?id=iphone15pm',
-      '清除: http://po0-egern.local/clear-device',
-      '设备 ID 不显示在模块设置表单里；请在 PO0 防火墙上报状态里确认。',
-    ]);
-  }
-
-  return htmlResponse(ctx, 404, 'PO0 Egern Device', [
-    '未知路径。',
-    '可用路径: /device, /set-device?id=iphone15pm, /clear-device',
-  ]);
-}
-
-async function handleDeviceSetupScript(ctx, env) {
-  try {
-    const deviceId = normalizeDeviceId(env.DEVICE_ID_SETUP || env.LOCAL_DEVICE_ID || '');
-    await storageSet(ctx, DEVICE_ID_KEY, deviceId);
-    notify(ctx, 'PO0 Egern Device', `设备 ID 已保存为 ${deviceId}`);
-    return widgetPanel(REPORT_TITLE, [
-      `设备: ${deviceId}`,
-      '已保存到本机 storage。',
-      '后续上报会用它展开 {device}。',
-    ], true, ctx);
-  } catch (error) {
-    return widgetPanel(REPORT_TITLE, [
-      '设备: 未设置',
-      redactError(error, env),
-      '请在 DEVICE_ID_SETUP 填入如 iphone15pm 后再运行本脚本。',
-    ], false, ctx);
-  }
-}
-
-async function handleDeviceClearScript(ctx) {
-  await storageDelete(ctx, DEVICE_ID_KEY);
-  notify(ctx, 'PO0 Egern Device', '设备 ID 已清除');
-  return widgetPanel(REPORT_TITLE, [
-    '设备: 未设置',
-    '本机设备 ID 已清除。',
-    `后续 {device} 会回退为 ${DEVICE_ID_FALLBACK}。`,
-  ], true, ctx);
-}
-
-function targetValue(target, env, keys, fallback = '') {
-  for (const source of [target, env]) {
-    for (const key of keys) {
-      const value = source?.[key];
-      if (String(value ?? '').trim()) return String(value).trim();
-    }
-  }
-  return fallback;
-}
-
-function normalizeTarget(env, input, index, deviceId = '') {
-  const target = input || {};
-  const sourceId = expandDevicePlaceholder(targetValue(target, env, ['sourceId', 'SSH_REPORT_SOURCE', 'source', 'sourceId', 'name'], 'egern'), deviceId);
-  const host = targetValue(target, env, ['host', 'PO0_HOST', 'po0Host']);
-  const port = Number(targetValue(target, env, ['port', 'PO0_PORT'], '22'));
-  const username = targetValue(target, env, ['user', 'username', 'PO0_USER'], 'root');
-  const script = targetValue(target, env, ['script', 'PO0_SCRIPT', 'po0Script'], '/root/nftables-relay-manager.sh');
-  const token = targetValue(target, env, ['token', 'SSH_REPORT_TOKEN', 'reportToken']);
-  const identity = expandDevicePlaceholder(targetValue(target, env, ['identity', 'REPORT_IDENTITY'], 'egern'), deviceId);
-  const ttl = Number(targetValue(target, env, ['ttl', 'ttlSeconds', 'TTL_SECONDS'], String(DEFAULT_TTL_SECONDS)));
-
-  if (!host) throw new Error(`PO0 目标 #${index + 1} 缺少主机`);
-  if (!token) throw new Error(`PO0 目标 #${index + 1} 缺少 token`);
-
-  return {
-    sourceId,
-    host,
-    port: Number.isFinite(port) && port > 0 ? port : 22,
-    username,
-    script,
-    token,
-    identity,
-    ttlSeconds: Number.isFinite(ttl) && ttl > 0 ? ttl : DEFAULT_TTL_SECONDS,
-    password: targetValue(target, env, ['password', 'PO0_PASSWORD']),
-    privateKey: targetValue(target, env, ['privateKey', 'PO0_PRIVATE_KEY']),
-    passphrase: targetValue(target, env, ['passphrase', 'PO0_PASSPHRASE']),
-  };
-}
-
-function parseTargetLine(env, line, index, deviceId = '') {
-  const parts = String(line || '').split('|').map((part) => part.trim());
-  return normalizeTarget(env, {
-    SSH_REPORT_SOURCE: parts[0],
-    PO0_HOST: parts[1],
-    PO0_PORT: parts[2],
-    PO0_USER: parts[3],
-    PO0_SCRIPT: parts[4],
-    SSH_REPORT_TOKEN: parts[5],
-    REPORT_IDENTITY: parts[6],
-    TTL_SECONDS: parts[7],
-  }, index, deviceId);
-}
-
-function splitTargetLines(raw) {
-  return String(raw || '')
-    .split(/\r?\n|[;,，；]/)
-    .flatMap((line) => {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) return [];
-
-      const chunks = trimmed.split(/\s+/).filter(Boolean);
-      if (chunks.length > 1 && chunks.every((chunk) => chunk.includes('|'))) {
-        return chunks;
-      }
-
-      return [trimmed];
-    });
-}
-
-function parseTargets(env, deviceId = '') {
-  const raw = String(env.SSH_REPORT_TARGETS || '').trim();
-  if (!raw) {
-    return [normalizeTarget(env, {}, 0, deviceId)];
-  }
-
-  if (raw.startsWith('[')) {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed) || parsed.length === 0) {
-      throw new Error('SSH_REPORT_TARGETS JSON 必须是非空数组');
-    }
-    return parsed.map((target, index) => normalizeTarget(env, target, index, deviceId));
-  }
-
-  const lines = splitTargetLines(raw);
-  if (lines.length === 0) {
-    throw new Error('SSH_REPORT_TARGETS 为空');
-  }
-  return lines.map((line, index) => parseTargetLine(env, line, index, deviceId));
-}
-
-function sshConfig(env, target) {
-  const config = {
-    host: target.host,
-    port: target.port,
-    username: target.username,
-    timeout: 10000,
-  };
-  if (String(target.privateKey || '').trim()) {
-    config.privateKey = normalizeSshPrivateKey(target.privateKey);
-    if (String(target.passphrase || '').trim()) {
-      config.passphrase = target.passphrase;
-    }
-  } else {
-    if (!String(target.password || '').trim()) {
-      throw new Error(`PO0 目标 ${target.sourceId}@${target.host} 缺少 SSH 密码或私钥`);
-    }
-    config.password = target.password;
-  }
-  return config;
-}
-
-function validateReportConfig(env, deviceId = '') {
-  const targets = parseTargets(env, deviceId);
-  for (const target of targets) {
-    sshConfig(env, target);
-  }
-  return targets;
-}
-
-function workerConfigRequested(env) {
-  const requiredKeys = [
-    'PO0_HOST',
-    'PO0_PASSWORD',
-    'PO0_PRIVATE_KEY',
-    'PO0_PASSPHRASE',
-    'SSH_REPORT_TOKEN',
-    'SSH_REPORT_TARGETS',
-  ];
-  if (requiredKeys.some((key) => String(env?.[key] ?? '').trim() !== '')) return true;
-  return [
-    'PO0_PORT',
-    'PO0_USER',
-    'PO0_SCRIPT',
-    'SSH_REPORT_SOURCE',
-    'REPORT_IDENTITY',
-    'TTL_SECONDS',
-  ].some((key) => {
-    const value = String(env?.[key] ?? '').trim();
-    const schemaDefault = String(MODULE_DEFAULT_ENV_VALUES[key] ?? '').trim();
-    return value !== '' && value !== schemaDefault;
-  });
-}
-
-function validateReportChannels(env, deviceId = '') {
-  const officialRequested = officialTokensConfigured(env);
-  const workerRequested = workerConfigRequested(env);
-  let officialTokens = [];
-  let officialError = null;
-  let workerTargets = [];
-  let workerError = null;
-
-  if (officialRequested) {
-    try {
-      officialTokens = parseOfficialTokens(env?.PO0_FIREWALL_TOKENS);
-    } catch (error) {
-      officialError = error;
-    }
-  }
-  if (workerRequested) {
-    try {
-      workerTargets = validateReportConfig(env, deviceId);
-    } catch (error) {
-      workerError = error;
-    }
-  }
-
-  return {
-    officialRequested,
-    officialTokens,
-    officialError,
-    workerRequested,
-    workerTargets,
-    workerError,
-    anyRequested: officialRequested || workerRequested,
-    anyValid: officialTokens.length > 0 || workerTargets.length > 0,
-  };
-}
-
-function reportConfigAuthSummary(targets) {
-  const keyCount = targets.filter((target) => String(target.privateKey || '').trim()).length;
-  const passwordCount = targets.length - keyCount;
-  const parts = [];
-  if (keyCount > 0) parts.push(`${keyCount} 个私钥认证`);
-  if (passwordCount > 0) parts.push(`${passwordCount} 个密码认证`);
-  return parts.join('，') || '未识别认证方式';
-}
-
-async function handleScopedConfigSaveScript(ctx, runtimeEnv, storedValues, deviceId, officialOnly) {
-  const title = officialOnly ? '官方防火墙配置' : ctx?.script?.name === '自建防火墙 · 保存配置' ? '自建防火墙配置' : '自建防火墙 / 通用设置';
+async function handleScopedConfigSaveScript(ctx, runtimeEnv, storedValues) {
+  const title = '官方防火墙配置';
   try {
     let candidate;
-    if (officialOnly) {
+    {
       const input = String(runtimeEnv.PO0_FIREWALL_TOKENS || '').trim() || String(storedValues?.PO0_FIREWALL_TOKENS || '').trim();
       if (!input) throw new Error('请填写官方 Token；清除请使用独立的清除官方 Token 操作。');
       parseOfficialTokens(input);
@@ -2216,138 +1265,21 @@ async function handleScopedConfigSaveScript(ctx, runtimeEnv, storedValues, devic
         throw new Error('开启按网络选择目标前，请填写 Wi-Fi 官方上报目标。');
       }
       officialIntervalSeconds(effectiveReportEnv(candidate, runtimeEnv));
-    } else {
-      const scopedEnv = { ...runtimeEnv };
-      for (const key of OFFICIAL_CONFIG_KEYS) delete scopedEnv[key];
-      candidate = reportConfigSaveCandidate(storedValues, scopedEnv);
-      const workerEnv = effectiveReportEnv(candidate, runtimeEnv);
-      delete workerEnv.PO0_FIREWALL_TOKENS;
-      const channels = validateReportChannels(workerEnv, deviceId);
-      if (channels.workerError) throw channels.workerError;
-      if (!channels.anyValid && !String(candidate.PO0_FIREWALL_TOKENS || '').trim()) {
-        throw new Error('请先填写自建防火墙上报目标和 SSH 认证，或单独保存官方防火墙配置。');
-      }
     }
     await saveReportConfig(ctx, candidate);
     notify(ctx, 'PO0 Egern Config', title + '已保存');
-    return widgetPanel(REPORT_TITLE, [title + '已保存。', ...(officialOnly ? [...officialSavedNameRows(effectiveReportEnv(candidate, runtimeEnv)), ...officialNetworkSettingsRows(effectiveReportEnv(candidate, runtimeEnv))] : []), '已保存本机目标、认证和 TTL；上报间隔、定期开关及通用设置直接读取模块参数。本次未上报。'], true, ctx);
+    return widgetPanel(REPORT_TITLE, [title + '已保存。', ...officialSavedNameRows(effectiveReportEnv(candidate, runtimeEnv)), ...officialNetworkSettingsRows(effectiveReportEnv(candidate, runtimeEnv)), '已保存本机 Token、名称及槽位；间隔和定期开关直接读取模块参数。本次未上报。'], true, ctx);
   } catch (error) {
     return widgetPanel(REPORT_TITLE, [title + '未保存。', redactError(error, { ...(storedValues || {}), ...runtimeEnv })], false, ctx);
   }
 }
 
-async function handleReportConfigSaveScript(ctx, runtimeEnv, storedValues, deviceId) {
-  try {
-    const candidate = reportConfigSaveCandidate(storedValues, runtimeEnv);
-    if (officialTokensConfigured(candidate)) candidate.PO0_FIREWALL_NAMES = officialNamesForSave(storedValues || {}, runtimeEnv, candidate.PO0_FIREWALL_TOKENS);
-    const channels = validateReportChannels(effectiveReportEnv(candidate, runtimeEnv), deviceId);
-    if (!channels.anyRequested || !channels.anyValid) {
-      throw channels.officialError || channels.workerError || new Error('至少配置一个可用的 PO0 上报通道。');
-    }
-    if (channels.officialError) throw channels.officialError;
-    if (channels.workerError) throw channels.workerError;
-    await saveReportConfig(ctx, candidate);
-    const summaryParts = [];
-    if (channels.workerTargets.length > 0) {
-      summaryParts.push(`${channels.workerTargets.length} 个自建防火墙目标，${reportConfigAuthSummary(channels.workerTargets)}`);
-    }
-    if (channels.officialTokens.length > 0) {
-      summaryParts.push(`官方防火墙 ${channels.officialTokens.length} 个账号（内容不显示）`);
-    }
-    const summary = summaryParts.join('；');
-    notify(ctx, 'PO0 Egern Config', `本机上报配置已保存：${summary}`);
-    return widgetPanel(REPORT_TITLE, [
-      `设备: ${deviceDisplayName(deviceId)}`,
-      `已保存: ${summary}`,
-      ...officialSavedNameRows(effectiveReportEnv(candidate, runtimeEnv)),
-      '密码、私钥和 Token 仅写入本机 ctx.storage；运行状态不保存 Token。',
-      '后续更换 Egern 配置时无需重新填写。',
-    ], true, ctx);
-  } catch (error) {
-    return widgetPanel(REPORT_TITLE, [
-      `设备: ${deviceDisplayName(deviceId)}`,
-      '本机上报配置未保存。',
-      redactError(error, { ...(storedValues || {}), ...(runtimeEnv || {}) }),
-      '请补齐模块环境变量后重新运行本脚本。',
-    ], false, ctx);
-  }
-}
-
-async function handleReportConfigClearScript(ctx) {
-  await saveReportConfig(ctx, { WORKER_AUTO_ENABLED: 'false', OFFICIAL_AUTO_ENABLED: 'false' });
+async function handleOfficialConfigClearScript(ctx) {
+  await saveReportConfig(ctx, { OFFICIAL_AUTO_ENABLED: 'false' });
+  await storageDelete(ctx, OFFICIAL_STORAGE_KEY);
   await storageDelete(ctx, STORAGE_KEY);
   await storageDelete(ctx, ERROR_STORAGE_KEY);
-  await storageDelete(ctx, OFFICIAL_STORAGE_KEY);
-  notify(ctx, 'PO0 Egern Config', '本机上报配置已清除');
-  return widgetPanel(REPORT_TITLE, [
-    '本机 PO0 上报配置及最近状态已清除。',
-    '本机设备 ID 保留不变。',
-    '如需恢复，请重新填写模块环境变量并运行“保存本机 PO0 自建防火墙配置”或“保存本机 PO0 官方防火墙配置”。',
-  ], true, ctx);
-}
-
-async function handleOfficialConfigClearScript(ctx, storedValues) {
-  const next = { ...(storedValues || {}) };
-  for (const key of OFFICIAL_CONFIG_KEYS) delete next[key];
-  next.OFFICIAL_AUTO_ENABLED = 'false';
-  if (Object.keys(next).length === 0) {
-    await storageDelete(ctx, CONFIG_STORAGE_KEY);
-  } else {
-    await saveReportConfig(ctx, next);
-  }
-  await storageDelete(ctx, OFFICIAL_STORAGE_KEY);
-  notify(ctx, 'PO0 Egern Config', '本机官方防火墙 token 已清除');
-  return widgetPanel(REPORT_TITLE, [
-    '本机官方防火墙 token 已清除。',
-    '自建防火墙配置和本机设备 ID 保留不变。',
-    '如需恢复，请填写 PO0_FIREWALL_TOKENS 后运行“保存本机 PO0 官方防火墙配置”。',
-  ], true, ctx);
-}
-
-function missingReportConfigState(deviceId, error, env = {}) {
-  return {
-    ok: false,
-    skipped: true,
-    skipType: 'missing-config',
-    configured: false,
-    deviceId,
-    error: redactError(error, env) || '本机未保存 PO0 上报配置',
-  };
-}
-
-function missingReportConfigPanel(ctx, deviceId, error, env = ctx?.env || {}) {
-  return widgetPanel(REPORT_TITLE, [
-    `设备: ${deviceDisplayName(deviceId)}`,
-    '本机尚未保存 PO0 上报配置。',
-    redactError(error, env),
-    '请填写模块环境变量并运行“保存本机 PO0 自建防火墙配置”或“保存本机 PO0 官方防火墙配置”。',
-    '定时和网络变化任务会保持静默，不会反复报错。',
-  ], false, ctx);
-}
-
-async function reportToPO0(ctx, env, target, ip) {
-  const session = await ctx.ssh.connect(sshConfig(env, target));
-  try {
-    const command = [
-      'bash',
-      shQuote(target.script),
-      '--ssh-ip-report',
-      shQuote(target.sourceId),
-      shQuote(ip),
-      shQuote(target.token),
-      shQuote(target.identity),
-      shQuote(String(target.ttlSeconds)),
-      shQuote(String(target.cidrPrefix || 32)),
-    ].join(' ');
-    const result = await session.exec(command);
-    const code = result.code ?? result.exitCode ?? 0;
-    if (code !== 0) {
-      throw new Error(`exit ${code}: ${commandResultError(result)}`);
-    }
-    return oneLineOutput(result.stdout) || `OK ${target.sourceId} ${ip}`;
-  } finally {
-    await session.close();
-  }
+  return widgetPanel(REPORT_TITLE, ['本机官方配置和最近状态已清除。', '同步参数不会自动恢复；重新填写后使用“官方防火墙 · 保存配置”。'], true, ctx);
 }
 
 function officialFailureSummary(result) {
@@ -2445,391 +1377,78 @@ function localChannelAction(ctx) {
 }
 
 async function handleLocalChannelAction(ctx, env, action) {
-  const next = { ...env };
-  let message = '';
-  if (action === 'save-common') {
-    return widgetPanel(REPORT_TITLE, ['通用设置直接读取当前模块参数，无需额外保存。', '本次未修改本机目标、认证或自动开关，未发起上报。'], true, ctx);
-  }
   if (action === 'recent') {
     const state = sanitizedStoredState(await storageGet(ctx, STORAGE_KEY)) || {};
     state.official = await storedOfficialState(ctx);
     state.uiNotice = '查看最近结果 · 本次未上报';
-    return widgetFromState(state, ctx, await storedDeviceId(ctx), officialNetworkEnv(env, networkInfo(ctx)));
+    return widgetFromState(state, ctx, '', officialNetworkEnv(env, networkInfo(ctx)));
   }
-  if (action === 'clear-worker') {
-    for (const key of WORKER_CONFIG_KEYS) delete next[key];
-    next.WORKER_AUTO_ENABLED = 'false';
+  const next = { ...env };
+  if (/^(toggle|enable|disable)-official$/.test(action)) {
+    next.OFFICIAL_AUTO_ENABLED = action.startsWith('enable-') || (action.startsWith('toggle-') && !boolEnv(next.OFFICIAL_AUTO_ENABLED, true)) ? 'true' : 'false';
     await saveReportConfig(ctx, next);
-    await storageDelete(ctx, STORAGE_KEY);
-    message = '自建防火墙的本机配置已清除，官方及公共设置保留。';
-  } else if (/^(toggle|enable|disable)-/.test(action)) {
-    const worker = action.endsWith('-worker');
-    const key = worker ? 'WORKER_AUTO_ENABLED' : 'OFFICIAL_AUTO_ENABLED';
-    const enabled = action.startsWith('enable-') || (action.startsWith('toggle-') && !boolEnv(next[key], true));
-    next[key] = enabled ? 'true' : 'false';
-    await saveReportConfig(ctx, next);
-    const channel = worker ? '自建防火墙' : '官方防火墙';
-    const otherKey = worker ? 'OFFICIAL_AUTO_ENABLED' : 'WORKER_AUTO_ENABLED';
-    const otherChannel = worker ? '官方防火墙' : '自建防火墙';
-    return widgetPanel(REPORT_TITLE + ' · 自动上报', [
-      channel + '自动上报：已' + (enabled ? '启用' : '停用') + '。',
-      '只控制定时检查和网络变化触发。' + (action.startsWith('toggle-') ? '旧切换动作每次会反转开关。' : '重复点击不会反转。'),
-      '配置保留；手动强制上报和小组件刷新仍可执行。',
-      otherChannel + '自动上报保持' + (boolEnv(next[otherKey], true) ? '启用' : '停用') + '；未配置的通道不会上报。',
-    ], true, ctx);
   }
-  const rows = [message,
-    '目标、认证、TTL、设备 ID 和自动总开关：本机保存。',
-    '间隔、定期开关、按网络选择及通用设置：当前模块参数，无需保存。',
-    '自建防火墙：' + (workerConfigRequested(next) ? boolEnv(next.WORKER_AUTO_ENABLED, true) ? '自动上报启用' : '自动上报停用（配置保留）' : '未配置'),
-    ...(workerConfigRequested(next) ? [
-      '自建启用定期上报：' + (boolEnv(next.WORKER_TIMER_ENABLED, true) ? '是' : '否') + '；上报间隔：' + autoReportIntervalSeconds(next) + ' 秒' + (boolEnv(next.WORKER_TIMER_ENABLED, true) ? '' : '（暂不使用）'),
-    '自建网络切换：自动上报启用且未命中 SSID 跳过时立即上报，不受定期开关和间隔限制。'] : []),
-    '官方防火墙：' + (officialTokensConfigured(next) ? boolEnv(next.OFFICIAL_AUTO_ENABLED, true) ? '自动上报启用' : '自动上报停用（配置保留）' : '未配置'),
-    '官方启用定期上报：' + (boolEnv(next.OFFICIAL_TIMER_ENABLED, true) ? '是' : '否') + '；上报间隔：' + officialIntervalSeconds(next) + ' 秒' + (boolEnv(next.OFFICIAL_TIMER_ENABLED, true) ? '' : '（暂不使用）') + '；仅控制客户端上报间隔。',
-    ...officialSavedNameRows(officialDisplayEnv(next, ctx?.env)),
-    ...officialNetworkSettingsRows(next),
-    ...widgetTargets(null, next, await storedDeviceId(ctx)).map(target => target.sourceId + ' · 白名单有效期 ' + target.ttlSeconds + ' 秒（TTL）'),
-    workerConfigRequested(next) ? '自建白名单有效期（TTL）：停止上报后白名单还能保留多久；每次成功上报重新计时。' : '',
-    'SSID 跳过：' + (next.SKIP_WIFI_SSIDS || '未设置') + '；匹配时同时跳过两个自动上报通道。',
-    '自动上报分别控制各通道的定期与网络变化触发；立即上报无需等待，强制上报绕过本机跳过条件；小组件上报并刷新。',
-  ].filter(Boolean);
-  if (message) notify(ctx, REPORT_TITLE, message);
-  return widgetPanel(REPORT_TITLE + ' · 本机设置', rows, true, ctx);
+  return widgetPanel(REPORT_TITLE + ' · 本机设置', [
+    '目标、名称、槽位及自动总开关保存在本机。',
+    '间隔、定期开关、按网络选择及 SSID 跳过直接读取当前模块参数。',
+    '自动上报：' + (boolEnv(next.OFFICIAL_AUTO_ENABLED, true) ? '已启用' : '已停用'),
+    '启用定期上报：' + (officialTimerEnabled(next) ? '是' : '否') + '；上报间隔：' + officialIntervalSeconds(next) + ' 秒' + (officialTimerEnabled(next) ? '' : '（暂不使用）'),
+    ...officialSavedNameRows(officialDisplayEnv(next, ctx?.env)), ...officialNetworkSettingsRows(next),
+    'SSID 跳过：' + (next.SKIP_WIFI_SSIDS || '未设置'),
+    '手动强制上报和小组件刷新先查询官方白名单；明确的只读入口不新增白名单。',
+  ], true, ctx);
 }
 
-function selectReportChannels(ctx, env, channels) {
-  const automatic = isAutomaticReportRun(ctx);
-  const label = scriptLabel(ctx);
-  const timer = automatic && !isNetworkChangeRun(ctx);
-  if (isOfficialStatusRun(ctx) || (timer && !boolEnv(env.WORKER_TIMER_ENABLED, true)) || (automatic && !boolEnv(env.WORKER_AUTO_ENABLED, true)) || /仅官方防火墙(?:立即|强制)上报/.test(label)) {
-    channels.workerRequested = false; channels.workerTargets = []; channels.workerError = null;
-  }
-  if ((timer && !boolEnv(env.OFFICIAL_TIMER_ENABLED, true)) || (automatic && !boolEnv(env.OFFICIAL_AUTO_ENABLED, true)) || /仅自建(?: PO0 立即|防火墙(?:立即|强制))上报/.test(label)) {
-    channels.officialRequested = false; channels.officialTokens = []; channels.officialError = null;
-  }
-  channels.anyRequested = channels.workerRequested || channels.officialRequested;
-  channels.anyValid = channels.workerTargets.length > 0 || channels.officialTokens.length > 0;
-  return channels;
-}
 
 async function runEgernReportUnlocked(ctx) {
-  const deviceHttpResponse = await handleDeviceHttpRequest(ctx);
-  if (deviceHttpResponse) return deviceHttpResponse;
-  if (isLegacyDeviceHttpRun(ctx)) {
-    if (ctx?.request) return;
-    return widgetPanel(REPORT_TITLE, [
-      '这是旧版浏览器设备 ID 入口。',
-      '查看请运行“查看本机上报设置”。',
-      '修改请运行“保存本机设备 ID”或“清除本机设备 ID”。',
-      '本次没有发起上报。',
-    ], true, ctx);
+  if (retiredAction(ctx)) return widgetPanel(REPORT_TITLE, ['自建防火墙与设备 ID 功能已退役。', '旧版代码和配置恢复说明见归档版本。本次未发起上报。'], true, ctx);
+  await migrateRetiredState(ctx);
+  const runtime = ctx?.env || {};
+  const stored = await storedReportConfig(ctx);
+  if (isOfficialConfigSaveRun(ctx) || isReportConfigSaveRun(ctx)) return handleScopedConfigSaveScript(ctx, runtime, stored.values);
+  if (isOfficialConfigClearRun(ctx) || isReportConfigClearRun(ctx)) return handleOfficialConfigClearScript(ctx);
+  const configEnv = effectiveReportEnv(stored.exists ? stored.values : runtime, runtime);
+  const action = localChannelAction(ctx);
+  if (action) return handleLocalChannelAction(ctx, configEnv, action);
+  const network = networkInfo(ctx);
+  const env = officialNetworkEnv(configEnv, network);
+  const automatic = isAutomaticReportRun(ctx);
+  let state = sanitizedStoredState(await storageGet(ctx, STORAGE_KEY)) || {};
+  state.official = await storedOfficialState(ctx);
+  state.network = network;
+  const result = () => shouldReturnWidget(ctx) ? widgetFromState(state, ctx, '', env) : state;
+  if (!officialTokensConfigured(configEnv)) {
+    state = { ...state, ok: true, skipped: true, uiNotice: '尚未配置官方上报目标' };
+    return result();
   }
-
-  const runtimeEnv = ctx.env || {};
-  if (isDeviceSetupRun(ctx)) return await handleDeviceSetupScript(ctx, runtimeEnv);
-  if (isDeviceClearRun(ctx)) return await handleDeviceClearScript(ctx);
-  if (isReportConfigClearRun(ctx)) return await handleReportConfigClearScript(ctx);
-
-  const startedAt = new Date(officialNowMs());
-  let deviceId = '';
-  let env = runtimeEnv;
-  let policy = 'DIRECT';
-  let notifySuccess = isManualRun(ctx);
-  let notifyFailure = true;
-  let channels = {
-    officialRequested: false,
-    officialTokens: [],
-    officialError: null,
-    workerRequested: false,
-    workerTargets: [],
-    workerError: null,
-    anyRequested: false,
-    anyValid: false,
-  };
-  let targets = [];
-  let officialResult = { active: false, ok: true, state: null, skipped: false, needsNotification: false };
-  let ip = '';
-  let ipProfile = { location: '', isp: '' };
-  let network = normalizeNetworkInfo(null);
-  let cidrPrefix = 32;
-  let reportedCidr = '';
-
   try {
-    deviceId = await storedDeviceId(ctx);
-    const storedConfig = await storedReportConfig(ctx);
-    if (isWorkerConfigSaveRun(ctx) || isOfficialConfigSaveRun(ctx)) {
-      return await handleScopedConfigSaveScript(ctx, runtimeEnv, storedConfig.values, deviceId, isOfficialConfigSaveRun(ctx));
+    parseOfficialTokens(configEnv.PO0_FIREWALL_TOKENS);
+    if (configEnv.PO0_FIREWALL_WIFI_TOKENS) parseOfficialTokens(configEnv.PO0_FIREWALL_WIFI_TOKENS);
+    if (!stored.exists) await saveReportConfig(ctx, configEnv);
+    if (automatic && (!boolEnv(env.OFFICIAL_AUTO_ENABLED, true) || (!isNetworkChangeRun(ctx) && !officialTimerEnabled(env)))) {
+      state = { ...state, ok: true, skipped: true, uiNotice: '自动或定期上报已停用，配置保留' };
+      return result();
     }
-    if (isReportConfigSaveRun(ctx)) {
-      return await handleReportConfigSaveScript(ctx, runtimeEnv, storedConfig.values, deviceId);
+    if (!isOfficialStatusRun(ctx) && ssidSkipDecision(ctx, env, network).skip) {
+      state = { ...state, ok: true, skipped: true, skipType: 'wifi-ssid' };
+      return result();
     }
-    env = effectiveReportEnv(storedConfig.exists ? storedConfig.values : runtimeEnv, runtimeEnv);
-    if (localChannelAction(ctx)) return await handleLocalChannelAction(ctx, env, localChannelAction(ctx));
-    if (isOfficialConfigClearRun(ctx)) {
-      return await handleOfficialConfigClearScript(ctx, storedConfig.values);
-    }
-
-    const configEnv = env;
-    network = networkInfo(ctx);
-    env = officialNetworkEnv(env, network);
-    channels = validateReportChannels(env, deviceId);
-    if (!channels.anyRequested) {
-      const configError = channels.workerError || new Error('本机尚未配置 PO0 上报通道。');
-      if (isAutomaticReportRun(ctx)) return missingReportConfigState(deviceId, configError, env);
-      return missingReportConfigPanel(ctx, deviceId, configError, env);
-    }
-    if (!channels.anyValid && !channels.officialRequested) {
-      const configError = channels.workerError || new Error('本机 PO0 自建防火墙配置无效。');
-      if (isAutomaticReportRun(ctx)) return missingReportConfigState(deviceId, configError, env);
-      return missingReportConfigPanel(ctx, deviceId, configError, env);
-    }
-    if (!storedConfig.exists && channels.anyValid && !channels.officialError && !channels.workerError) {
-      await saveReportConfig(ctx, configEnv);
-    }
-
-    channels = selectReportChannels(ctx, env, channels);
-    if (!channels.anyRequested) {
-      if (shouldReturnWidget(ctx)) return widgetPanel(REPORT_TITLE, [
-        '所选上报通道尚未配置。',
-        '请先保存该通道配置，再运行强制上报。',
-        '本次没有发起网络请求。',
-      ], false, ctx);
-      return { ok: true, skipped: true, skipType: 'channels-paused', reason: '本次没有启用的自动上报通道；配置保留。' };
-    }
-    policy = env.POLICY || 'DIRECT';
-    notifySuccess = boolEnv(env.NOTIFY_SUCCESS, false) || isManualRun(ctx);
-    notifyFailure = boolEnv(env.NOTIFY_FAILURE, true) || isManualRun(ctx);
-    targets = channels.workerTargets;
-    network = networkInfo(ctx);
-    const wifiSsidSkip = ssidSkipDecision(ctx, env, network);
-    if (wifiSsidSkip.skip) {
-      const state = await buildWifiSsidSkippedState(ctx, targets, network, deviceId, wifiSsidSkip);
-      if (channels.officialRequested) state.official = await storedOfficialState(ctx);
-      await storageSet(ctx, STORAGE_KEY, JSON.stringify(state));
-      logMessage(ctx, 'info', '跳过本轮上报', state.skipReason);
-      return shouldReturnWidget(ctx) ? widgetFromState(state, ctx, deviceId, env) : state;
-    }
-
-    if (channels.officialRequested) {
-      const officialMode = isOfficialStatusRun(ctx) ? 'status' : 'report';
-      try {
-        officialResult = channels.officialError
-          ? officialConfigErrorState(channels.officialError, officialMode, await storedOfficialState(ctx))
-          : await runOfficialFirewall(ctx, env, officialMode);
-      } catch (error) {
-        officialResult = officialConfigErrorState(error, officialMode, null);
-      }
-    }
-
-    const workerFailures = [];
-    if (channels.workerError) workerFailures.push('自建防火墙配置无效。');
-
-    if (targets.length === 0 || isOfficialStatusRun(ctx)) {
-      const officialState = officialResult.state || null;
-      const officialIp = officialState?.currentIp || '';
-      const state = {
-        ok: Boolean(officialResult.ok) && workerFailures.length === 0,
-        ip: officialIp.replace(/\/24$/, ''),
-        reportedCidr: officialIp,
-        cidrPrefix: 24,
-        ipProfile,
-        network,
-        at: startedAt.toISOString(),
-        checkedAt: officialState?.checkedAt || startedAt.toISOString(),
-        deviceId,
-        targetCount: 0,
-        successCount: 0,
-        failureCount: (officialResult.ok ? 0 : 1) + workerFailures.length,
-      };
-      if (channels.officialRequested) state.official = officialState;
-      const officialError = officialFailureSummary(officialResult);
-      const errors = [officialError, ...workerFailures].filter(Boolean);
-      if (errors.length > 0) state.error = errors.join('；');
-      await storageSet(ctx, STORAGE_KEY, JSON.stringify(state));
-      if (!state.ok) {
-        await storageSet(ctx, ERROR_STORAGE_KEY, state.error || '官方防火墙上报失败。');
-        if (notifyFailure) notifyLong(ctx, REPORT_FAILED_TITLE, state.error || '官方防火墙上报失败。');
-      } else if (officialResult.needsNotification) {
-        notify(ctx, REPORT_TITLE, `官方防火墙已更新：${officialUpdateSummary(officialResult)}`);
-      }
-      return shouldReturnWidget(ctx) ? widgetFromState(state, ctx, deviceId, env) : state;
-    }
-
-    const detected = await detectCurrentIPv4WithFallback(ctx, env, policy);
-    ip = detected.ip;
-    ipProfile = normalizeIpProfile(detected.ipProfile);
-    if (!ipProfile.location && !ipProfile.isp) {
-      ipProfile = await fetchIpProfile(ctx, ip, policy);
-    }
-    network = networkInfo(ctx);
-    cidrPrefix = reportCidrPrefixForNetwork(env, network);
-    reportedCidr = cidrForIPv4(ip, cidrPrefix);
-    targets = attachReportCidr(targets, cidrPrefix, reportedCidr);
-    const skipDecision = await shouldSkipUnchangedAutoReport(ctx, env, targets, ip, reportedCidr);
-    if (skipDecision.skip) {
-      const previousIpProfile = normalizeIpProfile(skipDecision.previous?.ipProfile);
-      if (!ipProfile.location && !ipProfile.isp && (previousIpProfile.location || previousIpProfile.isp)) {
-        ipProfile = previousIpProfile;
-      }
-      const changedInsideCidr = skipDecision.previousIp && skipDecision.previousIp !== ip
-        ? `；本次 IP ${ip} 仍在 ${reportedCidr}`
-        : '';
-      const state = {
-        ...skipDecision.previous,
-        ip,
-        reportedCidr,
-        cidrPrefix,
-        skipped: true,
-        skipType: 'unchanged',
-        checkedAt: new Date().toISOString(),
-        targetConfigSignature: skipDecision.currentConfigSignature,
-        skipReason: `上报 CIDR 未变化${changedInsideCidr}，距离上次成功 ${skipDecision.ageSeconds}s，小于自动刷新间隔 ${skipDecision.refreshAfter}s`,
-        network,
-        ipProfile,
-        deviceId,
-      };
-      if (channels.officialRequested) state.official = officialResult.state || await storedOfficialState(ctx);
-      await storageSet(ctx, STORAGE_KEY, JSON.stringify(state));
-      logMessage(ctx, 'info', '跳过 SSH 上报', state.skipReason);
-      return state;
-    }
-
-    const results = [];
-    const failures = [];
-    const targetReports = [];
-
-    for (const target of targets) {
-      try {
-        const output = await reportToPO0(ctx, env, target, ip);
-        const report = {
-          ok: true,
-          sourceId: target.sourceId,
-          host: target.host,
-          port: target.port,
-          identity: target.identity,
-          ttlSeconds: target.ttlSeconds,
-          cidrPrefix: target.cidrPrefix,
-          reportedCidr: target.reportedCidr,
-          expiresAt: new Date(startedAt.getTime() + Math.max(60, target.ttlSeconds) * 1000).toISOString(),
-          output: redactSensitiveText(String(output || '').trim(), [target.token]),
-        };
-        results.push(report);
-        targetReports.push(report);
-      } catch (error) {
-        const errorText = redactError(error, env, channels, [target]);
-        logMessage(ctx, 'error', `${targetName(target)} 失败`, errorText);
-        const report = {
-          ok: false,
-          sourceId: target.sourceId,
-          host: target.host,
-          port: target.port,
-          cidrPrefix: target.cidrPrefix,
-          reportedCidr: target.reportedCidr,
-          error: errorText,
-        };
-        failures.push(report);
-        targetReports.push(report);
-      }
-    }
-
-    if (channels.workerError) {
-      failures.push({ error: '自建防火墙配置无效。' });
-    }
-    const officialError = officialFailureSummary(officialResult);
-    const overallFailure = failures.length > 0 || Boolean(officialResult.active && !officialResult.ok);
-    const state = {
-      ok: !overallFailure,
-      sourceId: targets.map((target) => target.sourceId).join(','),
-      ip,
-      reportedCidr,
-      cidrPrefix,
-      ipProfile,
-      po0Host: targets.map((target) => target.host).join(','),
-      identity: targets.map((target) => target.identity).filter(Boolean).join(','),
-      network,
-      at: startedAt.toISOString(),
-      deviceId,
-      targetCount: targets.length,
-      successCount: results.length,
-      failureCount: failures.length + (officialResult.active && !officialResult.ok ? 1 : 0),
-      targetConfigSignature: targetConfigSignatures(targets),
-      targets: targetReports,
-    };
-    if (channels.officialRequested) state.official = officialResult.state || await storedOfficialState(ctx);
-    const errorParts = [officialError, ...failures.map((failure) => failure.error)].filter(Boolean);
-    if (errorParts.length > 0) state.error = errorParts.join('；');
-    await storageSet(ctx, STORAGE_KEY, JSON.stringify(state));
-
-    if (overallFailure) {
-      const workerErrorSummary = failures
-        .filter((failure) => failure.sourceId || failure.host)
-        .map((failure) => `${targetName(failure)}: ${failure.error}`)
-        .join('; ');
-      const errorSummary = [officialError, workerErrorSummary, channels.workerError ? '自建防火墙配置无效。' : '']
-        .filter(Boolean)
-        .join('；') || '本轮上报未完成。';
-      await storageSet(ctx, ERROR_STORAGE_KEY, errorSummary);
-      if (notifyFailure) {
-        notifyLong(ctx, REPORT_FAILED_TITLE, `${ip || officialResult.state?.currentIp || '当前出口'}：${results.length}/${targets.length} 个自建防火墙目标完成；${errorSummary}`);
-      }
-      return shouldReturnWidget(ctx) ? widgetFromState(state, ctx, deviceId, env) : state;
-    }
-
-    if (officialResult.needsNotification) {
-      notify(ctx, REPORT_TITLE, `官方防火墙已更新：${officialUpdateSummary(officialResult)}`);
-    }
-    if (notifySuccess) {
-      notify(ctx, REPORT_TITLE, `${ip}: ${results.length}/${targets.length} 个 PO0 已更新`);
-    }
-    return shouldReturnWidget(ctx) ? widgetFromState(state, ctx, deviceId, env) : state;
+    const reported = await runOfficialFirewall(ctx, env, isOfficialStatusRun(ctx) ? 'status' : 'report');
+    state = { ok: reported.ok, network, official: reported.state, skipped: reported.skipped, checkedAt: officialNowIso(), ip: reported.state?.currentIp?.replace(/\/\d+$/, '') || '', error: reported.ok ? '' : '官方上报未完成' };
+    if (!reported.skipped && reported.ok) state.at = reported.state?.lastSuccessAt || officialNowIso();
+    if (!await storageSet(ctx, STORAGE_KEY, JSON.stringify(state))) throw new Error('无法保存上报状态');
+    if (!reported.ok && boolEnv(env.NOTIFY_FAILURE, true)) notify(ctx, REPORT_FAILED_TITLE, officialFailureSummary(reported));
+    else if (reported.needsNotification || (!automatic && boolEnv(env.NOTIFY_SUCCESS, false))) notify(ctx, REPORT_TITLE, officialUpdateSummary(reported) || '官方检查完成');
+    return result();
   } catch (error) {
-    const errorText = redactError(error, env, channels, targets) || '本轮上报未完成。';
-    const state = {
-      ok: false,
-      sourceId: targets.map((target) => target.sourceId).join(',') || String(env.SSH_REPORT_SOURCE || 'egern').trim() || 'egern',
-      po0Host: targets.map((target) => target.host).join(',') || env.PO0_HOST || '',
-      ip,
-      reportedCidr,
-      cidrPrefix,
-      ipProfile,
-      network,
-      at: new Date().toISOString(),
-      deviceId,
-      targetCount: targets.length,
-      successCount: 0,
-      failureCount: targets.length || 1,
-      error: errorText,
-    };
-    if (officialResult.active && officialResult.state) state.official = officialResult.state;
-    await storageSet(ctx, STORAGE_KEY, JSON.stringify(state));
-    await storageSet(ctx, ERROR_STORAGE_KEY, state.error);
-    logMessage(ctx, 'error', '运行失败', state.error);
-    if (notifyFailure) {
-      notifyLong(ctx, REPORT_FAILED_TITLE, state.error);
-    }
-    if (shouldReturnWidget(ctx)) {
-      return widgetFromState(state, ctx, deviceId, env);
-    }
-    throw new Error(errorText);
+    state = { ...state, ok: false, error: redactError(error, env), uiNotice: '官方操作未完成' };
+    if (!automatic && boolEnv(env.NOTIFY_FAILURE, true)) notify(ctx, REPORT_FAILED_TITLE, state.error);
+    return result();
   }
 }
 
 function reportLockBypass(ctx) {
-  const requestUrl = parseRequestUrl(ctx);
-  const isDeviceRequest = requestUrl
-    && requestUrl.protocol === 'http:'
-    && requestUrl.hostname === 'po0-egern.local';
-  return Boolean(isDeviceRequest)
-    || isLegacyDeviceHttpRun(ctx)
-    || isDeviceSetupRun(ctx)
-    || isDeviceClearRun(ctx)
-    || isReportConfigSaveRun(ctx)
-    || isReportConfigClearRun(ctx)
-    || isOfficialConfigClearRun(ctx)
-    || isWorkerConfigSaveRun(ctx)
-    || isOfficialConfigSaveRun(ctx)
-    || Boolean(localChannelAction(ctx));
+  return retiredAction(ctx) || ['recent', 'settings', 'save-common'].includes(localChannelAction(ctx));
 }
 
 async function unavailableReportResult(ctx, status) {
@@ -2841,7 +1460,7 @@ async function unavailableReportResult(ctx, status) {
   try {
     previous = sanitizedStoredState(await storageGet(ctx, STORAGE_KEY));
     if (shouldReturnWidget(ctx)) {
-      deviceId = await storedDeviceId(ctx);
+      deviceId = '';
       const config = await storedReportConfig(ctx);
       env = effectiveReportEnv(config.exists ? config.values : {}, ctx?.env || {});
       env = officialNetworkEnv(env, networkInfo(ctx));

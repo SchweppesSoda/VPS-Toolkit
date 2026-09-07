@@ -1,10 +1,4 @@
-function Get-MaskedSecret {
-    param([string]$Value)
-    if (-not $Value) { return "未设置" }
-    if ($Value.Length -le 8) { return "***" }
-    return ($Value.Substring(0, 3) + "***" + $Value.Substring($Value.Length - 3))
-}
-
+﻿
 function Format-NotifyStatus {
     if ($script:TaskNotify) { return "已启用" }
     return "静默，仅写日志"
@@ -59,24 +53,6 @@ function Read-YesNoDefault {
     }
 }
 
-function Read-SecretSetting {
-    Write-PanelRow "当前上报密钥" $(if ($script:Secret) { $script:Secret } else { "未设置" })
-    if ($script:Secret) {
-        $value = Read-Host "Self-report secret [已设置，回车保留，输入 - 清空]"
-        if ($null -eq $value) { return }
-        $value = $value.Trim()
-        if (-not $value) { return }
-        if ($value -eq "-") {
-            $script:Secret = ""
-        } else {
-            $script:Secret = $value
-        }
-    } else {
-        $value = Read-Host "Self-report secret，可空"
-        if ($null -eq $value) { $value = "" }
-        $script:Secret = $value.Trim()
-    }
-}
 
 function Format-TaskTime {
     param($Value)

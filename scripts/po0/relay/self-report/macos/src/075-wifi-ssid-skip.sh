@@ -27,15 +27,6 @@ append_skip_wifi_ssid() {
     SKIP_WIFI_SSIDS="$(normalize_wifi_ssid_skip_list "${SKIP_WIFI_SSIDS}")"
 }
 
-skip_wifi_ssids_label() {
-    local list
-    list="$(normalize_wifi_ssid_skip_list "${SKIP_WIFI_SSIDS:-}")"
-    if [[ -n "${list}" ]]; then
-        printf '%s\n' "${list}"
-    else
-        printf '未设置\n'
-    fi
-}
 
 wifi_ssid_read_failure_label() {
     case "${WIFI_SSID_LAST_ERROR:-}" in
@@ -546,13 +537,6 @@ current_wifi_ssid() {
     return 1
 }
 
-current_wifi_ssid_label() {
-    if current_wifi_ssid >/dev/null 2>&1; then
-        printf '%s\n' "${WIFI_SSID_PROBE_VALUE}"
-    else
-        wifi_ssid_read_failure_label
-    fi
-}
 
 show_current_wifi_ssid_once() {
     if current_wifi_ssid >/dev/null 2>&1; then

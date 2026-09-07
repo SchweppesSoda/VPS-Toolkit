@@ -8,8 +8,6 @@ on:
       - scripts/po0/relay/**
       - packaging/openwrt/**
       - scripts/po0/nftables/clients/**
-      - scripts/po0/nftables/legacy/**
-      - scripts/po0/nftables/tools/**
       - scripts/po0/reinstall/**
       - scripts/po0/README.md
       - tools/po0/**
@@ -25,8 +23,6 @@ on:
       - scripts/po0/relay/**
       - packaging/openwrt/**
       - scripts/po0/nftables/clients/**
-      - scripts/po0/nftables/legacy/**
-      - scripts/po0/nftables/tools/**
       - scripts/po0/reinstall/**
       - scripts/po0/README.md
       - tools/po0/**

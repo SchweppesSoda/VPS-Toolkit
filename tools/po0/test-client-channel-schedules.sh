@@ -31,8 +31,8 @@ for platform in linux macos; do
         launchd_supported() { return 1; }
     fi
     install_cron all >/dev/null
-    [[ "$(grep -c '^# OUTBOUND_IP_REPORT_.*_BEGIN' "$cron")" == 2 ]] || fail "$platform must install two cron blocks"
-    grep -q -- '--scheduled-run --worker-only' "$cron" || fail 'worker scope missing'
+    [[ "$(grep -c '^# OUTBOUND_IP_REPORT_.*_BEGIN' "$cron")" == 1 ]] || fail "$platform must install one official cron block"
+    ! grep -q -- '--scheduled-run --worker-only' "$cron" || fail 'worker scope missing'
     grep -q -- '--scheduled-run --official-only' "$cron" || fail 'official scope missing'
     grep -q '^\*/15 .*--official-only' "$cron" || fail 'custom official interval ignored'
     ! grep -q 'test-secret\|pgnfw_' "$cron" || fail 'credentials in task'
@@ -63,7 +63,7 @@ for platform in linux macos; do
     if channel_schedules_current "$dest"; then fail 'changed interval not detected'; fi
     printf '17 3 * * * echo unrelated\n# OUTBOUND_IP_REPORT_BEGIN %s\n*/10 * * * * old-reporter\n# OUTBOUND_IP_REPORT_END %s\n' "$CONFIG_FILE" "$CONFIG_FILE" > "$cron"
     refresh_channel_schedules all >/dev/null
-    [[ "$(grep -c '^# OUTBOUND_IP_REPORT_.*_BEGIN' "$cron")" == 2 ]] || fail 'shared migration did not create two tasks'
+    [[ "$(grep -c '^# OUTBOUND_IP_REPORT_.*_BEGIN' "$cron")" == 1 ]] || fail 'shared migration did not create official task'
     ! grep -q old-reporter "$cron" || fail 'old shared task survived'
     grep -q 'echo unrelated' "$cron" || fail 'unrelated job removed'
     OFFICIAL_TIMER_ENABLED=0
@@ -77,7 +77,7 @@ for platform in linux macos; do
         launchctl() { printf '%s\n' "$*" >> "$calls"; }
         OFFICIAL_TIMER_ENABLED=1
         install_cron all >/dev/null
-        [[ -f "$fixture_root/worker.plist" && -f "$fixture_root/official.plist" ]] || fail 'two launchd tasks missing'
+        [[ ! -f "$fixture_root/worker.plist" && -f "$fixture_root/official.plist" ]] || fail 'two launchd tasks missing'
         grep -q 'outbound-ip-report.official' "$fixture_root/official.plist" || fail 'official launchd label'
         grep -q '<string>--official-only</string>' "$fixture_root/official.plist" || fail 'official launchd scope'
         ! cron_managed_block_exists || fail 'launchd migration retained cron'
@@ -85,9 +85,9 @@ for platform in linux macos; do
         grep -q -- '--watch-network' "$fixture_root/official.network.plist" || fail 'macOS network watcher not installed'
         grep -q '<key>KeepAlive</key><true/>' "$fixture_root/official.network.plist" || fail 'macOS watcher not persistent'
         ! grep -q -- '--timer-trigger' "$fixture_root/official.network.plist" || fail 'network watcher classified as timer'
-        worker_before="$(cat "$fixture_root/worker.plist")"
+        worker_before=""
         set_schedule_paused 1 official >/dev/null
-        [[ "$(cat "$fixture_root/worker.plist")" == "$worker_before" ]] || fail 'official pause modified worker plist'
+        [[ ! -f "$fixture_root/worker.plist" ]] || fail 'official pause modified worker plist'
         remove_cron worker >/dev/null
         [[ ! -f "$fixture_root/worker.plist" && -f "$fixture_root/official.plist" ]] || fail 'launchd scoped removal'
         refresh_channel_schedules all >/dev/null

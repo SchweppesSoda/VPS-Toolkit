@@ -94,20 +94,6 @@ self_report_append_target_success() {
     printf '%s；%s。\n' "${message}" "${target_text}"
 }
 
-self_report_append_response_target_success() {
-    local message="$1"
-    local response="$2"
-    local line parts count names
-    while IFS= read -r line || [[ -n "${line}" ]]; do
-        parts="$(self_report_response_summary_parts "${line}" 2>/dev/null || true)"
-        [[ -n "${parts}" ]] || continue
-        count="$(printf '%s\n' "${parts}" | awk -F'|' '{print $2}')"
-        names="$(printf '%s\n' "${parts}" | awk -F'|' '{print $3}')"
-        self_report_append_target_success "${message}" "${count}" "${names}"
-        return 0
-    done <<< "${response}"
-    printf '%s\n' "${message}"
-}
 
 self_report_log_event_summary() {
     local line="$1"

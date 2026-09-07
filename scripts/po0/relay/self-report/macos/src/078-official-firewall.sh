@@ -190,9 +190,6 @@ po0_firewall_last_attempt_at() {
     sed -n 's/^last_attempt_at=\([0-9][0-9]*\)$/\1/p' "$state" | head -n 1
 }
 
-po0_worker_due_state_file() {
-    printf '%s/worker-last-attempt\n' "$(po0_firewall_state_dir)"
-}
 
 po0_firewall_now() {
     local value="${PO0_TEST_NOW:-}"
@@ -484,44 +481,6 @@ po0_firewall_due() {
 
 po0_firewall_mark_due() {
     po0_firewall_write_timestamp "$(po0_firewall_due_state_file)"
-}
-
-po0_worker_due() {
-    local now last interval state_file
-    [[ -n "${WORKER_URL:-}" ]] || return 1
-    [[ "${SCHEDULED_RUN:-0}" == "1" ]] || return 0
-    [[ "${FORCE_REPORT:-0}" == "1" || "${NETWORK_CHANGED:-0}" == 1 || "${TIMER_TRIGGER:-0}" == 1 ]] && return 0
-    interval="$(cron_minutes_to_seconds "${CRON_MINUTES:-60}")"
-    now="$(po0_firewall_now)"
-    state_file="$(po0_worker_due_state_file)"
-    [[ -r "${state_file}" ]] || return 0
-    last="$(po0_firewall_read_timestamp "${state_file}")"
-    (( now < last || now - last >= interval ))
-}
-
-po0_worker_mark_attempt() {
-    po0_firewall_write_timestamp "$(po0_worker_due_state_file)"
-}
-
-po0_worker_mark_success() {
-    po0_worker_mark_attempt
-}
-
-po0_reporter_validate_config() {
-    local has_worker="0" has_official="0"
-    [[ -n "${WORKER_URL:-}" ]] && has_worker="1"
-    po0_firewall_configured && has_official="1"
-    [[ "${has_worker}" == "1" || "${has_official}" == "1" ]] || {
-        printf '至少配置 LAN Worker URL 或 PO0 官方防火墙 token。\n' >&2
-        return 1
-    }
-    if [[ "${has_worker}" == "1" ]]; then
-        validate_worker_url || return 1
-    fi
-    if [[ -n "${PO0_FIREWALL_TOKENS:-}" ]]; then
-        po0_firewall_validate_tokens || return 1
-    fi
-    validate_cron_minutes
 }
 
 po0_firewall_direct_request() (

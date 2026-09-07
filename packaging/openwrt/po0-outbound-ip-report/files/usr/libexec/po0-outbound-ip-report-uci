@@ -3,7 +3,6 @@ set -u
 
 CONFIG_PACKAGE='po0_outbound_ip_report'
 CONFIG_FILE='/etc/config/po0_outbound_ip_report'
-ENGINE='/usr/libexec/po0-outbound-ip-report-engine'
 OFFICIAL_RUNNER='/usr/libexec/po0-official-firewall-runner'
 RUN_DIR='/var/run/po0-outbound-ip-report'
 LOCK_DIR=""
@@ -144,74 +143,29 @@ acquire_run_lock() {
 	return 75
 }
 
-export PO0_OUTBOUND_IP_REPORT_WORKER_URL="$(uci_get main worker_url)"
-export PO0_OUTBOUND_IP_REPORT_SOURCE="$(uci_get main source_id)"
-[ -n "$PO0_OUTBOUND_IP_REPORT_SOURCE" ] || export PO0_OUTBOUND_IP_REPORT_SOURCE='router-88-1'
-export PO0_OUTBOUND_IP_REPORT_IDENTITY="$(uci_get main identity)"
-[ -n "$PO0_OUTBOUND_IP_REPORT_IDENTITY" ] || export PO0_OUTBOUND_IP_REPORT_IDENTITY='router-88-1-via-gateway'
-export PO0_OUTBOUND_IP_REPORT_SECRET="$(uci_get main secret)"
-export PO0_OUTBOUND_IP_REPORT_ALLOW_HTTP="$(uci_get main allow_http)"
-export PO0_OUTBOUND_IP_REPORT_ROUTER_PROBE_URL="$(uci_get main router_probe_url)"
-[ -n "$PO0_OUTBOUND_IP_REPORT_ROUTER_PROBE_URL" ] || export PO0_OUTBOUND_IP_REPORT_ROUTER_PROBE_URL='http://192.168.88.1/cgi-bin/po0-wan-probe'
-unset PO0_OUTBOUND_IP_REPORT_PROBE_RESOLVE PO0_OUTBOUND_IP_REPORT_PROBE_MODE PO0_OUTBOUND_IP_REPORT_PROBE_DNS_SERVER PO0_OUTBOUND_IP_REPORT_SOURCE_WAN1 PO0_OUTBOUND_IP_REPORT_SOURCE_WAN2
-probe_mode="$(uci_get main probe_mode)"
-case "$probe_mode" in
- source)
-  export PO0_OUTBOUND_IP_REPORT_ROUTER_PROBE_URL=''
-  export PO0_OUTBOUND_IP_REPORT_PROBE_MODE='source'
-  export PO0_OUTBOUND_IP_REPORT_SOURCE_WAN1="$(uci_get main official_source_wan1)"
-  export PO0_OUTBOUND_IP_REPORT_SOURCE_WAN2="$(uci_get main official_source_wan2)"
-  export PO0_OUTBOUND_IP_REPORT_PROBE_DNS_SERVER="$(uci_get main probe_dns_server)"
-  [ -n "$PO0_OUTBOUND_IP_REPORT_PROBE_DNS_SERVER" ] || export PO0_OUTBOUND_IP_REPORT_PROBE_DNS_SERVER='192.168.88.1'
-  ;;
- local) export PO0_OUTBOUND_IP_REPORT_ROUTER_PROBE_URL='';;
- ''|router) :;;
- *) printf '公网 IP 获取方式无效。\n' >&2; exit 2;;
-esac
-export PO0_OUTBOUND_IP_REPORT_WANS="$(uci_get main wans)"
-[ -n "$PO0_OUTBOUND_IP_REPORT_WANS" ] || export PO0_OUTBOUND_IP_REPORT_WANS='all'
-export PO0_OUTBOUND_IP_REPORT_IP_CHECK_URLS="$(uci_get main ip_check_urls)"
-export PO0_OUTBOUND_IP_REPORT_SKIP_WIFI_SSIDS="$(uci_get main skip_wifi_ssids)"
-worker_enabled="$(uci_get main worker_enabled)"
-[ -n "$worker_enabled" ] || worker_enabled='1'
 official_enabled="$(uci_get main official_enabled)"
 [ -n "$official_enabled" ] || official_enabled='0'
-worker_run='1'
 official_run='1'
 official_action='report'
 force='0'
 official_wan=''
-manual_worker='0'
 manual_official='0'
 auto_trigger=''
 while [ "$#" -gt 0 ]; do
 	case "$1" in
-		--worker-report)
-			worker_run='1'
-			official_run='0'
-			manual_worker='1'
-			shift
-			;;
-		--worker-only)
-			worker_run='1'
-			official_run='0'
-			shift
-			;;
+		--worker-report|--worker-only) printf '自建上报已退役。\n'; exit 0 ;;
 		--official-only)
-			worker_run='0'
 			official_run='1'
 			shift
 			;;
 		--official-status)
 			manual_official='1'
-			worker_run='0'
 			official_run='1'
 			official_action='status'
 			shift
 			;;
 		--official-report)
 			manual_official='1'
-			worker_run='0'
 			official_run='1'
 			official_action='report'
 			shift
@@ -246,12 +200,9 @@ done
 if [ -n "$auto_trigger" ]; then
 	case "$(uci_get main enabled)" in 1|true|yes|on) ;; *) exit 0 ;; esac
 	if [ "$auto_trigger" = network ]; then
-		is_disabled "$(uci_get main worker_network_enabled)" && worker_run=0
 		is_disabled "$(uci_get main official_network_enabled)" && official_run=0
 	else
-		is_disabled "$(uci_get main worker_timer_enabled)" && worker_run=0
 		is_disabled "$(uci_get main official_timer_enabled)" && official_run=0
-		[ "$(uci_get main interval_seconds)" != 0 ] || worker_run=0
 		[ "$(uci_get main official_interval_seconds)" != 0 ] || official_run=0
 	fi
 fi
@@ -389,23 +340,8 @@ run_official_lane() (
 	fi
 	exit "$rc"
 )
-run_worker_lane() (
-	rc=0
-	if is_disabled "$worker_enabled" && [ "$manual_worker" != '1' ]; then
-		printf 'worker_status=disabled\n'
-	else
-		LOCK_DIR="${RUN_DIR}/worker.lock"
-		acquire_run_lock || exit $?
-		if [ "$force" = '1' ]; then
-			"$ENGINE" --force-report || rc='1'
-		else
-			"$ENGINE" || rc='1'
-		fi
-	fi
-	exit "$rc"
-)
+
 rc=0
 # Compatibility calls may request both lanes; each acquires only its lock.
 [ "$official_run" != 1 ] || run_official_lane || rc=$?
-[ "$worker_run" != 1 ] || run_worker_lane || rc=$?
 exit "$rc"

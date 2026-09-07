@@ -39,9 +39,9 @@ cron_state_label() {
 }
 
 cron_status_summary() {
-    local channel="${1:-all}" state interval paused job consistency
+    local channel="${1:-official}" state interval paused job consistency
     if [[ "$channel" == all ]]; then
-        printf '自建：%s；官方：%s' "$(cron_status_summary worker)" "$(cron_status_summary official)"; return
+        cron_status_summary official; return
     fi
     IFS='|' read -r state interval paused job consistency < <(read_cron_status_snapshot "$channel")
     cron_state_label "$state"
@@ -59,7 +59,7 @@ network_event_label() {
 }
 
 show_cron_status() {
-    local target="${1:-${SCHEDULE_CHANNEL:-all}}" channel state interval paused job consistency log
+    local target="${1:-${SCHEDULE_CHANNEL:-official}}" channel state interval paused job consistency log
     for channel in worker official; do
         [[ "$target" == all || "$target" == "$channel" ]] || continue
         print_panel_section "$(schedule_channel_label "$channel") · 定时任务"

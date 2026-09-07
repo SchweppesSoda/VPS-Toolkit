@@ -49,17 +49,6 @@ lane_matches_event() {
 	# Source-address and legacy upstream-probe modes observe only this host's
 	# network. They cannot receive an upstream router's WAN hotplug events.
 	[ "$probe_mode" = local ] || return 0
-	if [ "$lane" = worker ]; then
-		wans="$(uci -q get po0_outbound_ip_report.main.wans 2>/dev/null || true)"
-		case "$wans" in
-			''|all)
-				[ "$(uci -q get "mwan3.$wan" 2>/dev/null || true)" = interface ] || return 1
-				case "$(uci -q get "mwan3.$wan.enabled" 2>/dev/null || true)" in 0|false|no|off) return 1 ;; esac
-				return 0 ;;
-		esac
-		wans="$(printf '%s' "$wans" | tr ', ' ';;')"
-		case ";$wans;" in *";$wan;"*) return 0 ;; *) return 1 ;; esac
-	fi
 	while IFS= read -r binding; do
 		[ -n "$binding" ] || continue
 		case "$(uci -q get "po0_outbound_ip_report.${binding}.enabled" 2>/dev/null || true)" in 0|false|no|off) continue ;; esac
@@ -110,8 +99,8 @@ run_hotplug_attempt() {
 
 # Each channel waits/retries independently and rechecks its switch after the
 # settling delay. A timer disabled with interval=0 does not suppress events.
-for lane in worker official; do
-	fallback=0; [ "$lane" != worker ] || fallback=1
+for lane in official; do
+	fallback=0
 	enabled="$(uci -q get "po0_outbound_ip_report.main.${lane}_enabled" 2>/dev/null || printf '%s' "$fallback")"
 	case "$enabled" in 0|false|no|off) continue ;; esac
 	network="$(uci -q get "po0_outbound_ip_report.main.${lane}_network_enabled" 2>/dev/null || printf 1)"

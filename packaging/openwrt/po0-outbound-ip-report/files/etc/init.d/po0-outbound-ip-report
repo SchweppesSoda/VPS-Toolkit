@@ -17,19 +17,15 @@ start_service() {
 		1|true|yes|on) ;;
 		*) return 0 ;;
 	esac
-	for lane in worker official; do
-		fallback=0; [ "$lane" != worker ] || fallback=1
+	for lane in official; do
+		fallback=0
 		enabled="$(uci -q get "po0_outbound_ip_report.main.${lane}_enabled" 2>/dev/null || printf '%s' "$fallback")"
 		case "$enabled" in 0|false|no|off) continue ;; esac
 		enabled="$(uci -q get "po0_outbound_ip_report.main.${lane}_timer_enabled" 2>/dev/null || printf 1)"
 		case "$enabled" in 0|false|no|off) continue ;; esac
-		if [ "$lane" = worker ]; then
-			interval="$(uci -q get po0_outbound_ip_report.main.interval_seconds 2>/dev/null || printf 3600)"
-		else
-			interval="$(uci -q get po0_outbound_ip_report.main.official_interval_seconds 2>/dev/null || printf 600)"
-		fi
+		interval="$(uci -q get po0_outbound_ip_report.main.official_interval_seconds 2>/dev/null || printf 600)"
 		case "$interval" in
-			''|*[!0-9]*) [ "$lane" = worker ] && interval=3600 || interval=600 ;;
+			''|*[!0-9]*) interval=600 ;;
 		esac
 		interval="$(printf '%s' "$interval" | sed 's/^0*//')"
 		[ -n "$interval" ] || continue

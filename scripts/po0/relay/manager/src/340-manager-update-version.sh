@@ -93,9 +93,9 @@ do_upgrade_manager_from_lan() {
         err "缺少 LAN Worker manager 更新 HTTP URL。"
         return 1
     }
-    token="$(resource_task_token_value 2>/dev/null || true)"
+    token="$(manager_update_token_value 2>/dev/null || true)"
     [[ -n "${token}" ]] || {
-        err "资源任务 Token 尚未生成，无法校验 LAN Worker HTTP 更新响应。"
+        err "更新密钥尚未配置，无法校验 LAN Worker HTTP 更新响应。"
         return 1
     }
     command -v curl >/dev/null 2>&1 || {
@@ -153,11 +153,6 @@ do_upgrade_manager_from_lan() {
         return 1
     }
     install_manager_update_candidate "${tmp}" "${SCRIPT_VERSION}" "${candidate_version}" || return 1
-    if [[ -r /dev/tty && -w /dev/tty ]]; then
-        if confirm_yes "是否使用更新后的脚本刷新专用受限 SSH wrapper"; then
-            bash "${MANAGER_INSTALL_PATH}" --refresh-report-key-wrapper
-        fi
-    fi
 }
 
 current_script_changelog() {

@@ -1,4 +1,8 @@
-﻿if ($env:INSTALL_TASK -match "^(1|true|yes)$") {
+﻿if ($WorkerOnly) { Write-Host '自建上报已退役。'; exit 0 }
+foreach ($retired in @('WorkerUrl','Secret','SourceId','Identity','AllowHttp')) {
+    if ($PSBoundParameters.ContainsKey($retired)) { Write-Error '自建参数已退役，请使用官方配置。'; exit 2 }
+}
+if ($env:INSTALL_TASK -match "^(1|true|yes)$") {
     $InstallTask = $true
 }
 
@@ -55,6 +59,11 @@ if ($UpgradeSelf) {
             throw "-Notify 与 -NoNotify 不能同时使用。"
         }
         Load-SavedConfig
+
+    $script:WorkerUrl = ''; $script:Secret = ''
+    $script:WorkerAutoEnabled = $false; $script:WorkerTimerEnabled = $false; $script:WorkerNetworkEnabled = $false
+    $script:Po0FirewallWorkerOnly = $false
+    $script:Minutes = 10; $script:IntervalSeconds = 0
         if ($Notify) {
             $script:TaskNotify = $true
             $script:Notify = $true
@@ -81,6 +90,11 @@ try {
         if ($legacySettings.Task) { Import-ScheduledReporterTaskSettings -Task $legacySettings.Task -KeepNotifyPreference }
     }
     Load-SavedConfig
+
+    $script:WorkerUrl = ''; $script:Secret = ''
+    $script:WorkerAutoEnabled = $false; $script:WorkerTimerEnabled = $false; $script:WorkerNetworkEnabled = $false
+    $script:Po0FirewallWorkerOnly = $false
+    $script:Minutes = 10; $script:IntervalSeconds = 0
     if ($ClearPo0FirewallTokens) {
         $script:Po0FirewallTokens = ""
     }
@@ -94,6 +108,7 @@ try {
         $script:TaskNotify = $false
         $script:Notify = $false
     }
+    if ($MigrateRetiredState) { Invoke-RetiredStateMigration; exit 0 }
     Apply-IntervalSeconds
 
     if ($SaveConfig) {

@@ -225,9 +225,6 @@ function Get-ScheduledReporterTaskRecord {
     return [pscustomobject]@{Task=$null;Name='';IsLegacy=$false;Channel=$Channel}
 }
 
-function Format-LegacyScheduledReporterTaskNames {
-    return ($script:LegacyTaskNames -join ", ")
-}
 
 function Test-ScheduledReporterTaskWakeInterval {
     param($Task, [string]$Channel="worker")
@@ -349,34 +346,6 @@ function Import-ScheduledReporterTaskSettings {
     }
 }
 
-function Remove-LegacyScheduledReporterTask {
-    param([switch]$Quiet)
-    $ok = $true
-    try {
-        foreach ($legacyName in $script:LegacyTaskNames) {
-            $legacyTask = Get-ScheduledTask -TaskName $legacyName -ErrorAction SilentlyContinue
-            if (-not $legacyTask) { continue }
-            try {
-                Unregister-ScheduledTask -TaskName $legacyName -Confirm:$false -ErrorAction Stop
-                if (-not $Quiet) { Write-Host "已删除旧计划任务：$legacyName" }
-            } catch {
-                try {
-                    Disable-ScheduledTask -TaskName $legacyName -ErrorAction SilentlyContinue | Out-Null
-                } catch {}
-                if (-not $Quiet) {
-                    Write-Host "删除旧计划任务失败，已尝试禁用旧任务以避免双重上报：$legacyName：$($_.Exception.Message)" -ForegroundColor Yellow
-                }
-                $ok = $false
-            }
-        }
-        return $ok
-    } catch {
-        if (-not $Quiet) {
-            Write-Host "删除旧计划任务失败：$($_.Exception.Message)" -ForegroundColor Yellow
-        }
-        return $false
-    }
-}
 
 function Update-ScheduledReporterLauncherForExistingTask {
     if (-not (Get-ScheduledReporterTaskRecord).Task) { return 'none' }
@@ -704,7 +673,7 @@ function Get-ChannelIntervalSeconds {
 function Test-ChannelConfigured {
     param([string]$Channel)
     if ($Channel -eq 'official') { return Test-Po0FirewallConfigured }
-    return [bool]($script:WorkerUrl -and $script:Secret)
+    return $false
 }
 function Test-ChannelPaused {
     param([string]$Channel)

@@ -1,76 +1,19 @@
 usage() {
-    printf '%s\n' \
-        "PO0 Outbound IP Report 客户端（macOS）" \
-        "" \
-        "本脚本支持自建与官方两条独立通道。自建经 LAN Worker 上报，" \
-        "官方直接查询并按需加入白名单，无需配置自建。白名单有效期由各自" \
-        "接收端管理；自动开关、定期开关和上报间隔分别设置。" \
-        "" \
-        "用法:" \
-        "  curl -fsSL ${DOWNLOAD_URL} | bash" \
-        "  bash po0-outbound-ip-report-macos.sh --menu" \
-        "  bash po0-outbound-ip-report-macos.sh --version" \
-        "  bash po0-outbound-ip-report-macos.sh --upgrade-self" \
-        "  curl -fsSL ${DOWNLOAD_URL} | bash -s -- --save-config --menu" \
-        "  bash po0-outbound-ip-report-macos.sh --worker-url https://report.example.com/report --secret SECRET --save-config" \
-        "  curl -fsSL ${DOWNLOAD_URL} | bash -s -- --worker-url https://report.example.com/report --secret SECRET --interval-seconds 3600 --install-launchd" \
-        "" \
-        "参数:" \
-        "  --menu                打开交互菜单。" \
-        "  --version             显示脚本版本、发布日期、当前路径和默认安装路径。" \
-        "  --changelog           显示当前版本更新内容。" \
-        "  --show-wifi-ssid      显示当前 Wi-Fi SSID 探测结果后退出。" \
-        "  --diagnose-wifi-ssid  显示当前 Wi-Fi SSID 探测结果和 macOS 定位权限诊断后退出。" \
-        "  --open-location-services 打开 macOS 定位服务设置后退出；只做跳转，不修改系统权限。" \
-        "  --request-location-permission 创建并打开 PO0 Location Permission Helper，尝试触发 macOS 定位权限弹窗后退出。" \
-        "  --delete-location-permission-helper 删除 PO0 Location Permission Helper.app；不修改 macOS 定位授权记录。" \
-        "  --upgrade-self        从 GitHub Release 下载并更新本机脚本；菜单内更新会自动重开新版菜单。" \
-        "  --config PATH         本地配置文件；优先级：--config / PO0_OUTBOUND_IP_REPORT_CONFIG / PO0_SELF_REPORT_CONFIG 或 SELF_REPORT_CONFIG / root 的 /etc/po0-outbound-ip-report/settings.env / XDG_CONFIG_HOME / ~/.config / ./po0-outbound-ip-report.env；旧 po0-self-report 配置仅作 fallback。" \
-        "  --save-config         保存当前参数到本地配置文件；可与 --menu 组合为首次保存后打开菜单。" \
-        "  --worker-url URL      LAN Worker self-report HTTPS 接收地址，例如 https://report.example.com/report；裸域名会自动补全。" \
-        "  --clear-po0-firewall-tokens 清空内存中的官方 token；与 --save-config 一起使用才持久化。" \
-        "  --official-status     只读查看官方防火墙状态；GET 失败或未命中都不会执行 POST。" \
-        "  --official-report     只执行官方防火墙通道；--worker-only 只执行 LAN Worker 通道。" \
-        "  --allow-http          允许 http:// 上报；仅用于本地调试或临时旧环境。" \
-        "  --notify              启用 macOS 原生通知；保存配置或安装 launchd 时会持久化。" \
-        "  --no-notify           切换为静默模式；这是默认行为。" \
-        "  --skip-wifi-ssid SSID 按当前 Wi-Fi SSID 跳过上报；可重复传入，精确大小写匹配。" \
-        "  --skip-wifi-ssids LIST 按当前 Wi-Fi SSID 跳过上报；多个 SSID 用分号 ; 分隔。" \
-        "  --clear-skip-wifi-ssids 清空已保存或环境传入的 Wi-Fi SSID 跳过列表。" \
-        "  --force-report        即使当前 Wi-Fi SSID 命中跳过列表，也强制上报本次。" \
-        "  --source-id ID        写入 PO0 client_ip 记录的来源 ID；默认由 hostname + machine-id/MAC 生成: ${SOURCE_ID}" \
-        "  --identity ID         LAN Worker/PO0 日志里的设备或用户标签；默认使用设备名: ${IDENTITY}" \
-        "  --secret SECRET       可选的 LAN Worker self-report 共享密钥。" \
-        "  --ip-check-url URL    第一个公网 IPv4 探测地址。默认: ${IP_CHECK_URL}" \
-        "  --ip-check-urls CSV   覆盖完整探测地址列表，多个 URL 用逗号分隔。" \
-        "  --install-launchd [N] 安装 / 更新 macOS launchd 定时上报；不带 N 时默认 3600 秒。" \
-        "  --install-cron [N]    兼容旧参数，等同 --install-launchd；N 为兼容分钟参数。" \
-        "  --schedule-channel worker|official|all  选择安装、启停、删除或查看的任务（默认 all）。" \
-        "  --refresh-schedules   仅刷新已安装的任务；旧共享任务迁为两项独立任务。" \
-        "  --pause-schedule      暂停本脚本管理的定时上报；手动立即上报仍可用。" \
-        "  --resume-schedule     恢复本脚本管理的定时上报。" \
-        "  --schedule-status     查看本脚本管理的定时上报状态。" \
-        "  --schedule-channel worker|official|all  选择安装、启停、删除的通道。" \
-        "  --official-interval-seconds N  官方上报间隔默认 600 秒，60..86400 且为 60 的倍数。" \
-        "  --remove-cron / --remove-launchd  删除所选通道的定时和网络事件任务。" \
-        "  --refresh-schedules  更新已有任务并迁移旧共享任务。" \
-        "  --interval-seconds N  设置 launchd 上报间隔秒数，必须是 60 的倍数，默认 3600。" \
-        "  --minutes N           兼容旧参数：设置上报间隔分钟数，范围 1-${MAX_CRON_MINUTES}。" \
-        "" \
-        "默认公网 IPv4 探测顺序:" \
-        "  https://ip9.com.cn/get" \
-        "  https://mail.163.com/fgw/mailsrv-ipdetail/detail" \
-        "  https://api.live.bilibili.com/client/v1/Ip/getInfoNew" \
-        "  https://ipservice.ws.126.net/locate/api/getLocByIp" \
-        "  https://r.inews.qq.com/api/ip2city?otype=json" \
-        "  https://data.video.iqiyi.com/v.f4v" \
-        "  https://ip.apps.cntv.cn/whereis?client=json" \
-        "  https://myip.ipip.net/json"
+    printf '%s\n' 'PO0 官方防火墙客户端' \
+        'Token、名称与槽位在本机权限 600 的配置文件保存；菜单可编辑。' \
+        '--menu / --version / --changelog / --upgrade-self' \
+        '--config PATH / --save-config / --run-once / --official-only' \
+        '--official-status（只读）/ --clear-official-tokens' \
+        '--skip-wifi-ssids LIST / --clear-skip-wifi-ssids / --force-report' \
+        '--official-interval-seconds N / --install-cron / --refresh-schedules' \
+        '--pause-schedule / --resume-schedule / --schedule-status / --remove-cron' \
+        '--migrate-retired-state：先备份，清理本脚本的旧自建任务，保留官方设置。'
 }
 
 parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --migrate-retired-state) MIGRATE_RETIRED_STATE=1; shift ;;
             --menu)
                 SHOW_MENU="1"
                 shift
@@ -122,8 +65,7 @@ parse_args() {
                 shift
                 ;;
             --worker-url|--lan-worker-url)
-                WORKER_URL="${2:-}"
-                shift 2
+                printf '自建参数已退役，请使用官方配置。\n' >&2; exit 2
                 ;;
             --clear-po0-firewall-tokens)
                 PO0_FIREWALL_TOKENS=""
@@ -138,12 +80,10 @@ parse_args() {
                 shift
                 ;;
             --worker-only)
-                WORKER_ONLY="1"
-                shift
+                printf '自建上报已退役。\n'; exit 0
                 ;;
             --allow-http)
-                ALLOW_HTTP="1"
-                shift
+                printf '自建参数已退役。\n' >&2; exit 2
                 ;;
             --notify)
                 if [[ "${NOTIFY_ARG}" == "0" ]]; then
@@ -192,18 +132,13 @@ parse_args() {
                 shift
                 ;;
             --source-id)
-                SOURCE_ID="${2:-}"
-                SOURCE_ID_EXPLICIT="1"
-                shift 2
+                printf '自建参数已退役。\n' >&2; exit 2
                 ;;
             --identity)
-                IDENTITY="${2:-}"
-                IDENTITY_EXPLICIT="1"
-                shift 2
+                printf '自建参数已退役。\n' >&2; exit 2
                 ;;
             --secret|--self-report-secret)
-                SECRET="${2:-}"
-                shift 2
+                printf '自建参数已退役。\n' >&2; exit 2
                 ;;
             --ip-check-url)
                 IP_CHECK_URL="${2:-}"
@@ -273,7 +208,7 @@ parse_args() {
                 shift
                 ;;
             --po0-host|--po0-script|--source-key|--domain|--token)
-                echo "不再支持直接向 PO0 自上报。请使用 --worker-url 上报到 LAN Worker。" >&2
+                echo "不再支持直接向 PO0 自上报。请使用官方防火墙配置。" >&2
                 exit 1
                 ;;
             --help|-h)
@@ -295,6 +230,21 @@ load_saved_config
 apply_env_overrides
 apply_device_defaults
 parse_args "$@"
+REPORT_MODE=official
+OFFICIAL_ONLY=0
+[[ "${OFFICIAL_STATUS_ONLY:-0}" == 1 ]] || OFFICIAL_ONLY=1
+WORKER_ONLY=0
+WORKER_URL=""
+SECRET=""
+WORKER_ENABLED=0
+WORKER_AUTO_ENABLED=0
+WORKER_TIMER_ENABLED=0
+WORKER_NETWORK_ENABLED=0
+WANS=""
+CRON_MINUTES=10
+INTERVAL_SECONDS=""
+SCHEDULE_CHANNEL="${SCHEDULE_CHANNEL:-official}"
+if [[ "${MIGRATE_RETIRED_STATE:-0}" == 1 ]]; then migrate_retired_state; exit $?; fi
 normalize_legacy_default_install_path
 if [[ "${SHOW_VERSION}" != "1" && "${SHOW_CHANGELOG}" != "1" && "${SHOW_WIFI_SSID}" != "1" && "${SHOW_WIFI_SSID_DIAGNOSTIC}" != "1" && "${OPEN_LOCATION_SERVICES_SETTINGS}" != "1" && "${REQUEST_LOCATION_PERMISSION}" != "1" && "${REMOVE_LOCATION_HELPER}" != "1" && "${UPGRADE_SELF}" != "1" ]]; then
     apply_interval_seconds_override || exit 1

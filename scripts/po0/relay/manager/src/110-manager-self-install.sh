@@ -1,3 +1,25 @@
+current_script_path() {
+    if command -v readlink &>/dev/null; then
+        readlink -f "$0" 2>/dev/null && return 0
+    fi
+    if command -v realpath &>/dev/null; then
+        realpath "$0" 2>/dev/null && return 0
+    fi
+    printf '%s\n' "$0"
+}
+
+is_transient_script_path() {
+    local path="$1"
+    [[ -n "${path}" ]] || return 0
+    [[ -f "${path}" ]] || return 0
+    case "${path}" in
+        /dev/fd/*|/proc/*/fd/*|/tmp/*|/var/tmp/*)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
 install_manager_self() {
     local target="${1:-${MANAGER_INSTALL_PATH}}"
     local source tmp

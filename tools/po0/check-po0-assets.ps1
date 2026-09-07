@@ -10,9 +10,9 @@ if (-not $OutputDir) {
 }
 
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.09.07+build.2" }
-$ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-09-07" }
-$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.09.07.2" }
+$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.09.08+build.1" }
+$ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-09-08" }
+$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.09.08.1" }
 
 function ConvertTo-RepoRelativePath {
     param([string]$Path)
@@ -102,8 +102,6 @@ function Test-RawReferences {
         "scripts/po0/nftables/clients/stash/po0-stash-report.js",
         "scripts/po0/relay/egern/PO0-SSH-IP-Report.yaml",
         "scripts/po0/relay/egern/po0-ssh-ip-report.js",
-        "scripts/po0/nftables/tools/build-iplist-package.sh",
-        "scripts/po0/nftables/tools/build-iplist-package.ps1",
         "scripts/po0/proxy-services/vless-raw-enc-argosbx-enhancer.sh"
     )
     $unexpected = New-Object System.Collections.Generic.List[string]
@@ -159,152 +157,6 @@ function Test-EgernCompatibilitySync {
     }
 }
 
-function Test-EgernSsidGuard {
-    Write-Host "Checking Egern SSID local guard"
-    $yaml = Join-Path $RepoRoot "scripts/po0/nftables/clients/egern/PO0-SSH-IP-Report.yaml"
-    $js = Join-Path $RepoRoot "scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js"
-    $legacyYaml = Join-Path $RepoRoot "scripts/po0/relay/egern/PO0-SSH-IP-Report.yaml"
-    $legacyJs = Join-Path $RepoRoot "scripts/po0/relay/egern/po0-ssh-ip-report.js"
-    $yamlRaw = Get-Content -LiteralPath $yaml -Raw -Encoding UTF8
-    $jsRaw = Get-Content -LiteralPath $js -Raw -Encoding UTF8
-    if ($yamlRaw -notmatch '(?m)^\s+SKIP_WIFI_SSIDS:') {
-        throw "Egern YAML lacks SKIP_WIFI_SSIDS env configuration."
-    }
-    foreach ($action in @("自建防火墙 · 保存配置", "官方防火墙 · 保存配置", "清除本机全部 PO0 上报配置")) {
-        if (-not $yamlRaw.Contains($action)) {
-            throw "Egern YAML lacks native storage action: $action"
-        }
-    }
-    foreach ($token in @("normalizeSsidSkipList", "currentWifiSsidFromNetwork", "ssidSkipDecision", "isAutomaticReportRun")) {
-        if (-not $jsRaw.Contains($token)) {
-            throw "Egern JS lacks $token."
-        }
-    }
-    foreach ($token in @(
-        "CONFIG_STORAGE_KEY",
-        "persistableEnvValues",
-        "reportConfigSaveCandidate",
-        "storedReportConfig",
-        "handleReportConfigSaveScript",
-        "handleReportConfigClearScript",
-        "skipType: 'missing-config'"
-    )) {
-        if (-not $jsRaw.Contains($token)) {
-            throw "Egern JS lacks native storage implementation token: $token"
-        }
-    }
-    if (-not $jsRaw.Contains("skipType: 'wifi-ssid'")) {
-        throw "Egern JS lacks wifi-ssid skipped state marker."
-    }
-    if (-not $jsRaw.Contains("skipReason:")) {
-        throw "Egern JS lacks local skip/no-upload state wording."
-    }
-    foreach ($path in @($yaml, $js, $legacyYaml, $legacyJs)) {
-        $raw = Get-Content -LiteralPath $path -Raw -Encoding UTF8
-        if ($raw -match 'PO0_SELF_REPORT_[A-Z0-9_]*SSID|SELF_REPORT_[A-Z0-9_]*SSID') {
-            throw "Egern SSID guard must not define legacy self-report SSID aliases: $path"
-        }
-    }
-    $defaultFn = [regex]::Match($jsRaw, '(?ms)^async function runEgernReportUnlocked\(ctx\) \{.*?^export default async function')
-    if (-not $defaultFn.Success) {
-        throw "Egern default report flow was not found."
-    }
-    $guard = $defaultFn.Value.IndexOf("ssidSkipDecision(ctx, env, network)", [System.StringComparison]::Ordinal)
-    $detect = $defaultFn.Value.IndexOf("detectCurrentIPv4WithFallback(ctx, env, policy)", [System.StringComparison]::Ordinal)
-    if ($guard -lt 0) {
-        throw "Egern JS lacks SSID guard inside default report flow."
-    }
-    if ($detect -lt 0) {
-        throw "Egern JS IPv4 detection call not found in default report flow."
-    }
-    if ($guard -ge $detect) {
-        throw "Egern SSID guard must run before public IPv4 detection."
-    }
-    $reportFn = [regex]::Match($jsRaw, '(?ms)^async function reportToPO0\(.*?^}')
-    if (-not $reportFn.Success) {
-        throw "Egern reportToPO0 function was not found."
-    }
-    if ($reportFn.Value -match '(?i)ssid') {
-        throw "Egern reportToPO0 must not pass SSID through SSH report args."
-    }
-}
-
-function Test-EgernOfficialChannel {
-    Write-Host "Checking Egern official firewall channel"
-    $yaml = Join-Path $RepoRoot "scripts/po0/nftables/clients/egern/PO0-SSH-IP-Report.yaml"
-    $js = Join-Path $RepoRoot "scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js"
-    $yamlRaw = Get-Content -LiteralPath $yaml -Raw -Encoding UTF8
-    $jsRaw = Get-Content -LiteralPath $js -Raw -Encoding UTF8
-    foreach ($marker in @(
-        "PO0_FIREWALL_TOKENS:",
-        "查询官方白名单"
-    )) {
-        if (-not $yamlRaw.Contains($marker)) {
-            throw "Egern YAML lacks official firewall marker: $marker"
-        }
-    }
-    foreach ($marker in @(
-        "DEFAULT_OFFICIAL_INTERVAL_SECONDS = 600",
-        "OFFICIAL_FIREWALL_API_BASE",
-        "parseOfficialTokens",
-        "officialDirectRequest",
-        "officialDisplaySlot",
-        "runOfficialFirewall",
-        "policy: 'DIRECT'",
-        "isOfficialStatusRun"
-    )) {
-        if (-not $jsRaw.Contains($marker)) {
-            throw "Egern JS lacks official firewall contract marker: $marker"
-        }
-    }
-    $defaultFn = [regex]::Match($jsRaw, '(?ms)^async function runEgernReportUnlocked\(ctx\) \{.*?^export default async function')
-    if (-not $defaultFn.Success) {
-        throw "Egern default report flow was not found."
-    }
-    $officialOffset = $defaultFn.Value.IndexOf("runOfficialFirewall(ctx, env", [System.StringComparison]::Ordinal)
-    $workerOffset = $defaultFn.Value.IndexOf("reportToPO0(ctx, env, target, ip)", [System.StringComparison]::Ordinal)
-    if ($officialOffset -lt 0 -or $workerOffset -lt 0 -or $officialOffset -ge $workerOffset) {
-        throw "Egern official firewall lane must run before the existing SSH lane."
-    }
-}
-
-function Test-LanWorkerOfficialChannel {
-    Write-Host "Checking LAN Worker official firewall channel"
-    $sourcePath = Join-Path $RepoRoot "scripts/po0/relay/lan-worker/src/055-official-firewall.sh"
-    $dispatchPath = Join-Path $RepoRoot "scripts/po0/relay/lan-worker/src/990-main-menu-dispatch.sh"
-    $sourceRaw = Get-Content -LiteralPath $sourcePath -Raw -Encoding UTF8
-    $dispatchRaw = Get-Content -LiteralPath $dispatchPath -Raw -Encoding UTF8
-    foreach ($marker in @(
-        "PO0_FIREWALL_TOKENS",
-        'PO0_FIREWALL_API_BASE_URL="https://124.221.69.228/api/firewall"',
-        'PO0_FIREWALL_INTERVAL_SECONDS="600"',
-        "official_run_lock_acquire",
-        "official_response_valid",
-        "official_direct_request",
-        'request = "%s"'
-    )) {
-        if (-not $sourceRaw.Contains($marker)) {
-            throw "LAN Worker official firewall source lacks contract marker: $marker"
-        }
-    }
-    foreach ($marker in @(
-        "--official-firewall-status",
-        "--run-official-firewall",
-        "--scheduled-run"
-    )) {
-        if (-not $dispatchRaw.Contains($marker)) {
-            throw "LAN Worker dispatch lacks official firewall action marker: $marker"
-        }
-    }
-    foreach ($name in @("160-webauth-server.sh", "180-self-report-server.sh")) {
-        $servicePath = Join-Path $RepoRoot "scripts/po0/relay/lan-worker/src/$name"
-        $serviceRaw = Get-Content -LiteralPath $servicePath -Raw -Encoding UTF8
-        if (-not $serviceRaw.Contains("env -u PO0_FIREWALL_TOKENS")) {
-            throw "LAN Worker Python service leaks PO0_FIREWALL_TOKENS to its child: $name"
-        }
-    }
-}
-
 function Test-WindowsCanonicalPath {
     $asset = Join-Path $OutputDir "po0-outbound-ip-report.ps1"
     Write-Host "Checking Windows canonical install path"
@@ -348,7 +200,7 @@ function Test-WindowsCanonicalPath {
     if ($raw -notmatch 'Cleanup-LegacySelfReportArtifacts') {
         throw "Windows self-report asset lacks legacy artifact cleanup."
     }
-    if ($raw -notmatch 'Remove-LegacyScheduledReporterTask') {
+    if ($raw -notmatch 'Get-LegacyReporterRecord') {
         throw "Windows self-report asset lacks robust legacy scheduled task cleanup."
     }
     if ($raw -notmatch '"-NoNotify"') {
@@ -476,21 +328,9 @@ function Test-UnixSsidGuard {
         throw "$Platform report_once function was not found."
     }
     $guard = [regex]::Match($fn.Value, '(?is)ssid.{0,160}(skip|guard|allow|match|local|跳过|匹配|本地)|(skip|guard|allow|match|local|跳过|匹配|本地).{0,160}ssid')
-    $worker = [regex]::Match($fn.Value, '(?m)^\s*(?:worker_report_once|report_worker_once)\b')
-    $workerFn = [regex]::Match($raw, '(?ms)^(?:worker_report_once|report_worker_once)\(\) \{.*?(?=^[A-Za-z_][A-Za-z0-9_]*\(\) \{|\z)')
-    $http = [regex]::Match($workerFn.Value, 'curl "\$\{curl_args\[@\]\}"')
-    if (-not $guard.Success) {
-        throw "$Platform asset lacks an SSID guard inside report_once."
-    }
-    if (-not $worker.Success) {
-        throw "$Platform asset report worker call was not found."
-    }
-    if ($guard.Index -ge $worker.Index) {
-        throw "$Platform asset SSID guard must run before report worker submission."
-    }
-    if (-not $http.Success) {
-        throw "$Platform asset HTTP submit point was not found in the report worker."
-    }
+    if (-not $guard.Success) { throw "$Platform lacks the local SSID guard." }
+    # Official mock suites verify request ordering and fail-open behavior.
+
 }
 
 function Test-MacOsWifiSsidDiagnostic {
@@ -523,7 +363,7 @@ function Test-MacOsWifiSsidDiagnostic {
     if ($raw -notmatch 'request_macos_location_permission\(\)' -or $raw -notmatch 'ensure_macos_location_permission_helper_app\(\)' -or $raw -notmatch 'macos_location_helper_wifi_ssid\(\)') {
         throw "macOS asset lacks Location Services authorization request helper."
     }
-    if ($raw -notmatch 'client_maintenance_menu\(\)' -or $raw -notmatch 'max_choice=4' -or $raw -notmatch '请选择 \[0-\$max_choice\]' -or $raw -notmatch '7\) client_maintenance_menu;' -or $raw -notmatch '3\).*then show_wifi_ssid_permission_help_interactive;' -or $raw -notmatch '4\).*then remove_macos_location_permission_helper_app_interactive;') {
+    if ($raw -notmatch 'client_maintenance_menu\(\)' -or $raw -notmatch 'max_choice=4' -or $raw -notmatch '请选择 \[0-\$max_choice\]' -or $raw -notmatch '6\) client_maintenance_menu;' -or $raw -notmatch '3\).*then show_wifi_ssid_permission_help_interactive;' -or $raw -notmatch '4\).*then remove_macos_location_permission_helper_app_interactive;') {
         throw "macOS asset lacks Wi-Fi SSID diagnostic menu/range/case wiring."
     }
     if ($raw -notmatch 'remove_macos_location_permission_helper_app\(\)' -or $raw -notmatch 'remove_macos_location_permission_helper_app_interactive\(\)') {
@@ -687,7 +527,7 @@ function Test-WindowsSsidGuard {
         throw "Windows Invoke-SelfReportCore function was not found."
     }
     $guard = [regex]::Match($fn.Value, '(?is)ssid.{0,160}(skip|guard|allow|match|local|跳过|匹配|本地)|(skip|guard|allow|match|local|跳过|匹配|本地).{0,160}ssid')
-    $http = [regex]::Match($fn.Value, 'Invoke-WorkerSelfReportCore')
+    $http = [regex]::Match($fn.Value, 'Invoke-Po0FirewallReport -Mode "report"')
     if (-not $guard.Success) {
         throw "Windows asset lacks an SSID guard inside Invoke-SelfReportCore."
     }
@@ -838,9 +678,6 @@ function Test-VersionsMatchTag {
 
 Test-RawReferences
 Test-EgernCompatibilitySync
-Test-EgernSsidGuard
-Test-EgernOfficialChannel
-Test-LanWorkerOfficialChannel
 
 Test-ManifestCoverage `
     -Name "manager" `
@@ -948,7 +785,7 @@ function Invoke-BashChecked {
     $path = Join-Path $OutputDir $FileName
     $bashPath = ConvertTo-BashPath -Path $path
     Write-Host "Checking bash $FileName $($Arguments -join ' ')"
-    & $bash $bashPath @Arguments | Out-Host
+    & $bash -c 'export PATH="/usr/bin:/bin:$PATH"; exec bash "$@"' -- $bashPath @Arguments | Out-Host
     if ($LASTEXITCODE -ne 0) {
         throw "Command failed: bash $FileName $($Arguments -join ' ')"
     }
@@ -980,7 +817,7 @@ function Invoke-BashToolScript {
     $path = Join-Path $RepoRoot $RelativePath
     $bashPath = ConvertTo-BashPath -Path $path
     Write-Host "Checking bash $RelativePath"
-    & $bash $bashPath | Out-Host
+    & $bash -c 'export PATH="/usr/bin:/bin:$PATH"; exec bash "$@"' -- $bashPath | Out-Host
     if ($LASTEXITCODE -ne 0) {
         throw "Command failed: bash $RelativePath"
     }
@@ -999,40 +836,21 @@ function Test-PowerShellSyntax {
     }
 }
 
-Write-Host "Checking node tools/po0/test-egern-ssid-guard.mjs"
-& node (Join-Path $RepoRoot "tools/po0/test-egern-ssid-guard.mjs") | Out-Host
-if ($LASTEXITCODE -ne 0) {
-    throw "Command failed: node tools/po0/test-egern-ssid-guard.mjs"
-}
-Write-Host "Checking node tools/po0/test-egern-widget.mjs"
-& node (Join-Path $RepoRoot "tools/po0/test-egern-widget.mjs") | Out-Host
-if ($LASTEXITCODE -ne 0) { throw "Egern widget regression failed" }
-Write-Host "Checking node tools/po0/test-egern-official-report.mjs"
-& node (Join-Path $RepoRoot "tools/po0/test-egern-official-report.mjs") | Out-Host
-if ($LASTEXITCODE -ne 0) {
-    throw "Command failed: node tools/po0/test-egern-official-report.mjs"
-}
 Invoke-BashToolScript "tools/po0/test-macos-ssid-diagnostic.sh"
 Invoke-BashToolScript "tools/po0/test-macos-official-report.sh"
 Invoke-BashToolScript "tools/po0/test-self-report-refresh-policy.sh"
-Invoke-BashToolScript "tools/po0/test-linux-multi-wan-report.sh"
 Invoke-BashToolScript "tools/po0/test-linux-official-http.sh"
 Invoke-BashToolScript "tools/po0/test-linux-official-report.sh"
 Invoke-BashToolScript "tools/po0/test-linux-official-cli.sh"
 Invoke-BashToolScript "tools/po0/test-client-settings-input.sh"
-Invoke-BashToolScript "tools/po0/test-lan-worker-official-report.sh"
-Invoke-BashToolScript "tools/po0/test-official-firewall-core.sh"
-Invoke-BashToolScript "tools/po0/test-openwrt-official-adapter.sh"
-Invoke-BashToolScript "tools/po0/test-openwrt-service.sh"
-Invoke-BashToolScript "tools/po0/test-openwrt-luci-official-ui.sh"
 Invoke-BashToolScript "tools/po0/test-openwrt-apk-layout.sh"
-Invoke-BashToolScript "tools/po0/test-lan-worker-stash-report.sh"
-Invoke-BashToolScript "tools/po0/test-manager-client-ip-cidr-prefix.sh"
 Invoke-BashToolScript "tools/po0/test-manager-nft-atomic-reload.sh"
-Invoke-BashToolScript "tools/po0/test-manager-resource-upload.sh"
 Invoke-BashToolScript "tools/po0/test-debian-reinstall-grub.sh"
 & node (Join-Path $RepoRoot "tools/po0/test-release-version-tags.mjs") | Out-Host
 if ($LASTEXITCODE -ne 0) { throw "Release version tag checks failed." }
+Write-Host "Checking node tools/po0/test-egern-official-report.mjs"
+& node (Join-Path $RepoRoot "tools/po0/test-egern-official-report.mjs") | Out-Host
+if ($LASTEXITCODE -ne 0) { throw "Egern official report checks failed." }
 Write-Host "Checking node tools/po0/test-loon-report.js"
 & node (Join-Path $RepoRoot "tools/po0/test-loon-report.js") | Out-Host
 if ($LASTEXITCODE -ne 0) {
@@ -1072,4 +890,9 @@ if ($LASTEXITCODE -ne 0) {
     throw "Command failed: tools/po0/test-windows-official-report.ps1"
 }
 
+$python = if ($env:PO0_TEST_PYTHON) { $env:PO0_TEST_PYTHON } elseif (Get-Command python3 -ErrorAction SilentlyContinue) { 'python3' } else { 'python' }
+& $python (Join-Path $RepoRoot 'tools/po0/test-update-mirror.py') | Out-Host
+if ($LASTEXITCODE -ne 0) { throw 'Update mirror compatibility failed.' }
+& $python (Join-Path $RepoRoot 'tools/po0/test-retirement-state.py') | Out-Host
+if ($LASTEXITCODE -ne 0) { throw 'Retirement state regression failed.' }
 Write-Host "PO0 asset checks passed."

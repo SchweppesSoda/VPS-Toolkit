@@ -1,76 +1,21 @@
 usage() {
-    printf '%s\n' \
-        "PO0 Outbound IP Report 客户端（Linux/OpenWrt）" \
-        "" \
-        "本脚本支持自建与官方两条独立通道。自建经 LAN Worker 上报，" \
-        "官方直接查询并按需加入白名单，无需配置自建。白名单有效期由各自" \
-        "接收端管理；自动开关、定期开关和上报间隔分别设置。" \
-        "" \
-        "用法:" \
-        "  curl -fsSL ${DOWNLOAD_URL} | bash" \
-        "  bash po0-outbound-ip-report.sh --menu" \
-        "  bash po0-outbound-ip-report.sh --version" \
-        "  bash po0-outbound-ip-report.sh --run-once" \
-        "  bash po0-outbound-ip-report.sh --upgrade-self" \
-        "  curl -fsSL ${DOWNLOAD_URL} | bash -s -- --save-config --menu" \
-        "  bash po0-outbound-ip-report.sh --worker-url https://report.example.com/report --secret SECRET --save-config" \
-        "  curl -fsSL ${DOWNLOAD_URL} | bash -s -- --worker-url https://report.example.com/report --secret SECRET --interval-seconds 3600 --install-cron" \
-        "" \
-        "参数:" \
-        "  --menu                打开交互菜单。" \
-        "  --run-once            非交互执行一次上报；供 procd、cron 和其它调度器使用。" \
-        "  --version             显示脚本版本、发布日期、当前路径和默认安装路径。" \
-        "  --changelog           显示当前版本更新内容。" \
-        "  --upgrade-self        从 GitHub Release 下载并更新本机脚本；菜单内更新会自动重开新版菜单。" \
-        "  --config PATH         本地配置文件；优先级：--config / PO0_OUTBOUND_IP_REPORT_CONFIG / PO0_SELF_REPORT_CONFIG 或 SELF_REPORT_CONFIG / root 的 /etc/po0-outbound-ip-report/settings.env / XDG_CONFIG_HOME / ~/.config / ./po0-outbound-ip-report.env；旧 po0-self-report 配置仅作 fallback。" \
-        "  --save-config         保存当前参数到本地配置文件，不安装 cron；可与 --menu 组合为首次保存后打开菜单。" \
-        "  --worker-url URL      LAN Worker self-report HTTPS 接收地址，例如 https://report.example.com/report；裸域名会自动补全。" \
-        "  --allow-http          允许 http:// 上报；仅用于本地调试或临时旧环境。" \
-        "  --source-id ID        写入 PO0 client_ip 记录的来源 ID；默认由 hostname + machine-id/MAC 生成: ${SOURCE_ID}" \
-        "  --identity ID         LAN Worker/PO0 日志里的设备或用户标签；默认使用设备名: ${IDENTITY}" \
-        "  --secret SECRET       可选的 LAN Worker self-report 共享密钥。" \
-        "  --ip-check-url URL    第一个公网 IPv4 探测地址。默认: ${IP_CHECK_URL}" \
-        "  --ip-check-urls CSV   覆盖完整探测地址列表，多个 URL 用逗号分隔。" \
-        "  --wan NAME            OpenWrt 逻辑 WAN 接口；可重复，分别绑定接口探测和上报。" \
-        "  --wan all             上报全部已启用的 mwan3 WAN；每条 WAN 使用独立来源 ID。" \
-        "  --clear-wans          清空 WAN 选择，恢复按默认路由只上报一个出口。" \
-        "  普通 Linux 官方 token 通过权限 600 的 settings.env 中 PO0_FIREWALL_TOKENS 配置，格式为 token@0..4，可用逗号分隔；不从命令行读取。" \
-        "  普通 Linux 官方通道固定使用本机默认出口；指定 WAN / 多 WAN 的官方上报由主 OpenWrt 官方绑定配置负责。" \
-        "  --official-status      只读检查 PO0 官方防火墙；绝不执行加白。" \
-        "  --clear-official-tokens 清空并保存官方 token，关闭该通道。" \
-        "  --worker-only       只执行现有 LAN Worker 通道（供独立调度使用）。" \
-        "  --official-only     只执行官方防火墙通道（供独立调度使用）。" \
-        "  --skip-wifi-ssid SSID 按 Wi-Fi SSID 跳过上报；可重复，匹配大小写敏感。" \
-        "  --skip-wifi-ssids LIST 覆盖跳过上报的 Wi-Fi SSID 列表，多个 SSID 用分号 ; 分隔。" \
-        "  --clear-skip-wifi-ssids 清空已保存/已加载的 Wi-Fi SSID 跳过列表。" \
-        "  --force-report        忽略 Wi-Fi SSID 跳过列表，强制执行本次上报。" \
-        "  --install-cron [N]    安装 / 更新 cron；N 为兼容分钟参数，不带 N 时默认 3600 秒。" \
-        "  --schedule-channel worker|official|all  选择安装、启停、删除或查看的任务（默认 all）。" \
-        "  --refresh-schedules   仅刷新已安装的任务；旧共享任务迁为两项独立任务。" \
-        "  --pause-schedule      暂停本脚本管理的定时上报；手动立即上报仍可用。" \
-        "  --resume-schedule     恢复本脚本管理的定时上报。" \
-        "  --schedule-status     查看本脚本管理的定时上报状态。" \
-        "  --schedule-channel worker|official|all  选择安装、启停、删除的通道。" \
-        "  --official-interval-seconds N  官方上报间隔默认 600 秒，60..86400 且为 60 的倍数。" \
-        "  --remove-cron / --remove-launchd  删除所选通道的定时和网络事件任务。" \
-        "  --refresh-schedules  更新已有任务并迁移旧共享任务。" \
-        "  --interval-seconds N  设置 cron 上报间隔秒数，必须是 60 的倍数，默认 3600。" \
-        "  --minutes N           兼容旧参数：设置 cron 上报间隔分钟数，范围 1-${MAX_CRON_MINUTES}。" \
-        "" \
-        "默认公网 IPv4 探测顺序:" \
-        "  https://ip9.com.cn/get" \
-        "  https://mail.163.com/fgw/mailsrv-ipdetail/detail" \
-        "  https://api.live.bilibili.com/client/v1/Ip/getInfoNew" \
-        "  https://ipservice.ws.126.net/locate/api/getLocByIp" \
-        "  https://r.inews.qq.com/api/ip2city?otype=json" \
-        "  https://data.video.iqiyi.com/v.f4v" \
-        "  https://ip.apps.cntv.cn/whereis?client=json" \
-        "  https://myip.ipip.net/json"
+    printf '%s\n' 'PO0 官方防火墙客户端' \
+        'Token、名称与槽位在本机权限 600 的配置文件保存；菜单可编辑。' \
+        '--menu / --version / --changelog / --upgrade-self' \
+        '--config PATH / --save-config / --run-once / --official-only' \
+        '--official-status（只读）/ --clear-official-tokens' \
+        '--skip-wifi-ssids LIST / --clear-skip-wifi-ssids / --force-report' \
+        '--official-interval-seconds N / --install-cron / --refresh-schedules' \
+        '--pause-schedule / --resume-schedule / --schedule-status / --remove-cron' \
+        '--migrate-retired-state：先备份，清理本脚本的旧自建任务，保留官方设置。'
 }
 
 parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --migrate-retired-state) MIGRATE_RETIRED_STATE=1; shift ;;
+            --import-worker-official) [[ $# -ge 2 && -n "${2:-}" ]] || { printf "缺少迁移目录。\n" >&2; exit 2; }; IMPORT_WORKER_OFFICIAL="$2"; shift 2 ;;
+            --activate-worker-official) [[ $# -ge 2 && -n "${2:-}" ]] || { printf "缺少迁移目录。\n" >&2; exit 2; }; ACTIVATE_WORKER_OFFICIAL="$2"; shift 2 ;;
             --menu)
                 SHOW_MENU="1"
                 shift
@@ -80,8 +25,7 @@ parse_args() {
                 shift
                 ;;
             --worker-only)
-                REPORT_MODE="worker"
-                shift
+                printf '自建上报已退役。\n'; exit 0
                 ;;
             --official-only)
                 REPORT_MODE="official"
@@ -114,26 +58,19 @@ parse_args() {
                 shift
                 ;;
             --worker-url|--lan-worker-url)
-                WORKER_URL="${2:-}"
-                shift 2
+                printf '自建参数已退役，请使用官方配置。\n' >&2; exit 2
                 ;;
             --allow-http)
-                ALLOW_HTTP="1"
-                shift
+                printf '自建参数已退役。\n' >&2; exit 2
                 ;;
             --source-id)
-                SOURCE_ID="${2:-}"
-                SOURCE_ID_EXPLICIT="1"
-                shift 2
+                printf '自建参数已退役。\n' >&2; exit 2
                 ;;
             --identity)
-                IDENTITY="${2:-}"
-                IDENTITY_EXPLICIT="1"
-                shift 2
+                printf '自建参数已退役。\n' >&2; exit 2
                 ;;
             --secret|--self-report-secret)
-                SECRET="${2:-}"
-                shift 2
+                printf '自建参数已退役。\n' >&2; exit 2
                 ;;
             --ip-check-url)
                 IP_CHECK_URL="${2:-}"
@@ -144,17 +81,13 @@ parse_args() {
                 shift 2
                 ;;
             --wan)
-                append_wan_selection_value "${2:-}"
-                shift 2
+                printf '自建参数已退役。\n' >&2; exit 2
                 ;;
             --wan=*)
-                append_wan_selection_value "${1#--wan=}"
-                shift
+                printf '自建参数已退役。\n' >&2; exit 2
                 ;;
             --clear-wans)
-                WANS=""
-                WANS_CLI_SEEN="1"
-                shift
+                printf '自建参数已退役。\n' >&2; exit 2
                 ;;
             --official-status)
                 SHOW_OFFICIAL_STATUS="1"
@@ -253,7 +186,7 @@ parse_args() {
                 shift
                 ;;
             --po0-host|--po0-script|--source-key|--domain|--token)
-                echo "不再支持直接向 PO0 自上报。请使用 --worker-url 上报到 LAN Worker。" >&2
+                echo "不再支持直接向 PO0 自上报。请使用官方防火墙配置。" >&2
                 exit 1
                 ;;
             --help|-h)
@@ -275,6 +208,23 @@ load_saved_config
 apply_env_overrides
 apply_device_defaults
 parse_args "$@"
+REPORT_MODE=official
+OFFICIAL_ONLY=0
+[[ "${OFFICIAL_STATUS_ONLY:-0}" == 1 ]] || OFFICIAL_ONLY=1
+WORKER_ONLY=0
+WORKER_URL=""
+SECRET=""
+WORKER_ENABLED=0
+WORKER_AUTO_ENABLED=0
+WORKER_TIMER_ENABLED=0
+WORKER_NETWORK_ENABLED=0
+WANS=""
+CRON_MINUTES=10
+INTERVAL_SECONDS=""
+SCHEDULE_CHANNEL="${SCHEDULE_CHANNEL:-official}"
+if [[ -n "${IMPORT_WORKER_OFFICIAL:-}" ]]; then import_worker_official "$IMPORT_WORKER_OFFICIAL"; exit $?; fi
+if [[ -n "${ACTIVATE_WORKER_OFFICIAL:-}" ]]; then activate_imported_worker_official "$ACTIVATE_WORKER_OFFICIAL"; exit $?; fi
+if [[ "${MIGRATE_RETIRED_STATE:-0}" == 1 ]]; then migrate_retired_state; exit $?; fi
 WANS="$(normalize_wan_selection_list "${WANS:-}")"
 SKIP_WIFI_SSIDS="$(normalize_wifi_ssid_skip_list "${SKIP_WIFI_SSIDS:-}")"
 normalize_legacy_default_install_path

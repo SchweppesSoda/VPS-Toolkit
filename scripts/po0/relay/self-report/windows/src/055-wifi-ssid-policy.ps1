@@ -1,4 +1,4 @@
-function ConvertTo-WifiSsidPolicyList {
+﻿function ConvertTo-WifiSsidPolicyList {
     param([AllowNull()]$Value)
     $items = New-Object System.Collections.Generic.List[string]
     if ($null -eq $Value) { return @() }
@@ -77,19 +77,6 @@ function Get-WifiSsidPolicyState {
     }
 }
 
-function Format-CurrentWifiSsidStatus {
-    $state = Get-WifiSsidPolicyState
-    if (-not $state.ReadSucceeded) {
-        return "读取失败，按 fail-open 继续上报：$($state.Error)"
-    }
-    if ($state.CurrentSsids.Count -le 0) {
-        return "未连接或未读取到 SSID"
-    }
-    if ($state.Matched) {
-        return (($state.CurrentSsids -join "; ") + "（命中跳过规则）")
-    }
-    return ($state.CurrentSsids -join "; ")
-}
 
 function Read-WifiSsidPolicySetting {
     $current = Format-WifiSsidPolicyList -Ssids $script:SkipWifiSsids

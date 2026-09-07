@@ -98,33 +98,6 @@ prompt_settings() {
     done
 }
 
-prompt_input_firewall_settings() {
-    local ans input
-    SSH_PORTS="$(normalize_port_list "${SSH_PORTS}")"
-    [[ -n "${SSH_PORTS}" ]] || SSH_PORTS="$(detect_ssh_ports || true)"
-    SSH_PORTS="$(normalize_port_list "${SSH_PORTS}")"
-
-    if [[ "${MANAGE_INPUT_FIREWALL}" == "1" ]]; then
-        ans="$(read_prompt "是否接管入站防火墙（保留 SSH，其它未托管端口默认 drop）[Y/n]: ")" || ans=""
-        [[ "${ans}" =~ ^[Nn]$ ]] && MANAGE_INPUT_FIREWALL="0" || MANAGE_INPUT_FIREWALL="1"
-    else
-        ans="$(read_prompt "是否接管入站防火墙（保留 SSH，其它未托管端口默认 drop）[y/N]: ")" || ans=""
-        [[ "${ans}" =~ ^[Yy]$ ]] && MANAGE_INPUT_FIREWALL="1" || MANAGE_INPUT_FIREWALL="0"
-    fi
-
-    if [[ "${MANAGE_INPUT_FIREWALL}" == "1" ]]; then
-        while true; do
-            input="$(prompt_with_default "请输入 SSH 端口，多个用空格或逗号分隔" "${SSH_PORTS}")"
-            input="$(normalize_port_list "${input}")"
-            [[ -n "${input}" ]] && {
-                SSH_PORTS="${input}"
-                return 0
-            }
-            err "SSH 端口不能为空，否则默认 drop 入站会导致无法登录。"
-        done
-    fi
-}
-
 prompt_protocol() {
     local current="${1:-both}"
     local choice
@@ -560,10 +533,9 @@ write_main_conf() {
     local tmp
     make_temp_file "${MAIN_CONF}" || return 1
     tmp="${TEMP_FILE_RESULT}"
-    cat > "${tmp}" <<'EOF'
-#!/usr/sbin/nft -f
-flush ruleset
-include "/etc/nftables.d/*.conf"
-EOF
-    mv -f "${tmp}" "${MAIN_CONF}"
+    if [[ -f "${MAIN_CONF}" ]]; then cat "${MAIN_CONF}" > "${tmp}" || return 1; fi
+    if ! grep -Fq "include \"${NFT_CONF}\"" "${tmp}" && ! grep -Fq "include \"${CONF_DIR}/*.conf\"" "${tmp}"; then
+        printf '\n# PO0 relay include\ninclude "%s"\n' "${NFT_CONF}" >> "${tmp}" || return 1
+    fi
+    mv -f -- "${tmp}" "${MAIN_CONF}"
 }

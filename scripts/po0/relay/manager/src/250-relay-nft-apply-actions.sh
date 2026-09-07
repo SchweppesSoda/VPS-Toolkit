@@ -1,34 +1,19 @@
 write_nft_conf() {
     local output="${1:-${NFT_CONF}}"
-    local allowlist_cache="${2:-${SRC_ALLOWLIST_CACHE}}"
     local tmp
     local rule lport dip dport ip_set proto_expr comment
-    local allowlist_active="0"
-    local tcp_ports udp_ports
-    local input_policy="accept"
-    local ssh_ports_nft=""
     local relay_lan_ip_define
     make_temp_file "${output}" || return 1
     tmp="${TEMP_FILE_RESULT}"
     load_settings
     load_rules
-    load_allowlist_sets
+    relay_retirement_guard || return 1
     validate_managed_listen_ports || return 1
     if relay_lan_snat_required && ! validate_host_ipv4 "${RELAY_LAN_IP}"; then
         err "存在内网/无感内网 SNAT 规则，但中转机内网 IP 未设置。"
         return 1
     fi
     relay_lan_ip_define="${RELAY_LAN_IP:-0.0.0.0}"
-    ensure_input_firewall_ready || return 1
-    if [[ "${MANAGE_INPUT_FIREWALL}" == "1" ]]; then
-        input_policy="drop"
-        ssh_ports_nft="$(ports_to_nft_set "${SSH_PORTS}")"
-    fi
-    if [[ "${ENABLE_SRC_ALLOWLIST}" == "1" ]]; then
-        validate_src_allowlist_ready || return 1
-        build_src_allowlist_cache "${allowlist_cache}" || return 1
-        allowlist_active="1"
-    fi
     cat > "${tmp}" <<EOF
 #!/usr/sbin/nft -f
 # Managed by nftables relay manager
@@ -36,9 +21,6 @@ define RELAY_LAN_IP = ${relay_lan_ip_define}
 
 table ip ${NAT_TABLE} {
 EOF
-    if [[ "${allowlist_active}" == "1" ]]; then
-        write_nft_allowlist_set "${tmp}" "${allowlist_cache}" || return 1
-    fi
     cat >> "${tmp}" <<EOF
     chain prerouting {
         type nat hook prerouting priority dstnat; policy accept;
@@ -48,40 +30,12 @@ EOF
         [[ "${RULE_ENABLED}" == "1" ]] || continue
         proto_expr="$(proto_to_nft_expr "${RULE_PROTO}")"
         comment="$(escape_nft_comment "${RULE_NAME}")"
-        if [[ "${allowlist_active}" == "1" ]]; then
-            printf '\n        ip saddr @%s meta l4proto %s th dport %s counter dnat to %s:%s comment "%s"\n' \
-                "$(default_allowlist_nft_set_name)" \
-                "${proto_expr}" "${RULE_LPORT}" "${RULE_DIP}" "${RULE_DPORT}" "${comment}" >> "${tmp}"
-        else
             printf '\n        meta l4proto %s th dport %s counter dnat to %s:%s comment "%s"\n' \
                 "${proto_expr}" "${RULE_LPORT}" "${RULE_DIP}" "${RULE_DPORT}" "${comment}" >> "${tmp}"
-        fi
     done
     cat >> "${tmp}" <<EOF
     }
 EOF
-    if [[ "${allowlist_active}" == "1" || "${MANAGE_INPUT_FIREWALL}" == "1" ]]; then
-        tcp_ports="$(enabled_rule_ports_set tcp)"
-        udp_ports="$(enabled_rule_ports_set udp)"
-        cat >> "${tmp}" <<EOF
-
-    chain input_guard {
-        type filter hook input priority filter; policy ${input_policy};
-EOF
-        if [[ "${MANAGE_INPUT_FIREWALL}" == "1" ]]; then
-            printf '        iifname "lo" counter accept comment "po0-allow-loopback"\n' >> "${tmp}"
-            printf '        ct state established,related counter accept comment "po0-allow-established"\n' >> "${tmp}"
-            printf '        ip protocol icmp counter accept comment "po0-allow-icmp"\n' >> "${tmp}"
-            printf '        tcp dport { %s } counter accept comment "po0-allow-ssh"\n' "${ssh_ports_nft}" >> "${tmp}"
-        fi
-        if [[ "${allowlist_active}" == "1" ]]; then
-            [[ -n "${tcp_ports}" ]] && printf '        ip saddr != @%s tcp dport { %s } limit rate 10/minute burst 20 packets log prefix "po0-block set=default proto=tcp " counter drop comment "po0-src-allowlist-tcp"\n' "$(default_allowlist_nft_set_name)" "${tcp_ports}" >> "${tmp}"
-            [[ -n "${udp_ports}" ]] && printf '        ip saddr != @%s udp dport { %s } limit rate 10/minute burst 20 packets log prefix "po0-block set=default proto=udp " counter drop comment "po0-src-allowlist-udp"\n' "$(default_allowlist_nft_set_name)" "${udp_ports}" >> "${tmp}"
-        fi
-        cat >> "${tmp}" <<'EOF'
-    }
-EOF
-    fi
     cat >> "${tmp}" <<EOF
     chain postrouting {
         type nat hook postrouting priority srcnat; policy accept;
@@ -169,17 +123,6 @@ reload_managed_rules() {
         return 1
     }
     rm -f -- "${transaction}" 2>/dev/null || true
-}
-
-apply_full_config() {
-    nft -c -f "${MAIN_CONF}" >/dev/null 2>&1 || {
-        err "主配置预检失败。"
-        return 1
-    }
-    nft -f "${MAIN_CONF}" || {
-        err "加载 ${MAIN_CONF} 失败。"
-        return 1
-    }
 }
 
 enable_ip_forward() {
@@ -391,40 +334,23 @@ load_runtime_import_rules() {
 }
 
 do_install() {
-    print_title "安装 / 初始化 nftables"
-    warn "该脚本按专用中转机思路工作，将接管 /etc/nftables.conf。"
-    warn "初始化会 flush ruleset，并改写为 include /etc/nftables.d/*.conf。"
-    warn_conflicts
-    confirm_yes "是否继续初始化" || {
-        info "已取消。"
-        return
-    }
-    install_nftables_if_needed || return
-    ensure_layout || return
-    backup_takeover_files
-    backup_managed_files
+    print_title "安装 / 应用转发"
+    load_settings
+    relay_retirement_guard || return 1
+    install_nftables_if_needed || return 1
+    ensure_layout || return 1
     load_rules
-    if [[ ${#RULES[@]} -eq 0 ]] && discover_existing_rules 1; then
-        warn "检测到当前系统已有 ${DISCOVERED_RULE_COUNT} 条 nft 运行时转发规则（$(rules_source_label "${DISCOVERED_RULES_SOURCE}")）。"
-        RULES=("${DISCOVERED_RULES[@]}")
-        print_rules_table
-        RULES=()
-        confirm_yes "是否在初始化时将这些规则导入为脚本托管规则" && {
-            RULES=("${DISCOVERED_RULES[@]}")
-            RULES_SOURCE="rules_file"
-        }
-    fi
-    prompt_settings || return
-    prompt_input_firewall_settings || return
+    prompt_settings || return 1
     apply_relay_mode_to_rules
-    save_settings || return
-    save_rules || return
-    write_main_conf || return
-    write_nft_conf || return
+    backup_managed_files || return 1
+    save_settings || return 1
+    save_rules || return 1
+    write_nft_conf || return 1
+    reload_managed_rules || return 1
+    write_main_conf || return 1
     enable_ip_forward
-    apply_full_config || return
-    systemctl enable --now nftables 2>/dev/null || warn "无法自动启用 nftables 服务，请手动执行 systemctl enable --now nftables"
-    success "初始化完成。"
+    systemctl enable nftables 2>/dev/null || warn "请手动启用 nftables 开机加载。"
+    success "转发已应用。"
     print_settings
 }
 
@@ -433,10 +359,6 @@ do_list() {
     print_status_panel
     print_runtime_drift_hint
     print_runtime_rule_hint
-    echo ""
-    printf '%b源 IP 白名单%b\n' "${C_BOLD}" "${C_RESET}"
-    print_src_allowlist_details
-    echo ""
     print_rules_table
     pause_before_return
 }

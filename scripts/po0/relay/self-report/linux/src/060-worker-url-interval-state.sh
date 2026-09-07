@@ -51,29 +51,9 @@ validate_worker_url() {
     esac
 }
 
-worker_channel_requested() {
-    case "$(to_lower "${WORKER_ENABLED:-}")" in
-        0|false|no|off) return 1 ;;
-        1|true|yes|on|y) return 0 ;;
-        *) [[ -n "${WORKER_URL:-}" ]] ;;
-    esac
-}
 
 config_complete() {
-    # A configured official channel is usable independently of Worker validation.
-    if [[ "${WORKER_ONLY:-0}" != 1 && -n "${PO0_FIREWALL_TOKENS:-}" ]]; then return 0; fi
-    [[ "${OFFICIAL_ONLY:-0}" != 1 ]] || return 1
-    local worker_requested=0 official_requested=0
-    if worker_channel_requested; then
-        worker_requested=1
-        validate_worker_url >/dev/null 2>&1 || return 1
-    fi
-    if declare -F official_channel_enabled >/dev/null 2>&1 && official_channel_enabled; then
-        official_requested=1
-        official_validate_tokens >/dev/null 2>&1 || return 1
-    fi
-    (( worker_requested == 1 || official_requested == 1 )) || return 1
-    validate_cron_minutes >/dev/null 2>&1 || return 1
+    [[ -n "${PO0_FIREWALL_TOKENS:-}" ]]
 }
 
 pause_before_return() {
@@ -107,18 +87,6 @@ normalize_interval_seconds_to_minutes() {
     (( 10#${seconds} >= 60 && 10#${seconds} <= max_seconds )) || return 1
     (( 10#${seconds} % 60 == 0 )) || return 1
     printf '%s\n' "$((10#${seconds} / 60))"
-}
-
-cron_minutes_to_seconds() {
-    local minutes="${1:-}"
-    [[ "${minutes}" =~ ^[0-9]+$ && "${minutes}" -ge 1 ]] || minutes="60"
-    printf '%s\n' "$((10#${minutes} * 60))"
-}
-
-max_interval_seconds() {
-    local max="${MAX_CRON_MINUTES:-10080}"
-    [[ "${max}" =~ ^[0-9]+$ && "${max}" -ge 1 ]] || max="10080"
-    printf '%s\n' "$((10#${max} * 60))"
 }
 
 apply_interval_seconds_override() {

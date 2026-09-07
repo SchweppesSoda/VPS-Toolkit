@@ -1,0 +1,2 @@
+Frozen protocol peers from VPS-Toolkit 30936db, archive/po0-full-20260907.1.
+Test fixtures only; no installation or runtime imports.

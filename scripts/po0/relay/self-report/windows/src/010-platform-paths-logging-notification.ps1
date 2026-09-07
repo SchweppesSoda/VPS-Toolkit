@@ -1,4 +1,4 @@
-function Test-IsAdmin {
+﻿function Test-IsAdmin {
     try {
         return ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     } catch {
@@ -121,11 +121,6 @@ function Write-SelfReportLogLine {
     } catch {}
 }
 
-function Write-SelfReportInfo {
-    param([string]$Message)
-    Write-Host $Message
-    Write-SelfReportLogLine "INFO" $Message
-}
 
 function Write-SelfReportCompleted {
     param([string]$Message)

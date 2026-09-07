@@ -1,33 +1,8 @@
-manager_update_tokens_env() {
-    local tokens="" seen=";" line token
-    if [[ -n "${RESOURCE_TOKEN}" ]]; then
-        token="$(sanitize_field "${RESOURCE_TOKEN}")"
-        if [[ -n "${token}" && "${seen}" != *";${token};"* ]]; then
-            tokens+="${token}"$'\n'
-            seen+="${token};"
-        fi
-    fi
-    ensure_config_file || true
-    if [[ -r "${CONFIG_FILE}" ]]; then
-        while IFS= read -r line || [[ -n "${line}" ]]; do
-            parse_target_line "${line}" || continue
-            [[ "${TARGET_ENABLED}" == "1" ]] || continue
-            token="$(sanitize_field "${TARGET_RESOURCE_TOKEN}")"
-            [[ -n "${token}" ]] || continue
-            if [[ "${seen}" != *";${token};"* ]]; then
-                tokens+="${token}"$'\n'
-                seen+="${token};"
-            fi
-        done < "${CONFIG_FILE}"
-    fi
-    printf '%s' "${tokens}"
-}
-
 run_manager_update_mirror_server() {
     local py listen_host listen_port tokens
     tokens="$(manager_update_tokens_env)" || return 1
     [[ -n "${tokens}" ]] || {
-        printf '没有可用的 resource token，无法启动 manager 更新镜像。\n' >&2
+        printf '没有可用的 更新密钥，无法启动 manager 更新镜像。\n' >&2
         return 1
     }
     if have_cmd python3; then
@@ -64,7 +39,7 @@ token_by_id = {hashlib.sha256(t.encode("utf-8")).hexdigest(): t for t in tokens}
 PATH = "/po0-manager-update/nftables-relay-manager.sh"
 HEALTH = "/po0-manager-update/health"
 
-if not raw_url.startswith("https://"):
+if raw_url != "https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download/nftables-relay-manager.sh":
     raise SystemExit("manager download URL must use HTTPS")
 if not token_by_id:
     raise SystemExit("missing manager update tokens")
@@ -108,8 +83,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             req = urllib.request.Request(raw_url, headers={"User-Agent": self.server_version})
             with urllib.request.urlopen(req, timeout=60) as resp:
                 body = resp.read(2 * 1024 * 1024)
-        except Exception as exc:
-            self.send_text(502, "fetch failed: %s\n" % exc)
+        except Exception:
+            self.send_text(502, "release download failed\n")
             return
         if len(body) == 0 or len(body) >= 2 * 1024 * 1024:
             self.send_text(502, "invalid script size\n")

@@ -272,7 +272,7 @@ run_adapter both
 assert_eq '0' "$RUN_RC" 'dual-channel adapter run failed'
 first_line="$(sed -n '1p' "$runner_log")"
 assert_eq 'official' "$first_line" 'official lane did not run first'
-assert_file_has 'worker' "$runner_log" 'Worker lane did not run after official lane'
+assert_file_not_has 'worker' "$runner_log" 'retired Worker ran'
 assert_file_not_has 'pgnfw_' "$runner_log" 'dual-channel runner log contains token'
 
 # main.enabled only gates procd/hotplug automation. LuCI manual report and
@@ -294,13 +294,13 @@ assert_eq '0' "$RUN_RC" 'explicit official report was blocked by its automatic s
 assert_file_has 'official' "$runner_log" 'manual official did not dispatch'
 run_adapter malicious-token 0 --worker-report
 assert_eq '0' "$RUN_RC" 'Worker manual report was blocked by unrelated official config'
-assert_file_has 'worker' "$runner_log" 'manual Worker did not dispatch'
+[[ ! -s "$runner_log" ]] || fail 'retired manual action dispatched'
 assert_file_not_has 'official' "$runner_log" 'Worker manual report also ran official'
 
 # A busy official channel cannot block Worker, and vice versa.
 PO0_TEST_HELD_LANE=official run_adapter both 0 --worker-report
 assert_eq 0 "$RUN_RC" 'official lock blocked Worker'
-assert_file_has worker "$runner_log" 'Worker did not run beside official'
+[[ ! -s "$runner_log" ]] || fail 'retired action dispatched under lock'
 assert_file_not_has official "$runner_log" 'Worker request invoked official'
 PO0_TEST_HELD_LANE=official run_adapter both 0 --official-only
 assert_eq 75 "$RUN_RC" 'official same-channel lock ignored'
@@ -309,7 +309,7 @@ assert_eq 0 "$RUN_RC" 'Worker lock blocked official'
 assert_file_has official "$runner_log" 'official did not run beside Worker'
 assert_file_not_has worker "$runner_log" 'official request invoked Worker'
 PO0_TEST_HELD_LANE=worker run_adapter both 0 --worker-only
-assert_eq 75 "$RUN_RC" 'Worker same-channel lock ignored'
+assert_eq 0 "$RUN_RC" 'retired Worker action must be inert'
 
 run_adapter disabled 0 --official-only --network-changed
 assert_eq 0 "$RUN_RC" 'disabled network action failed'

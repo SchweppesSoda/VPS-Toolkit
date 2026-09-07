@@ -245,40 +245,6 @@ function Test-Po0FirewallDue {
     return (($now - $last) -ge [int64]$script:OfficialIntervalSeconds)
 }
 
-function Get-Po0WorkerLastAttempt {
-    $path = Get-Po0WorkerDueStatePath
-    if (-not (Test-Path -LiteralPath $path)) { return [int64]0 }
-    try {
-        return (Get-Po0TimestampFromValue (Get-Content -LiteralPath $path -Raw -Encoding ASCII))
-    } catch {
-        return [int64]0
-    }
-}
-
-function Test-Po0WorkerDue {
-    if (-not $script:WorkerUrl) { return $false }
-    if (-not $script:Po0FirewallScheduledRun -or $script:Po0FirewallForce -or $NetworkChanged -or $TimerTrigger) { return $true }
-    $now = Get-Po0FirewallNow
-    $last = Get-Po0WorkerLastAttempt
-    if ($last -le 0) { return $true }
-    if ($now -lt $last) { return $true }
-    return (($now - $last) -ge [int64](Get-IntervalSeconds))
-}
-
-function Mark-Po0WorkerAttempt {
-    Write-Po0TextAtomic -Path (Get-Po0WorkerDueStatePath) -Value ([string](Get-Po0FirewallNow))
-}
-
-function Assert-Po0ReportConfig {
-    $hasWorker = [bool]$script:WorkerUrl -and -not $script:Po0FirewallOfficialOnly
-    $hasOfficial = (Test-Po0FirewallConfigured) -and -not $script:Po0FirewallWorkerOnly
-    if (-not $hasWorker -and -not $hasOfficial) {
-        throw "没有配置可执行的上报通道。"
-    }
-    if ($hasWorker) { Assert-WorkerUrl }
-    Assert-Minutes
-}
-
 function Invoke-Po0OfficialHttpRequest {
     param(
         [ValidateSet("GET", "POST")]
@@ -390,16 +356,6 @@ function Get-Po0FirewallJsonObject {
     return $object
 }
 
-function ConvertTo-Po0InvariantText {
-    param($Value)
-    if ($null -eq $Value) { return "" }
-    if ($Value -is [bool]) { return ([string]$Value) }
-    try {
-        return $Value.ToString([Globalization.CultureInfo]::InvariantCulture)
-    } catch {
-        return ([string]$Value)
-    }
-}
 
 function Test-Po0FirewallJsonInteger {
     param($Value)

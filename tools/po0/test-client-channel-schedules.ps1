@@ -52,7 +52,7 @@ try {
     $script:WorkerNetworkEnabled=$true; $script:OfficialNetworkEnabled=$true
     Set-Content -LiteralPath (Get-DefaultScriptPath) -Value '# test script'
     Sync-ScheduledReporterTasks -Mode install | Out-Null
-    Assert-Test ($script:Tasks.Count -eq 4) 'two independent timers and two network watchers'
+    Assert-Test ($script:Tasks.Count -eq 2) 'one official timer and one official network watcher'
     $worker=Get-ChannelTaskName worker; $official=Get-ChannelTaskName official
     Assert-Test ($script:Tasks[$official].Triggers[0].RepetitionInterval.TotalSeconds -eq 900) 'custom official timer'
     $command=Get-ScheduledReporterLauncherCommand (Get-ChannelTaskLauncherPath official)
@@ -90,7 +90,7 @@ try {
     $script:Tasks.Clear()
     $script:Tasks[$script:TaskName]=[pscustomobject]@{TaskName=$script:TaskName;Actions=@();Triggers=@();State='Ready';Settings=$null;Principal=$null}
     Sync-ScheduledReporterTasks -Mode refresh | Out-Null
-    Assert-Test (-not $script:Tasks.ContainsKey($script:TaskName) -and $script:Tasks.ContainsKey($worker) -and $script:Tasks.ContainsKey($official)) 'shared task migration'
+    Assert-Test (-not $script:Tasks.ContainsKey($script:TaskName) -and -not $script:Tasks.ContainsKey($worker) -and $script:Tasks.ContainsKey($official)) 'shared task migration'
     $script:OfficialTimerEnabled=$false
     Sync-ScheduledReporterTasks -Mode refresh -Channel official | Out-Null
     Assert-Test ($script:Tasks[$official].State -eq 'Disabled' -and $script:Tasks[(Get-NetworkReporterTaskName official)].State -ne 'Disabled') 'timer disabled independently of network event'
@@ -102,7 +102,7 @@ try {
     $script:Tasks.Clear()
     $script:Tasks[$script:TaskName]=[pscustomobject]@{TaskName=$script:TaskName;Actions=@();Triggers=@();State='Disabled';Settings=$null;Principal=$null}
     Sync-ScheduledReporterTasks -Mode refresh | Out-Null
-    Assert-Test ($script:Tasks[$worker].State -eq 'Disabled' -and $script:Tasks[$official].State -eq 'Disabled') 'legacy pause preserved'
+    Assert-Test (-not $script:Tasks.ContainsKey($worker) -and $script:Tasks[$official].State -eq 'Disabled') 'legacy pause preserved'
     # A removed timer can leave an orphan watcher; channel deletion still cleans it.
     $script:Tasks.Remove($worker)
     Remove-ScheduledReporter -Channel worker
@@ -123,8 +123,6 @@ try {
     Set-ChannelPeriodicInteractive official
     Assert-Test (-not $script:OfficialTimerEnabled -and $script:OfficialIntervalSeconds -eq 900 -and $script:Minutes -eq 90 -and $script:WorkerTimerEnabled) 'periodic editor preserves other channel and stored interval'
     Assert-Test ((Get-ChannelIntervalLabel official) -match '暂不使用') 'disabled periodic interval label'
-    Set-ChannelPeriodicInteractive worker
-    Assert-Test (-not $script:WorkerTimerEnabled -and $script:Minutes -eq 90 -and $script:OfficialIntervalSeconds -eq 900) 'Worker periodic editor keeps official interval'
     Assert-Test ($script:Tasks.Count -eq 0 -and $script:Calls.Count -eq 0) 'saving periodic settings must not install tasks'
     # Manual results go to the selected channel, then restore the shared path.
     $manualBase=$script:LogPath

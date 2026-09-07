@@ -8,7 +8,7 @@ This repository contains VPS maintenance scripts and PO0 relay tooling. Operatio
 
 | Use case | Start here | Maintenance status |
 | --- | --- | --- |
-| PO0 nftables relay, source-IP allowlists, LAN Worker, Self-report, WebAuth, Egern, Stash, Loon, or iplist/ipdb | [`scripts/po0/relay/README.md`](./scripts/po0/relay/README.md) | Core functionality, actively maintained |
+| PO0 forwarding, LAN update mirror and seven official reporting clients | [`scripts/po0/relay/README.md`](./scripts/po0/relay/README.md) | Core functionality, actively maintained |
 | PO0 Debian reinstall | [`scripts/po0/reinstall/README.md`](./scripts/po0/reinstall/README.md) | Maintained as needed; reinstalls the system disk |
 | PO0 proxy-service sidecar | [`scripts/po0/proxy-services/README.md`](./scripts/po0/proxy-services/README.md) | Maintained as needed |
 | VPS proxy-stack deployment, adoption, or configuration-driven rebuild | [`scripts/vps/proxy-stack/README.md`](./scripts/vps/proxy-stack/README.md) | Inventory-driven upper-layer calls to Argosbx, Proxy Gateway Plus, and the sidecar |
@@ -96,9 +96,9 @@ Use each tool's own README for installation, parameters, and removal instruction
 
 ## PO0 Release Architecture and Boundaries
 
-A PO0 release contains five independent scripts: the manager owns PO0 nftables and controlled jobs; the LAN Worker owns LAN jobs and receiver endpoints; and the Linux/macOS/Windows Outbound IP Report clients run on access devices. The OpenWrt APK carries the outbound reporter integration; its UCI, procd, LuCI, and mwan3 binding are maintained only for OpenWrt and are not imposed on ordinary clients.
+PO0 now contains a forwarding manager, a LAN update mirror, Linux/macOS/Windows official reporters, the official OpenWrt APK, and Egern/Stash/Loon modules. The self-hosted firewall, receivers, DDNS/WebAuth, learning and resource jobs have retired. Complete old assets are frozen in the non-Latest `archive/po0-full-20260907.1` Release.
 
-The official firewall is an optional, disabled-by-default second lane: GET the current egress, quota, and slot state first, then POST only when the egress is missing or a requested fixed slot does not match. Its fixed 600-second interval is independent of the existing Worker/Self-report schedules and TTLs. A local SSID skip skips both lanes; a forced report bypasses only the local due/SSID guard and never the required GET. Tokens stay in protected configuration and out of logs, arguments, and state. Only the main OpenWrt can use mwan3 to select wan1/wan2; every other endpoint uses its own default egress. Use [`scripts/po0/relay/README.md`](./scripts/po0/relay/README.md) for the user entry points and the technical document for implementation details.
+PO0 still obtains manager updates over LAN HTTP with nonce/HMAC verification. Official reporters preserve GET-first behavior, tokens, slots, names, timers, disabled choices and their existing routing. Migration saves local backups first. See the [PO0 guide](scripts/po0/relay/README.md) for migration and archive restoration.
 
 ## Releases and Downloads
 

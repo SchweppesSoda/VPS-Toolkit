@@ -15,9 +15,6 @@ load_saved_config() {
 }
 
 apply_env_overrides() {
-    [[ -n "${PO0_LAN_WORKER_URL+x}" ]] && WORKER_URL="${PO0_LAN_WORKER_URL}"
-    [[ -n "${PO0_OUTBOUND_IP_REPORT_WORKER_URL+x}" ]] && WORKER_URL="${PO0_OUTBOUND_IP_REPORT_WORKER_URL}"
-    [[ -n "${ENV_WORKER_URL}" ]] && WORKER_URL="${ENV_WORKER_URL}"
     if [[ -n "${PO0_OUTBOUND_IP_REPORT_SOURCE+x}" ]]; then
         SOURCE_ID="${PO0_OUTBOUND_IP_REPORT_SOURCE}"
         SOURCE_ID_EXPLICIT="1"
@@ -42,22 +39,14 @@ apply_env_overrides() {
         IDENTITY="${ENV_IDENTITY}"
         IDENTITY_EXPLICIT="1"
     fi
-    [[ -n "${PO0_OUTBOUND_IP_REPORT_SECRET+x}" ]] && SECRET="${PO0_OUTBOUND_IP_REPORT_SECRET}"
-    [[ -n "${PO0_SELF_REPORT_SECRET+x}" ]] && SECRET="${PO0_SELF_REPORT_SECRET}"
-    [[ -n "${SELF_REPORT_SECRET+x}" ]] && SECRET="${SELF_REPORT_SECRET}"
-    [[ -n "${PO0_OUTBOUND_IP_REPORT_ALLOW_HTTP+x}" ]] && ALLOW_HTTP="${PO0_OUTBOUND_IP_REPORT_ALLOW_HTTP}"
-    [[ -n "${PO0_SELF_REPORT_ALLOW_HTTP+x}" ]] && ALLOW_HTTP="${PO0_SELF_REPORT_ALLOW_HTTP}"
-    [[ -n "${ENV_ALLOW_HTTP}" ]] && ALLOW_HTTP="${ENV_ALLOW_HTTP}"
     [[ -n "${PO0_OUTBOUND_IP_REPORT_IP_CHECK_URL+x}" ]] && IP_CHECK_URL="${PO0_OUTBOUND_IP_REPORT_IP_CHECK_URL}"
     [[ -n "${ENV_IP_CHECK_URL}" ]] && IP_CHECK_URL="${ENV_IP_CHECK_URL}"
     [[ -n "${PO0_OUTBOUND_IP_REPORT_IP_CHECK_URLS+x}" ]] && IP_CHECK_URLS="${PO0_OUTBOUND_IP_REPORT_IP_CHECK_URLS}"
     [[ -n "${ENV_IP_CHECK_URLS}" ]] && IP_CHECK_URLS="${ENV_IP_CHECK_URLS}"
     [[ -n "${PO0_OUTBOUND_IP_REPORT_WANS+x}" ]] && WANS="${PO0_OUTBOUND_IP_REPORT_WANS}"
-    [[ -n "${PO0_OUTBOUND_IP_REPORT_WORKER_ENABLED+x}" ]] && WORKER_ENABLED="${PO0_OUTBOUND_IP_REPORT_WORKER_ENABLED}"
     if [[ "${ENV_FIREWALL_TOKENS_SET:-0}" == "1" ]]; then
         PO0_FIREWALL_TOKENS="${ENV_FIREWALL_TOKENS}"
     fi
-    [[ -n "${ENV_WORKER_ENABLED}" ]] && WORKER_ENABLED="${ENV_WORKER_ENABLED}"
     [[ -n "${PO0_OUTBOUND_IP_REPORT_SKIP_WIFI_SSIDS+x}" ]] && SKIP_WIFI_SSIDS="${PO0_OUTBOUND_IP_REPORT_SKIP_WIFI_SSIDS}"
     [[ -n "${ENV_SKIP_WIFI_SSIDS}" ]] && SKIP_WIFI_SSIDS="${ENV_SKIP_WIFI_SSIDS}"
     if [[ -n "${PO0_OUTBOUND_IP_REPORT_INSTALL_PATH+x}" ]]; then
@@ -78,7 +67,6 @@ apply_env_overrides() {
     [[ -n "${PO0_OUTBOUND_IP_REPORT_PAUSED+x}" ]] && SCHEDULE_PAUSED="${PO0_OUTBOUND_IP_REPORT_PAUSED}"
     [[ -n "${PO0_SELF_REPORT_PAUSED+x}" ]] && SCHEDULE_PAUSED="${PO0_SELF_REPORT_PAUSED}"
     # Canonical aliases win when both old and new environment variables are present.
-    [[ -n "${PO0_OUTBOUND_IP_REPORT_WORKER_URL+x}" ]] && WORKER_URL="${PO0_OUTBOUND_IP_REPORT_WORKER_URL}"
     if [[ -n "${PO0_OUTBOUND_IP_REPORT_SOURCE+x}" ]]; then
         SOURCE_ID="${PO0_OUTBOUND_IP_REPORT_SOURCE}"
         SOURCE_ID_EXPLICIT="1"
@@ -87,12 +75,9 @@ apply_env_overrides() {
         IDENTITY="${PO0_OUTBOUND_IP_REPORT_IDENTITY}"
         IDENTITY_EXPLICIT="1"
     fi
-    [[ -n "${PO0_OUTBOUND_IP_REPORT_SECRET+x}" ]] && SECRET="${PO0_OUTBOUND_IP_REPORT_SECRET}"
-    [[ -n "${PO0_OUTBOUND_IP_REPORT_ALLOW_HTTP+x}" ]] && ALLOW_HTTP="${PO0_OUTBOUND_IP_REPORT_ALLOW_HTTP}"
     [[ -n "${PO0_OUTBOUND_IP_REPORT_IP_CHECK_URL+x}" ]] && IP_CHECK_URL="${PO0_OUTBOUND_IP_REPORT_IP_CHECK_URL}"
     [[ -n "${PO0_OUTBOUND_IP_REPORT_IP_CHECK_URLS+x}" ]] && IP_CHECK_URLS="${PO0_OUTBOUND_IP_REPORT_IP_CHECK_URLS}"
     [[ -n "${PO0_OUTBOUND_IP_REPORT_WANS+x}" ]] && WANS="${PO0_OUTBOUND_IP_REPORT_WANS}"
-    [[ -n "${PO0_OUTBOUND_IP_REPORT_WORKER_ENABLED+x}" ]] && WORKER_ENABLED="${PO0_OUTBOUND_IP_REPORT_WORKER_ENABLED}"
     [[ -n "${PO0_OUTBOUND_IP_REPORT_SKIP_WIFI_SSIDS+x}" ]] && SKIP_WIFI_SSIDS="${PO0_OUTBOUND_IP_REPORT_SKIP_WIFI_SSIDS}"
     if [[ -n "${PO0_OUTBOUND_IP_REPORT_INSTALL_PATH+x}" ]]; then
         INSTALL_PATH="${PO0_OUTBOUND_IP_REPORT_INSTALL_PATH}"
@@ -236,9 +221,8 @@ apply_device_defaults() {
 
 save_config_file() {
     local dir tmp old_umask
-    validate_cron_minutes || return 1
+    retirement_backup || return 1
     WANS="$(normalize_wan_selection_list "${WANS:-}")"
-    validate_wan_selection || return 1
     if declare -F official_channel_enabled >/dev/null 2>&1 && official_channel_enabled; then
         official_validate_tokens || return 1
     fi
@@ -249,31 +233,17 @@ save_config_file() {
     old_umask="$(umask)"
     umask 077
     {
-        printf '# PO0 self-report client settings. This file may contain secrets.\n'
-        write_env_assignment "WORKER_TIMER_ENABLED" "${WORKER_TIMER_ENABLED:-1}"
+        printf '# PO0 official firewall settings. Private local configuration.\n'
         write_env_assignment "OFFICIAL_TIMER_ENABLED" "${OFFICIAL_TIMER_ENABLED:-1}"
-        write_env_assignment "WORKER_NETWORK_ENABLED" "${WORKER_NETWORK_ENABLED:-1}"
         write_env_assignment "OFFICIAL_NETWORK_ENABLED" "${OFFICIAL_NETWORK_ENABLED:-1}"
         write_env_assignment "OFFICIAL_INTERVAL_SECONDS" "${OFFICIAL_INTERVAL_SECONDS:-600}"
-        write_env_assignment "WORKER_AUTO_ENABLED" "${WORKER_AUTO_ENABLED:-1}"
         write_env_assignment "OFFICIAL_AUTO_ENABLED" "${OFFICIAL_AUTO_ENABLED:-1}"
-        write_env_assignment "WORKER_NAME" "${WORKER_NAME:-}"
         write_env_assignment "PO0_FIREWALL_NAMES" "${PO0_FIREWALL_NAMES:-}"
-        write_env_assignment "WORKER_URL" "${WORKER_URL}"
-        write_env_assignment "SOURCE_ID" "${SOURCE_ID}"
-        write_env_assignment "IDENTITY" "${IDENTITY}"
-        write_env_assignment "SECRET" "${SECRET}"
-        write_env_assignment "ALLOW_HTTP" "${ALLOW_HTTP}"
         write_env_assignment "IP_CHECK_URL" "${IP_CHECK_URL}"
         write_env_assignment "IP_CHECK_URLS" "${IP_CHECK_URLS}"
-        write_env_assignment "WANS" "${WANS}"
-        write_env_assignment "WORKER_ENABLED" "${WORKER_ENABLED:-}"
         write_env_assignment "PO0_FIREWALL_TOKENS" "${PO0_FIREWALL_TOKENS:-}"
         write_env_assignment "SKIP_WIFI_SSIDS" "${SKIP_WIFI_SSIDS}"
         write_env_assignment "INSTALL_PATH" "${INSTALL_PATH}"
-        write_env_assignment "CRON_MINUTES" "${CRON_MINUTES}"
-        write_env_assignment "INTERVAL_SECONDS" "$((10#${CRON_MINUTES:-60} * 60))"
-        write_env_assignment "MAX_CRON_MINUTES" "${MAX_CRON_MINUTES}"
         write_env_assignment "SCHEDULE_PAUSED" "${SCHEDULE_PAUSED}"
     } > "${tmp}" || {
         umask "${old_umask}"

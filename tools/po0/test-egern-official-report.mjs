@@ -157,7 +157,7 @@ async function testHitUsesDirectGetOnlyAndStaysQuiet() {
   const official = await officialStateOf(storage);
   assert.equal(result.ok, true);
   assert.equal(result.ip, '203.0.113.10');
-  assert.equal(result.reportedCidr, '203.0.113.10/24');
+  assert.equal(result.official.currentIp, '203.0.113.10/24');
   assert.equal(calls.get.length, 1);
   assert.equal(calls.post.length, 0);
   assert.equal(calls.ssh, 0);
@@ -740,50 +740,6 @@ async function testEgernLockExpiryAndOwnerReplacement() {
   assert.equal(blockedByReplacement.calls.get.length + blockedByReplacement.calls.post.length, 0);
 }
 
-async function testEgernDeviceActionsBypassLockWithoutNetwork() {
-  const token = 'pgnfw_egern_device_action_not_real';
-  const now = Date.now();
-  globalThis.__PO0_EGERN_TEST_NOW = now;
-  const activeLock = JSON.stringify({
-    version: 1,
-    owner: 'active-owner',
-    expiresAt: now + 120000,
-  });
-
-  const deviceStorage = createStorage({ [REPORT_LOCK_KEY]: activeLock });
-  const deviceRequest = createContext({
-    trigger: 'device page',
-    storage: deviceStorage,
-    request: { url: 'http://po0-egern.local/device' },
-    httpGet() {
-      throw new Error('device HTTP action must not GET');
-    },
-    httpPost() {
-      throw new Error('device HTTP action must not POST');
-    },
-  });
-  const deviceResult = await runEgernReport(deviceRequest.ctx);
-  assert.equal(deviceResult.status, 200);
-  assert.equal(deviceRequest.calls.get.length + deviceRequest.calls.post.length, 0);
-  assert.equal(await deviceStorage.get(REPORT_LOCK_KEY), activeLock, 'device HTTP action must not touch report lock');
-
-  const configStorage = createStorage({ [REPORT_LOCK_KEY]: activeLock });
-  const configAction = createContext({
-    trigger: '保存本机 PO0 上报配置',
-    storage: configStorage,
-    env: { PO0_FIREWALL_TOKENS: token },
-    httpGet() {
-      throw new Error('config action must not GET');
-    },
-    httpPost() {
-      throw new Error('config action must not POST');
-    },
-  });
-  await runEgernReport(configAction.ctx);
-  assert.equal(configAction.calls.get.length + configAction.calls.post.length, 0);
-  assert.ok(await configStorage.get(CONFIG_STORAGE_KEY), 'config action must persist configuration');
-  assert.equal(await configStorage.get(REPORT_LOCK_KEY), activeLock, 'config action must not touch report lock');
-}
 
 async function testIndependentOfficialDueUsesLastAttemptAndManualBypassesDue() {
   const token = 'pgnfw_egern_due_not_real';
@@ -842,103 +798,8 @@ async function testSsidSkipsOfficialAndExistingSshTogether() {
   assert.equal((await storage.get(OFFICIAL_STORAGE_KEY)), null);
 }
 
-async function testOfficialFailureContinuesAndPrecedesExistingSsh() {
-  const firstToken = 'pgnfw_egern_fail_not_real';
-  const secondToken = 'pgnfw_egern_second_not_real';
-  const { ctx, calls } = createContext({
-    env: {
-      PO0_FIREWALL_TOKENS: `${firstToken},${secondToken}@1`,
-      PO0_HOST: 'po0.example.com',
-      SSH_REPORT_TOKEN: 'ssh-token-not-real',
-      PO0_PASSWORD: 'password-not-real',
-      IP_CHECK_URLS: 'https://example.com/ip',
-    },
-    httpGet(url) {
-      if (url === `${API_BASE}/${firstToken}`) throw new Error(`secret ${firstToken}`);
-      if (url === `${API_BASE}/${secondToken}`) {
-        return response(officialPayload({ whitelist: [{ ip: '198.51.100.1/24', slot: 0 }] }));
-      }
-      assert.equal(url, 'https://example.com/ip');
-      return response({ ip: '203.0.113.50' });
-    },
-    httpPost(url) {
-      assert.equal(url, `${API_BASE}/${secondToken}/add?slot=1`);
-      return response(officialPayload({
-        currentIp: '203.0.113.10/24',
-        whitelist: [{ ip: '203.0.113.10/24', slot: 1 }],
-      }));
-    },
-  });
-  const result = await runEgernReport(ctx);
-  assert.equal(result.ok, false);
-  assert.equal(result.official.failureCount, 1);
-  assert.equal(result.official.entries[1].status, 'updated');
-  assert.equal(calls.ssh, 1);
-  const firstReportIndex = calls.order.findIndex((value) => value === `GET ${API_BASE}/${firstToken}`);
-  const sshIndex = calls.order.indexOf('SSH');
-  assert.ok(firstReportIndex >= 0 && firstReportIndex < sshIndex);
-  assert.ok(calls.order.indexOf(`POST ${API_BASE}/${secondToken}/add?slot=1`) < sshIndex);
-  assert.equal(visibleText(result).includes(firstToken), false);
-  assert.equal(visibleText(result).includes(secondToken), false);
-  assert.equal(visibleText(calls.notifications).includes(firstToken), false);
-  assert.equal(visibleText(calls.logs).includes(firstToken), false);
-}
-
-async function testParallelOfficialAccountsPreserveLaneOrder() {
-  const firstToken = 'pgnfw_egern_parallel_one';
-  const secondToken = 'pgnfw_egern_parallel_two';
-  const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
-  const { ctx, calls, storage } = createContext({
-    env: {
-      PO0_FIREWALL_TOKENS: firstToken + '@1；\n ' + secondToken + '@2',
-      PO0_HOST: 'po0.example.com',
-      SSH_REPORT_TOKEN: 'ssh-token-not-real',
-      PO0_PASSWORD: 'password-not-real',
-      IP_CHECK_URLS: 'https://example.com/ip',
-    },
-    async httpGet(url) {
-      if (url === API_BASE + '/' + firstToken) {
-        await wait(35);
-        return response(officialPayload({ whitelist: [{ ip: '198.51.100.1/24', slot: 0 }] }));
-      }
-      if (url === API_BASE + '/' + secondToken) {
-        await wait(0);
-        return response(officialPayload({ whitelist: [{ ip: '198.51.100.2/24', slot: 1 }] }));
-      }
-      assert.equal(url, 'https://example.com/ip');
-      return response({ ip: '203.0.113.50' });
-    },
-    async httpPost(url) {
-      await wait(10);
-      assert.match(url, new RegExp('^' + API_BASE + '/(?:' + firstToken + '|' + secondToken + ')/add\\?slot=[12]$'));
-      const slot = url.endsWith('slot=1') ? 1 : 2;
-      return response(officialPayload({
-        currentIp: '203.0.113.10/24',
-        whitelist: [{ ip: '203.0.113.10/24', slot }],
-      }));
-    },
-  });
-  const result = await runEgernReport(ctx);
-  const officialGetOne = calls.order.indexOf('GET ' + API_BASE + '/' + firstToken);
-  const officialGetTwo = calls.order.indexOf('GET ' + API_BASE + '/' + secondToken);
-  const officialPostOne = calls.order.indexOf('POST ' + API_BASE + '/' + firstToken + '/add?slot=1');
-  const officialPostTwo = calls.order.indexOf('POST ' + API_BASE + '/' + secondToken + '/add?slot=2');
-  const workerIp = calls.order.indexOf('GET https://example.com/ip');
-  const ssh = calls.order.indexOf('SSH');
-  assert.ok(officialGetOne >= 0 && officialGetTwo >= 0);
-  assert.ok(Math.max(officialGetOne, officialGetTwo) < Math.min(officialPostOne, officialPostTwo), 'all official GETs must start before any POST');
-  assert.ok(Math.max(officialPostOne, officialPostTwo) < workerIp, 'Worker must start after every official account finishes');
-  assert.ok(workerIp < ssh);
-  assert.equal(result.ok, true);
-  const official = await officialStateOf(storage);
-  assert.deepEqual(official.entries.map((entry) => entry.ordinal), [1, 2]);
-  assert.deepEqual(official.entries.map((entry) => entry.status), ['updated', 'updated']);
-  assert.equal(visibleText(result).includes(firstToken), false);
-  assert.equal(visibleText(calls.notifications).includes(secondToken), false);
-}
-
 function testEgernTimeoutBudget() {
-  assert.equal((yamlSource.match(/timeout: 90/g) || []).length, 10);
+  assert.equal((yamlSource.match(/timeout: 90/g) || []).length, 8);
   assert.equal((yamlSource.match(/timeout: 30/g) || []).length, 0);
 }
 
@@ -959,34 +820,6 @@ function testEgernScriptCopiesStaySynchronized() {
   assert.equal(compatibilitySource, source);
 }
 
-async function testOfficialTokenPersistsOnlyInConfigurationAndClearKeepsSsh() {
-  const token = 'pgnfw_egern_persist_not_real';
-  const storage = createStorage();
-  const save = createContext({
-    trigger: '保存本机 PO0 上报配置',
-    storage,
-    env: {
-      PO0_FIREWALL_TOKENS: token,
-      PO0_HOST: 'po0.example.com',
-      SSH_REPORT_TOKEN: 'ssh-token-not-real',
-      PO0_PASSWORD: 'password-not-real',
-    },
-  });
-  await runEgernReport(save.ctx);
-  const config = JSON.parse(await storage.get(CONFIG_STORAGE_KEY));
-  assert.equal(config.values.PO0_FIREWALL_TOKENS, token);
-
-  const clear = createContext({
-    trigger: '清除本机 PO0 官方防火墙 Token',
-    storage,
-    env: {},
-  });
-  await runEgernReport(clear.ctx);
-  const cleared = JSON.parse(await storage.get(CONFIG_STORAGE_KEY));
-  assert.equal(cleared.values.PO0_FIREWALL_TOKENS, undefined);
-  assert.equal(cleared.values.SSH_REPORT_TOKEN, 'ssh-token-not-real');
-  assert.equal(await storage.get(OFFICIAL_STORAGE_KEY), null);
-}
 
 async function testSavedSlotSurvivesSyncedEnvironment() {
   const token = 'pgnfw_device_local_mock';
@@ -1002,39 +835,6 @@ async function testSavedSlotSurvivesSyncedEnvironment() {
   assert.equal(JSON.parse(await storage.get(CONFIG_STORAGE_KEY)).values.PO0_FIREWALL_TOKENS, token + '@0');
 }
 
-async function testScopedSavesDoNotOverwriteOtherChannel() {
-  const storage = createStorage({
-    [CONFIG_STORAGE_KEY]: JSON.stringify({ version: 1, values: {
-      PO0_HOST: 'po0.example.com', SSH_REPORT_TOKEN: 'ssh-mock', PO0_PASSWORD: 'password-mock',
-      PO0_FIREWALL_TOKENS: 'pgnfw_original_mock@0', SKIP_WIFI_SSIDS: 'Home',
-    } }),
-  });
-  const worker = createContext({ storage, trigger: '保存本机自建 PO0 / 通用设置', env: {
-    SSH_REPORT_TOKEN: 'ssh-new-mock', PO0_FIREWALL_TOKENS: 'invalid-synced-token', SKIP_WIFI_SSIDS: 'Home;Office',
-  } });
-  await runEgernReport(worker.ctx);
-  let values = JSON.parse(await storage.get(CONFIG_STORAGE_KEY)).values;
-  assert.equal(values.SSH_REPORT_TOKEN, 'ssh-new-mock');
-  assert.equal(values.PO0_FIREWALL_TOKENS, 'pgnfw_original_mock@0');
-  assert.equal(values.SKIP_WIFI_SSIDS, undefined, 'live SSID setting is not persisted');
-  const official = createContext({ storage, trigger: '保存本机 PO0 官方防火墙配置', env: {
-    PO0_FIREWALL_TOKENS: 'pgnfw_replacement_mock@4', SSH_REPORT_TOKEN: 'must-not-replace', SKIP_WIFI_SSIDS: 'must-not-replace',
-  } });
-  await runEgernReport(official.ctx);
-  values = JSON.parse(await storage.get(CONFIG_STORAGE_KEY)).values;
-  assert.equal(values.PO0_FIREWALL_TOKENS, 'pgnfw_replacement_mock@4');
-  assert.equal(values.SSH_REPORT_TOKEN, 'ssh-new-mock');
-  assert.equal(values.SKIP_WIFI_SSIDS, undefined, 'live SSID setting is not persisted');
-  const before = await storage.get(CONFIG_STORAGE_KEY);
-  const invalid = createContext({ storage, trigger: '保存本机 PO0 官方防火墙配置', env: { PO0_FIREWALL_TOKENS: 'invalid' } });
-  await runEgernReport(invalid.ctx);
-  assert.equal(await storage.get(CONFIG_STORAGE_KEY), before);
-  for (const run of [worker, official, invalid]) {
-    assert.equal(run.calls.get.length, 0);
-    assert.equal(run.calls.post.length, 0);
-    assert.equal(run.calls.ssh, 0);
-  }
-}
 
 async function testFlexibleOfficialSeparators() {
   const { ctx, calls, storage } = createContext({
@@ -1099,214 +899,6 @@ async function checkIndependentChannelControlsAndNames(actionNames) {
   assert.equal(view.calls.ssh, 0);
 }
 
-async function testIndependentChannelControlsAndNames() {
-  for (const actionNames of [{}, {"保存本机自建 PO0 / 通用设置":"保存本机 PO0 自建防火墙配置","切换自建 PO0 自动上报":"切换自建防火墙自动上报","仅自建 PO0 立即上报":"仅自建防火墙强制上报","清除本机自建 PO0 配置":"清除本机自建防火墙配置","仅官方防火墙立即上报":"仅官方防火墙强制上报"}]) {
-    await checkIndependentChannelControlsAndNames(actionNames);
-  }
-}
-
-async function testNamedForceActionRunsBothLanesDespiteSsidAndDue() {
-  const token = 'pgnfw_force_both_lanes_not_real';
-  const now = 1000000000;
-  globalThis.__PO0_EGERN_TEST_NOW = now;
-  const storage = createStorage({
-    [OFFICIAL_STORAGE_KEY]: JSON.stringify({
-      version: 1, ok: true, status: 'success', entries: [], lastAttemptAt: new Date(now - 1000).toISOString(),
-    }),
-  });
-  const { ctx, calls } = createContext({
-    trigger: '强制上报 PO0 防火墙', ssid: 'HomeWiFi', storage,
-    env: {
-      PO0_FIREWALL_TOKENS: token + '@0', SKIP_WIFI_SSIDS: 'HomeWiFi',
-      SSH_REPORT_TARGETS: '{device}|po0.example.com||||ssh-force-token-not-real',
-      PO0_PASSWORD: 'password-not-real', IP_CHECK_URLS: 'https://example.com/ip',
-    },
-    httpGet(url) {
-      if (url === API_BASE + '/' + token) return response(officialPayload());
-      assert.equal(url, 'https://example.com/ip');
-      return response({ ip: '203.0.113.10', country: 'Test', isp: 'Test' });
-    },
-  });
-  const result = await runEgernReport(ctx);
-  assert.equal(result.ok, true);
-  assert.deepEqual(calls.order, [
-    'GET ' + API_BASE + '/' + token,
-    'POST ' + API_BASE + '/' + token + '/add?slot=0',
-    'GET https://example.com/ip', 'SSH',
-  ]);
-  assert.equal(result.official.entries[0].status, 'updated');
-  assert.equal((await officialStateOf(storage)).lastSuccessAt, new Date(now).toISOString());
-  assert.equal(visibleText(result).includes(token), false);
-}
-
-
-async function testWidgetBusyAndStorageErrorsAlwaysRender() {
-  const now = 1000000000;
-  globalThis.__PO0_EGERN_TEST_NOW = now;
-  for (const trigger of ['PO0 防火墙上报状态', 'PO0 SSH 上报状态']) {
-    for (const failure of ['busy', 'read-error', 'write-error']) {
-      for (const cached of [false, true]) {
-        const storage = createStorage({
-          ...(failure === 'busy' ? { [REPORT_LOCK_KEY]: JSON.stringify({ owner: 'active-report', expiresAt: now + 120000 }) } : {}),
-          ...(cached ? { [STATE_STORAGE_KEY]: JSON.stringify({ ok: true, ip: '203.0.113.45', at: new Date(now - 30000).toISOString(), targets: [], targetCount: 0, successCount: 0 }) } : {}),
-        });
-        if (failure === 'read-error') storage.get = async () => { throw Error('storage unavailable pgnfw_storage_not_real'); };
-        if (failure === 'write-error') storage.set = async () => { throw Error('storage write failed'); };
-        const before = JSON.stringify([...storage.values]);
-        const fixture = createContext({ trigger, widgetFamily: 'systemMedium', storage });
-        const result = await runEgernReport(fixture.ctx);
-        assert.equal(result.type, 'widget', 'busy/storage error must return a Widget DSL root, never a report state object');
-        assert(Array.isArray(result.children));
-        assert.equal(fixture.calls.get.length + fixture.calls.post.length + fixture.calls.ssh, 0);
-        assert.equal(JSON.stringify([...storage.values]), before, 'fallback must not overwrite the active lock or previous report');
-        assert(!visibleText(result).includes('pgnfw_storage_not_real'));
-        if (failure === 'busy') {
-          assert.match(visibleText(result), /正在上报/);
-          if (cached) assert(visibleText(result).includes('203.0.113.45'));
-        }
-      }
-    }
-  }
-}
-
-async function testExplicitAutomaticActionsAreIdempotent() {
-  const values = { PO0_HOST: 'po0.example.com', SSH_REPORT_TOKEN: 'ssh-fixture', PO0_PASSWORD: 'password-fixture', PO0_FIREWALL_TOKENS: 'pgnfw_auto_not_real', SKIP_WIFI_SSIDS: 'Home' };
-  const storage = createStorage({ [CONFIG_STORAGE_KEY]: JSON.stringify({ version: 1, values }) });
-  for (const [name, key, other] of [['自建防火墙', 'WORKER_AUTO_ENABLED', 'OFFICIAL_AUTO_ENABLED'], ['官方防火墙', 'OFFICIAL_AUTO_ENABLED', 'WORKER_AUTO_ENABLED']]) {
-    for (const [verb, expected] of [['停用', 'false'], ['启用', 'true']]) {
-      const before = JSON.parse(await storage.get(CONFIG_STORAGE_KEY)).values;
-      for (let repeat = 0; repeat < 2; repeat++) {
-        const actionName = verb + name + '自动上报';
-        assert(yamlSource.includes('name: ' + actionName));
-        const fixture = createContext({ trigger: actionName, storage });
-        fixture.ctx.script = { name: actionName };
-        delete fixture.ctx.name;
-        delete fixture.ctx.trigger;
-        const result = await runEgernReport(fixture.ctx);
-        const after = JSON.parse(await storage.get(CONFIG_STORAGE_KEY)).values;
-        assert.equal(after[key], expected, 'explicit actions must never invert after repeated taps');
-        assert.equal(after[other], before[other]);
-        for (const k of Object.keys(values).filter(k => k !== 'SKIP_WIFI_SSIDS')) assert.equal(after[k], values[k]);
-        assert.equal(after.SKIP_WIFI_SSIDS, undefined);
-        assert.equal(fixture.calls.get.length + fixture.calls.post.length + fixture.calls.ssh, 0);
-        assert.match(visibleText(result), /定时.*网络变化/);
-        assert.match(visibleText(result), /手动.*小组件/);
-        assert(visibleText(result).includes('已' + verb));
-      }
-    }
-  }
-}
-
-
-async function testUiRefreshForcesBothConfiguredLanes() {
-  for (const scenario of [
-    { trigger: 'PO0 防火墙上报状态' },
-    { trigger: 'PO0 SSH 上报状态' },
-    ...['systemSmall', 'systemMedium', 'systemLarge'].map(widgetFamily => ({ trigger: 'PO0 防火墙上报状态', widgetFamily })),
-    { trigger: 'schedule', widgetFamily: 'systemMedium' },
-  ]) {
-    const values = { PO0_FIREWALL_TOKENS: 'pgnfw_ui_force@0', SSH_REPORT_TARGETS: 'phone|po0.example.com||||ssh-ui-force|audit-note|7200', PO0_PASSWORD: 'mock-password', IP_CHECK_URLS: 'https://example.com/ip', SKIP_WIFI_SSIDS: 'HomeWiFi', WORKER_AUTO_ENABLED: 'false', OFFICIAL_AUTO_ENABLED: 'false' };
-    const storage = createStorage({ [CONFIG_STORAGE_KEY]: JSON.stringify({ version: 1, values }) });
-    let whitelist = [];
-    const commands = [];
-    const fixture = createContext({ ...scenario, storage, ssid: 'HomeWiFi', env: { PO0_FIREWALL_TOKENS: '' },
-      httpGet(url) { return url.includes('/api/firewall/') ? response(officialPayload({ whitelist })) : response({ ip: '203.0.113.10', country: 'Test', isp: 'Test' }); },
-      httpPost() { whitelist = [{ ip: '203.0.113.10/24', slot: 0 }]; return response(officialPayload({ whitelist })); },
-      sshConnect() { return { async exec(command) { commands.push(command); return { code: 0, stdout: 'SSH OK' }; }, async close() {} }; },
-    });
-    for (let refresh = 1; refresh <= 2; refresh++) {
-      const widget = await runEgernReport(fixture.ctx);
-      assert.equal(fixture.calls.ssh, refresh, 'every UI refresh must report SSH despite a recent success, disabled automatic switches, and matching SSID');
-      assert.equal(widget.type, 'widget');
-      assert.doesNotMatch(visibleText(widget), /TTL/, 'self-hosted TTL does not belong in the widget');
-      assert.equal((await stateOf(storage)).ok, true);
-    }
-    assert.equal(fixture.calls.get.filter(call => call.url.includes('/api/firewall/')).length, 2);
-    assert.equal(fixture.calls.post.length, 1, 'official refresh keeps GET-first and posts only when needed');
-    assert(commands.every(command => command.includes("'7200'") && command.includes("'audit-note'")), 'hiding TTL/remark in the widget must not change the SSH protocol');
-  }
-}
-
-async function testNamesOnlySaveAndWidgetReload() {
-  for (const trigger of ['保存本机 PO0 官方防火墙配置', '保存本机 PO0 上报配置']) {
-    const values = { PO0_FIREWALL_TOKENS: 'pgnfw_name_one@0,pgnfw_name_two@3', PO0_FIREWALL_NAMES: '旧家庭;旧办公室', OFFICIAL_AUTO_ENABLED: 'false', WORKER_AUTO_ENABLED: 'false', SKIP_WIFI_SSIDS: 'HomeWiFi' };
-    const storage = createStorage({ [CONFIG_STORAGE_KEY]: JSON.stringify({ version: 1, values }) });
-    const httpGet = url => response(officialPayload({ whitelist: [{ ip: '203.0.113.10/24', slot: url.endsWith('two') ? 3 : 0 }] }));
-    const save = createContext({ trigger, storage, env: { PO0_FIREWALL_TOKENS: '', PO0_FIREWALL_NAMES: '家庭防火墙;Office Firewall' } });
-    const result = await runEgernReport(save.ctx);
-    const saved = JSON.parse(await storage.get(CONFIG_STORAGE_KEY)).values;
-    assert.equal(saved.PO0_FIREWALL_NAMES, '家庭防火墙;Office Firewall', 'editing only names must work with the saved tokens');
-    assert.equal(saved.SKIP_WIFI_SSIDS, undefined);
-    for (const key of ['PO0_FIREWALL_TOKENS', 'OFFICIAL_AUTO_ENABLED', 'WORKER_AUTO_ENABLED']) assert.equal(saved[key], values[key]);
-    assert.match(visibleText(result), /家庭防火墙/);
-    assert.match(visibleText(result), /Office Firewall/);
-    assert.equal(save.calls.get.length + save.calls.post.length + save.calls.ssh, 0);
-    for (const family of ['systemSmall', 'systemMedium', 'systemLarge']) {
-      const refresh = createContext({ trigger: 'PO0 防火墙上报状态', widgetFamily: family, storage, httpGet, env: { PO0_FIREWALL_TOKENS: '' } });
-      const widget = await runEgernReport(refresh.ctx);
-      assert.equal(widget.type, 'widget');
-      assert.match(visibleText(widget), /家庭防火墙/);
-      if (family !== 'systemSmall') assert.match(visibleText(widget), /Office Firewall/);
-      assert.doesNotMatch(visibleText(widget), /旧家庭|旧办公室|pgnfw_/);
-      assert.deepEqual(refresh.calls.get.map(call => call.url), [API_BASE + '/pgnfw_name_one', API_BASE + '/pgnfw_name_two']);
-    }
-    const clear = createContext({ trigger, storage, env: { PO0_FIREWALL_TOKENS: '', PO0_FIREWALL_NAMES: '-' } });
-    await runEgernReport(clear.ctx);
-    const cleared = JSON.parse(await storage.get(CONFIG_STORAGE_KEY)).values;
-    assert.equal(cleared.PO0_FIREWALL_NAMES, undefined);
-    assert.equal(cleared.PO0_FIREWALL_TOKENS, values.PO0_FIREWALL_TOKENS);
-    const view = createContext({ trigger: 'PO0 防火墙上报状态', widgetFamily: 'systemMedium', storage, httpGet, env: { PO0_FIREWALL_TOKENS: '' } });
-    assert.match(visibleText(await runEgernReport(view.ctx)), /官方账号 1/);
-  }
-}
-
-async function testModuleNamesReachWidgetWithoutReplacingReportConfig() {
-  const values = { PO0_FIREWALL_TOKENS: 'pgnfw_widget_one@0,pgnfw_widget_two@3', PO0_FIREWALL_NAMES: '本机家庭;本机办公室', PO0_PASSWORD: 'mock-password', SSH_REPORT_TARGETS: 'phone-sg|sg.example.com||||ssh-one|审计备注甲|7200,phone-us|us.example.com||||ssh-two|审计备注乙|14400', IP_CHECK_URLS: 'https://example.com/ip' };
-  for (const family of ['systemSmall', 'systemMedium', 'systemLarge']) {
-    for (const scenario of [
-      { env: { PO0_FIREWALL_TOKENS: '', PO0_FIREWALL_NAMES: '家庭防火墙;Office Firewall' }, names: ['家庭防火墙', 'Office Firewall'] },
-      { env: { PO0_FIREWALL_TOKENS: 'pgnfw_widget_two@1,pgnfw_widget_one@4', PO0_FIREWALL_NAMES: 'Office Firewall;家庭防火墙' }, names: ['家庭防火墙', 'Office Firewall'] },
-      { env: { PO0_FIREWALL_TOKENS: 'pgnfw_unrelated@2', PO0_FIREWALL_NAMES: '不属于此账号' }, names: ['本机家庭', '本机办公室'] },
-      { env: { PO0_FIREWALL_TOKENS: 'invalid', PO0_FIREWALL_NAMES: '不能确认账号' }, names: ['本机家庭', '本机办公室'] },
-    ]) {
-      const config = JSON.stringify({ version: 1, values });
-      const storage = createStorage({ [CONFIG_STORAGE_KEY]: config });
-      const commands = [];
-      const refresh = createContext({ trigger: 'PO0 防火墙上报状态', widgetFamily: family, storage, env: scenario.env,
-        httpGet(url) { return url.includes('/api/firewall/') ? response(officialPayload({ whitelist: [{ ip: '203.0.113.10/24', slot: url.endsWith('one') ? 0 : 3 }] })) : response({ ip: '203.0.113.50' }); },
-        sshConnect() { return { async exec(command) { commands.push(command); return { code: 0, stdout: 'SSH OK' }; }, async close() {} }; },
-      });
-      const widget = await runEgernReport(refresh.ctx);
-      const visible = visibleText(widget);
-      assert.equal(widget.type, 'widget');
-      assert(visible.includes(scenario.names[0]), 'the module display name must reach the actual widget');
-      assert(visible.includes('phone-sg'), 'self-hosted widget label must be the first-column source ID');
-      if (family !== 'systemSmall') { assert(visible.includes(scenario.names[1])); assert(visible.includes('phone-us')); }
-      assert.doesNotMatch(visible, /审计备注甲|审计备注乙|pgnfw_|不属于此账号|不能确认账号/);
-      assert.equal(await storage.get(CONFIG_STORAGE_KEY), config, 'rendering a name must not rewrite saved configuration');
-      assert.deepEqual(refresh.calls.get.filter(call => call.url.includes('/api/firewall/')).map(call => call.url), [API_BASE + '/pgnfw_widget_one', API_BASE + '/pgnfw_widget_two']);
-      assert.equal(refresh.calls.post.length, 0, 'display-only changes must not replace saved fixed slots');
-      assert(commands[0].includes("'phone-sg'") && commands[0].includes("'审计备注甲'"), 'source ID and audit remark retain their original protocol roles');
-      await storage.set(REPORT_LOCK_KEY, JSON.stringify({ owner: 'another-run', expiresAt: Date.now() + 60000 }));
-      const busy = await runEgernReport(refresh.ctx);
-      assert(visibleText(busy).includes(scenario.names[0]), 'busy fallback must display the same current name');
-      assert(visibleText(busy).includes('phone-sg'));
-    }
-  }
-}
-
-async function testSettingsShowEffectiveTtlForEveryTarget() {
-  const values = { PO0_PASSWORD: 'mock-password', TTL_SECONDS: '3600', SSH_REPORT_TARGETS: 'one|one.example.com||||mock-one|不是来源甲|7200,two|two.example.com||||mock-two|不是来源乙|14400' };
-  const storage = createStorage({ [CONFIG_STORAGE_KEY]: JSON.stringify({ version: 1, values }) });
-  const fixture = createContext({ trigger: '查看本机上报设置', storage });
-  const result = await runEgernReport(fixture.ctx);
-  assert(visibleText(result).includes('one · 白名单有效期 7200 秒'));
-  assert(visibleText(result).includes('two · 白名单有效期 14400 秒'));
-  assert(!visibleText(result).includes('TTL 3600'));
-  assert.equal(fixture.calls.get.length + fixture.calls.post.length + fixture.calls.ssh, 0);
-}
-
-
 function publishedActions() {
   return [...yamlSource.matchAll(/^  - (generic|schedule|network):\r?\n      name: ([^\r\n]+)/gm)]
     .map(match => ({ type: match[1], name: match[2] }));
@@ -1333,105 +925,6 @@ function actionHttpGet(url) {
   return url.includes('/api/firewall/')
     ? response(officialPayload({ whitelist: [{ ip: '203.0.113.10/24', slot: 0 }] }))
     : response({ ip: '203.0.113.50' });
-}
-
-async function testEveryPublishedManualActionReturnsVisibleResult() {
-  const actions = publishedActions().filter(action => action.type === 'generic');
-  assert.equal(actions.length, 20);
-  assert(!actions.some(action => action.name === '通用设置 · 保存配置'));
-  for (const action of actions) {
-    for (const mode of ['configured', 'empty', 'busy', 'storage-read-error', 'storage-write-error']) {
-      const values = mode === 'empty' ? {} : actionValues;
-      const storage = createStorage(mode === 'empty' ? {} : { [CONFIG_STORAGE_KEY]: JSON.stringify({ version: 1, values }) });
-      if (mode === 'busy') await storage.set(REPORT_LOCK_KEY, JSON.stringify({ owner: 'existing-run', expiresAt: Date.now() + 120000 }));
-      if (mode === 'storage-read-error') storage.get = async () => { throw Error('mock storage read failure'); };
-      if (mode === 'storage-write-error') {
-        storage.set = storage.delete = async () => { throw Error('mock storage write failure'); };
-      }
-      const fixture = nativeActionFixture(action, {
-        storage, env: { PO0_FIREWALL_TOKENS: '', ...values, DEVICE_ID_SETUP: 'test-phone' },
-        ssid: 'HomeWiFi', httpGet: actionHttpGet,
-      });
-      const result = await runEgernReport(fixture.ctx);
-      assert.equal(result?.type, 'widget', action.name + ' / ' + mode + ' must render a result');
-      assert.match(visibleText(result), /text/);
-      const networkCalls = fixture.calls.get.length + fixture.calls.post.length + fixture.calls.ssh;
-      const reportAction = /上报状态|强制上报|状态（只读）|查询官方白名单/.test(action.name);
-      if (!reportAction || mode !== 'configured') assert.equal(networkCalls, 0, action.name + ' / ' + mode);
-      if (reportAction && mode === 'configured') {
-        assert.equal(fixture.calls.ssh, /仅官方|官方防火墙状态|查询官方白名单/.test(action.name) ? 0 : 1, 'manual reporting must bypass disabled auto and SSID');
-        const officialGets = fixture.calls.get.filter(call => call.url.includes('/api/firewall/'));
-        assert.equal(officialGets.length, /仅自建/.test(action.name) ? 0 : 1);
-        assert.equal(fixture.calls.post.length, 0, 'already allowed or read-only must never POST');
-      }
-      assert(!visibleText(result).includes('pgnfw_action_fixture'));
-      assert(!visibleText(result).includes('ssh-action-fixture'));
-    }
-  }
-}
-
-async function testScopedNativeForceWithoutSelectedConfigIsVisible() {
-  for (const [name, values] of [
-    ['仅自建防火墙强制上报', { PO0_FIREWALL_TOKENS: actionValues.PO0_FIREWALL_TOKENS }],
-    ['仅官方防火墙强制上报', { SSH_REPORT_TARGETS: actionValues.SSH_REPORT_TARGETS, PO0_PASSWORD: 'mock-password' }],
-  ]) {
-    const storage = createStorage({ [CONFIG_STORAGE_KEY]: JSON.stringify({ version: 1, values }) });
-    const fixture = nativeActionFixture({ name }, { storage });
-    const result = await runEgernReport(fixture.ctx);
-    assert.equal(result.type, 'widget');
-    assert(visibleText(result).includes('所选上报通道尚未配置'));
-    assert.equal(fixture.calls.get.length + fixture.calls.post.length + fixture.calls.ssh, 0);
-  }
-}
-
-async function testNativeForceFailuresAreVisible() {
-  for (const name of ['仅自建防火墙强制上报', '仅官方防火墙强制上报', 'PO0 防火墙上报状态']) {
-    const fixture = nativeActionFixture({ name }, {
-      env: actionValues, ssid: 'HomeWiFi',
-      httpGet(url) { return url.includes('/api/firewall/') ? response({}, 503) : actionHttpGet(url); },
-      sshConnect() { throw Error('mock SSH unavailable'); },
-    });
-    const result = await runEgernReport(fixture.ctx);
-    assert.equal(result.type, 'widget');
-    assert.equal((await stateOf(fixture.storage)).ok, false);
-    assert.equal(fixture.calls.post.length, 0);
-  }
-}
-
-async function testPublishedBackgroundTriggersKeepAutomaticGuards() {
-  const actions = publishedActions().filter(action => action.type !== 'generic');
-  assert.deepEqual(actions.map(action => action.type), ['schedule', 'network']);
-  for (const action of actions) {
-    assert(action.name.includes('后台自动'));
-    for (const mode of ['paused', 'ssid', 'empty', 'enabled']) {
-      const values = mode === 'empty' ? {} : { ...actionValues, WORKER_AUTO_ENABLED: mode === 'paused' ? 'false' : 'true', OFFICIAL_AUTO_ENABLED: mode === 'paused' ? 'false' : 'true' };
-      const storage = createStorage(mode === 'empty' ? {} : { [CONFIG_STORAGE_KEY]: JSON.stringify({ version: 1, values }) });
-      const fixture = nativeActionFixture(action, { storage, env: { PO0_FIREWALL_TOKENS: '', SKIP_WIFI_SSIDS: 'HomeWiFi' }, ssid: mode === 'ssid' ? 'HomeWiFi' : '', httpGet: actionHttpGet });
-      const result = await runEgernReport(fixture.ctx);
-      assert.notEqual(result?.type, 'widget');
-      if (mode === 'enabled') {
-        assert.equal(result.ok, true);
-        await runEgernReport(fixture.ctx);
-        assert.equal(fixture.calls.ssh, action.type === 'network' ? 2 : 1, 'timer honors the SSH interval; network changes report immediately');
-        assert.equal(fixture.calls.get.filter(call => call.url.includes('/api/firewall/')).length, action.type === 'network' ? 2 : 1, 'official timer stays independent; network changes report immediately');
-      } else {
-        assert.equal(result.skipType, { paused: 'channels-paused', ssid: 'wifi-ssid', empty: 'missing-config' }[mode]);
-        assert.equal(fixture.calls.get.length + fixture.calls.post.length + fixture.calls.ssh, 0);
-      }
-      assert.equal(fixture.calls.notifications.length, 0);
-    }
-  }
-}
-
-async function testLegacyDeviceEntryCannotFallThroughToReporting() {
-  for (const request of [null, { url: 'https://po0-egern.local/device' }, { url: 'http://example.com/' }]) {
-    const fixture = nativeActionFixture({ name: 'PO0 防火墙本机设备 ID' }, { env: actionValues, request });
-    const result = await runEgernReport(fixture.ctx);
-    if (!request) { assert.equal(result.type, 'widget'); assert(visibleText(result).includes('旧版浏览器设备 ID 入口')); }
-    else assert.equal(result, undefined, 'unmatched HTTP requests should pass through');
-    assert.equal(fixture.calls.get.length + fixture.calls.post.length + fixture.calls.ssh, 0);
-    assert.equal(fixture.storage.values.size, 0);
-  }
 }
 
 async function testNetworkChangesBypassOptionalTimer() {
@@ -1658,102 +1151,27 @@ async function testOfficialNetworkTargets() {
   assert.equal(JSON.parse(await store.get(CONFIG_STORAGE_KEY)).values.PO0_FIREWALL_WIFI_TOKENS,token+'@4||120');
 }
 
-
-async function testLiveParametersKeepTargetsAndTtlLocal() {
-  const values = {
-    SSH_REPORT_TARGETS: 'local-phone|local.example.com|2222|reporter|/root/report.sh|ssh-local|audit|7200',
-    PO0_PASSWORD: 'local-password', TTL_SECONDS: '14400',
-    PO0_FIREWALL_TOKENS: 'pgnfw_local@2||0',
-    WORKER_AUTO_ENABLED: 'true', OFFICIAL_AUTO_ENABLED: 'true',
-    // These old saved parameters must no longer be used.
-    AUTO_REPORT_INTERVAL_SECONDS: '60', OFFICIAL_INTERVAL_SECONDS: '60',
-    WORKER_TIMER_ENABLED: 'false', OFFICIAL_TIMER_ENABLED: 'false',
-    SKIP_WIFI_SSIDS: 'HomeWiFi', IP_CHECK_URLS: 'https://old.invalid/ip', NOTIFY_SUCCESS: 'true',
-  };
-  const snapshot = JSON.stringify({ version: 1, values });
-  const storage = createStorage({[CONFIG_STORAGE_KEY]: snapshot});
-  const runtime = {
-    SSH_REPORT_TARGETS: 'synced|changed.invalid||||ssh-other|other|90000',
-    PO0_PASSWORD: 'changed-password', PO0_FIREWALL_TOKENS: 'pgnfw_other@4', TTL_SECONDS: '90000',
-    AUTO_REPORT_INTERVAL_SECONDS: '3600', OFFICIAL_INTERVAL_SECONDS: '3600',
-    WORKER_TIMER_ENABLED: 'true', OFFICIAL_TIMER_ENABLED: 'true', SKIP_WIFI_SSIDS: '',
-    IP_CHECK_URLS: 'https://current.example/ip', POLICY: 'CurrentPolicy', NOTIFY_SUCCESS: 'false',
-  };
-  const actualNow = Date.now;
-  let now = actualNow();
-  Date.now = () => now;
-  const invoke = async (trigger = 'schedule', overrides = {}, widgetFamily = '') => {
-    const commands = [];
-    const run = createContext({ storage, env: {...runtime, ...overrides}, trigger, widgetFamily, ssid:'HomeWiFi',
-      httpGet(url, options) {
-        if (url.startsWith(API_BASE)) {
-          assert.equal(url, API_BASE + '/pgnfw_local');
-          assert.equal(options.policy, 'DIRECT');
-          return response(officialPayload({whitelist:[{ip:'203.0.113.10/24',slot:2}]}));
-        }
-        assert.equal(url, 'https://current.example/ip');
-        assert.equal(options.policy, 'CurrentPolicy');
-        return response({ip:'203.0.113.10',city:'Test',isp:'Mock'});
-      },
-      sshConnect(config) {
-        assert.equal(config.host, 'local.example.com'); assert.equal(config.port, 2222);
-        assert.equal(config.username, 'reporter'); assert.equal(config.password, 'local-password');
-        return { async exec(command) { commands.push(command); return {code:0,stdout:'OK'}; }, async close() {} };
-      },
-    });
-    const result = await runEgernReport(run.ctx);
-    for (const command of commands) {
-      assert(command.includes("'local-phone'") && command.includes("'ssh-local'") && command.includes("'7200'"));
-      assert(!command.includes('90000') && !command.includes('synced'));
-    }
-    assert.equal(await storage.get(CONFIG_STORAGE_KEY), snapshot, 'running with new parameters must never rewrite local credentials/TTL');
-    return {...run, result};
-  };
-  try {
-    let run = await invoke(); assert.equal(run.calls.ssh, 1); assert.equal(run.calls.get.length, 2);
-    assert.equal(run.calls.notifications.length, 0, 'live notification false overrides saved true');
-    now += 700000;
-    run = await invoke(); assert.equal(run.calls.ssh, 0); assert.equal(run.calls.get.length, 1);
-    run = await invoke('schedule', {AUTO_REPORT_INTERVAL_SECONDS:'600', OFFICIAL_INTERVAL_SECONDS:'600'});
-    assert.equal(run.calls.ssh, 1); assert.equal(run.calls.get.length, 2, 'changing back to defaults applies without saving');
-    run = await invoke('schedule', {WORKER_TIMER_ENABLED:'false',OFFICIAL_TIMER_ENABLED:'false'});
-    assert.equal(run.calls.ssh + run.calls.get.length, 0);
-    run = await invoke('network', {WORKER_TIMER_ENABLED:'false',OFFICIAL_TIMER_ENABLED:'false'});
-    assert.equal(run.calls.ssh, 1); assert.equal(run.calls.get.length, 2);
-    run = await invoke('network', {SKIP_WIFI_SSIDS:'HomeWiFi'});
-    assert.equal(run.calls.ssh + run.calls.get.length, 0);
-    run = await invoke('network', {SKIP_WIFI_SSIDS:'',NOTIFY_SUCCESS:'true'});
-    assert.equal(run.calls.ssh, 1); assert(run.calls.notifications.length > 0);
-    run = await invoke('PO0 防火墙上报状态', {AUTO_REPORT_INTERVAL_SECONDS:'600',OFFICIAL_INTERVAL_SECONDS:'1800'}, 'systemMedium');
-    assert.match(visibleText(run.result), /周期 10m/); assert.match(visibleText(run.result), /周期 30m/);
-    assert.equal(Date.parse(run.result.refreshAfter), now + 600000);
-    await storage.set(REPORT_LOCK_KEY, JSON.stringify({owner:'other',expiresAt:now+60000}));
-    run = await invoke('PO0 防火墙上报状态', {AUTO_REPORT_INTERVAL_SECONDS:'900',OFFICIAL_INTERVAL_SECONDS:'1800'}, 'systemMedium');
-    assert.equal(run.calls.ssh+run.calls.get.length,0);
-    assert.match(visibleText(run.result), /周期 15m/); assert.match(visibleText(run.result), /周期 30m/);
-    await storage.delete(REPORT_LOCK_KEY);
-    run = await invoke('通用设置 · 保存配置');
-    assert.match(visibleText(run.result), /无需额外保存/); assert.equal(run.calls.get.length+run.calls.ssh,0);
-  } finally { Date.now = actualNow; }
-}
-
-async function testMissingLiveParametersDoNotReuseSavedValues() {
-  const storage = createStorage({[CONFIG_STORAGE_KEY]: JSON.stringify({version:1,values:{
-    PO0_FIREWALL_TOKENS:'pgnfw_defaults@1||0', OFFICIAL_INTERVAL_SECONDS:'86400', OFFICIAL_TIMER_ENABLED:'false',
-    SKIP_WIFI_SSIDS:'HomeWiFi', OFFICIAL_NETWORK_TARGETS_ENABLED:'true', PO0_FIREWALL_WIFI_TOKENS:'pgnfw_wifi@3',
-  }})});
-  const before = await storage.get(CONFIG_STORAGE_KEY);
-  const run=createContext({storage,trigger:'schedule',env:{PO0_FIREWALL_TOKENS:''},ssid:'HomeWiFi',
-    httpGet(url) { assert.equal(url,API_BASE+'/pgnfw_defaults'); return response(officialPayload({whitelist:[{ip:'203.0.113.10/24',slot:1}]})); }
-  });
-  await runEgernReport(run.ctx);
-  assert.equal(run.calls.get.length,1,'missing live switches use defaults, ignoring saved/offline time columns');
-  assert.equal(await storage.get(CONFIG_STORAGE_KEY),before);
+async function testRetirementMigrationAndWidget() {
+  const values = { PO0_FIREWALL_TOKENS:'pgnfw_retirement_fixture@0',PO0_FIREWALL_NAMES:'保留名称',OFFICIAL_AUTO_ENABLED:'false',SSH_REPORT_TARGETS:'invalid-old',PO0_PASSWORD:'retired-secret',TTL_SECONDS:'7200' };
+  const raw=JSON.stringify({version:1,values});
+  const storage=createStorage({[CONFIG_STORAGE_KEY]:raw});
+  const {ctx,calls}=createContext({storage,widgetFamily:'medium',trigger:'PO0 防火墙上报状态',env:{OFFICIAL_INTERVAL_SECONDS:'1200'}});
+  const widget=await runEgernReport(ctx);
+  assert.equal(widget.type,'widget'); assert(calls.get.length>0); assert.equal(calls.ssh,0);
+  const saved=JSON.parse(await storage.get(CONFIG_STORAGE_KEY)).values;
+  assert.equal(saved.PO0_FIREWALL_TOKENS,values.PO0_FIREWALL_TOKENS); assert.equal(saved.OFFICIAL_AUTO_ENABLED,'false'); assert.equal(saved.SSH_REPORT_TARGETS,undefined);
+  assert.equal(JSON.parse(await storage.get(CONFIG_STORAGE_KEY+':pre-retirement-v1')).config,raw);
+  const visible=JSON.stringify(widget); assert(visible.includes('保留名称')); assert(!visible.includes('自建')); assert(!visible.includes('retired-secret')); assert(!visible.includes('pgnfw_'));
+  const originalBackup=await storage.get(CONFIG_STORAGE_KEY+':pre-retirement-v1');
+  const again=createContext({storage,trigger:'network',env:{OFFICIAL_INTERVAL_SECONDS:'1200'}});
+  await runEgernReport(again.ctx); assert.equal(again.calls.get.length,0,'disabled automatic choice persists');
+  assert.equal(await storage.get(CONFIG_STORAGE_KEY+':pre-retirement-v1'),originalBackup);
+  const retired=createContext({storage,trigger:'仅自建防火墙强制上报'}); await runEgernReport(retired.ctx); assert.equal(retired.calls.get.length,0); assert.equal(retired.calls.ssh,0);
+  const clear=createContext({storage,trigger:'清除本机 PO0 官方防火墙 Token'}); await runEgernReport(clear.ctx);
+  const synced=createContext({storage,widgetFamily:'medium',env:values}); await runEgernReport(synced.ctx); assert.equal(synced.calls.get.length,0,'clear cannot be undone by sync');
 }
 
 const tests = [
-  testLiveParametersKeepTargetsAndTtlLocal,
-  testMissingLiveParametersDoNotReuseSavedValues,
   testOfficialNetworkTargets,
   testOfficialIntervalDefaultsAndLegacyAlias,
   testLegacyAccountTimesAndNewTarget,
@@ -1761,22 +1179,7 @@ const tests = [
   testInlineOfficialTargetValidation,
   testPerAccountOfficialTimersAndReadonlyState,
   testNetworkChangesBypassOptionalTimer,
-  testEveryPublishedManualActionReturnsVisibleResult,
-  testScopedNativeForceWithoutSelectedConfigIsVisible,
-  testNativeForceFailuresAreVisible,
-  testPublishedBackgroundTriggersKeepAutomaticGuards,
-  testLegacyDeviceEntryCannotFallThroughToReporting,
-  testUiRefreshForcesBothConfiguredLanes,
-  testNamesOnlySaveAndWidgetReload,
-  testModuleNamesReachWidgetWithoutReplacingReportConfig,
-  testSettingsShowEffectiveTtlForEveryTarget,
-  testEgernWidgetBindingsStayCompatible,
-  testWidgetBusyAndStorageErrorsAlwaysRender,
-  testExplicitAutomaticActionsAreIdempotent,
-  testIndependentChannelControlsAndNames,
   testFlexibleOfficialSeparators,
-  testNamedForceActionRunsBothLanesDespiteSsidAndDue,
-  testScopedSavesDoNotOverwriteOtherChannel,
   testSavedSlotSurvivesSyncedEnvironment,
   testHitUsesDirectGetOnlyAndStaysQuiet,
   testOfficialOnlyIgnoresSshSchemaDefaults,
@@ -1794,14 +1197,12 @@ const tests = [
   testMalformedOfficialPayloadFailsClosedWithoutPost,
   testSharedRunLockAcrossModesAndContexts,
   testEgernLockExpiryAndOwnerReplacement,
-  testEgernDeviceActionsBypassLockWithoutNetwork,
   testIndependentOfficialDueUsesLastAttemptAndManualBypassesDue,
   testSsidSkipsOfficialAndExistingSshTogether,
-  testOfficialFailureContinuesAndPrecedesExistingSsh,
-  testParallelOfficialAccountsPreserveLaneOrder,
-  testOfficialTokenPersistsOnlyInConfigurationAndClearKeepsSsh,
   testEgernTimeoutBudget,
   testEgernScriptCopiesStaySynchronized,
+  testEgernWidgetBindingsStayCompatible,
+  testRetirementMigrationAndWidget,
 ];
 
 for (const test of tests) {
@@ -1816,4 +1217,4 @@ for (const test of tests) {
   }
 }
 
-if (!process.exitCode) console.log('PASS: Egern official firewall dual-channel mock checks passed.');
+if (!process.exitCode) console.log('PASS: Egern official-only firewall mock checks passed.');

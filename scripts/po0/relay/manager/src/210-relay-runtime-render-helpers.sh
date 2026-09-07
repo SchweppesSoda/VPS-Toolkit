@@ -1,27 +1,4 @@
-write_nft_allowlist_set() {
-    local tmp="$1"
-    local cache="${2:-${SRC_ALLOWLIST_CACHE}}"
-    local line set_name
-    [[ -s "${cache}" ]] || return 1
-    set_name="$(default_allowlist_nft_set_name)"
-    cat >> "${tmp}" <<EOF
-    set ${set_name} {
-        type ipv4_addr
-        flags interval
-        auto-merge
-        elements = {
-EOF
-    while IFS= read -r line || [[ -n "${line}" ]]; do
-        line="$(trim "${line}")"
-        [[ -n "${line}" ]] || continue
-        printf '            %s,\n' "${line}" >> "${tmp}"
-    done < "${cache}"
-    cat >> "${tmp}" <<'EOF'
-        }
-    }
 
-EOF
-}
 
 enabled_rule_ports_set() {
     local want_proto="$1"
@@ -131,7 +108,7 @@ print_runtime_drift_hint() {
     warn "发现 ${count} 条脚本未管理的 DNAT 转发规则：它们正在系统里生效，但不在本脚本的规则列表中。"
     [[ -n "${tables}" ]] && info "所在 nft 表：${tables}"
     info "常见原因：旧脚本、手动 nft 命令、其它面板或防火墙工具留下了转发规则。"
-    info "处理方式：想保留就可以先不管；想交给本脚本管理，用 [9] 导入当前 nft 运行时规则；确认不要了，再用 [1] 初始化接管或手动删除对应表。"
+    info "处理方式：想保留就可以先不管；想交给本脚本管理，用 [9] 导入当前 nft 运行时规则；确认不要了，由原管理工具处理对应表。"
 }
 
 public_ip_source_label() {

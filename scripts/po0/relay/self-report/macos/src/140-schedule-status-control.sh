@@ -39,9 +39,9 @@ cron_state_label() {
 }
 
 cron_status_summary() {
-    local channel="${1:-all}" state interval paused job consistency
+    local channel="${1:-official}" state interval paused job consistency
     if [[ "$channel" == all ]]; then
-        printf '自建：%s；官方：%s' "$(cron_status_summary worker)" "$(cron_status_summary official)"; return
+        cron_status_summary official; return
     fi
     IFS='|' read -r state interval paused job consistency < <(read_cron_status_snapshot "$channel")
     cron_state_label "$state"
@@ -59,7 +59,7 @@ network_event_label() {
 }
 
 show_cron_status() {
-    local target="${1:-${SCHEDULE_CHANNEL:-all}}" channel state interval paused job consistency log
+    local target="${1:-${SCHEDULE_CHANNEL:-official}}" channel state interval paused job consistency log
     for channel in worker official; do
         [[ "$target" == all || "$target" == "$channel" ]] || continue
         print_panel_section "$(schedule_channel_label "$channel") · 定时任务"
@@ -153,14 +153,3 @@ macos_expected_cron_job() { channel_expected_cron_job "$1" "${2:-worker}"; }
 macos_cron_refresh_current() { channel_schedules_current "$1"; }
 macos_launchd_refresh_current() { channel_schedules_current "$1"; }
 macos_schedule_refresh_current() { channel_schedules_current "$1"; }
-
-set_notify_enabled() {
-    local previous="$NOTIFY"
-    NOTIFY="$1"
-    if ! save_config_file || ! refresh_channel_schedules all; then NOTIFY="$previous"; save_config_file >/dev/null 2>&1 || true; return 1; fi
-    self_report_completed '通知设置已保存，已安装的两项任务分别更新。'
-}
-
-toggle_notify_interactive() {
-    if notify_enabled; then set_notify_enabled 0; else set_notify_enabled 1; fi
-}

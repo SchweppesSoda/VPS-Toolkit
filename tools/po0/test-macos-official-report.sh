@@ -55,6 +55,7 @@ export PATH PO0_TEST_CURL_LOG="$curl_log" PO0_TEST_CURL_ARGV_LOG="$curl_argv_log
 . "$src_root/060-worker-url-interval-state.sh"
 . "$src_root/075-wifi-ssid-skip.sh"
 . "$src_root/076-channel-settings.sh"
+source "$src_root/077-retirement-migration.sh"
 . "$src_root/078-official-firewall.sh"
 . "$src_root/050-config-device-defaults.sh"
 
@@ -241,25 +242,13 @@ PO0_FIREWALL_TOKENS='pgnfw_alpha'
 PO0_TEST_SCENARIO="normal"
 SCHEDULED_RUN="1"
 PO0_TEST_NOW="1000"
-rm -f "$(po0_firewall_due_state_file)" "$(po0_worker_due_state_file)"
+rm -f "$(po0_firewall_due_state_file)"
 po0_firewall_due || fail 'official due was not initially due'
 po0_firewall_mark_due || fail 'official due state write failed'
 PO0_TEST_NOW="1001"
 if po0_firewall_due; then fail 'official due ignored 600 second gate'; fi
 PO0_TEST_NOW="1601"
 po0_firewall_due || fail 'official due did not reopen after 600 seconds'
-rm -f "$(po0_worker_due_state_file)"
-PO0_TEST_NOW="1000"
-WORKER_URL='https://worker.invalid/report'
-po0_worker_due || fail 'worker due was not initially due'
-po0_worker_mark_attempt || fail 'worker attempt state write failed'
-PO0_TEST_NOW="1001"
-if po0_worker_due; then fail 'worker due ignored one-hour gate'; fi
-PO0_TEST_NOW="4601"
-po0_worker_due || fail 'worker due did not reopen after one hour'
-assert_eq "$(po0_reporter_wakeup_minutes)" "10" 'official wakeup interval'
-CRON_MINUTES="5"
-assert_eq "$(po0_reporter_wakeup_minutes)" "5" 'shorter configured wakeup interval'
 SCHEDULED_RUN="0"
 
 . "$src_root/150-report-submit.sh"
@@ -289,7 +278,7 @@ PO0_TEST_OFFICIAL_FAILURE="0"
 PO0_TEST_WORKER_RC="0"
 : > "$order_log"
 report_once || fail 'combined report failed'
-[[ "$(tr -d '\n' < "$order_log")" == "officialworker" ]] || fail 'official did not run before Worker'
+[[ "$(tr -d '\n' < "$order_log")" == "official" ]] || fail 'official did not run before Worker'
 
 # Automatic switches do not change credentials, manual actions or the shared SSID guard.
 SCHEDULED_RUN=1
@@ -303,7 +292,7 @@ WORKER_AUTO_ENABLED=1
 OFFICIAL_AUTO_ENABLED=0
 : > "$order_log"
 report_once || fail 'paused official should not fail Worker'
-[[ "$(tr -d '\n' < "$order_log")" == worker ]] || fail 'official automatic pause was ignored'
+[[ ! -s "$order_log" ]] || fail 'official automatic pause was ignored'
 WORKER_AUTO_ENABLED=0
 : > "$order_log"
 report_once || fail 'both paused should return quietly'
@@ -311,7 +300,7 @@ report_once || fail 'both paused should return quietly'
 SCHEDULED_RUN=0
 : > "$order_log"
 report_once || fail 'manual run should ignore automatic pause'
-[[ "$(tr -d '\n' < "$order_log")" == officialworker ]] || fail 'manual run did not use both configured lanes'
+[[ "$(tr -d '\n' < "$order_log")" == official ]] || fail 'manual run did not use both configured lanes'
 WORKER_AUTO_ENABLED=1
 OFFICIAL_AUTO_ENABLED=1
 FORCE_REPORT=0
@@ -325,7 +314,7 @@ report_once || fail 'official-only report failed'
 OFFICIAL_ONLY="0"
 WORKER_ONLY="1"
 report_once || fail 'worker-only report failed'
-[[ "$(tr -d '\n' < "$order_log")" == "worker" ]] || fail 'worker-only ran another channel'
+[[ ! -s "$order_log" ]] || fail 'worker-only ran another channel'
 
 : > "$order_log"
 WORKER_ONLY="0"
@@ -369,4 +358,4 @@ assert_file_has --noproxy "$src_root/078-official-firewall.sh"
 assert_file_has --tlsv1.2 "$src_root/078-official-firewall.sh"
 if grep -Fq -- ' -k' "$src_root/078-official-firewall.sh"; then fail 'TLS verification was disabled'; fi
 
-printf 'PASS: macOS official firewall dual-channel checks passed.\n'
+printf 'PASS: macOS official firewall official-only checks passed.\n'
