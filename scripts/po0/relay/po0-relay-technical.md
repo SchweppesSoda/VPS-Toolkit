@@ -1347,7 +1347,213 @@ ssh_report 只用于 Egern / 直接 SSH 上报
 失败不能清空旧有效来源
 ```
 
-### 10.2 高级学习模式（Pending）
+### 10.2 端口白名单规则集与统一审计（Pending，后续开发主线）
+
+本节记录 2026-08-31 对现有 PO0 管理体系、NiftGate、nftpo0、
+nftables-whitelist-bot、KnockGate 和 RFC-JP Telegram Bot 教程的对比结论。
+它是后续开发约束和规划，不代表这些功能已经实现；外部项目的行为以当时审阅到的版本为准。
+
+#### 10.2.1 总体判断
+
+现有 PO0 在安全边界、动态来源、客户端生态、原子应用、备份恢复和 Release 门禁上已经是主线实现，
+不迁移到其它项目，也不为了规则集功能整体改写为 Rust、Go、Python 或 SQLite。最有价值的后续路线是：
+
+```text
+沿用现有 manager / LAN Worker / 访问设备客户端的职责分离
+完成已经预留的 allowlist set 模型
+让转发规则真正引用 public / ports set
+把渠道选择和 /24、/32 前缀策略放到每个 set 上
+增加全局转发暂停 / 恢复和统一只读审计视图
+继续使用现有原子 nftables 应用、TTL、source-id 和 Release gate
+```
+
+当前最明确的缺口：
+
+```text
+端口专属 set 只有 schema，没有 UI、规则绑定和实际 nft 渲染
+来源入口各自支持部分 /24、/32 参数，但没有每 set 的集中渠道前缀策略
+已有单规则启停和全局源白名单开关，但没有暂停 / 恢复全部转发的独立状态
+allowlist entries、report stats、learning、blocked 和 summary 数据仍需分别查看
+没有内置 Telegram 管理渠道或 HMAC knock 来源；二者都只能作为可选扩展
+```
+
+#### 10.2.2 必须保持的设计边界
+
+```text
+PO0 只管理自己的 nftables 表，不使用 flush ruleset 接管整机防火墙
+日常刷新继续把必要 delete table 和完整新表放进同一个 batch
+完整 batch 先 nft -c，随后只执行一次正式 nft -f
+PO0 不直接承载 Telegram Bot、通用 HTTP 白名单端点或 Secret URL
+所有远程入口必须最小权限、可撤销、可审计，并由受限 manager CLI 完成最终校验
+public set、端口 set、来源渠道是三个独立维度，不能退化为一张无结构白名单
+source-id 继续用于分组、续期和裁剪；identity 只用于备注与审计
+URL、SSH、DDNS、Self-report、WebAuth、Knock 的信任等级不同，不能只因最终都产生 IP 就共用授权逻辑
+新增 set 参数时必须让旧客户端继续默认写入 default / public，升级前后行为不变
+```
+
+#### 10.2.3 目标数据模型
+
+`po0-relay-allowlist-sets.tsv` 当前格式仍是：
+
+```text
+id|label|enabled|scope|ports|sources|note
+```
+
+实现时应保持旧格式可迁移，并在逻辑上补齐以下字段；最终落盘格式可在编码阶段决定，
+但不应把渠道或前缀策略复制到每条转发规则：
+
+```text
+id
+label
+enabled
+scope                   public / ports
+ports                   * 或 TCP/UDP 端口集合
+include_public          端口 set 是否同时继承 public
+allowed_channels        manual,ssh_temp,ddns,client_ip,ssh_report,webauth,knock,...
+channel_prefixes        每个渠道允许的 24 / 32 策略
+default_ttl
+max_active_per_source
+note
+```
+
+白名单条目的目标逻辑字段：
+
+```text
+entry_id                如果继续使用 TSV，可由稳定复合键或显式 ID 表示
+set_id
+source_type
+source_id
+identity
+original_ip
+normalized_cidr
+created_at
+refreshed_at
+expires_at
+status                  active / expired / pending / rejected
+ipdb_snapshot
+result
+note
+```
+
+现有 `source_value` 应在兼容层继续解释为 `source-id`。IPDB 快照必须保存查询当时的库版本、
+查询时间和归属信息，不能在以后重新查询时改写历史记录。
+
+转发规则在现有字段上增加逻辑引用：
+
+```text
+allowlist_sets          一个或多个 set ID
+include_public_set      是否继承 default / public
+```
+
+一个 set 可以同时被多个端口或多条规则引用；一条规则也可以引用多个 set。
+多个 set 的放行语义为并集，但只有 enabled、scope、协议/端口和来源渠道均通过校验的条目才能进入对应 nft set。
+
+#### 10.2.4 分阶段实施
+
+第一阶段：完成规则集核心。
+
+```text
+实现端口专属 set 的 UI、校验、持久化和 profile / backup 迁移
+给转发规则增加 set 引用和是否继承 public 的选项
+按协议和监听端口渲染相应 source set，并保留 blocked 日志中的 set ID
+现有规则升级后默认继续引用 default / public
+保持完整事务预检和单次正式应用
+```
+
+第二阶段：实现渠道和前缀策略。
+
+```text
+每个 set 选择允许的来源渠道
+每个渠道只允许配置 /24 或 /32；扩大为 /24 的高风险操作必须二次确认
+所有上报入口可携带目标 set，省略时兼容 default / public
+受限 SSH wrapper 严格校验 set ID、scope、渠道、参数数量、TTL 和前缀
+attack mode pending 条目同时携带 set ID、original IP 和 normalized CIDR
+```
+
+第三阶段：全局转发开关和统一审计。
+
+```text
+新增独立 relay enabled 状态，用于一键暂停 / 恢复全部转发规则
+暂停时保留规则定义、白名单、Token、任务和历史，只停止渲染托管 DNAT / guard
+恢复时通过现有原子刷新链路重建，不逐条修改运行中规则
+统一只读审计查询 allowlist、report stats、learning、blocked 和 summary
+支持按 set、端口、渠道、source-id、运营商和时间范围筛选
+显示 original IP、normalized CIDR、identity、IPDB snapshot、创建 / 续期 / 过期时间和最后结果
+```
+
+第四阶段：可选远程渠道。
+
+```text
+Telegram Bot 只能部署在 LAN Worker 或 RFC-JP，不能运行在 PO0
+Bot 只调用受限 manager CLI，不直接编辑 PO0 文件、不直接执行 nft，也不持有 PO0 的通用 CAP_NET_ADMIN
+高风险操作必须二次确认并记录操作者；管理员和凭据必须可撤销
+Secret URL 继续遵守 10.1：PO0 不实现；如确有浏览器入口，使用现有 LAN Worker WebAuth 安全边界
+KnockGate 类能力应作为新的 knock 来源接入统一 set / TTL / audit 模型，而不是建立第二套转发管理器
+knock 应使用每设备独立密钥 / ID，支持撤销和轮换，不能只有一个长期共享 Secret
+```
+
+#### 10.2.5 外部方案中保留和拒绝的设计
+
+NiftGate 最值得吸收：
+
+```text
+public 公共规则集
+自定义规则集绑定特定转发规则
+每个规则集选择来源渠道
+每个渠道选择 /24 或 /32
+统一状态和审计的产品体验
+```
+
+不复制其“先单独 flush / delete 旧表、再加载新表”的更新方式；加载失败时旧托管表可能已经消失。
+也不把 Telegram、Secret URL 和长期凭据直接放到 PO0。
+
+`alecthw/nftpo0` 可参考 Rust 单文件、TUI、DEB 和配置自动加载体验，但不采用：
+
+```text
+flush ruleset
+PO0 本机 HTTP Token URL
+把动态来源统一扩大为 /24
+DNS 结果只追加而没有 TTL、source-id、续期和裁剪
+```
+
+`Ogannesson/nftables-whitelist-bot` 可参考 Telegram Inline Keyboard、多管理员、panic 二次确认和
+Bot 非 root 运行方式，但它管理的是整机入站白名单，不是 PO0 转发规则集。不要采用 SSH 22 永久公开、
+一个全局 set 同时保护 input / forward、重建失败 fail-open，或让 Bot 直接修改 PO0 防火墙的模型。
+
+`leconio/knockport` / KnockGate 可参考 HMAC、时间窗和 nft timeout set 自动过期。
+它不负责 DNAT / SNAT、DDNS、规则集和统一审计，因此只能作为一个新的来源渠道接入。
+
+RFC-JP Telegram Bot 教程只保留以下架构原则：
+
+```text
+PO0 保持精简
+Bot 跑在 RFC-JP / LAN Worker
+控制流只走 PO0 内网 SSH
+专用 key 使用 from=、restrict 和 forced-command
+控制机主动阻止误连 PO0 公网地址
+```
+
+教程中的示例脚本不作为实现基线：其中没有实际 Bot 代码、并发锁、TTL、source-id、规则分集和完整审计；
+白名单状态修改也没有跨状态文件和 nft 应用的事务，并且先删除 nft 表再加载，存在保护中断窗口。
+
+#### 10.2.6 验证和发布门禁
+
+上述阶段除常规 `bash -n`、`git diff --check` 和 PO0 asset 检查外，至少需要补充：
+
+```text
+旧 sets.tsv、entries.tsv、rules.tsv、profile 和完整备份的迁移回归
+旧客户端省略 set 参数时仍写入 default / public 的协议回归
+set ID、scope、端口、渠道、TTL 和 24 / 32 前缀的拒绝测试
+一个规则引用多个 set、一个 set 被多个规则引用的 nft 渲染测试
+public 继承开启 / 关闭及 disabled set 的行为测试
+暂停 / 恢复全部转发时 live state 保留和原子 reload 测试
+并发上报、续期、裁剪、attack pending 审核和 profile 切换的锁回归
+统一审计视图的 original IP、normalized CIDR、source-id 和 IPDB snapshot 保真测试
+预检失败不进入正式应用、正式刷新只有一个 batch、旧托管规则继续有效
+Release manifest、asset、checksum 和版本 / tag 对齐 gate
+```
+
+### 10.3 高级学习模式（Pending）
 
 目标是在基础 `ASSURED + 次数 + 观察跨度` 之外，结合连接持续时间、包数和字节数判断来源 IP 是否更可信。仍然不自动放行，只用于提高候选质量。
 
@@ -1365,7 +1571,7 @@ net.netfilter.nf_conntrack_acct=1
 
 候选提升可以优先使用 effective 日志；高级模式关闭时继续读取基础日志。
 
-### 10.3 通过一个 PO0 控制另一个 PO0（Pending）
+### 10.4 通过一个 PO0 控制另一个 PO0（Pending）
 
 目标是在两台 PO0 内网互通时，让一台 PO0 通过另一台 PO0 的内网 IP 执行白名单 profile 同步和应用。
 
