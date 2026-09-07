@@ -439,7 +439,7 @@ function testOverrideContract() {
   assert.ok(override.includes("cron: '* * * * *'"));
   assert.match(override, /20260907-v10/);
   assert.match(override, /先 GET/);
-  assert.match(override, /白名单有效期（TTL） 由官方服务管理/);
+  assert.match(override, /白名单有效期（TTL）\s*由官方服务管理/);
   assert.match(override, /"PO0_FIREWALL_TOKENS":""/);
   assert.ok(override.includes("match: ^http://po0-report\\.invalid/status"));
   assert.ok(override.includes("argument: '{\"mode\":\"status\""));

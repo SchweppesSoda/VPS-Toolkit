@@ -91,6 +91,13 @@ for platform in linux macos; do
         SECRET='worker-fixture'
         clear_official_tokens_interactive > /dev/null
         [[ -z "$PO0_FIREWALL_TOKENS" && -z "$PO0_FIREWALL_NAMES" && "$OFFICIAL_AUTO_ENABLED" == 0 && "$SECRET" == worker-fixture ]]
+        # Manual reports must be visible in the selected channel's recent results.
+        PO0_FIREWALL_TOKENS='pgnfw_recent_fixture@1'
+        self_report_log_path() { printf '%s/report.log' "$test_dir"; }
+        run_once_interactive() { printf 'manual-%s-result\n' "$REPORT_MODE"; }
+        run_channel_interactive official > /dev/null
+        grep -Fq 'manual-official-result' "$(schedule_channel_log_path official)"
+        [[ ! -e "$(schedule_channel_log_path worker)" ]]
         # Read each menu through the actual dispatcher without installing or reporting.
         printf '1\n0\n2\n0\n5\n0\n7\n0\n0\n' > "$test_dir/menu-input"
         exec 9< "$test_dir/menu-input"

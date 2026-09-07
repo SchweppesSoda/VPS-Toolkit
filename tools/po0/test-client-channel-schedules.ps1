@@ -101,6 +101,12 @@ try {
     Set-ChannelPeriodicInteractive worker
     Assert-Test (-not $script:WorkerTimerEnabled -and $script:Minutes -eq 90 -and $script:OfficialIntervalSeconds -eq 900) 'Worker periodic editor keeps official interval'
     Assert-Test ($script:Tasks.Count -eq 0 -and $script:Calls.Count -eq 0) 'saving periodic settings must not install tasks'
+    # Manual results go to the selected channel, then restore the shared path.
+    $manualBase=$script:LogPath
+    function Invoke-SelfReport { param([switch]$PromptForForceOnSkip) Write-SelfReportLogLine 'OK' 'manual-official-fixture' }
+    Invoke-ChannelInteractive official
+    Assert-Test ($script:LogPath -eq $manualBase) 'manual report restores common log path'
+    Assert-Test ((Get-Content -LiteralPath (Get-ChannelLogPath official) -Raw) -match 'manual-official-fixture') 'manual result visible in official recent log'
     $script:Po0FirewallScheduledRun=$true; $TimerTrigger=$false; $NetworkChanged=$false
     function Get-Po0FirewallLastAttempt { return 1000 }
     function Get-Po0FirewallNow { return 1600 }

@@ -100,8 +100,15 @@ run_channel_interactive() {
         printf "尚未配置上报通道，请先进入通道设置。\n"
         rc=1
     else
-        run_once_interactive
-        rc=$?
+        local result_log
+        result_log="$(schedule_channel_log_path "$channel")"
+        if [[ -L "$result_log" ]]; then
+            printf '本通道日志路径无效。\n' >&2
+            rc=1
+        else
+            (umask 077; run_once_interactive 2>&1 | tee -a "$result_log"; exit "${PIPESTATUS[0]}")
+            rc=$?
+        fi
     fi
     REPORT_MODE="$old_mode"
     OFFICIAL_ONLY="$old_official"

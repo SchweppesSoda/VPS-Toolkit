@@ -39,7 +39,9 @@ function Invoke-ChannelInteractive {
     $oldOfficial = $script:Po0FirewallOfficialOnly
     $oldWorker = $script:Po0FirewallWorkerOnly
     $oldScheduled = $script:Po0FirewallScheduledRun
+    $oldLogPath = $script:LogPath
     try {
+        if ($Channel -ne 'all') { $script:LogPath = Get-ChannelLogPath $Channel }
         $script:Po0FirewallOfficialOnly = $Channel -eq 'official'
         $script:Po0FirewallWorkerOnly = $Channel -eq 'worker'
         $script:Po0FirewallScheduledRun = $false
@@ -47,7 +49,11 @@ function Invoke-ChannelInteractive {
         if ($Channel -eq 'official' -and -not (Test-Po0FirewallConfigured)) { throw '官方防火墙尚未配置，请先编辑并保存参数。' }
         if (-not (Test-ClientConfigComplete)) { throw '尚未配置上报通道，请先进入通道设置。' }
         Invoke-SelfReport -PromptForForceOnSkip
+    } catch {
+        Write-SelfReportLogLine 'ERROR' '本通道手动上报未完成。'
+        throw
     } finally {
+        $script:LogPath = $oldLogPath
         $script:Po0FirewallOfficialOnly = $oldOfficial
         $script:Po0FirewallWorkerOnly = $oldWorker
         $script:Po0FirewallScheduledRun = $oldScheduled
