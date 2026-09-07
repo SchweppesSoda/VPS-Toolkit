@@ -226,38 +226,103 @@ async function testMissingReportsWithFixedSlotAndNotifiesUpdate() {
   assert.equal(visibleText(calls.notifications).includes(token), false);
 }
 
-async function testSlotMismatchPostsOnWidgetButOfficialStatusRemainsReadOnly() {
-  const token = 'pgnfw_egern_slot_not_real';
-  const { ctx, calls, storage } = createContext({
-    trigger: 'PO0 官方防火墙状态（只读）',
-    env: { PO0_FIREWALL_TOKENS: `${token}@0` },
-    httpGet() {
-      return response(officialPayload({ whitelist: [{ ip: '203.0.113.10/24', slot: 1 }] }));
-    },
-    httpPost() { throw new Error('official status must not POST'); },
+async function testSharedNetworkDoesNotClaimAnotherSlot() {
+  const token = 'pgnfw_shared_network_not_real';
+  for (const trigger of ['PO0 官方防火墙状态（只读）', '仅官方防火墙强制上报', 'PO0 防火墙上报状态', 'schedule', 'network']) {
+    for (const existingSlot of [1, null]) {
+      const run = createContext({
+        trigger, env: { PO0_FIREWALL_TOKENS: token + '@0|新设备|600' },
+        httpGet() { return response(officialPayload({ whitelist: [{ ip: '203.0.113.0/24', slot: existingSlot }] })); },
+        httpPost() { return response({ error: 'slot conflict' }, 403); },
+      });
+      const result = await runEgernReport(run.ctx);
+      const official = await officialStateOf(run.storage);
+      assert.equal(run.calls.get.length, 1);
+      assert.equal(run.calls.post.length, 0, trigger + ' must reuse the already authorized network');
+      assert.equal(official.ok, true);
+      assert.equal(official.successCount, 1);
+      assert.equal(official.entries[0].status, 'shared');
+      assert.equal(official.entries[0].currentInWhitelist, true);
+      assert.equal(official.entries[0].fixedSlot, 0, 'retain configured slot for the next network');
+      assert.equal(official.entries[0].coveredSlot, existingSlot);
+      if (result?.type === 'widget') assert.match(visibleText(result), /共用/);
+      assert.equal(visibleText({ official, result, logs: run.calls.logs, notifications: run.calls.notifications }).includes(token), false);
+      assert.equal(run.calls.notifications.length, 0, 'sharing an existing network is not a new write');
+      const saved = JSON.parse(await run.storage.get(CONFIG_STORAGE_KEY));
+      assert.match(saved.values.PO0_FIREWALL_TOKENS, /@0/);
+      const switched = createContext({
+        trigger: 'network', storage: run.storage,
+        httpGet() { return response(officialPayload({ currentIp: '198.51.100.27/24', whitelist: [{ ip: '203.0.113.0/24', slot: existingSlot }] })); },
+        httpPost(url) {
+          assert.equal(url, API_BASE + '/' + token + '/add?slot=0');
+          return response(officialPayload({ currentIp: '198.51.100.27/24', whitelist: [{ ip: '198.51.100.0/24', slot: 0 }] }));
+        },
+      });
+      await runEgernReport(switched.ctx);
+      assert.equal(switched.calls.post.length, 1);
+      assert.equal((await officialStateOf(run.storage)).entries[0].status, 'updated');
+    }
+  }
+  const sameSlot = createContext({
+    env: { PO0_FIREWALL_TOKENS: token + '@0' },
+    httpGet() { return response(officialPayload({ whitelist: [{ ip: '203.0.113.0/24', slot: 0 }] })); },
   });
-  const result = await runEgernReport(ctx);
-  const official = await officialStateOf(storage);
-  assert.equal(official.ok, true);
-  assert.equal(official.entries[0].status, 'missing');
-  assert.equal(calls.post.length, 0);
+  await runEgernReport(sameSlot.ctx);
+  assert.equal(sameSlot.calls.post.length, 0, 'compare /24 networks, not the last IPv4 octet');
+  assert.equal((await officialStateOf(sameSlot.storage)).entries[0].status, 'hit');
+}
 
-  const widgetRun = createContext({
-    trigger: 'generic manual now',
-    widgetFamily: 'systemMedium',
-    env: { PO0_FIREWALL_TOKENS: `${token}@0` },
-    httpGet() { return response(officialPayload({ whitelist: [{ ip: '203.0.113.10/24', slot: 1 }] })); },
-    httpPost() { return response(officialPayload({ whitelist: [{ ip: '203.0.113.10/24', slot: 0 }] })); },
+async function testPost403RechecksOnceWithoutRepeatingWrite() {
+  const token = 'pgnfw_post_403_not_real';
+  for (const confirmed of [true, false]) {
+    for (const thrown of [true, false]) {
+      const run = createContext({
+        env: { PO0_FIREWALL_TOKENS: token + '@0' },
+        httpGet(url, options, calls) {
+          assert.equal(options.policy, 'DIRECT');
+          return response(officialPayload({ whitelist: confirmed && calls.get.length > 1 ? [{ ip: '203.0.113.0/24', slot: 1 }] : [] }));
+        },
+        httpPost(url, options) {
+          assert.equal(options.policy, 'DIRECT');
+          if (thrown) throw new Error('status: 403, body: secret ' + token + ' Bearer private-value');
+          return response({ error: token + ' Bearer private-value' }, 403);
+        },
+      });
+      const result = await runEgernReport(run.ctx);
+      const state = await officialStateOf(run.storage);
+      assert.deepEqual(run.calls.order, ['GET ' + API_BASE + '/' + token, 'POST ' + API_BASE + '/' + token + '/add?slot=0', 'GET ' + API_BASE + '/' + token]);
+      assert.equal(state.ok, confirmed);
+      assert.equal(state.entries[0].status, confirmed ? 'shared' : 'error');
+      if (!confirmed) assert.match(state.entries[0].error, /加白失败（HTTP 403）/);
+      const visible = visibleText({ state, result, logs: run.calls.logs, notifications: run.calls.notifications });
+      assert(!visible.includes(token));
+      assert(!visible.includes('private-value'));
+    }
+  }
+  const failedRecheck = createContext({
+    httpGet(url, options, calls) {
+      if (calls.get.length > 1) throw new Error('verification unavailable');
+      return response(officialPayload());
+    },
+    httpPost() { return response({}, 403); },
   });
-  const widget = await runEgernReport(widgetRun.ctx);
-  assert.equal(widgetRun.calls.post.length, 1);
-  assert.equal(widgetRun.calls.post[0].url, API_BASE + '/' + token + '/add?slot=0');
-  assert.deepEqual(widgetRun.calls.order, ['GET ' + API_BASE + '/' + token, 'POST ' + API_BASE + '/' + token + '/add?slot=0']);
-  assert.equal((await officialStateOf(widgetRun.storage)).entries[0].status, 'updated');
-  assert.equal(widget.type, 'widget');
-  assert.equal(visibleText(widget).includes('固定槽位'), true);
-  assert.equal(visibleText(widget).includes('#1'), true);
-  assert.equal(visibleText(widget).includes(token), false);
+  await runEgernReport(failedRecheck.ctx);
+  assert.equal(failedRecheck.calls.post.length, 1);
+  assert.match((await officialStateOf(failedRecheck.storage)).entries[0].error, /加白失败（HTTP 403）/);
+}
+
+async function testGet403DoesNotPostOrAssumeSlotConflict() {
+  const token = 'pgnfw_get_403_not_real';
+  const run = createContext({
+    env: { PO0_FIREWALL_TOKENS: token },
+    httpGet() { return response({ error: token }, 403); },
+  });
+  await runEgernReport(run.ctx);
+  const state = await officialStateOf(run.storage);
+  assert.equal(run.calls.get.length, 1);
+  assert.equal(run.calls.post.length, 0);
+  assert.match(state.entries[0].error, /查询失败（HTTP 403）/);
+  assert.doesNotMatch(state.entries[0].error, /槽位冲突|pgnfw_/);
 }
 
 async function testWidgetAndReportStatusInitializeSavedToken() {
@@ -1232,8 +1297,8 @@ async function testSettingsShowEffectiveTtlForEveryTarget() {
   const storage = createStorage({ [CONFIG_STORAGE_KEY]: JSON.stringify({ version: 1, values }) });
   const fixture = createContext({ trigger: '查看本机上报设置', storage });
   const result = await runEgernReport(fixture.ctx);
-  assert(visibleText(result).includes('one · 生效 TTL 7200 秒'));
-  assert(visibleText(result).includes('two · 生效 TTL 14400 秒'));
+  assert(visibleText(result).includes('one · 白名单有效期 7200 秒'));
+  assert(visibleText(result).includes('two · 白名单有效期 14400 秒'));
   assert(!visibleText(result).includes('TTL 3600'));
   assert.equal(fixture.calls.get.length + fixture.calls.post.length + fixture.calls.ssh, 0);
 }
@@ -1568,7 +1633,9 @@ const tests = [
   testOfficialOnlyIgnoresSshSchemaDefaults,
   testMissingReportsWithFixedSlotAndNotifiesUpdate,
   testWidgetAndReportStatusInitializeSavedToken,
-  testSlotMismatchPostsOnWidgetButOfficialStatusRemainsReadOnly,
+  testSharedNetworkDoesNotClaimAnotherSlot,
+  testPost403RechecksOnceWithoutRepeatingWrite,
+  testGet403DoesNotPostOrAssumeSlotConflict,
   testValidMissingStatusReturnsSuccessWithoutPost,
   testGetFailureNeverPostsAndDoesNotLeakToken,
   testHttpGetFailureNeverPosts,

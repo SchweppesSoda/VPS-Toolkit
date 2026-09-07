@@ -532,11 +532,23 @@ function officialNormalizePayload(data) {
   };
 }
 
-async function officialPayloadFromResponse(response) {
+function officialHttpError(status, operation) {
+  const phase = operation === 'post' ? '加白' : '查询';
+  const suffix = Number.isInteger(status) ? '（HTTP ' + status + '）' : '';
+  const hint = status === 403
+    ? operation === 'post'
+      ? '：服务端拒绝写入，请核对官方白名单槽位。'
+      : '：服务端拒绝查询，请核对官方 Token 与防火墙开关。'
+    : '。';
+  const error = new Error('官方防火墙' + phase + '失败' + suffix + hint);
+  error.httpStatus = status;
+  return error;
+}
+
+async function officialPayloadFromResponse(response, operation) {
   const status = Number(response?.status);
   if (!Number.isInteger(status) || status < 200 || status >= 300) {
-    const suffix = Number.isInteger(status) ? `（HTTP ${status}）` : '';
-    throw new Error(`官方防火墙请求失败${suffix}。`);
+    throw officialHttpError(status, operation);
   }
 
   let data;
@@ -578,10 +590,14 @@ async function officialDirectRequest(ctx, item, operation) {
       insecureTls: false,
       headers: { Accept: 'application/json' },
     });
-  } catch (_) {
+  } catch (error) {
+    // Some Egern versions throw HTTP failures instead of returning a Response.
+    // Extract only the status; never retain the URL or raw response body.
+    const status = String(error?.message || '').match(/\bstatus:\s*([1-5]\d{2})\b/i);
+    if (status) throw officialHttpError(Number(status[1]), method);
     throw new Error('官方防火墙网络请求失败。');
   }
-  return await officialPayloadFromResponse(response);
+  return await officialPayloadFromResponse(response, method);
 }
 
 function officialSafeError(error) {
@@ -596,6 +612,11 @@ function officialSafeError(error) {
   if (text === '官方防火墙网络请求失败。' || text === 'Egern HTTP 能力不可用。') return text;
   const http = text.match(/^官方防火墙请求失败（HTTP (\d{3})）。$/);
   if (http) return `官方防火墙请求失败（HTTP ${http[1]}）。`;
+  const phasedHttp = text.match(/^官方防火墙(查询|加白)失败（HTTP (\d{3})）/);
+  if (phasedHttp) {
+    const safe = officialHttpError(Number(phasedHttp[2]), phasedHttp[1] === '加白' ? 'post' : 'get').message;
+    if (text === safe) return safe;
+  }
   if (/^官方防火墙(?:当前未启用|未返回有效当前出口 IPv4|返回数据无效|返回的名额无效|返回的白名单无效|返回的槽位无效|返回了重复槽位|加白后未确认当前出口)。$/.test(text)) return text;
   if (/^PO0 官方防火墙 token (?:配置包含空项或换行|配置无效：槽位只能写 @0 到 @4|配置无效：请使用 pgnfw_\.\.\.|列表包含重复项|数量超过上限（最多 16 个）)。$/.test(text)) return text;
   return '官方防火墙请求失败。';
@@ -829,6 +850,7 @@ function targetName(target) {
 }
 
 function officialStatusText(entry) {
+  if (entry?.status === 'shared') return '当前网段已放行，共用' + officialCoveredSlotText(entry);
   if (entry?.status === 'hit') return '当前出口已命中';
   if (entry?.status === 'updated') return '已更新当前出口';
   if (entry?.status === 'missing') return '当前出口未加白（只读）';
@@ -838,6 +860,30 @@ function officialStatusText(entry) {
 
 function officialDisplaySlot(slot) {
   return Number.isInteger(slot) && slot >= 0 && slot <= 4 ? slot + 1 : null;
+}
+
+function officialCoveredSlotText(entry) {
+  const slot = officialDisplaySlot(entry?.coveredSlot);
+  return slot ? '槽位 #' + slot : '自动槽位';
+}
+
+function officialMatchingRow(payload, item) {
+  // The API authorizes /24 networks, not devices or individual host addresses.
+  const network = value => officialCidr24(value).split('.').slice(0, 3).join('.');
+  const matches = payload.whitelist.filter(row => network(row.ip) === network(payload.currentIp));
+  return matches.find(row => item.slot === null || row.slot === item.slot) || matches[0];
+}
+
+function applyOfficialPayload(entry, payload, item, successStatus) {
+  entry.currentIp = payload.currentIp;
+  entry.whitelist = payload.whitelist;
+  entry.used = payload.used;
+  entry.limit = payload.limit;
+  const covered = officialMatchingRow(payload, item);
+  entry.currentInWhitelist = Boolean(covered);
+  entry.coveredSlot = covered?.slot ?? null;
+  if (covered) entry.status = item.slot !== null && covered.slot !== item.slot ? 'shared' : successStatus;
+  return Boolean(covered);
 }
 
 function officialWhitelistText(entry) {
@@ -890,15 +936,15 @@ function widgetLane(title, auto, entries, official, ctx, env) {
   ], 3)];
   shown.forEach(entry => {
     const name = official ? entry.name : entry.sourceId || entry.host;
-    const success = official ? entry.status === 'hit' || entry.status === 'updated' : entry.ok === true;
+    const success = official ? /^(hit|updated|shared)$/.test(entry.status) : entry.ok === true;
     const failed = official ? entry.status === 'error' : entry.ok === false;
-    const result = official ? success ? '已加白' : entry.status === 'missing' ? '未加白' : failed ? '失败' : '待检查'
+    const result = official ? entry.status === 'shared' ? '已放行·共用' : success ? '已加白' : entry.status === 'missing' ? '未加白' : failed ? '失败' : '待检查'
       : success ? '成功' : failed ? '失败' : '待上报';
     const color = failed ? WIDGET_COLORS.red : success ? WIDGET_COLORS.green : WIDGET_COLORS.dim;
     const suffix = entries.length > limit && entry === shown[shown.length - 1] ? ` +${entries.length - limit}` : '';
     children.push(widgetRow([
       { ...widgetText((name || '目标') + suffix, metrics.bodySize, WIDGET_COLORS.text, 'medium'), flex: 1 },
-      ...(family === 'large' && official ? [widgetText('#' + (officialDisplaySlot(entry.fixedSlot) || '自动') + ' · ' + (entry.used ?? '?') + '/' + (entry.limit ?? 5), 11, WIDGET_COLORS.dim)] : []),
+      ...(family === 'large' && official ? [widgetText((entry.status === 'shared' ? officialCoveredSlotText(entry) : '#' + (officialDisplaySlot(entry.fixedSlot) || '自动')) + ' · ' + (entry.used ?? '?') + '/' + (entry.limit ?? 5), 11, WIDGET_COLORS.dim)] : []),
       widgetText(result, 12, color),
     ]));
   });
@@ -908,7 +954,7 @@ function widgetLane(title, auto, entries, official, ctx, env) {
     const fixed = officialDisplaySlot(first?.fixedSlot);
     const detail = entries.length > 1 || family === 'large'
       ? `${entries.length} 个${official ? '账号 · 检查 10分钟' : '目标 · 周期 ' + formatDurationSeconds(autoReportIntervalSeconds(env))}`
-      : official ? (first ? `固定槽位 ${fixed ? '#' + fixed : '自动'} · 名额 ${first.used ?? '?'}/${first.limit ?? 5}` : '检查周期 10 分钟')
+      : official ? (first ? `${first.status === 'shared' ? '共用' + officialCoveredSlotText(first) : '配置槽位 ' + (fixed ? '#' + fixed : '自动')} · 名额 ${first.used ?? '?'}/${first.limit ?? 5}` : '检查周期 10 分钟')
       : `自动周期 ${formatDurationSeconds(autoReportIntervalSeconds(env))}`;
     children.push(widgetText(detail, 11, WIDGET_COLORS.dim));
   }
@@ -1520,6 +1566,7 @@ function sanitizeOfficialEntry(entry = {}) {
     ordinal: Number.isInteger(entry.ordinal) ? entry.ordinal : 0,
     slot: Number.isInteger(entry.slot) ? entry.slot : null,
     fixedSlot: Number.isInteger(entry.fixedSlot) ? entry.fixedSlot : null,
+    coveredSlot: officialDisplaySlot(entry.coveredSlot) ? entry.coveredSlot : null,
     status: String(entry.status || 'error'),
     lastAttemptAt: entry.lastAttemptAt === undefined ? undefined : String(entry.lastAttemptAt || ''),
     currentIp: officialCidr24(entry.currentIp) || '',
@@ -1597,7 +1644,7 @@ function officialIsDue(ctx, state, env = {}, item = {}) {
 function officialStateFromEntries(entries, mode, now, previous, skipped = false) {
   const cleanEntries = entries.map(sanitizeOfficialEntry);
   const failures = cleanEntries.filter((entry) => entry.status === 'error').length;
-  const successes = cleanEntries.filter(entry => /^(hit|updated|missing)$/.test(entry.status)).length;
+  const successes = cleanEntries.filter(entry => /^(hit|updated|shared|missing)$/.test(entry.status)).length;
   const first = cleanEntries.find((entry) => entry.currentIp) || cleanEntries[0] || {};
   const state = {
     version: 1,
@@ -1707,27 +1754,24 @@ async function runOfficialFirewall(ctx, env, mode = 'report') {
     };
     try {
       const status = await officialDirectRequest(ctx, item, 'get');
-      entry.currentIp = status.currentIp;
-      entry.whitelist = status.whitelist;
-      entry.used = status.used;
-      entry.limit = status.limit;
-      entry.currentInWhitelist = status.whitelist.some((row) => row.ip === status.currentIp
-        && (item.slot === null || row.slot === item.slot));
-      if (entry.currentInWhitelist) {
-        entry.status = 'hit';
-      } else if (mode === 'status') {
+      const covered = applyOfficialPayload(entry, status, item, 'hit');
+      if (!covered && mode === 'status') {
         entry.status = 'missing';
-      } else {
-        const updated = await officialDirectRequest(ctx, item, 'post');
-        const updatedHit = updated.whitelist.some((row) => row.ip === updated.currentIp
-          && (item.slot === null || row.slot === item.slot));
-        if (!updatedHit) throw new Error('官方防火墙加白后未确认当前出口。');
-        entry.status = 'updated';
-        entry.currentIp = updated.currentIp;
-        entry.whitelist = updated.whitelist;
-        entry.used = updated.used;
-        entry.limit = updated.limit;
-        entry.currentInWhitelist = true;
+      } else if (!covered) {
+        try {
+          const updated = await officialDirectRequest(ctx, item, 'post');
+          if (!applyOfficialPayload(entry, updated, item, 'updated')) throw new Error('官方防火墙加白后未确认当前出口。');
+        } catch (error) {
+          if (error.httpStatus !== 403) throw error;
+          // Another device may have added this network after our first GET.
+          // Confirm once; never delete a slot or repeat a rejected write.
+          let confirmed = false;
+          try {
+            const latest = await officialDirectRequest(ctx, item, 'get');
+            confirmed = applyOfficialPayload(entry, latest, item, 'hit');
+          } catch (_) {}
+          if (!confirmed) throw error;
+        }
       }
     } catch (error) {
       entry.error = officialSafeError(error);
@@ -2385,11 +2429,13 @@ async function handleLocalChannelAction(ctx, env, action) {
   }
   const rows = [message,
     '自建防火墙：' + (workerConfigRequested(next) ? boolEnv(next.WORKER_AUTO_ENABLED, true) ? '自动上报启用' : '自动上报停用（配置保留）' : '未配置'),
-    '自建上报周期：' + autoReportIntervalSeconds(next) + ' 秒（不是白名单 TTL）',
+    '自建定期开关：' + (boolEnv(next.WORKER_TIMER_ENABLED, true) ? '开启，间隔 ' + autoReportIntervalSeconds(next) + ' 秒' : '已关闭，间隔设置暂不使用'),
+    '自建网络切换：自动上报启用且未命中 SSID 跳过时立即上报，不受定期开关和间隔限制。',
     '官方防火墙：' + (officialTokensConfigured(next) ? boolEnv(next.OFFICIAL_AUTO_ENABLED, true) ? '自动上报启用' : '自动上报停用（配置保留）' : '未配置'),
     '官方定时：' + (boolEnv(next.OFFICIAL_TIMER_ENABLED, true) ? officialIntervalSeconds(next) + ' 秒' : '已关闭') + '；网络变化立即检查，白名单有效期由官方服务管理。',
     ...officialSavedNameRows(officialDisplayEnv(next, ctx?.env)),
-    ...widgetTargets(null, next, await storedDeviceId(ctx)).map(target => target.sourceId + ' · 生效 TTL ' + target.ttlSeconds + ' 秒'),
+    ...widgetTargets(null, next, await storedDeviceId(ctx)).map(target => target.sourceId + ' · 白名单有效期 ' + target.ttlSeconds + ' 秒（TTL）'),
+    '自建有效期：停止上报后，白名单还能保留多久；每次成功上报重新计时。',
     'SSID 跳过：' + (next.SKIP_WIFI_SSIDS || '未设置') + '；匹配时同时跳过两个自动上报通道。',
     '定时 / 网络变化共用两个通道；手动操作仍沿用原有强制上报规则。',
   ].filter(Boolean);

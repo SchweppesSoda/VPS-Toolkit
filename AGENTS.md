@@ -14,11 +14,11 @@
 
 - Release 发布文件 `nftables-relay-manager.sh` 运行在 PO0，负责 nftables、白名单、资源任务创建、restricted key wrapper 和资源导入。
 - `po0-lan-client.sh` 的源码位于 `scripts/po0/relay/lan-worker/src/`，运行在 LAN Worker，负责轮询领取任务、DDNS、自上报接收、WebAuth 接收和本机轮询器。
-- 官方防火墙上报是默认关闭的独立第二车道：每个官方账号最多 5 个槽位，先 GET 读取状态，缺失或固定槽位不匹配才 POST；访问设备官方定时可配置/关闭（默认 600 秒），网络变化独立触发，必须与 DDNS、资源任务和普通 Self-report 的计划/TTL 分开维护。
+- 官方防火墙上报是默认关闭的独立第二车道：每个官方账号最多 5 个槽位，先 GET 读取状态，缺失或固定槽位不匹配才 POST（Egern 同网段已被其它槽位覆盖时复用，不重复占槽）；访问设备官方定时可配置/关闭（默认 600 秒），网络变化独立触发，必须与 DDNS、资源任务和普通 Self-report 的计划/TTL 分开维护。
 - 支持读取 SSID 的访问设备命中本地 SSID 跳过规则时，官方和普通上报两条车道一起跳过；Stash 公开 JS 接口没有当前 SSID，不把代理 ssid-policy 当成脚本读取接口，也不声称 Stash 已支持配置 SSID 跳过名单；强制上报只绕过本机 due/SSID guard，不能绕过官方 GET。主 OpenWrt 的适配器用 mwan3 绑定 wan1/wan2；旁路 OpenWrt 用 official_source_wan1/official_source_wan2 映射专用本机 IPv4（88.2 部署为 .250/.251），真实 WAN IP 探测和官方 GET/POST 都绑定相应源地址；上游 mwan3 按源地址配置对应 WAN-only 分流，旁路网关透明代理绕过这些专用源地址，不能重新发起请求丢失所选源地址。LAN Worker 提交使用本机正常网络并遵循 OpenClash，不绑定或强制直连。探测 DNS 使用 UCI probe_dns_server 对应 PO0_OUTBOUND_IP_REPORT_PROBE_DNS_SERVER（默认 192.168.88.1）的普通 53 端口解析真实 IPv4，不硬编码探测服务器 IP；source 模式迁移须删除旧 router_probe_url 和 direct_probe_resolve，不恢复主路由旧 HTTP CGI；地址缺失或选定 WAN 故障时不回退。其它客户端使用默认出口；token 不得进入运行日志、命令参数、通知或自动运行状态。按用户明确要求，Windows/macOS/Linux 主动打开的本机配置页和编辑入口必须显示完整已保存 Token / Worker 密钥，官方 Token 输入可见并支持多行，不能用运行日志脱敏规则阻止用户核对本机配置。测试不得访问真实官方 API。
 - LAN Worker 的 DDNS resolver 上报计划和资源任务领取计划必须分开；资源任务只领取 PO0 已创建的 pending 任务，不复用 DDNS TTL / 上报频率作为资源轮询逻辑。
 - Egern 模块上报当前出口 IPv4：自建防火墙使用 SSH report，官方防火墙使用 DIRECT GET 和必要的 POST，不做 DDNS。原生表单统一使用 SSH_REPORT_TARGETS 配置一台或多台自建目标，不再重复展示单目标字段；旧本机配置和旧动作名继续兼容。
-- Egern 的 SSID 跳过只允许作为本地 guard：仅 schedule/network 自动触发命中时跳过本次公网 IP 探测、自建和官方上报；手动运行、普通上报状态页和 Widget 刷新视为强制继续，官方先 GET、缺失或槽位不符才 POST，只有明确的官方只读入口不 POST；SSID 只写入 Egern 本地状态 / 日志 / Widget，不新增 PO0、LAN Worker 或 `--ssh-ip-report` 协议字段。
+- Egern 的 SSID 跳过只允许作为本地 guard：仅 schedule/network 自动触发命中时跳过本次公网 IP 探测、自建和官方上报；手动运行、普通上报状态页和 Widget 刷新视为强制继续，官方先 GET，当前 /24 网段未被任何槽位覆盖才 POST；同网段其他槽位显示共用，保留配置槽位供新网段使用，只有明确的官方只读入口不 POST；SSID 只写入 Egern 本地状态 / 日志 / Widget，不新增 PO0、LAN Worker 或 `--ssh-ip-report` 协议字段。
 - Self-report 客户端上报到 LAN Worker，再由 LAN Worker SSH 到 PO0。
 - LAN Worker 的旧 `/report` 与 Stash `/stash-report/v1` 都必须在 `SELF_REPORT_SECRET` 为空时拒绝上报；安装或更新服务应复用已有 secret，仅在确实缺失时自动生成并持久保存，不能静默轮换现有值。
 - PO0 动态来源中 `source-id` / `source-key` 是参与分组、续期、裁剪的稳定 key；`identity` 只做备注和审计。DDNS 只有 `source-key`，没有 `identity`。
