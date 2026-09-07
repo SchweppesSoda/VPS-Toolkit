@@ -993,7 +993,9 @@ PO0 写 entries.tsv：source_type=ssh_report
 Egern 把最近状态写入 ctx.storage，Widget 读取显示
 ```
 
-Egern 同时用版本化 key `po0-ssh-ip-report:config:v1` 在本机 `ctx.storage` 持久化 SSH 上报配置。保存对象只接受模块白名单字段，`DEVICE_ID_SETUP` 与独立的本机设备 ID 不混入其中。读取时只要该 key 存在，storage 就是上报参数的唯一配置源；`ctx.env` 在“保存本机 PO0 自建防火墙配置”（兼容旧动作“保存本机自建 PO0 / 通用设置”）中只合并非官方字段，在“保存本机 PO0 官方防火墙配置”中只合并官方 Token / 名称；Token 输入留空时沿用本机 Token，允许独立保存名称，结果回显名称和槽位；历史“保存本机 PO0 上报配置”动作保留兼容。新入口分别校验本通道并保留另一通道的已保存参数，避免更换主配置后空值或 schema 默认值覆盖旧凭据。尚无 storage 配置时，完整的旧版 `ctx.env` 会自动 bootstrap；不完整的 schedule/network 任务静默返回 `missing-config`，不进行 HTTP、SSH、通知或状态写入，手动/状态/Widget 才显示设置提示。因此 PO0 模块可默认启用而不会在未配置设备上周期报错。
+Egern 用版本化 key `po0-ssh-ip-report:config:v1` 在本机 `ctx.storage` 持久化自建目标整条内容（含逐目标 TTL）、SSH 认证、官方原目标 / Wi-Fi 目标（Token、槽位及名称）和自动总开关。设备 ID 使用独立 storage。`effectiveReportEnv` 从本机字段白名单取目标 / 认证，再叠加 `LIVE_ENV_KEYS` 中当前 `ctx.env` 的上报间隔、定期开关、按网络选择开关、SSID、IP 探测和通知设置；旧存储中的这些运行参数不参与合并，当前参数缺失或清空按当前默认语义处理。自建目标完全由本机保存值决定，不匹配同步目标行；TTL 仍使用目标优先、旧本机公共 TTL 其次的规则。官方旧目标时间列只保持解析兼容，实际运行只用独立 `OFFICIAL_INTERVAL_SECONDS` / `OFFICIAL_TIMER_ENABLED`。后台、手动、最近结果、设置总览和 busy Widget 共用此合并边界。
+
+两个通道的保存动作只更新各自本机字段；旧通用保存动作只返回无需保存的提示。目标 / 认证仅在显式保存时更新，首次没有 storage 且完整旧参数有效时仍可 bootstrap；已有配置或清除后停用记录禁止同步参数自动恢复凭据。执行上报和读取视图不会重写本机配置；后续主动保存按本机白名单清理旧的独立运行参数。保存 / 清除不发起 HTTP 或 SSH，缺少目标时保留原静默及可见提示规则。
 
 单 PO0 命令等价于：
 
@@ -1020,11 +1022,11 @@ iphone-us|us-po0.example.com|22|root|/root/nftables-relay-manager.sh|TOKEN_FOR_U
 
 如果使用 PO0 专用受限 SSH 上报 key，Egern 专用 key 的 scope 应为 `egern`。wrapper 拒绝时会把不含 token 的摘要写入 `/etc/nftables.d/po0-report-key-denied.log`，也可以用 `--refresh-report-key-wrapper` 刷新 wrapper，再用 `--show-report-key-denials 80` 查看最近记录。Egern 手动执行和 Status 脚本开启 debug，SSH stderr 会写入脚本日志；长错误会分段通知。
 
-Egern 官方目标在 PO0_FIREWALL_TOKENS 中同时兼容旧 Token 列表和 `Token@slot|name|intervalSeconds` 行。第三列是客户端上报间隔，不向官方 API 发送；官方没有 TTL 设置；0 映射为 timer=false，正整数映射为内部 interval，留空沿用模块默认。兼容读取旧 interval=N / timer=true/false 选项与 ttl=N，写入统一规范为数字第三列，不要求用户输入键名。扩展行保留名称空格，保存时名称拆入 PO0_FIREWALL_NAMES，名称只影响显示并按 Token 身份匹配。每账号独立持久化 lastAttemptAt；旧状态回退到通道时间，新增 / 换槽目标立即检查，只读状态不改变周期。全局定时开关优先，网络和手动绕过 due，自动开关与 SSID guard 保留。
+Egern 官方目标在 PO0_FIREWALL_TOKENS 中使用 `Token@slot|name`，兼容旧 Token 列表和时间列。旧第三列 interval/timer 仅保留解析及存储兼容，运行函数不采用它；实际间隔和定期开关始终取独立模块参数。扩展行保留名称空格，保存时名称拆入 PO0_FIREWALL_NAMES，名称只影响显示并按 Token 身份匹配。每账号独立持久化 lastAttemptAt；旧状态回退到通道时间，新增 / 换槽目标立即检查，只读状态不改变周期。网络和手动绕过 due，本机自动总开关与实时 SSID guard 保留。
 
 Egern 上报锁覆盖 schedule、network、手动和 Widget 刷新。锁占用时不重复请求；所有原生 generic 手动入口根据 ctx.script.name 识别并返回 Widget DSL，使用上一轮状态并标记正在上报，没有缓存时显示等待提示。存储异常同样返回可渲染提示，不写覆盖原锁或结果。只注册一个 Widget；全部强制上报合并到“PO0 防火墙上报状态”，默认 YAML 移除旧“PO0 SSH 上报状态”和“强制上报 PO0 防火墙”重复项。旧名仅保留 JS 路由兼容。旧 HTTP 设备 ID 拦截不再由默认模块注册，原生设备 ID 保存 / 清除继续保留；旧自定义 HTTP 拦截兼容，无匹配请求时不得进入上报流程。默认模块共 16 个 generic 手动入口和 2 个标有“后台自动”的 schedule / network 入口，后台不要求可视返回；仅选中未配置通道时返回提示，保存 / 清除的存储异常由外层入口转为可渲染结果。自动状态从当前配置和当前 Wi-Fi 计算，两条通道复用相同显示逻辑；SSID guard 不改变持久开关，缓存结果与本次是否上报分别展示。官方显示名称优先采用当前模块的非空名称，按 Token 身份与本机账号匹配，未填模块 Token 时按本机顺序；未填名称或无法匹配时沿用本机名称，不修改已保存的 Token / 槽位 / 上报参数。显式保存后名称进入本机配置，空白保留，单独 - 清空。自建组件与设置总览标签统一使用 sourceId，identity 只参与原上报协议和审计；组件不再展示自建 TTL，目标 TTL 解析与提交保留。普通状态页和 Widget 都必须绕过 SSH unchanged/due 检查，连续刷新仍实际执行 SSH；官方保持 GET-first 和必要的 POST。最近结果通过非凭据账号摘要和固定槽位匹配，换 Token / 槽位或旧缓存无法确认归属时显示待检查，不按账号位置套用成功状态。targetValue 先遍历目标全部别名，再遍历 env 默认值，文本空列和 JSON 缺省一致；目标值不被默认覆盖。
 
-Egern/Loon/Stash 的网络目标选择为默认关闭的本机官方配置。原 Token 输入及解析器保持兼容，新 Wi-Fi 输入使用相同解析器，跨列表允许相同账号但不同时运行。Egern 配置保存增加 OFFICIAL_NETWORK_TARGETS_ENABLED、PO0_FIREWALL_WIFI_TOKENS 和内部 Wi-Fi 名称；Loon/Stash 的 official-config v1 增加可选 networkTargetsEnabled / wifiTokens / wifiNames，缺省沿用旧行为。官方保存/清除不动自建配置。
+Egern/Loon/Stash 的网络目标选择为默认关闭的本机官方配置。原 Token 输入及解析器保持兼容，新 Wi-Fi 输入使用相同解析器，跨列表允许相同账号但不同时运行。Egern 本机保存 PO0_FIREWALL_WIFI_TOKENS 和内部 Wi-Fi 名称，OFFICIAL_NETWORK_TARGETS_ENABLED 直接读取模块参数；Loon/Stash 的 official-config v1 增加可选 networkTargetsEnabled / wifiTokens / wifiNames，缺省沿用旧行为。官方保存/清除不动自建配置。
 
 Egern 使用 networkContext 区分最近官方检查；Loon/Stash 使用 official.network。切换到另一类网络不复用旧 due，跨网络只读查询不推进该网络的上报时钟。未知网络只跳过官方请求，保留自建原有触发规则；Stash 的自动未知网络仍按旧策略整轮跳过。Stash 在开启网络目标选择时才使用两个互补 ssid-policy 探测组，恰好一条成功且 HTTP 204 才分类；不从通用网络错误猜测蜂窝。
 
@@ -1594,7 +1596,7 @@ ssh 调用被控方非交互导入/应用入口
 - Windows/macOS/Linux 复用 WorkerAutoEnabled / OfficialAutoEnabled、WORKER_AUTO_ENABLED / OFFICIAL_AUTO_ENABLED 及已有 Timer / Network 配置键。总开关只限制自动运行；定期开关只限制 timer 分支。保存修改只 refresh 已有任务，不 install；清除或删除自建保留官方状态文件与任务。
 - Loon/Stash 的 version=1 channel-settings 增加 workerTimerEnabled、officialTimerEnabled；模块使用 worker_timer_enabled、official_timer_enabled。worker 的 auto_report_interval_seconds 与历史 refresh_ttl_seconds / ttl_seconds、官方 officialIntervalSeconds 均兼容。历史间隔 0 表示 timer disabled，首次规范保存使用原有正间隔或平台默认值，独立开关保留 false。Windows IntervalSeconds=0 是未指定值，不能迁移为 timer disabled。
 - Loon 的 Worker 配置解析与校验移入 Worker 运行分支，官方请求不依赖 Worker；Windows Worker URL / 间隔校验同样在官方执行后单独捕获。官方-only 的配置可用性检查不校验自建。
-- Egern 新的通用设置保存动作只写公共字段；新自建保存入口只写 WORKER_CONFIG_KEYS，历史“自建 / 通用”动作继续兼容。官方第三列名称统一为上报间隔，旧 ttl=N 等历史列仍兼容读取；SSH 最后一列 TTL 仍传给 PO0。最近结果只读本机状态；一个 Widget 刷新继续上报。
+- Egern 自建保存入口只写 WORKER_CONFIG_KEYS，官方保存只写本机官方字段；通用保存动作仅保留无写入兼容提示。上报间隔、定期开关及通用选项直接读取模块参数，官方旧时间列只兼容解析；SSH 最后一列 TTL 保留本机并传给 PO0。最近结果读取本机状态与当前运行参数；一个 Widget 刷新继续上报。
 - OpenWrt UCI 增加 worker_timer_enabled、official_timer_enabled，缺省启用并兼容 interval_seconds / official_interval_seconds=0 的旧关闭语义。procd/service/UCI 三层都检查本通道 timer switch，network 分支保留独立设置；定期关闭不移动或删除原截止状态。LuCI 分通道保存只解析所属字段；上报、强制上报及只读查询不隐含保存。
 - Stash 每分钟轮询 DIRECT IPv4 检测出口变化；轮询间隔不等于定期上报间隔，也不等于 script-providers.interval 脚本更新间隔。通知和受支持 SSID 的作用范围按客户端实际能力显示。
 

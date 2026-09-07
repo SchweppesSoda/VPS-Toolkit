@@ -18,41 +18,11 @@ const MAX_AUTO_REPORT_INTERVAL_SECONDS = 86400;
 const DEFAULT_CELLULAR_CIDR_PREFIX = 24;
 const REPORT_TITLE = 'PO0 出口上报';
 const REPORT_FAILED_TITLE = 'PO0 防火墙上报失败';
-const PERSISTED_ENV_KEYS = [
-  'PO0_HOST',
-  'PO0_PORT',
-  'PO0_USER',
-  'PO0_PASSWORD',
-  'PO0_PRIVATE_KEY',
-  'PO0_PASSPHRASE',
-  'PO0_SCRIPT',
-  'SSH_REPORT_SOURCE',
-  'SSH_REPORT_TOKEN',
-  'PO0_FIREWALL_TOKENS',
-  'PO0_FIREWALL_NAMES',
-  'OFFICIAL_NETWORK_TARGETS_ENABLED',
-  'PO0_FIREWALL_WIFI_TOKENS',
-  'PO0_FIREWALL_WIFI_NAMES',
-  'WORKER_AUTO_ENABLED',
-  'OFFICIAL_AUTO_ENABLED',
-  'OFFICIAL_INTERVAL_SECONDS',
-  'WORKER_TIMER_ENABLED',
-  'OFFICIAL_TIMER_ENABLED',
-  'REPORT_IDENTITY',
-  'TTL_SECONDS',
-  'AUTO_REPORT_INTERVAL_SECONDS',
-  'CELLULAR_CIDR_PREFIX',
-  'SKIP_WIFI_SSIDS',
-  'SSH_REPORT_TARGETS',
-  'IP_CHECK_URL',
-  'IP_CHECK_URLS',
-  'POLICY',
-  'NOTIFY_SUCCESS',
-  'NOTIFY_FAILURE',
-];
-const OFFICIAL_CONFIG_KEYS = ['PO0_FIREWALL_TOKENS', 'PO0_FIREWALL_NAMES', 'OFFICIAL_NETWORK_TARGETS_ENABLED', 'PO0_FIREWALL_WIFI_TOKENS', 'PO0_FIREWALL_WIFI_NAMES', 'OFFICIAL_AUTO_ENABLED', 'OFFICIAL_INTERVAL_SECONDS', 'OFFICIAL_TIMER_ENABLED'];
-const WORKER_CONFIG_KEYS = ['PO0_HOST', 'PO0_PORT', 'PO0_USER', 'PO0_PASSWORD', 'PO0_PRIVATE_KEY', 'PO0_PASSPHRASE', 'PO0_SCRIPT', 'SSH_REPORT_SOURCE', 'SSH_REPORT_TOKEN', 'REPORT_IDENTITY', 'TTL_SECONDS', 'AUTO_REPORT_INTERVAL_SECONDS', 'CELLULAR_CIDR_PREFIX', 'SSH_REPORT_TARGETS', 'WORKER_AUTO_ENABLED', 'WORKER_TIMER_ENABLED'];
-const COMMON_CONFIG_KEYS = PERSISTED_ENV_KEYS.filter(key => !WORKER_CONFIG_KEYS.includes(key) && !OFFICIAL_CONFIG_KEYS.includes(key));
+// Targets (including TTL), authentication and local automatic switches stay on this device.
+const WORKER_CONFIG_KEYS = ['PO0_HOST', 'PO0_PORT', 'PO0_USER', 'PO0_PASSWORD', 'PO0_PRIVATE_KEY', 'PO0_PASSPHRASE', 'PO0_SCRIPT', 'SSH_REPORT_SOURCE', 'SSH_REPORT_TOKEN', 'REPORT_IDENTITY', 'TTL_SECONDS', 'CELLULAR_CIDR_PREFIX', 'SSH_REPORT_TARGETS', 'WORKER_AUTO_ENABLED'];
+const OFFICIAL_CONFIG_KEYS = ['PO0_FIREWALL_TOKENS', 'PO0_FIREWALL_NAMES', 'PO0_FIREWALL_WIFI_TOKENS', 'PO0_FIREWALL_WIFI_NAMES', 'OFFICIAL_AUTO_ENABLED'];
+const PERSISTED_ENV_KEYS = [...WORKER_CONFIG_KEYS, ...OFFICIAL_CONFIG_KEYS];
+const LIVE_ENV_KEYS = ['AUTO_REPORT_INTERVAL_SECONDS', 'WORKER_TIMER_ENABLED', 'OFFICIAL_INTERVAL_SECONDS', 'OFFICIAL_TIMER_ENABLED', 'OFFICIAL_NETWORK_TARGETS_ENABLED', 'SKIP_WIFI_SSIDS', 'IP_CHECK_URL', 'IP_CHECK_URLS', 'POLICY', 'NOTIFY_SUCCESS', 'NOTIFY_FAILURE'];
 const MODULE_DEFAULT_ENV_VALUES = {
   PO0_PORT: '22',
   PO0_USER: 'root',
@@ -1267,8 +1237,17 @@ function persistableEnvValues(env) {
   return values;
 }
 
+function effectiveReportEnv(localValues, runtimeEnv = {}) {
+  const env = persistableEnvValues(localValues);
+  // Missing/empty live values use current defaults, never an old storage snapshot.
+  for (const key of LIVE_ENV_KEYS) {
+    if (runtimeEnv[key] !== undefined && runtimeEnv[key] !== null) env[key] = String(runtimeEnv[key]).trim();
+  }
+  return env;
+}
+
 function reportConfigSaveCandidate(storedValues, runtimeEnv) {
-  const candidate = { ...(storedValues || {}) };
+  const candidate = persistableEnvValues(storedValues);
   const runtimeValues = persistableEnvValues(runtimeEnv);
   for (const [key, value] of Object.entries(runtimeValues)) {
     const schemaDefault = MODULE_DEFAULT_ENV_VALUES[key];
@@ -1307,9 +1286,6 @@ async function storedReportConfig(ctx) {
   }
 
   const values = persistableEnvValues(parsed.values);
-  if (Object.keys(values).length === 0) {
-    throw new Error('本机 PO0 上报配置为空；请运行“清除本机全部 PO0 上报配置”后重新保存。');
-  }
   return {
     exists: true,
     values,
@@ -1671,12 +1647,12 @@ function isNetworkChangeRun(ctx) {
   return /network|网络变化/i.test(scriptLabel(ctx));
 }
 function officialIntervalSeconds(env, item = {}) {
-  const value = Number(item.interval ?? env?.OFFICIAL_INTERVAL_SECONDS ?? DEFAULT_OFFICIAL_INTERVAL_SECONDS);
+  const value = Number(String(env?.OFFICIAL_INTERVAL_SECONDS ?? '').trim() || DEFAULT_OFFICIAL_INTERVAL_SECONDS);
   if (!Number.isInteger(value) || value < 60 || value > 86400) throw new Error('官方上报间隔必须为 60..86400 秒');
   return value;
 }
 function officialTimerEnabled(env, item = {}) {
-  return boolEnv(env.OFFICIAL_TIMER_ENABLED, true) && item.timer !== false;
+  return boolEnv(env.OFFICIAL_TIMER_ENABLED, true);
 }
 function officialIsDue(ctx, state, env = {}, item = {}) {
   if (!isAutomaticReportRun(ctx) || isNetworkChangeRun(ctx)) return true;
@@ -2226,10 +2202,7 @@ async function handleScopedConfigSaveScript(ctx, runtimeEnv, storedValues, devic
       candidate = { ...(storedValues || {}), PO0_FIREWALL_TOKENS: input };
       candidate.PO0_FIREWALL_NAMES = officialNamesForSave(storedValues || {}, runtimeEnv, input);
       if (runtimeEnv.OFFICIAL_AUTO_ENABLED !== undefined) candidate.OFFICIAL_AUTO_ENABLED = String(runtimeEnv.OFFICIAL_AUTO_ENABLED);
-      for (const key of ['OFFICIAL_INTERVAL_SECONDS', 'OFFICIAL_TIMER_ENABLED']) {
-        if (runtimeEnv[key] !== undefined && String(runtimeEnv[key]).trim()) candidate[key] = String(runtimeEnv[key]);
-      }
-      for (const key of ['OFFICIAL_NETWORK_TARGETS_ENABLED', 'PO0_FIREWALL_WIFI_TOKENS']) {
+      for (const key of ['PO0_FIREWALL_WIFI_TOKENS']) {
         if (runtimeEnv[key] !== undefined && String(runtimeEnv[key]).trim()) candidate[key] = String(runtimeEnv[key]);
       }
       if (candidate.PO0_FIREWALL_WIFI_TOKENS === '-') delete candidate.PO0_FIREWALL_WIFI_TOKENS;
@@ -2239,16 +2212,15 @@ async function handleScopedConfigSaveScript(ctx, runtimeEnv, storedValues, devic
           officialNetworkEnv({ ...storedValues, OFFICIAL_NETWORK_TARGETS_ENABLED: 'true' }, { kind: 'wifi' }),
           { PO0_FIREWALL_TOKENS: runtimeEnv.PO0_FIREWALL_WIFI_TOKENS }, candidate.PO0_FIREWALL_WIFI_TOKENS);
       }
-      if (boolEnv(candidate.OFFICIAL_NETWORK_TARGETS_ENABLED, false) && !candidate.PO0_FIREWALL_WIFI_TOKENS) {
+      if (boolEnv(runtimeEnv.OFFICIAL_NETWORK_TARGETS_ENABLED, false) && !candidate.PO0_FIREWALL_WIFI_TOKENS) {
         throw new Error('开启按网络选择目标前，请填写 Wi-Fi 官方上报目标。');
       }
-      officialIntervalSeconds(candidate);
+      officialIntervalSeconds(effectiveReportEnv(candidate, runtimeEnv));
     } else {
       const scopedEnv = { ...runtimeEnv };
       for (const key of OFFICIAL_CONFIG_KEYS) delete scopedEnv[key];
-      if (ctx?.script?.name === '自建防火墙 · 保存配置') for (const key of COMMON_CONFIG_KEYS) delete scopedEnv[key];
       candidate = reportConfigSaveCandidate(storedValues, scopedEnv);
-      const workerEnv = { ...candidate };
+      const workerEnv = effectiveReportEnv(candidate, runtimeEnv);
       delete workerEnv.PO0_FIREWALL_TOKENS;
       const channels = validateReportChannels(workerEnv, deviceId);
       if (channels.workerError) throw channels.workerError;
@@ -2258,7 +2230,7 @@ async function handleScopedConfigSaveScript(ctx, runtimeEnv, storedValues, devic
     }
     await saveReportConfig(ctx, candidate);
     notify(ctx, 'PO0 Egern Config', title + '已保存');
-    return widgetPanel(REPORT_TITLE, [title + '已保存。', ...(officialOnly ? [...officialSavedNameRows(candidate), ...officialNetworkSettingsRows(candidate)] : []), '另一通道的已保存参数保持不变；本次只保存，不发起上报。'], true, ctx);
+    return widgetPanel(REPORT_TITLE, [title + '已保存。', ...(officialOnly ? [...officialSavedNameRows(effectiveReportEnv(candidate, runtimeEnv)), ...officialNetworkSettingsRows(effectiveReportEnv(candidate, runtimeEnv))] : []), '已保存本机目标、认证和 TTL；上报间隔、定期开关及通用设置直接读取模块参数。本次未上报。'], true, ctx);
   } catch (error) {
     return widgetPanel(REPORT_TITLE, [title + '未保存。', redactError(error, { ...(storedValues || {}), ...runtimeEnv })], false, ctx);
   }
@@ -2268,7 +2240,7 @@ async function handleReportConfigSaveScript(ctx, runtimeEnv, storedValues, devic
   try {
     const candidate = reportConfigSaveCandidate(storedValues, runtimeEnv);
     if (officialTokensConfigured(candidate)) candidate.PO0_FIREWALL_NAMES = officialNamesForSave(storedValues || {}, runtimeEnv, candidate.PO0_FIREWALL_TOKENS);
-    const channels = validateReportChannels(candidate, deviceId);
+    const channels = validateReportChannels(effectiveReportEnv(candidate, runtimeEnv), deviceId);
     if (!channels.anyRequested || !channels.anyValid) {
       throw channels.officialError || channels.workerError || new Error('至少配置一个可用的 PO0 上报通道。');
     }
@@ -2287,7 +2259,7 @@ async function handleReportConfigSaveScript(ctx, runtimeEnv, storedValues, devic
     return widgetPanel(REPORT_TITLE, [
       `设备: ${deviceDisplayName(deviceId)}`,
       `已保存: ${summary}`,
-      ...officialSavedNameRows(candidate),
+      ...officialSavedNameRows(effectiveReportEnv(candidate, runtimeEnv)),
       '密码、私钥和 Token 仅写入本机 ctx.storage；运行状态不保存 Token。',
       '后续更换 Egern 配置时无需重新填写。',
     ], true, ctx);
@@ -2427,7 +2399,7 @@ function officialDisplayEnv(env, runtimeEnv) {
       ? parseOfficialTokens(runtimeEnv.PO0_FIREWALL_TOKENS) : accounts;
     const moduleNames = moduleAccounts.map((item, index) => officialAccountLabel(runtimeEnv, item, index));
     // Sync can update display names only, matched by token; reporting continues
-    // using saved local slots, intervals and timer switches until an explicit save.
+    // using saved local credentials/slots; time settings come from live parameters.
     const names = accounts.map((account, index) => {
       const moduleIndex = moduleAccounts.findIndex(item => item.token === account.token);
       const clear = moduleAccounts[moduleIndex]?.name === '-' || String(runtimeEnv.PO0_FIREWALL_NAMES || '').trim() === '-';
@@ -2476,16 +2448,13 @@ async function handleLocalChannelAction(ctx, env, action) {
   const next = { ...env };
   let message = '';
   if (action === 'save-common') {
-    const input = {};
-    for (const key of COMMON_CONFIG_KEYS) if (ctx.env?.[key] !== undefined) input[key] = ctx.env[key];
-    await saveReportConfig(ctx, reportConfigSaveCandidate(env, input));
-    return widgetPanel(REPORT_TITLE, ['通用设置已保存。', '仅更新通知、SSID 跳过与公共出口探测参数，两个通道配置保持不变；本次未上报。'], true, ctx);
+    return widgetPanel(REPORT_TITLE, ['通用设置直接读取当前模块参数，无需额外保存。', '本次未修改本机目标、认证或自动开关，未发起上报。'], true, ctx);
   }
   if (action === 'recent') {
     const state = sanitizedStoredState(await storageGet(ctx, STORAGE_KEY)) || {};
     state.official = await storedOfficialState(ctx);
     state.uiNotice = '查看最近结果 · 本次未上报';
-    return widgetFromState(state, ctx, await storedDeviceId(ctx), env);
+    return widgetFromState(state, ctx, await storedDeviceId(ctx), officialNetworkEnv(env, networkInfo(ctx)));
   }
   if (action === 'clear-worker') {
     for (const key of WORKER_CONFIG_KEYS) delete next[key];
@@ -2510,6 +2479,8 @@ async function handleLocalChannelAction(ctx, env, action) {
     ], true, ctx);
   }
   const rows = [message,
+    '目标、认证、TTL、设备 ID 和自动总开关：本机保存。',
+    '间隔、定期开关、按网络选择及通用设置：当前模块参数，无需保存。',
     '自建防火墙：' + (workerConfigRequested(next) ? boolEnv(next.WORKER_AUTO_ENABLED, true) ? '自动上报启用' : '自动上报停用（配置保留）' : '未配置'),
     ...(workerConfigRequested(next) ? [
       '自建启用定期上报：' + (boolEnv(next.WORKER_TIMER_ENABLED, true) ? '是' : '否') + '；上报间隔：' + autoReportIntervalSeconds(next) + ' 秒' + (boolEnv(next.WORKER_TIMER_ENABLED, true) ? '' : '（暂不使用）'),
@@ -2593,9 +2564,7 @@ async function runEgernReportUnlocked(ctx) {
     if (isReportConfigSaveRun(ctx)) {
       return await handleReportConfigSaveScript(ctx, runtimeEnv, storedConfig.values, deviceId);
     }
-    if (storedConfig.exists) {
-      env = storedConfig.values;
-    }
+    env = effectiveReportEnv(storedConfig.exists ? storedConfig.values : runtimeEnv, runtimeEnv);
     if (localChannelAction(ctx)) return await handleLocalChannelAction(ctx, env, localChannelAction(ctx));
     if (isOfficialConfigClearRun(ctx)) {
       return await handleOfficialConfigClearScript(ctx, storedConfig.values);
@@ -2874,7 +2843,8 @@ async function unavailableReportResult(ctx, status) {
     if (shouldReturnWidget(ctx)) {
       deviceId = await storedDeviceId(ctx);
       const config = await storedReportConfig(ctx);
-      if (config.exists) env = config.values;
+      env = effectiveReportEnv(config.exists ? config.values : {}, ctx?.env || {});
+      env = officialNetworkEnv(env, networkInfo(ctx));
     }
   } catch (_) {
     // Storage errors must still produce a valid widget without exposing raw errors.

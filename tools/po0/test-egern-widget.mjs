@@ -103,15 +103,15 @@ if (process.argv.includes('--preview')) {
 }
 console.log('PASS: Egern widget names, both automatic states, typography, and target/default precedence.');
 
-// Saved per-account intervals must win over defaults and unsaved module values.
+// Live channel settings override legacy time columns in saved official targets.
 const custom = { ...env, AUTO_REPORT_INTERVAL_SECONDS: '7200', OFFICIAL_INTERVAL_SECONDS: '3600', PO0_FIREWALL_TOKENS: 'pgnfw_one@0|家庭|1800,pgnfw_two@2|办公室|0' };
 for (const family of ['systemMedium', 'systemLarge']) {
   const start = Date.now();
   const w = widgetFromState(state, ctx(family), '', custom);
   const t = texts(w);
-  assert(t.some(x => x === '周期 30m'));
-  assert(t.includes('定时关闭 · 间隔暂不使用'));
-  assert(Date.parse(w.refreshAfter) >= start + 1800000 && Date.parse(w.refreshAfter) <= Date.now() + 1800000);
+  assert(t.some(x => x === '周期 1h'));
+  assert(!t.includes('定时关闭 · 间隔暂不使用'));
+  assert(Date.parse(w.refreshAfter) >= start + 3600000 && Date.parse(w.refreshAfter) <= Date.now() + 3600000);
   assert(!t.some(x => /检查.*10/.test(x)));
 }
 const inherited = widgetOfficialEntries(state, {...env, OFFICIAL_INTERVAL_SECONDS: '3600'}, {OFFICIAL_INTERVAL_SECONDS: '60'});
@@ -122,4 +122,4 @@ for (const disabled of [
   {SKIP_WIFI_SSIDS:'HomeWiFi'},
 ]) assert(!('refreshAfter' in widgetFromState(state, ctx('systemMedium'), '', {...custom,...disabled})));
 assert(!('refreshAfter' in widgetFromState(null, ctx('systemMedium'), '', {})));
-console.log('PASS: saved widget intervals, per-account disabled timers, and refresh scheduling.');
+console.log('PASS: live widget intervals, channel timer switches, and refresh scheduling.');
