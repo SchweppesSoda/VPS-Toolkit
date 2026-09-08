@@ -111,4 +111,4 @@ manager 的新版备份只含转发配置、规则与更新配对，恢复后不
 
 私有 ProxyConfig 的配置与凭据资产只在其私有仓库的同名 tag/Release 中归档，不进入公开资产。
 
-实现边界见 [技术说明](po0-relay-technical.md)，变更记录见 [CHANGELOG](CHANGELOG.md)，Egern 导入见 [Egern README](../../nftables/clients/egern/README.md)。
+实现边界见 [技术说明](po0-relay-technical.md)，变更记录见 [CHANGELOG](CHANGELOG.md)，Egern 导入见 [Egern README](../nftables/clients/egern/README.md)。

@@ -34,3 +34,8 @@ backups/
 Thumbs.db
 .idea/
 .vscode/
+
+# Local build/check output and visual previews; shared .codex config stays visible.
+/.tmp/
+/.codex/visualizations/
+/.codex/show-me-*.html

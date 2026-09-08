@@ -27,7 +27,7 @@
 | 文档 | 用途 |
 | --- | --- |
 | [`scripts/po0/README.md`](./scripts/po0/README.md) | PO0 子系统导航。 |
-| [`scripts/po0/relay/README.md`](./scripts/po0/relay/README.md) | PO0 nftables Relay、LAN Worker、访问设备上报和资源任务。 |
+| [`scripts/po0/relay/README.md`](./scripts/po0/relay/README.md) | PO0 转发、LAN 更新镜像与七端官方上报。 |
 | [`scripts/po0/reinstall/README.md`](./scripts/po0/reinstall/README.md) | PO0 Debian 重装。 |
 | [`scripts/po0/proxy-services/README.md`](./scripts/po0/proxy-services/README.md) | PO0 代理服务增强 sidecar。 |
 | [`scripts/vps/proxy-stack/README.md`](./scripts/vps/proxy-stack/README.md) | Argosbx、Proxy Gateway Plus、sidecar 的全新部署、已有机器接管和按配置复刻。 |
@@ -88,7 +88,7 @@ po0-lan-client --menu
 
 ## 目录结构
 
-- `scripts/po0/`：PO0 重装、中转、防火墙、客户端上报、资源任务和代理服务增强。
+- `scripts/po0/`：PO0 重装、转发、LAN 更新镜像、官方上报和代理服务增强。
 - `scripts/vps/`：通用 VPS 工具和 inventory 驱动的代理栈部署、接管与复刻；每个工具目录维护自己的用户文档。
 - `tools/po0/`：PO0 Release 发布文件的离线构建、manifest 和检查工具。
 - `tools/vps/`：通用 VPS 模块的离线专项检查。
@@ -125,3 +125,11 @@ PO0 正式版本通过 [GitHub Releases](https://github.com/SchweppesSoda/VPS-To
 ## 许可证
 
 MIT
+
+## 跨仓维护与临时资料
+
+- 本仓 `main` 维护运维源码，提交与发布规则见 [AGENTS.md](./AGENTS.md)。PO0 构建产物由 `tools/po0/` 生成，经既有门禁发布；仅文档整理不重复发布脚本。
+- [proxy-gateway-plus](https://github.com/SchweppesSoda/proxy-gateway-plus) 拥有独立网关；本仓 `scripts/vps/proxy-stack/` 负责调用与编排，不复制网关业务实现。
+- [CustomRules](https://github.com/SchweppesSoda/CustomRules) 拥有公共规则与普通客户端模块；PO0 官方模块仍由本仓维护。[proxy-vps-skills](https://github.com/SchweppesSoda/proxy-vps-skills) 拥有配置维护工作流与审计工具。
+- [vps-toolkit-web](https://github.com/SchweppesSoda/vps-toolkit-web) 拥有静态工具和 Pages；私有设备配置、部署记录及现场恢复资料留在各自私有仓库。
+- `.tmp/` 只保存构建、测试和下载缓存；归档前核对来源与校验，现场备份及长期恢复资料存放仓库外。历史兼容文件名不表示退役功能仍可使用。

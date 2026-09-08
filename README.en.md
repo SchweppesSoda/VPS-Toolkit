@@ -27,7 +27,7 @@ Start from the relevant README for normal use. `*-technical.md` and `*-design.md
 | Document | Purpose |
 | --- | --- |
 | [`scripts/po0/README.md`](./scripts/po0/README.md) | PO0 subsystem navigation. |
-| [`scripts/po0/relay/README.md`](./scripts/po0/relay/README.md) | PO0 nftables Relay, LAN Worker, access-device reporting, and resource jobs. |
+| [`scripts/po0/relay/README.md`](./scripts/po0/relay/README.md) | PO0 forwarding, LAN update mirror, and seven official reporting clients. |
 | [`scripts/po0/reinstall/README.md`](./scripts/po0/reinstall/README.md) | PO0 Debian reinstall. |
 | [`scripts/po0/proxy-services/README.md`](./scripts/po0/proxy-services/README.md) | PO0 proxy-service sidecar. |
 | [`scripts/vps/proxy-stack/README.md`](./scripts/vps/proxy-stack/README.md) | Fresh deployment, adoption of an existing host, or configuration-driven rebuild for Argosbx, Proxy Gateway Plus, and the sidecar. |
@@ -88,7 +88,7 @@ Use each tool's own README for installation, parameters, and removal instruction
 
 ## Repository Layout
 
-- `scripts/po0/`: PO0 reinstall, relay, firewall, client reporting, resource jobs, and proxy-service enhancement.
+- `scripts/po0/`: PO0 reinstall, forwarding, LAN update mirror, official reporting, and proxy-service enhancement.
 - `scripts/vps/`: general VPS tools and inventory-driven proxy-stack deployment, adoption, and configuration-driven rebuild; each tool directory owns its user documentation.
 - `tools/po0/`: offline builds, manifests, and checks for PO0 Release assets.
 - `tools/vps/`: offline focused checks for general VPS modules.
@@ -125,3 +125,11 @@ Do not commit runtime passwords, tokens, deploy keys, private keys, node links, 
 ## License
 
 MIT
+
+## Cross-repository maintenance and local output
+
+- This repository maintains operational source on `main`; see [AGENTS.md](./AGENTS.md) for commit and release rules. `tools/po0/` generates PO0 assets for the existing release gates. Documentation cleanup does not require another script release.
+- [proxy-gateway-plus](https://github.com/SchweppesSoda/proxy-gateway-plus) owns the gateway implementation; `scripts/vps/proxy-stack/` orchestrates it without copying its business logic.
+- [CustomRules](https://github.com/SchweppesSoda/CustomRules) owns public rules and general client modules. PO0 official modules remain here. [proxy-vps-skills](https://github.com/SchweppesSoda/proxy-vps-skills) owns configuration maintenance workflows and audits.
+- [vps-toolkit-web](https://github.com/SchweppesSoda/vps-toolkit-web) owns static tools and Pages. Device configuration, deployment records and recovery material stay in their private repositories.
+- `.tmp/` holds build, test and download output. Verify provenance and checksums before archiving; keep field backups and durable recovery material outside the repository. Historical compatibility filenames do not mean retired features are supported.
