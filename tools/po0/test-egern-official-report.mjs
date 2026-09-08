@@ -1284,7 +1284,39 @@ async function testWidgetUsesSpaceAndSeparatesWhitelistRows() {
   assert.doesNotMatch(unknownWidget, /未占用/, 'an unknown slot must not make all numbered slots appear empty');
 }
 
+async function testWhitelistSortsNumberedSlotsBeforeAutomatic() {
+  const whitelist = [
+    { slot: 3, ip: '203.0.113.10/24' },
+    { slot: null, ip: '192.0.2.20/24' },
+    { slot: 1, ip: '198.51.100.30/24' },
+    { slot: 0, ip: '192.0.2.40/24' },
+    { slot: null, ip: '192.0.2.50/24' },
+  ];
+  const expected = ['#1  192.0.2.40/24', '#2  198.51.100.30/24', '#4  203.0.113.10/24', '自动  192.0.2.20/24', '自动  192.0.2.50/24'];
+  const nodesOf = node => [node, ...(node.children || []).flatMap(nodesOf)];
+  for (const [trigger, widgetFamily, count, visibleCount] of [
+    ['PO0 防火墙上报状态', 'systemLarge', 1, 5],
+    ['PO0 防火墙上报状态', 'systemLarge', 3, 2],
+    ['PO0 防火墙上报状态', 'systemMedium', 1, 2],
+    ['查询官方白名单', '', 1, 5],
+  ]) {
+    const { ctx, calls, storage } = createContext({ trigger, widgetFamily,
+      env: { PO0_FIREWALL_TOKENS: Array.from({ length: count }, (_, index) => `pgnfw_sort_${index}_not_real@0`).join(';') },
+      httpGet: () => response(officialPayload({ whitelist })),
+    });
+    const widget = await runEgernReport(ctx);
+    const rows = nodesOf(widget).filter(node => node.type === 'text' && /^(?:#\d|自动)  /.test(node.text));
+    assert.deepEqual(rows.map(row => row.text), Array.from({ length: count }, () => expected.slice(0, visibleCount)).flat());
+    const covered = rows.find(row => row.text === expected[2]);
+    if (covered && widgetFamily) assert.equal(covered.textColor, '#30D158', 'covered slot stays green without jumping ahead of lower slots');
+    const saved = await officialStateOf(storage);
+    assert.deepEqual(saved.entries[0].whitelist, whitelist, 'display sorting must not reorder stored API data');
+    assert.equal(calls.post.length, 0);
+  }
+}
+
 const tests = [
+  testWhitelistSortsNumberedSlotsBeforeAutomatic,
   testWidgetUsesSpaceAndSeparatesWhitelistRows,
   testWidgetLatestCheckAndDifferentExits,
   testWidgetAccountDetailsAcrossSizes,

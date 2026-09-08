@@ -619,12 +619,17 @@ function widgetSlotLabel(entry) {
     : '槽位 ' + (covered || fixed ? '#' + (covered || fixed) : '自动');
 }
 
+function officialOrderedWhitelist(entry) {
+  const rows = Array.isArray(entry?.whitelist) ? entry.whitelist : [];
+  return [...rows].sort((left, right) => (officialDisplaySlot(left.slot) || 6) - (officialDisplaySlot(right.slot) || 6));
+}
+
 function widgetWhitelist(entry, maxRows, size, allSlots = false, showHeading = true) {
-  const whitelist = Array.isArray(entry.whitelist) ? entry.whitelist : [];
+  const whitelist = officialOrderedWhitelist(entry);
   // Only mark slots empty when the API supplied a slot for every occupied row.
   const rows = allSlots && entry.limit > 0 && whitelist.every(row => officialDisplaySlot(row.slot))
     ? Array.from({ length: entry.limit }, (_, slot) => whitelist.find(row => row.slot === slot) || { slot, ip: '' })
-    : [...whitelist].sort((left, right) => Number(right.slot === entry.coveredSlot) - Number(left.slot === entry.coveredSlot));
+    : whitelist;
   const shown = rows.slice(0, maxRows);
   const remaining = rows.length - shown.length;
   return widgetColumn([
@@ -632,7 +637,7 @@ function widgetWhitelist(entry, maxRows, size, allSlots = false, showHeading = t
     ...shown.map(row => {
       const covered = Boolean(row.ip && officialDisplaySlot(entry.coveredSlot) && row.slot === entry.coveredSlot);
       return { ...widgetRow([
-        { ...widgetText((officialDisplaySlot(row.slot) ? '#' + officialDisplaySlot(row.slot) : '—') + '  ' + (row.ip || '未占用'), size, covered ? WIDGET_COLORS.green : row.ip ? WIDGET_COLORS.heading : WIDGET_COLORS.dim), flex: 1, minScale: 0.8 },
+        { ...widgetText((officialDisplaySlot(row.slot) ? '#' + officialDisplaySlot(row.slot) : '自动') + '  ' + (row.ip || '未占用'), size, covered ? WIDGET_COLORS.green : row.ip ? WIDGET_COLORS.heading : WIDGET_COLORS.dim), flex: 1, minScale: 0.8 },
         ...(covered && size >= 15 ? [widgetText('当前网段', 12, WIDGET_COLORS.green)] : []),
       ], 4), flex: allSlots ? 1 : undefined };
     }),
@@ -713,7 +718,7 @@ function officialReadOnlyWidget(state, ctx, env) {
     lines.push(entry.name + ' · ' + officialStatusText(entry));
     lines.push(`出口 ${entry.currentIp || '未知'} · 固定槽位 ${officialDisplaySlot(entry.fixedSlot) ? '#' + officialDisplaySlot(entry.fixedSlot) : '自动'}`);
     lines.push(`白名单 · 名额 ${entry.used ?? '?'}/${entry.limit ?? 5}`);
-    for (const row of entry.whitelist || []) lines.push(`#${officialDisplaySlot(row.slot) || '?'}  ${row.ip}`);
+    for (const row of officialOrderedWhitelist(entry)) lines.push(`${officialDisplaySlot(row.slot) ? '#' + officialDisplaySlot(row.slot) : '自动'}  ${row.ip}`);
   }
   if (!entries.length) lines.push(state?.error || '官方防火墙尚无结果。');
   return {
