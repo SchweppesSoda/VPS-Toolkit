@@ -1171,7 +1171,87 @@ async function testRetirementMigrationAndWidget() {
   const synced=createContext({storage,widgetFamily:'medium',env:values}); await runEgernReport(synced.ctx); assert.equal(synced.calls.get.length,0,'clear cannot be undone by sync');
 }
 
+async function testWidgetAccountDetailsAcrossSizes() {
+  for (const [family, count, shown] of [['systemSmall', 3, 2], ['systemMedium', 4, 3], ['systemLarge', 7, 6]]) {
+    const tokens = Array.from({ length: count }, (_, index) => `pgnfw_widget_detail_${index}_not_real@0|账号${index + 1}`);
+    const { ctx, calls } = createContext({
+      widgetFamily: family, ssid: 'CafeWiFi',
+      env: { PO0_FIREWALL_TOKENS: tokens.join(';') },
+      httpGet: () => response(officialPayload({ whitelist: [{ ip: '203.0.113.10/24', slot: 2 }] })),
+    });
+    const widget = await runEgernReport(ctx);
+    const text = visibleText(widget);
+    for (let index = 1; index <= shown; index++) assert(text.includes(`账号${index}`));
+    assert(!text.includes(`账号${shown + 1}`));
+    assert.match(text, /共用 #3/);
+    assert.match(text, /占用 1\/5/);
+    assert.match(text, /共用放行/);
+    assert.match(text, /CafeWiFi/);
+    assert.match(text, /203\.0\.113\.10/);
+    assert.match(text, /\+1 个账号/);
+    assert.doesNotMatch(text, /pgnfw_|自建|Worker|SSH|TTL/);
+    assert.equal(calls.get.length, count);
+    assert.equal(calls.post.length, 0, 'layout must preserve GET-first shared coverage');
+  }
+}
+
+async function testWidgetExpandedDetailsAndUnknownQuota() {
+  const success = createContext({
+    widgetFamily: 'systemLarge',
+    httpGet: () => response(officialPayload({ whitelist: [{ ip: '203.0.113.10/24', slot: 3 }] })),
+  });
+  const text = visibleText(await runEgernReport(success.ctx));
+  assert.match(text, /槽位 #4/, 'automatic accounts show the actual assigned slot');
+  assert.match(text, /白名单/);
+  assert.match(text, /未占用/);
+  assert.match(text, /当前网段/);
+  assert.match(text, /上报 \d{2}:\d{2}/);
+  const failure = createContext({
+    widgetFamily: 'systemLarge',
+    httpGet: () => response({}, 503),
+  });
+  const failed = visibleText(await runEgernReport(failure.ctx));
+  assert.match(failed, /1 个异常/);
+  assert.match(failed, /检查失败/);
+  assert.match(failed, /HTTP 503/);
+  assert.match(failed, /占用 \?\/5/);
+  assert.doesNotMatch(failed, /占用 0\/0|pgnfw_/);
+  assert.equal(failure.calls.post.length, 0);
+
+  const empty = createContext({ widgetFamily: 'systemSmall', env: { PO0_FIREWALL_TOKENS: '' } });
+  const emptyText = visibleText(await runEgernReport(empty.ctx));
+  assert.match(emptyText, /尚未设置官方目标/);
+  assert.match(emptyText, /保存配置/);
+  assert.equal(empty.calls.get.length + empty.calls.post.length, 0);
+}
+
+async function testWidgetLatestCheckAndDifferentExits() {
+  const storage = createStorage();
+  globalThis.__PO0_EGERN_TEST_NOW = Date.parse('2026-09-08T01:00:00Z');
+  await runEgernReport(createContext({ storage }).ctx);
+  globalThis.__PO0_EGERN_TEST_NOW += 3600000;
+  const failure = createContext({ storage, widgetFamily: 'systemMedium', httpGet: () => response({}, 503) });
+  const widget = await runEgernReport(failure.ctx);
+  const expectedTime = new Date(globalThis.__PO0_EGERN_TEST_NOW).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+  assert.equal(widget.children.at(-1).children.at(-1).text, expectedTime, 'latest failed check must not display the older success time');
+  const mixed = createContext({
+    widgetFamily: 'systemLarge',
+    env: { PO0_FIREWALL_TOKENS: 'pgnfw_exit_a_not_real@0|出口甲;pgnfw_exit_b_not_real@0|出口乙' },
+    httpGet(url) {
+      const currentIp = url.includes('exit_a') ? '203.0.113.10/24' : '198.51.100.20/24';
+      return response(officialPayload({ currentIp, whitelist: [{ ip: currentIp, slot: 0 }] }));
+    },
+  });
+  const text = visibleText(await runEgernReport(mixed.ctx));
+  assert.match(text, /多个出口/);
+  assert.match(text, /203\.0\.113\.10/);
+  assert.match(text, /198\.51\.100\.20/);
+}
+
 const tests = [
+  testWidgetLatestCheckAndDifferentExits,
+  testWidgetAccountDetailsAcrossSizes,
+  testWidgetExpandedDetailsAndUnknownQuota,
   testOfficialNetworkTargets,
   testOfficialIntervalDefaultsAndLegacyAlias,
   testLegacyAccountTimesAndNewTarget,

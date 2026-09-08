@@ -454,6 +454,8 @@ function formatDurationSeconds(seconds) {
 
 const WIDGET_COLORS = {
   background: '#111318',
+  card: '#1B2432',
+  accent: '#83BAFF',
   text: '#F4F7FB',
   heading: '#C9D7EA',
   dim: '#8E8E93',
@@ -603,26 +605,90 @@ function widgetRefreshSchedule(env, officialAuto, entries) {
   return intervals.length ? { refreshAfter: new Date(Date.now() + Math.min(...intervals) * 1000).toISOString() } : {};
 }
 
-function widgetLane(title, auto, entries, ctx, env) {
-  const metrics = widgetMetrics(ctx);
-  const family = widgetFamily(ctx);
+function widgetColumn(children, gap = 3, extra = {}) {
+  return { type: 'stack', direction: 'column', alignItems: 'start', gap, ...extra, children };
+}
+
+function widgetEntryResult(entry) {
+  if (entry.status === 'shared') return { text: '共用放行', color: WIDGET_COLORS.green };
+  if (entry.status === 'updated') return { text: '已加白·更新', color: WIDGET_COLORS.green };
+  if (entry.status === 'hit') return { text: '已加白', color: WIDGET_COLORS.green };
+  if (entry.status === 'missing') return { text: '未加白', color: WIDGET_COLORS.yellow };
+  if (entry.status === 'error') return { text: '检查失败', color: WIDGET_COLORS.red };
+  return { text: '待检查', color: WIDGET_COLORS.dim };
+}
+
+function widgetSlotLabel(entry) {
+  const fixed = officialDisplaySlot(entry.fixedSlot);
+  const covered = officialDisplaySlot(entry.coveredSlot);
+  return entry.status === 'shared' && covered ? '共用 #' + covered
+    : '槽位 ' + (covered || fixed ? '#' + (covered || fixed) : '自动');
+}
+
+function widgetAccountCard(entry, family, expanded = false, showWhitelist = expanded) {
+  const result = widgetEntryResult(entry);
+  // Failed GETs have no quota data; 0/0 would look like an exhausted account.
+  const quota = entry.limit > 0 ? `${entry.used}/${entry.limit}` : '?/5';
+  const children = [
+    widgetRow([
+      { ...widgetText(entry.name || '官方账号', family === 'large' ? 12 : 11, WIDGET_COLORS.text, 'semibold'), flex: 1 },
+      widgetText(result.text, 10, result.color, 'medium'),
+    ], 3),
+    widgetRow([
+      widgetText(widgetSlotLabel(entry), 10, WIDGET_COLORS.heading), spacerNode(),
+      widgetText('占用 ' + quota, 10, WIDGET_COLORS.heading),
+    ], 3),
+  ];
+  if (family === 'large') {
+    children.push(widgetText(entry.currentIp || '暂无出口结果', 12, WIDGET_COLORS.accent, 'medium'));
+    const attempt = Date.parse(entry.lastAttemptAt || '');
+    children.push(widgetText(Number.isFinite(attempt) ? '上报 ' + formatTime(entry.lastAttemptAt) : '尚无上报记录', 10, WIDGET_COLORS.dim));
+    if (expanded && entry.status === 'error') children.push({ ...widgetText(entry.error || '请求失败，请刷新重试', 10, WIDGET_COLORS.red), maxLines: 2 });
+    else if (showWhitelist) {
+      const whitelist = Array.isArray(entry.whitelist) ? entry.whitelist : [];
+      children.push({ ...widgetText('白名单  ' + (whitelist.length ? officialWhitelistText(entry) : '空'), 11, WIDGET_COLORS.heading), maxLines: 2 });
+    }
+  }
+  return widgetColumn(children, family === 'large' ? (expanded ? 3 : 2) : 1, {
+    padding: family === 'large' ? (expanded ? 8 : 6) : [2, 5, 2, 5],
+    backgroundColor: WIDGET_COLORS.card, borderRadius: 9,
+  });
+}
+
+function widgetAccounts(entries, family) {
   const limit = family === 'small' ? 2 : family === 'large' ? 6 : 3;
   const shown = entries.slice(0, limit);
-  const children = [widgetRow([widgetText(title, metrics.bodySize, WIDGET_COLORS.heading, 'semibold'), spacerNode(), iconNode(auto.icon, auto.color, 11), widgetText(auto.text, 11, auto.color)], 3)];
-  shown.forEach(entry => {
-    const success = /^(hit|updated|shared)$/.test(entry.status);
-    const failed = entry.status === 'error';
-    const result = entry.status === 'shared' ? '已放行·共用' : success ? '已加白' : entry.status === 'missing' ? '未加白' : failed ? '失败' : '待检查';
-    const suffix = entries.length > limit && entry === shown[shown.length - 1] ? ` +${entries.length - limit}` : '';
-    children.push(widgetRow([
-      { ...widgetText((entry.name || '官方账号') + suffix, metrics.bodySize, WIDGET_COLORS.text, 'medium'), flex: 1 },
-      ...(family !== 'small' ? [widgetText((entry.status === 'shared' ? officialCoveredSlotText(entry) : '#' + (officialDisplaySlot(entry.fixedSlot) || '自动')) + ' · ' + (entry.used ?? '?') + '/' + (entry.limit ?? 5), 11, WIDGET_COLORS.dim)] : []),
-      widgetText(result, 12, failed ? WIDGET_COLORS.red : success ? WIDGET_COLORS.green : WIDGET_COLORS.dim),
-    ]));
-  });
-  if (!shown.length) children.push(widgetText('尚未设置官方目标', metrics.bodySize, WIDGET_COLORS.dim));
-  if (family !== 'small') children.push(widgetText(entries.length + ' 个账号 · ' + (officialTimerEnabled(env) ? '周期 ' + formatDurationSeconds(officialIntervalSeconds(env)) : '定时关闭 · 间隔暂不使用'), 11, WIDGET_COLORS.dim));
-  return { type: 'stack', direction: 'column', alignItems: 'start', gap: metrics.cardGap, children };
+  if (!shown.length) return widgetColumn([
+    widgetText('尚未设置官方目标', 12, WIDGET_COLORS.heading, 'medium'),
+    { ...widgetText('填写模块目标后，运行“保存配置”', 11, WIDGET_COLORS.dim), maxLines: 2 },
+  ], 5, { padding: 9, backgroundColor: WIDGET_COLORS.card, borderRadius: 9 });
+  const cards = shown.map(entry => widgetAccountCard(entry, family, entries.length <= 2, entries.length === 2));
+  const rows = [];
+  if (family === 'large' && entries.length > 2) {
+    for (let index = 0; index < cards.length; index += 2) {
+      rows.push({ ...widgetRow([
+        { ...cards[index], flex: 1 },
+        cards[index + 1] ? { ...cards[index + 1], flex: 1 } : { type: 'stack', flex: 1, children: [] },
+      ], 6), alignItems: 'start' });
+    }
+  } else rows.push(...cards);
+  if (family === 'large' && entries.length === 1 && entries[0].limit > 0) {
+    const entry = entries[0];
+    const whitelist = Array.isArray(entry.whitelist) ? entry.whitelist : [];
+    rows.push(widgetColumn([
+      widgetText('白名单槽位', 11, WIDGET_COLORS.heading, 'semibold'),
+      ...Array.from({ length: Math.min(entry.limit, 5) }, (_, slot) => {
+        const row = whitelist.find(item => item.slot === slot);
+        const covered = row && entry.coveredSlot === slot;
+        return widgetRow([
+          widgetText('#' + (slot + 1), 11, covered ? WIDGET_COLORS.green : WIDGET_COLORS.dim, 'medium'),
+          { ...widgetText(row?.ip || '未占用', 11, row ? WIDGET_COLORS.heading : WIDGET_COLORS.dim), flex: 1 },
+          ...(covered ? [widgetText('当前网段', 10, WIDGET_COLORS.green)] : []),
+        ], 7);
+      }),
+    ], 7, { padding: 9, backgroundColor: WIDGET_COLORS.card, borderRadius: 9 }));
+  }
+  return widgetColumn(rows, family === 'large' ? 6 : 2);
 }
 
 function officialReadOnlyWidget(state, ctx, env) {
@@ -644,25 +710,56 @@ function officialReadOnlyWidget(state, ctx, env) {
 function widgetFromState(state, ctx, deviceId = '', env = ctx?.env || {}) {
   if (isOfficialStatusRun(ctx)) return officialReadOnlyWidget(state, ctx, env);
   const family = widgetFamily(ctx);
-  const metrics = widgetMetrics(ctx);
   const network = ctx?.device ? networkInfo(ctx) : normalizeNetworkInfo(state?.network);
   const ssid = currentWifiSsidFromNetwork(ctx, network);
   const entries = widgetOfficialEntries(state, env, ctx?.env);
   const auto = widgetAutoState(officialTokensConfigured(env), boolEnv(env.OFFICIAL_AUTO_ENABLED, true), Boolean(ssid && normalizeSsidSkipList(env.SKIP_WIFI_SSIDS).includes(ssid)));
-  const lastTime = state?.official?.lastSuccessAt || state?.at || state?.checkedAt;
-  const ip = state?.official?.currentIp?.replace(/\/\d+$/, '') || state?.ip || '暂无出口结果';
+  const lastTime = state?.official?.checkedAt || state?.checkedAt || state?.at;
+  const ips = [...new Set(entries.map(entry => entry.currentIp?.replace(/\/\d+$/, '')).filter(Boolean))];
+  const ip = ips.length > 1 ? '多个出口' : ips[0] || state?.official?.currentIp?.replace(/\/\d+$/, '') || state?.ip || '暂无出口结果';
+  const successCount = entries.filter(entry => /^(hit|updated|shared)$/.test(entry.status)).length;
+  const failures = entries.filter(entry => entry.status === 'error').length;
+  const summary = !entries.length ? '待配置' : failures ? failures + ' 个异常' : successCount + '/' + entries.length + ' 已放行';
+  const statusColor = failures ? WIDGET_COLORS.red : successCount ? WIDGET_COLORS.green : WIDGET_COLORS.dim;
+  const limit = family === 'small' ? 2 : family === 'large' ? 6 : 3;
+  const more = entries.length > limit ? ' · +' + (entries.length - limit) + ' 个账号' : '';
+  const networkText = ssid || network.value || '网络未知';
+  const notice = state?.uiNotice || (state?.skipType === 'wifi-ssid' ? 'SSID 跳过 · 保留上次结果'
+    : state?.skipped ? '未到间隔 · 保留上次结果' : failures ? '检查失败 · 请查看账号结果' : '');
+  const schedule = auto.text !== '自动开启' ? auto.text : officialTimerEnabled(env) ? '每 ' + formatDurationSeconds(officialIntervalSeconds(env)) : '仅网络变化';
+  const timestamp = lastTime && Number.isFinite(Date.parse(lastTime)) ? formatTime(lastTime) : '未检查';
   const children = [
-    widgetRow([widgetText('PO0 官方防火墙', metrics.titleSize, WIDGET_COLORS.text, 'semibold'), spacerNode(), widgetText(lastTime ? formatTime(lastTime) : '未上报', 11, WIDGET_COLORS.dim)]),
-    widgetRow([{ ...widgetText(ip, metrics.bodySize), flex: 1 }, ...(family !== 'small' ? [widgetText(ssid || network.value || '', 11, WIDGET_COLORS.dim)] : [])]),
-    widgetLane('官方账号', auto, entries, ctx, env),
+    widgetRow([
+      iconNode('checkmark.shield.fill', WIDGET_COLORS.accent, family === 'small' ? 12 : 15),
+      widgetText(family === 'small' ? 'PO0 官方' : 'PO0 官方防火墙', family === 'small' ? 12 : 14, WIDGET_COLORS.text, 'semibold'),
+      spacerNode(), widgetText(family === 'small' ? summary : summary + more, 10, statusColor, 'medium'),
+    ], 4),
   ];
+  const connection = widgetColumn([
+    ...(family === 'medium' ? [widgetText('当前出口', 10, WIDGET_COLORS.dim)] : []),
+    widgetText(ip, family === 'large' ? 23 : family === 'small' ? 16 : 18, WIDGET_COLORS.accent, 'semibold'),
+    widgetRow([iconNode(network.icon || 'network', WIDGET_COLORS.dim, 10), { ...widgetText(networkText, 10, WIDGET_COLORS.heading), flex: 1 }], 4),
+  ], 3);
+  if (family === 'medium') {
+    connection.children.push(spacerNode(3), widgetText(schedule, 10, auto.color));
+    children.push({ ...widgetRow([{ ...connection, flex: 4 }, { ...widgetAccounts(entries, family), flex: 6 }], 10), alignItems: 'start' });
+  } else children.push(connection, widgetAccounts(entries, family));
+  children.push(spacerNode());
   if (family === 'large') {
     const profile = normalizeIpProfile(state?.ipProfile);
     const details = [profile.location, profile.isp].filter(Boolean).join(' · ');
-    if (details) children.push(widgetText(details, 12, WIDGET_COLORS.dim));
+    if (details) children.push(widgetText(details, 11, WIDGET_COLORS.dim));
   }
-  if (family !== 'small') children.push(widgetText(state?.uiNotice || (state?.error ? '上报未完成' : state?.skipType === 'wifi-ssid' ? '本次 SSID 跳过 · 保留上次结果' : state?.skipped ? '尚未到间隔 · 保留上次结果' : '最近官方上报结果'), 11, WIDGET_COLORS.dim));
-  return { type: 'widget', padding: metrics.padding, gap: metrics.widgetGap, backgroundColor: WIDGET_COLORS.background, ...widgetRefreshSchedule(env, auto, entries), children };
+  children.push(widgetRow([
+    { ...widgetText(family === 'small' ? (notice ? '保留结果' : schedule) + more : notice || (family === 'medium' ? '最近检查' : schedule), 10, notice ? WIDGET_COLORS.yellow : WIDGET_COLORS.dim), flex: 1 },
+    widgetText(timestamp, 10, WIDGET_COLORS.dim),
+  ], 3));
+  return {
+    type: 'widget', padding: family === 'large' ? 12 : 8, gap: family === 'large' ? 5 : 3,
+    backgroundColor: WIDGET_COLORS.background,
+    backgroundGradient: { type: 'linear', colors: ['#172337', '#111318'], startPoint: { x: 0, y: 0 }, endPoint: { x: 1, y: 1 } },
+    ...widgetRefreshSchedule(env, auto, entries), children,
+  };
 }
 
 function carrierLabel(carrier) {
