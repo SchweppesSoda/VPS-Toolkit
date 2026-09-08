@@ -571,12 +571,6 @@ function applyOfficialPayload(entry, payload, item, successStatus) {
   return Boolean(covered);
 }
 
-function officialWhitelistText(entry) {
-  const rows = Array.isArray(entry?.whitelist) ? entry.whitelist : [];
-  return rows.length ? rows.map(row => `${row.ip} #${officialDisplaySlot(row.slot) || '自动'}`).join('，') : '空';
-}
-
-
 function widgetOfficialEntries(state, env, runtimeEnv = {}) {
   const displayEnv = officialDisplayEnv(env, runtimeEnv);
   if (!officialTokensConfigured(env)) return [];
@@ -625,32 +619,68 @@ function widgetSlotLabel(entry) {
     : '槽位 ' + (covered || fixed ? '#' + (covered || fixed) : '自动');
 }
 
-function widgetAccountCard(entry, family, expanded = false, showWhitelist = expanded) {
+function widgetWhitelist(entry, maxRows, size, allSlots = false, showHeading = true) {
+  const whitelist = Array.isArray(entry.whitelist) ? entry.whitelist : [];
+  // Only mark slots empty when the API supplied a slot for every occupied row.
+  const rows = allSlots && entry.limit > 0 && whitelist.every(row => officialDisplaySlot(row.slot))
+    ? Array.from({ length: entry.limit }, (_, slot) => whitelist.find(row => row.slot === slot) || { slot, ip: '' })
+    : [...whitelist].sort((left, right) => Number(right.slot === entry.coveredSlot) - Number(left.slot === entry.coveredSlot));
+  const shown = rows.slice(0, maxRows);
+  const remaining = rows.length - shown.length;
+  return widgetColumn([
+    ...(showHeading ? [widgetText('白名单' + (remaining ? ` · 另 ${remaining} 条` : ''), size, WIDGET_COLORS.heading, 'medium')] : []),
+    ...shown.map(row => {
+      const covered = Boolean(row.ip && officialDisplaySlot(entry.coveredSlot) && row.slot === entry.coveredSlot);
+      return { ...widgetRow([
+        { ...widgetText((officialDisplaySlot(row.slot) ? '#' + officialDisplaySlot(row.slot) : '—') + '  ' + (row.ip || '未占用'), size, covered ? WIDGET_COLORS.green : row.ip ? WIDGET_COLORS.heading : WIDGET_COLORS.dim), flex: 1, minScale: 0.8 },
+        ...(covered && size >= 15 ? [widgetText('当前网段', 12, WIDGET_COLORS.green)] : []),
+      ], 4), flex: allSlots ? 1 : undefined };
+    }),
+    ...(!shown.length ? [widgetText(entry.limit > 0 ? '暂无白名单记录' : '尚未取得白名单', size, WIDGET_COLORS.dim)] : []),
+  ], allSlots ? 5 : 2, { flex: allSlots ? 1 : undefined });
+}
+
+function widgetAccountCard(entry, family, count) {
   const result = widgetEntryResult(entry);
+  const large = family === 'large';
+  const full = large && count <= 2;
+  const nameSize = large ? (count === 1 ? 18 : count === 2 ? 16 : count <= 4 ? 14 : 13)
+    : count === 1 ? 16 : family === 'medium' && count === 2 ? 16 : 13;
+  const detailSize = large ? (count === 1 ? 16 : count === 2 ? 13 : count <= 4 ? 12 : 11)
+    : count === 1 ? 14 : 12;
+  const resultNode = widgetText(result.text, full ? 13 : count === 1 ? 12 : 11, result.color, 'medium');
+  const attempt = Date.parse(entry.lastAttemptAt || '');
+  const attemptText = Number.isFinite(attempt) ? '上报 ' + formatTime(entry.lastAttemptAt) : '尚无上报记录';
   // Failed GETs have no quota data; 0/0 would look like an exhausted account.
   const quota = entry.limit > 0 ? `${entry.used}/${entry.limit}` : '?/5';
   const children = [
     widgetRow([
-      { ...widgetText(entry.name || '官方账号', family === 'large' ? 12 : 11, WIDGET_COLORS.text, 'semibold'), flex: 1 },
-      widgetText(result.text, 10, result.color, 'medium'),
+      { ...widgetText(entry.name || '官方账号', nameSize, WIDGET_COLORS.text, 'semibold'), flex: 1, minScale: 0.8 },
+      ...(!(large && count === 2) ? [resultNode] : []),
     ], 3),
+    ...(large && count === 2 ? [resultNode] : []),
     widgetRow([
-      widgetText(widgetSlotLabel(entry), 10, WIDGET_COLORS.heading), spacerNode(),
-      widgetText('占用 ' + quota, 10, WIDGET_COLORS.heading),
+      widgetText(widgetSlotLabel(entry), detailSize, WIDGET_COLORS.heading), spacerNode(),
+      widgetText('占用 ' + quota, detailSize, WIDGET_COLORS.heading),
     ], 3),
   ];
-  if (family === 'large') {
-    children.push(widgetText(entry.currentIp || '暂无出口结果', 12, WIDGET_COLORS.accent, 'medium'));
-    const attempt = Date.parse(entry.lastAttemptAt || '');
-    children.push(widgetText(Number.isFinite(attempt) ? '上报 ' + formatTime(entry.lastAttemptAt) : '尚无上报记录', 10, WIDGET_COLORS.dim));
-    if (expanded && entry.status === 'error') children.push({ ...widgetText(entry.error || '请求失败，请刷新重试', 10, WIDGET_COLORS.red), maxLines: 2 });
-    else if (showWhitelist) {
-      const whitelist = Array.isArray(entry.whitelist) ? entry.whitelist : [];
-      children.push({ ...widgetText('白名单  ' + (whitelist.length ? officialWhitelistText(entry) : '空'), 11, WIDGET_COLORS.heading), maxLines: 2 });
+  if (large) {
+    if (count > 1) children.push({ ...widgetText(entry.currentIp || '暂无出口结果', full ? 13 : 12, WIDGET_COLORS.accent, 'medium'), minScale: 0.8 });
+    const hiddenWhitelist = Math.max(0, (entry.whitelist?.length || 0) - 1);
+    children.push(widgetText(attemptText + (count > 4 && entry.status !== 'error' ? ' · 白名单' + (hiddenWhitelist ? ' +' + hiddenWhitelist : '') : ''), full ? 12 : 10, WIDGET_COLORS.dim));
+    if (entry.status === 'error') {
+      children.push({ ...widgetText(entry.error || '请求失败，请刷新重试', full ? 13 : 11, WIDGET_COLORS.red), maxLines: full ? 3 : 1 });
+      if (full) children.push({ ...widgetText('刷新小组件重试；持续失败时检查官方账号与网络。', 13, WIDGET_COLORS.dim), maxLines: 3 });
+    } else {
+      children.push(widgetWhitelist(entry, full ? 5 : count <= 4 ? 2 : 1, detailSize, full, count <= 4));
     }
+  } else if (count === 1) {
+    if (family === 'medium') children.push(widgetWhitelist(entry, 2, 12));
+    else children.push(widgetText(attemptText, 12, WIDGET_COLORS.dim));
   }
-  return widgetColumn(children, family === 'large' ? (expanded ? 3 : 2) : 1, {
-    padding: family === 'large' ? (expanded ? 8 : 6) : [2, 5, 2, 5],
+  return widgetColumn(children, full ? 4 : large ? 2 : count === 1 ? 3 : 1, {
+    flex: 1,
+    padding: large ? (full ? 8 : 4) : count === 1 ? 5 : family === 'medium' && count === 2 ? 4 : [1, 5, 1, 5],
     backgroundColor: WIDGET_COLORS.card, borderRadius: 9,
   });
 }
@@ -659,36 +689,20 @@ function widgetAccounts(entries, family) {
   const limit = family === 'small' ? 2 : family === 'large' ? 6 : 3;
   const shown = entries.slice(0, limit);
   if (!shown.length) return widgetColumn([
-    widgetText('尚未设置官方目标', 12, WIDGET_COLORS.heading, 'medium'),
-    { ...widgetText('填写模块目标后，运行“保存配置”', 11, WIDGET_COLORS.dim), maxLines: 2 },
-  ], 5, { padding: 9, backgroundColor: WIDGET_COLORS.card, borderRadius: 9 });
-  const cards = shown.map(entry => widgetAccountCard(entry, family, entries.length <= 2, entries.length === 2));
+    widgetText('尚未设置官方目标', family === 'small' ? 14 : 18, WIDGET_COLORS.heading, 'medium'),
+    { ...widgetText('填写模块目标后，运行“保存配置”', family === 'small' ? 12 : 15, WIDGET_COLORS.dim), maxLines: 3 },
+  ], 6, { flex: 1, padding: 9, backgroundColor: WIDGET_COLORS.card, borderRadius: 9 });
+  const cards = shown.map(entry => widgetAccountCard(entry, family, shown.length));
   const rows = [];
-  if (family === 'large' && entries.length > 2) {
+  if (family === 'large' && entries.length >= 2) {
     for (let index = 0; index < cards.length; index += 2) {
       rows.push({ ...widgetRow([
         { ...cards[index], flex: 1 },
         cards[index + 1] ? { ...cards[index + 1], flex: 1 } : { type: 'stack', flex: 1, children: [] },
-      ], 6), alignItems: 'start' });
+      ], 6), flex: 1, alignItems: 'start' });
     }
   } else rows.push(...cards);
-  if (family === 'large' && entries.length === 1 && entries[0].limit > 0) {
-    const entry = entries[0];
-    const whitelist = Array.isArray(entry.whitelist) ? entry.whitelist : [];
-    rows.push(widgetColumn([
-      widgetText('白名单槽位', 11, WIDGET_COLORS.heading, 'semibold'),
-      ...Array.from({ length: Math.min(entry.limit, 5) }, (_, slot) => {
-        const row = whitelist.find(item => item.slot === slot);
-        const covered = row && entry.coveredSlot === slot;
-        return widgetRow([
-          widgetText('#' + (slot + 1), 11, covered ? WIDGET_COLORS.green : WIDGET_COLORS.dim, 'medium'),
-          { ...widgetText(row?.ip || '未占用', 11, row ? WIDGET_COLORS.heading : WIDGET_COLORS.dim), flex: 1 },
-          ...(covered ? [widgetText('当前网段', 10, WIDGET_COLORS.green)] : []),
-        ], 7);
-      }),
-    ], 7, { padding: 9, backgroundColor: WIDGET_COLORS.card, borderRadius: 9 }));
-  }
-  return widgetColumn(rows, family === 'large' ? 6 : 2);
+  return widgetColumn(rows, family === 'large' ? 4 : 2, { flex: 1 });
 }
 
 function officialReadOnlyWidget(state, ctx, env) {
@@ -698,7 +712,8 @@ function officialReadOnlyWidget(state, ctx, env) {
   for (const entry of entries) {
     lines.push(entry.name + ' · ' + officialStatusText(entry));
     lines.push(`出口 ${entry.currentIp || '未知'} · 固定槽位 ${officialDisplaySlot(entry.fixedSlot) ? '#' + officialDisplaySlot(entry.fixedSlot) : '自动'}`);
-    lines.push(`白名单 ${officialWhitelistText(entry)} · 名额 ${entry.used ?? '?'}/${entry.limit ?? 5}`);
+    lines.push(`白名单 · 名额 ${entry.used ?? '?'}/${entry.limit ?? 5}`);
+    for (const row of entry.whitelist || []) lines.push(`#${officialDisplaySlot(row.slot) || '?'}  ${row.ip}`);
   }
   if (!entries.length) lines.push(state?.error || '官方防火墙尚无结果。');
   return {
@@ -730,29 +745,24 @@ function widgetFromState(state, ctx, deviceId = '', env = ctx?.env || {}) {
   const timestamp = lastTime && Number.isFinite(Date.parse(lastTime)) ? formatTime(lastTime) : '未检查';
   const children = [
     widgetRow([
-      iconNode('checkmark.shield.fill', WIDGET_COLORS.accent, family === 'small' ? 12 : 15),
-      widgetText(family === 'small' ? 'PO0 官方' : 'PO0 官方防火墙', family === 'small' ? 12 : 14, WIDGET_COLORS.text, 'semibold'),
-      spacerNode(), widgetText(family === 'small' ? summary : summary + more, 10, statusColor, 'medium'),
+      ...(family !== 'small' ? [iconNode('checkmark.shield.fill', WIDGET_COLORS.accent, 16)] : []),
+      widgetText(family === 'small' ? 'PO0' : 'PO0 官方防火墙', family === 'small' ? 13 : 16, WIDGET_COLORS.text, 'semibold'),
+      ...(family === 'small' ? [{ ...widgetText(networkText, 11, WIDGET_COLORS.heading), flex: 1 }] : [spacerNode()]),
+      widgetText(family === 'small' ? (failures ? failures + ' 异常' : successCount + '/' + entries.length) : summary + more, family === 'small' ? 11 : 12, statusColor, 'medium'),
     ], 4),
   ];
-  const connection = widgetColumn([
-    ...(family === 'medium' ? [widgetText('当前出口', 10, WIDGET_COLORS.dim)] : []),
-    widgetText(ip, family === 'large' ? 23 : family === 'small' ? 16 : 18, WIDGET_COLORS.accent, 'semibold'),
-    widgetRow([iconNode(network.icon || 'network', WIDGET_COLORS.dim, 10), { ...widgetText(networkText, 10, WIDGET_COLORS.heading), flex: 1 }], 4),
-  ], 3);
+  const ipNode = { ...widgetText(ip, family === 'large' ? 27 : family === 'medium' ? 21 : entries.length <= 1 ? 23 : 20, WIDGET_COLORS.accent, 'semibold'), minScale: 0.75 };
+  const networkNode = widgetRow([iconNode(network.icon || 'network', WIDGET_COLORS.dim, 12), { ...widgetText(networkText, 13, WIDGET_COLORS.heading), flex: 1 }], 4);
   if (family === 'medium') {
-    connection.children.push(spacerNode(3), widgetText(schedule, 10, auto.color));
-    children.push({ ...widgetRow([{ ...connection, flex: 4 }, { ...widgetAccounts(entries, family), flex: 6 }], 10), alignItems: 'start' });
-  } else children.push(connection, widgetAccounts(entries, family));
-  children.push(spacerNode());
-  if (family === 'large') {
-    const profile = normalizeIpProfile(state?.ipProfile);
-    const details = [profile.location, profile.isp].filter(Boolean).join(' · ');
-    if (details) children.push(widgetText(details, 11, WIDGET_COLORS.dim));
+    const connection = widgetColumn([widgetText('当前出口', 12, WIDGET_COLORS.dim), ipNode, networkNode, widgetText(schedule, 12, auto.color)], 6, { flex: 1 });
+    children.push({ ...widgetRow([connection, { ...widgetAccounts(entries, family), flex: 1 }], 8), flex: 1, alignItems: 'start' });
+  } else {
+    children.push(family === 'large' ? widgetRow([{ ...ipNode, flex: 6 }, { ...networkNode, flex: 4 }], 8) : ipNode);
+    children.push(widgetAccounts(entries, family));
   }
   children.push(widgetRow([
-    { ...widgetText(family === 'small' ? (notice ? '保留结果' : schedule) + more : notice || (family === 'medium' ? '最近检查' : schedule), 10, notice ? WIDGET_COLORS.yellow : WIDGET_COLORS.dim), flex: 1 },
-    widgetText(timestamp, 10, WIDGET_COLORS.dim),
+    { ...widgetText(family === 'small' ? (notice ? '保留结果' : schedule) + more : notice || (family === 'medium' ? '最近检查' : schedule), family === 'large' ? 12 : 11, notice ? WIDGET_COLORS.yellow : WIDGET_COLORS.dim), flex: 1 },
+    widgetText(timestamp, family === 'large' ? 12 : 11, WIDGET_COLORS.dim),
   ], 3));
   return {
     type: 'widget', padding: family === 'large' ? 12 : 8, gap: family === 'large' ? 5 : 3,

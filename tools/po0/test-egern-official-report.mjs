@@ -1248,7 +1248,44 @@ async function testWidgetLatestCheckAndDifferentExits() {
   assert.match(text, /198\.51\.100\.20/);
 }
 
+async function testWidgetUsesSpaceAndSeparatesWhitelistRows() {
+  const nodesOf = node => [node, ...(node.children || []).flatMap(nodesOf)];
+  const whitelist = [
+    { slot: 0, ip: '203.0.113.10/24' }, { slot: 1, ip: '198.51.100.20/24' },
+    { slot: 2, ip: '192.0.2.30/24' }, { slot: 3, ip: '192.0.2.40/24' }, { slot: 4, ip: '192.0.2.50/24' },
+  ];
+  for (const family of ['systemSmall', 'systemMedium', 'systemLarge']) {
+    for (const count of [1, 2]) {
+      const { ctx, calls } = createContext({
+        widgetFamily: family,
+        env: { PO0_FIREWALL_TOKENS: Array.from({ length: count }, (_, index) => `pgnfw_layout_${index}_not_real@0`).join(';') },
+        httpGet: () => response(officialPayload({ whitelist })),
+      });
+      const widget = await runEgernReport(ctx);
+      const nodes = nodesOf(widget);
+      const texts = nodes.filter(node => node.type === 'text');
+      assert(!widget.children.some(node => node.type === 'spacer'), 'remaining height must go to content instead of a blank footer spacer');
+      assert(widget.children.some(node => node.type === 'stack' && node.flex > 0), 'account content must receive the available height');
+      const accountName = texts.find(node => node.text === '官方账号 1');
+      assert(accountName.font.size >= (count === 1 ? 16 : 13), 'sparse widgets must use readable account text');
+      for (const node of texts) {
+        assert((node.text.match(/\d+\.\d+\.\d+\.\d+\/24/g) || []).length <= 1, 'each whitelist address must have its own row');
+      }
+      if (family === 'systemLarge') {
+        for (const row of whitelist) assert.equal(texts.filter(node => node.text === `#${row.slot + 1}  ${row.ip}`).length, count, 'every slot must be visible for both expanded accounts');
+      }
+      assert.equal(calls.post.length, 0, 'layout changes must not alter a covered account');
+    }
+  }
+  const unknownSlot = createContext({ widgetFamily: 'systemLarge',
+    httpGet: () => response(officialPayload({ whitelist: [{ ip: '203.0.113.10/24' }] })),
+  });
+  const unknownWidget = visibleText(await runEgernReport(unknownSlot.ctx));
+  assert.doesNotMatch(unknownWidget, /未占用/, 'an unknown slot must not make all numbered slots appear empty');
+}
+
 const tests = [
+  testWidgetUsesSpaceAndSeparatesWhitelistRows,
   testWidgetLatestCheckAndDifferentExits,
   testWidgetAccountDetailsAcrossSizes,
   testWidgetExpandedDetailsAndUnknownQuota,
