@@ -133,3 +133,9 @@ MIT
 - [CustomRules](https://github.com/SchweppesSoda/CustomRules) 拥有公共规则与普通客户端模块；PO0 官方模块仍由本仓维护。[proxy-vps-skills](https://github.com/SchweppesSoda/proxy-vps-skills) 拥有配置维护工作流与审计工具。
 - [vps-toolkit-web](https://github.com/SchweppesSoda/vps-toolkit-web) 拥有静态工具和 Pages；私有设备配置、部署记录及现场恢复资料留在各自私有仓库。
 - `.tmp/` 只保存构建、测试和下载缓存；归档前核对来源与校验，现场备份及长期恢复资料存放仓库外。历史兼容文件名不表示退役功能仍可使用。
+
+- 按任务读取的 agent 合同 — [PO0 runtime / clients](docs/agent-maintenance/po0-runtime.md)
+
+- 按任务读取的 agent 合同 — [PO0 build / release](docs/agent-maintenance/po0-release.md)
+
+- 按任务读取的 agent 合同 — [Script development / validation](docs/agent-maintenance/script-development.md)

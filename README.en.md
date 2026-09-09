@@ -133,3 +133,9 @@ MIT
 - [CustomRules](https://github.com/SchweppesSoda/CustomRules) owns public rules and general client modules. PO0 official modules remain here. [proxy-vps-skills](https://github.com/SchweppesSoda/proxy-vps-skills) owns configuration maintenance workflows and audits.
 - [vps-toolkit-web](https://github.com/SchweppesSoda/vps-toolkit-web) owns static tools and Pages. Device configuration, deployment records and recovery material stay in their private repositories.
 - `.tmp/` holds build, test and download output. Verify provenance and checksums before archiving; keep field backups and durable recovery material outside the repository. Historical compatibility filenames do not mean retired features are supported.
+
+- Task-specific agent contracts — [PO0 runtime / clients](docs/agent-maintenance/po0-runtime.md)
+
+- Task-specific agent contracts — [PO0 build / release](docs/agent-maintenance/po0-release.md)
+
+- Task-specific agent contracts — [Script development / validation](docs/agent-maintenance/script-development.md)
