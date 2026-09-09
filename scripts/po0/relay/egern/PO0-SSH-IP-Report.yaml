@@ -30,7 +30,7 @@ env_schema:
   # ── 通用参数 · 直接生效，无需保存 ──
   SKIP_WIFI_SSIDS:
     name: 【通用】跳过上报的 Wi-Fi SSID
-    description: "可选。对自动触发及“立即上报”生效；当前 Wi-Fi SSID 命中后，本机跳过本次官方上报。多个 SSID 用英文分号 ; 分隔，精确大小写匹配；读取不到 SSID 时继续正常上报。立即上报仍遵守 SSID 跳过；强制上报和 Widget 刷新会继续上报。SSID 只保存在 Egern 本地，不随官方请求上传。"
+    description: "对定时、网络变化、立即上报、上报状态和 Widget 刷新生效。当前 Wi-Fi SSID 命中后不发起官方请求，保留上次结果及下次检查时间。多个 SSID 用英文分号 ; 分隔，精确大小写匹配；读取不到 SSID 时继续正常上报。只有手动执行“仅官方防火墙强制上报”可绕过；“查询官方白名单”只读，不加白。直接读取当前参数，无需保存。SSID 不随官方请求上传。"
   NOTIFY_SUCCESS:
     name: 【通用】自动成功时通知
     default_value: "false"
@@ -49,67 +49,67 @@ scriptings:
 # ── 通用 · 查看与手动操作 ──
   - generic:
       name: 查看本机配置
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260908-official-widget-v4"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260909-ssid-guard-v1"
       update_interval: 86400
       timeout: 10
       debug: true
   - generic:
       name: PO0 防火墙上报状态
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260908-official-widget-v4"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260909-ssid-guard-v1"
       update_interval: 86400
       timeout: 90
       debug: true
   - generic:
       name: 官方防火墙 · 保存配置
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260908-official-widget-v4"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260909-ssid-guard-v1"
       update_interval: 86400
       timeout: 10
       debug: true
   - generic:
       name: 启用官方防火墙自动上报
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260908-official-widget-v4"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260909-ssid-guard-v1"
       update_interval: 86400
       timeout: 10
       debug: true
   - generic:
       name: 停用官方防火墙自动上报
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260908-official-widget-v4"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260909-ssid-guard-v1"
       update_interval: 86400
       timeout: 10
       debug: true
   - generic:
       name: 仅官方防火墙强制上报
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260908-official-widget-v4"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260909-ssid-guard-v1"
       update_interval: 86400
       timeout: 90
       debug: true
   - generic:
       name: 查询官方白名单
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260908-official-widget-v4"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260909-ssid-guard-v1"
       update_interval: 86400
       timeout: 90
       debug: true
   - generic:
       name: 清除本机 PO0 官方防火墙 Token
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260908-official-widget-v4"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260909-ssid-guard-v1"
       update_interval: 86400
       timeout: 10
       debug: true
   - generic:
       name: 查看最近结果
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260908-official-widget-v4"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260909-ssid-guard-v1"
       update_interval: 86400
       timeout: 90
       debug: true
   - generic:
       name: 立即上报
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260908-official-widget-v4"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260909-ssid-guard-v1"
       update_interval: 86400
       timeout: 90
       debug: true
   - generic:
       name: 仅官方防火墙立即上报
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260908-official-widget-v4"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260909-ssid-guard-v1"
       update_interval: 86400
       timeout: 90
       debug: true
@@ -117,13 +117,13 @@ scriptings:
   - schedule:
       name: PO0 防火墙定时上报（后台自动）
       cron: "* * * * *"
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260908-official-widget-v4"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260909-ssid-guard-v1"
       update_interval: 86400
       timeout: 90
       debug: false
   - network:
       name: PO0 防火墙网络变化上报（后台自动）
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260908-official-widget-v4"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js?v=20260909-ssid-guard-v1"
       update_interval: 86400
       timeout: 90
       debug: false

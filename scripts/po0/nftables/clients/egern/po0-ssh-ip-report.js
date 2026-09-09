@@ -766,7 +766,7 @@ function widgetFromState(state, ctx, deviceId = '', env = ctx?.env || {}) {
     children.push(widgetAccounts(entries, family));
   }
   children.push(widgetRow([
-    { ...widgetText(family === 'small' ? (notice ? '保留结果' : schedule) + more : notice || (family === 'medium' ? '最近检查' : schedule), family === 'large' ? 12 : 11, notice ? WIDGET_COLORS.yellow : WIDGET_COLORS.dim), flex: 1 },
+    { ...widgetText(family === 'small' ? (state?.skipType === 'wifi-ssid' ? 'SSID跳过' : notice ? '保留结果' : schedule) + more : notice || (family === 'medium' ? '最近检查' : schedule), family === 'large' ? 12 : 11, notice ? WIDGET_COLORS.yellow : WIDGET_COLORS.dim), flex: 1 },
     widgetText(timestamp, family === 'large' ? 12 : 11, WIDGET_COLORS.dim),
   ], 3));
   return {
@@ -815,7 +815,10 @@ function currentWifiSsidFromNetwork(ctx, network) {
 }
 
 function ssidSkipDecision(ctx, env, network) {
-  if (!isAutomaticReportRun(ctx) && !/立即上报/.test(String(ctx?.script?.name || ''))) return { skip: false };
+  // A widget refresh is not an explicit request to override the SSID guard.
+  const explicitForce = !isWidgetRun(ctx) && !isAutomaticReportRun(ctx)
+    && /强制上报|(^|\s)force(\s|$)/i.test(scriptLabel(ctx));
+  if (explicitForce) return { skip: false };
   const skipList = normalizeSsidSkipList(env?.SKIP_WIFI_SSIDS);
   if (skipList.length === 0) return { skip: false };
   const ssid = currentWifiSsidFromNetwork(ctx, network);
@@ -1507,7 +1510,7 @@ async function handleLocalChannelAction(ctx, env, action) {
     '启用定期上报：' + (officialTimerEnabled(next) ? '是' : '否') + '；上报间隔：' + officialIntervalSeconds(next) + ' 秒' + (officialTimerEnabled(next) ? '' : '（暂不使用）'),
     ...officialSavedNameRows(officialDisplayEnv(next, ctx?.env)), ...officialNetworkSettingsRows(next),
     'SSID 跳过：' + (next.SKIP_WIFI_SSIDS || '未设置'),
-    '手动强制上报和小组件刷新先查询官方白名单；明确的只读入口不新增白名单。',
+    '普通上报和小组件刷新遵守 SSID 跳过；仅明确的强制上报可绕过，只读查询不新增白名单。',
   ], true, ctx);
 }
 
@@ -1542,7 +1545,9 @@ async function runEgernReportUnlocked(ctx) {
       return result();
     }
     if (!isOfficialStatusRun(ctx) && ssidSkipDecision(ctx, env, network).skip) {
-      state = { ...state, ok: true, skipped: true, skipType: 'wifi-ssid' };
+      state = { ...state, ok: true, skipped: true, skipType: 'wifi-ssid', uiNotice: 'SSID 跳过 · 本次未上报 · 保留上次结果' };
+      if (!await storageSet(ctx, STORAGE_KEY, JSON.stringify(state))) throw new Error('无法保存跳过状态');
+      logMessage(ctx, 'info', 'SSID 跳过：本次未发起官方请求，保留上次结果。');
       return result();
     }
     const reported = await runOfficialFirewall(ctx, env, isOfficialStatusRun(ctx) ? 'status' : 'report');

@@ -34,6 +34,8 @@ OpenWrt APK 使用独立的 POSIX shell 官方 runner/request；不再打包通�
 
 Egern / Stash / Loon 保持 Token、槽位及按网络选择的本机保存契约。新活动状态只含官方字段，原配置与状态另存不可覆盖快照。旧动作返回退役结果；缓存 Tile 无副作用。Stash 原 provider 标识中的 `worker-v2` 只是脚本执行身份，继续保留以避免缓存绑定变化。
 
+Egern SSID guard 覆盖所有普通上报入口，包括状态组件与 Widget 刷新；只允许非 Widget 的明确手动强制入口绕过。匹配前从当前模块参数读取跳过列表，使用 ctx.device.wifi.ssid；命中后不进入官方请求引擎，只保存本机跳过提示，官方结果和 due 保持不变。只读查询仍允许 GET，绝不 POST。
+
 ## 验证与发布
 
 两种 checker 保持 manifest 全覆盖、编码/换行、精确资产清单、raw URL 策略、版本/tag、Egern 兼容副本、标准路径和 SSID/定位 helper 检查。专项回归覆盖官方请求错误/槽位/锁、调度、手机存储迁移、APK UCI/服务/LuCI、nft 原子应用，以及新旧更新镜像协议。测试不访问真实官方 API，不操作实际设备。

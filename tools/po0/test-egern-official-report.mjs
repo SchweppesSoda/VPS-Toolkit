@@ -1315,7 +1315,73 @@ async function testWhitelistSortsNumberedSlotsBeforeAutomatic() {
   }
 }
 
+async function testSsidGuardAcrossReportEntrypoints() {
+  const scenarios = [
+    { script: { name: 'PO0 防火墙定时上报（后台自动）' }, cron: '* * * * *' },
+    { script: { name: 'PO0 防火墙网络变化上报（后台自动）' } },
+    { script: { name: '立即上报' } },
+    { script: { name: '仅官方防火墙立即上报' } },
+    { name: '立即上报' }, { trigger: '立即上报' },
+    { script: { name: 'PO0 防火墙上报状态' } },
+    ...['systemSmall', 'systemMedium', 'systemLarge'].map(widgetFamily => ({ script: { name: 'PO0 防火墙上报状态' }, widgetFamily })),
+    { trigger: 'schedule', widgetFamily: 'systemMedium' },
+    { script: { name: '仅官方防火墙强制上报' }, widgetFamily: 'systemMedium' },
+  ];
+  for (const scenario of [...scenarios].reverse()) {
+    const setup = createContext({ trigger: 'force' });
+    await runEgernReport(setup.ctx);
+    const before = await setup.storage.get(OFFICIAL_STORAGE_KEY);
+    const run = createContext({ storage: setup.storage, trigger: '', ssid: 'HomeWiFi', env: { SKIP_WIFI_SSIDS: 'Office;HomeWiFi' } });
+    delete run.ctx.name; delete run.ctx.trigger;
+    Object.assign(run.ctx, scenario);
+    await runEgernReport(run.ctx);
+    assert.equal(run.calls.get.length, 0, JSON.stringify(scenario) + ' must not GET on skipped SSID');
+    assert.equal(run.calls.post.length, 0, JSON.stringify(scenario) + ' must not add a whitelist entry');
+    assert.equal(await setup.storage.get(OFFICIAL_STORAGE_KEY), before, 'skip must preserve results and due timestamps');
+    const saved = await stateOf(setup.storage);
+    assert.equal(saved.skipType, 'wifi-ssid');
+    assert.match(saved.uiNotice, /SSID 跳过.*本次未上报/);
+    assert.equal(run.calls.notifications.length, 0);
+    // The next non-matching network can report immediately; skipped runs consume no interval.
+    run.ctx.device.wifi.ssid = 'CafeWiFi';
+    delete run.ctx.cron;
+    run.ctx.script = { name: '立即上报' };
+    await runEgernReport(run.ctx);
+    assert.equal(run.calls.get.length, 1);
+    assert.equal(run.calls.post.length, 1);
+    assert.equal((await stateOf(setup.storage)).skipType, undefined);
+  }
+  // Current module settings must win over an earlier saved value without another save.
+  const firstRun = createContext({ trigger: '', ssid: 'HomeWiFi', env: { SKIP_WIFI_SSIDS: 'HomeWiFi' }, widgetFamily: 'systemSmall' });
+  const widget = await runEgernReport(firstRun.ctx);
+  assert.equal(firstRun.calls.get.length + firstRun.calls.post.length, 0);
+  assert.match(visibleText(widget), /SSID跳过/);
+  assert.equal(await firstRun.storage.get(OFFICIAL_STORAGE_KEY), null);
+  firstRun.ctx.env.SKIP_WIFI_SSIDS = '';
+  await runEgernReport(firstRun.ctx);
+  assert.equal(firstRun.calls.post.length, 1, 'clearing the live skip list takes effect immediately');
+}
+
+async function testSsidExplicitForceReadonlyAndUnavailable() {
+  for (const trigger of ['仅官方防火墙强制上报', 'force', '查询官方白名单']) {
+    const run = createContext({ trigger: '', ssid: 'HomeWiFi', env: { SKIP_WIFI_SSIDS: 'HomeWiFi' } });
+    run.ctx.script = { name: trigger };
+    await runEgernReport(run.ctx);
+    assert.equal(run.calls.get.length, 1);
+    assert.equal(run.calls.post.length, trigger === '查询官方白名单' ? 0 : 1);
+  }
+  for (const ssid of ['', null, 'homewifi', 'HomeWiFi-guest']) {
+    const run = createContext({ trigger: '', widgetFamily: 'systemMedium', env: { SKIP_WIFI_SSIDS: 'HomeWiFi' } });
+    run.ctx.script = { name: 'PO0 防火墙上报状态' };
+    run.ctx.device.wifi.ssid = ssid;
+    await runEgernReport(run.ctx);
+    assert.equal(run.calls.post.length, 1, 'unavailable or nonmatching SSID follows the normal report path');
+  }
+}
+
 const tests = [
+  testSsidGuardAcrossReportEntrypoints,
+  testSsidExplicitForceReadonlyAndUnavailable,
   testWhitelistSortsNumberedSlotsBeforeAutomatic,
   testWidgetUsesSpaceAndSeparatesWhitelistRows,
   testWidgetLatestCheckAndDifferentExits,
