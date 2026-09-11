@@ -109,10 +109,12 @@ export function publishAssets(tag, directory, adapter) {
       if (!release?.isDraft) throw new Error('New release is not a draft');
     }
     const remote = checkInventory(release);
-    // Verify every existing asset before uploading anything; never replace an asset.
-    for (const name of remote) verify(name);
     const missing = names.filter(name => !remote.includes(name));
     if (!release.isDraft && missing.length) throw new Error('Published release is incomplete; use a new tag');
+    // Verify every existing asset before uploading anything; never replace an asset.
+    for (const name of remote) verify(name);
+    // A complete public release has no upload/publish phase to recheck.
+    if (!release.isDraft) return release;
     for (const name of missing) adapter.upload(tag, path.join(directory, name));
     release = adapter.view(tag);
     const complete = checkInventory(release);

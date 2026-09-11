@@ -78,8 +78,8 @@ test('existing live releases are verified without mutation; incomplete live rele
   const directory = fixture(); t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const complete = fakeGitHub({ draft: false, initial: existing(directory) });
   publishAssets('po0-scripts-v2026.09.05.9', directory, complete);
-  assert(complete.calls.every(call => call.startsWith('download:')));
-  const incomplete = fakeGitHub({ draft: false });
+  assert.deepEqual(complete.calls.sort(), [...complete.files.keys()].map(name => 'download:' + name).sort());
+  const incomplete = fakeGitHub({ draft: false, initial: { [scripts[0]]: fs.readFileSync(path.join(directory, scripts[0])) } });
   assert.throws(() => publishAssets('po0-scripts-v2026.09.05.9', directory, incomplete), /incomplete/);
   assert.deepEqual(incomplete.calls, []);
 });

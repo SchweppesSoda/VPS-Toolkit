@@ -8,7 +8,7 @@
 - 创建脚本或整包 Release tag 前，本次脚本资产的内部版本必须统一为 `YYYY.MM.DD+build.N`，日期和尾号与所选 tag 一致；同步 Bash / PowerShell checker 的预期脚本版本和规范 `po0-vYYYY.MM.DD.N` tag，并执行两个实际版本检查函数。APK 组件独立发布时不要求同步或发布桌面脚本。APK 布局门禁核对自身源码、生成运行时和启动命令的版本，不再要求与桌面脚本版本相同。
 - Release workflow 由上述三种 tag 选择发布范围，失败后用 GitHub Actions rerun；不覆盖已有 tag。脚本组件 tag 的日期和尾号必须与脚本版本一致，检查器内部将 scripts tag 规范化为同版本 `po0-v` tag，不尝试在工作流中覆盖 GitHub 只读的 `GITHUB_REF*` 环境变量；APK tag 独立编号，沿用 APK 自身包版本。
 - 用户要求脚本 `commit and push` 或希望可更新到新版时，验证并 push `main` 后默认创建 `po0-scripts-vYYYY.MM.DD.N` tag；仅 APK 变更使用 `po0-apk-vYYYY.MM.DD.N`，明确要求整包时才用 `po0-vYYYY.MM.DD.N`。发布流程或文档变更本身不要求重复发布未变的脚本。
-- 每种 Release 都按本次选定范围 draft 原子发布：完整上传相应资产及精确覆盖它们的 `checksums.txt`，回下载校验通过后再公开。已存在 draft 只允许补齐缺失 asset；已有资产 checksum 不同、或正式 release 缺资产时必须失败并用新 tag，禁止覆盖正式资产。
+- 每种 Release 都按本次选定范围 draft 原子发布：完整上传相应资产及精确覆盖它们的 `checksums.txt`，回下载校验通过后再公开。已存在 draft 只允许补齐缺失 asset；已有资产 checksum 不同、或正式 release 缺资产时必须失败并用新 tag，禁止覆盖正式资产。完整正式 Release 的只读重跑只回下载校验每个资产一次；不完整的正式 Release 在下载前拒绝。
 - Latest 供脚本安装 / 自更新使用，只允许脚本或整包 release 更新；旧版本晚完成不能让 Latest 倒退。APK 使用独立 tag 的版本化下载地址，不使用 `releases/latest/download/*.apk`。
 - 旧 manager、LAN Worker 和 self-report raw URL 已禁用，不再作为兼容入口；不要重新新增这些 raw 可执行脚本路径。Egern 标准 raw 路径是 `scripts/po0/nftables/clients/egern/`；`scripts/po0/relay/egern/` 只作为历史兼容路径暂时保留，不能作为新安装推荐入口。
 - Egern YAML/JS、Loon LPX/JS、Stash 客户端脚本和未纳入本阶段的通用 VPS 脚本 raw 下载源是白名单；PO0 五个可执行脚本的新安装、自更新和 manager mirror 上游应使用 Release 发布文件。raw URL 检查应使用精确路径白名单，不能用 `reinstall` 等宽泛子串放行。
