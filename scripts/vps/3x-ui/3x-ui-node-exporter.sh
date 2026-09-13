@@ -4,7 +4,7 @@ set -uo pipefail
 # 3x-ui node exporter.
 # Reads the local 3x-ui SQLite database and exports subscription/node links.
 
-SCRIPT_VERSION="1.1.0"
+SCRIPT_VERSION="1.2.0"
 RAW_URL="https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/vps/3x-ui/3x-ui-node-exporter.sh"
 
 ADDR=""
@@ -16,6 +16,7 @@ SHOW_LINKS="0"
 NO_COLOR="0"
 CLI_MODE="0"
 SELF_DESTRUCT="0"
+STREAM="0"
 OUT_OPTION_SET="0"
 SELF_DESTRUCT_TIMEOUT_SECONDS="900"
 SELF_DESTRUCT_TEMP_ROOT=""
@@ -164,6 +165,7 @@ print_usage() {
   --out DIR          指定导出目录
   --raw-only         只导出原始 inbound 配置，不抓取订阅链接
   --self-destruct    临时导出 ZIP，等待下载后自动清理本次产物
+  --stream           通过 SSH 向本机下载助手传输 ZIP，完成后自动清理
   --yes, -y          非交互确认：自动安装缺失依赖并直接导出
   --show-links       导出后预览 links.txt 前 20 行
   --no-color         关闭彩色输出
@@ -227,6 +229,11 @@ parse_args() {
         SELF_DESTRUCT="1"
         CLI_MODE="1"
         ;;
+      --stream)
+        STREAM="1"
+        CLI_MODE="1"
+        NO_COLOR="1"
+        ;;
       --no-color)
         NO_COLOR="1"
         ;;
@@ -249,6 +256,13 @@ parse_args() {
 }
 
 validate_args() {
+  if [[ "${STREAM}" == "1" ]] &&
+    [[ "${SELF_DESTRUCT}" == "1" || "${OUT_OPTION_SET}" == "1" ||
+       "${SHOW_LINKS}" == "1" || "${YES}" == "1" ]]; then
+    err "--stream 不能与 --self-destruct、--out、--show-links 或 --yes 同时使用。"
+    exit 2
+  fi
+
   if [[ ! "${SELF_DESTRUCT_TIMEOUT_SECONDS}" =~ ^[0-9]+$ ]] ||
     ((SELF_DESTRUCT_TIMEOUT_SECONDS < 1)); then
     err "内部自销毁等待时间必须是正整数秒。"
@@ -698,7 +712,7 @@ create_self_destruct_archive() {
     return 1
   }
 
-  python3 - "${source_dir}" "${archive}" <<'PY'
+  python3 - "${source_dir}" "${archive}" <<'PY' || return 1
 import sys
 import zipfile
 from pathlib import Path
@@ -1234,6 +1248,39 @@ run_self_destruct_export() {
   maybe_delete_script_source
 }
 
+run_stream_export() (
+  # Keep cleanup traps scoped to this run, including a broken SSH pipe.
+  umask 077
+  prepare_self_destruct_session || return 1
+  SELF_DESTRUCT_ARCHIVE="${SELF_DESTRUCT_SESSION_DIR}/export.zip"
+  run_export "${RAW_ONLY}" "0" "${SELF_DESTRUCT_SESSION_DIR}/data" "0" >&2 || return 1
+  create_self_destruct_archive "${SELF_DESTRUCT_SESSION_DIR}/data" "${SELF_DESTRUCT_ARCHIVE}" || return 1
+  remove_self_destruct_staging || return 1
+
+  # ASCII framing also works with Windows PowerShell 5.1. No node links go to
+  # the terminal; the local receiver checks both the size and SHA-256.
+  python3 - "${SELF_DESTRUCT_ARCHIVE}" <<'PY' || return 1
+import base64
+import hashlib
+import sys
+from pathlib import Path
+
+archive = Path(sys.argv[1])
+digest = hashlib.sha256()
+with archive.open("rb") as handle:
+    for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+        digest.update(chunk)
+print(f"3XUI_EXPORT_V1 {archive.stat().st_size} {digest.hexdigest()}")
+with archive.open("rb") as handle:
+    for chunk in iter(lambda: handle.read(3 * 16384), b""):
+        print(base64.b64encode(chunk).decode("ascii"))
+sys.stdout.flush()
+PY
+
+  finalize_self_destruct_cleanup || return 1
+  printf '3XUI_EXPORT_DONE\n'
+)
+
 run_diagnostics() {
   print_title "环境诊断"
 
@@ -1369,6 +1416,20 @@ main() {
   parse_args "$@"
   setup_colors
   validate_args
+  if [[ "${STREAM}" == "1" ]]; then
+    if [[ "${EUID}" -ne 0 ]]; then
+      err "SSH 下载需要 root，或在本机下载命令中添加 -Sudo（免密码 sudo）。"
+      return 1
+    fi
+    local missing=()
+    mapfile -t missing < <(missing_commands)
+    if [[ "${#missing[@]}" -gt 0 ]]; then
+      err "缺少依赖，请登录 VPS 安装后重试：${missing[*]}"
+      return 1
+    fi
+    run_stream_export
+    return $?
+  fi
   ensure_root "${original_args[@]}"
   ensure_dependencies
 

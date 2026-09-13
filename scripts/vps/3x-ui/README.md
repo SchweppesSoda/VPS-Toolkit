@@ -6,6 +6,52 @@ The script is intended for machines you manage. It reads the local 3x-ui SQLite 
 
 ## Quick Start
 
+### Download directly to Windows over SSH
+
+Run the local helper in **Windows PowerShell 5.1 or PowerShell 7**, using an SSH
+config alias or `root@host` and your desired local directory:
+
+```powershell
+& 'D:\GitRepo\VPS-Toolkit\scripts\vps\3x-ui\Export-3xUi.ps1' -Server my-vps -OutDir 'D:\Backups\3x-ui'
+```
+
+Replace the repository path if your checkout is elsewhere. The helper uses the
+adjacent `3x-ui-node-exporter.sh`; keep both files together. With no arguments,
+it prompts for the SSH server and local destination. Nothing needs to be
+installed in advance on the VPS besides the export dependencies below.
+
+- One SSH connection exports, transfers a ZIP, and cleans remote temporary files.
+- Uses your normal OpenSSH config, agent, key or SSH password; with key login,
+  no additional export/download confirmation is required.
+- Verifies the size and SHA-256 before saving the final ZIP. Interrupted or
+  failed downloads remove the local `.partial` file; existing backups are kept.
+- Creates the requested directory if needed and prints the full downloaded path.
+- Requires root access; `-Sudo` supports accounts with passwordless sudo. Missing
+  remote dependencies are reported without installing packages automatically.
+- The original 3x-ui database is read through a snapshot and is not modified.
+
+Custom SSH port/key, public node address, and database location:
+
+```powershell
+& .\Export-3xUi.ps1 -Server root@203.0.113.10 -Port 2222 -IdentityFile "$HOME\.ssh\id_ed25519" -OutDir 'D:\Backups\3x-ui' -Address nodes.example.com -Database /etc/x-ui/x-ui.db
+& .\Export-3xUi.ps1 -Server my-vps -Sudo -RawOnly -OutDir 'D:\Backups\3x-ui'
+```
+
+These commands run on your computer, before entering an interactive VPS shell.
+The ZIP contains `links.txt` and the other files listed below; it is not
+automatically unpacked. Local files inherit the destination directory's Windows
+permissions, so choose a private directory. The remote cleanup limitations in
+[Safety](#safety) also apply to SSH downloads.
+
+If Windows blocks local scripts, invoke the same command with a process-only
+execution policy override (no permanent policy change):
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File 'D:\GitRepo\VPS-Toolkit\scripts\vps\3x-ui\Export-3xUi.ps1' -Server my-vps -OutDir 'D:\Backups\3x-ui'
+```
+
+### Export from an interactive VPS shell
+
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/vps/3x-ui/3x-ui-node-exporter.sh)
 ```
@@ -54,6 +100,13 @@ bash 3x-ui-node-exporter.sh --version
 
 `--self-destruct` can be combined with `--addr`, `--db`, or `--raw-only`. It cannot be combined with `--out`, `--show-links`, or `--yes` because the temporary download window requires an interactive terminal and must not expose links in terminal scrollback.
 
+`--stream` is used by the local SSH download helper. It sends a framed Base64 ZIP
+on stdout, sends progress to stderr, and confirms completion only after remote
+cleanup. Do not run it directly in an interactive terminal. It supports `--addr`,
+`--db`, and `--raw-only`, but rejects `--self-destruct`, `--out`, `--show-links`, and
+`--yes`. It requires root and existing dependencies; it does not prompt or install
+packages. `Export-3xUi.ps1 -Version` prints the local helper version.
+
 ## Self-destruct Export
 
 Run the script after logging in to the VPS and choose `4) 临时导出并自动清理`, or invoke the mode directly without saving the script:
@@ -98,3 +151,24 @@ The generated files contain UUIDs, passwords, private node parameters, subscript
 Self-destruct mode removes only files created by the current export. It does not modify shell history, terminal scrollback, system audit or network logs, filesystem snapshots, or the original 3x-ui database. Dependencies installed after a separate confirmation and their package-manager records are not reverted. Cleanup cannot be guaranteed after `SIGKILL`, a kernel crash, or power loss because the process cannot execute its cleanup handler in those cases. The ZIP is not password-protected; use SSH/SFTP for transfer and protect the downloaded copy.
 
 PostgreSQL-backed 3x-ui deployments are detected only as a missing SQLite database in this version; export support is limited to SQLite.
+
+## Development checks
+
+Version history: [CHANGELOG.md](./CHANGELOG.md).
+
+Run the export/cleanup regression suite with Bash and Python 3:
+
+```bash
+bash -n scripts/vps/3x-ui/3x-ui-node-exporter.sh
+bash tools/vps/test-3x-ui-node-exporter-self-destruct.sh
+```
+
+On Windows, run the native pipe/download regression suite with Windows PowerShell
+5.1, Git Bash, and Python 3. It also tests PowerShell 7 when installed:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/vps/test-3x-ui-download.ps1 -PythonPath 'C:\Path\To\python.exe'
+```
+
+Both suites use disposable local fixtures; the Windows suite substitutes SSH and
+does not connect to a real VPS.

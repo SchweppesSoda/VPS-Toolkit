@@ -46,8 +46,8 @@ XUI_EXPORTER_SOURCE_ONLY="1"
 . "${EXPORTER}"
 setup_colors
 
-[[ "${SCRIPT_VERSION}" == "1.1.0" ]] || fail "unexpected exporter version"
-[[ "$(bash "${EXPORTER}" --version)" == "1.1.0" ]] || fail "--version output mismatch"
+[[ "${SCRIPT_VERSION}" == "1.2.0" ]] || fail "unexpected exporter version"
+[[ "$(bash "${EXPORTER}" --version)" == "1.2.0" ]] || fail "--version output mismatch"
 help_output="$(bash "${EXPORTER}" --help)"
 grep -Fq -- "--self-destruct" <<<"${help_output}" || fail "--help is missing self-destruct mode"
 grep -Fq -- "--version" <<<"${help_output}" || fail "--help is missing --version"
@@ -98,6 +98,66 @@ for name in x-ui.snapshot.db raw_inbounds.json subids.txt env.sh links.raw links
 done
 grep -Fxq "sub-test" "${normal_out}/subids.txt" || fail "normal export subId mismatch"
 ok "normal raw-only export remains functional"
+
+# The SSH stream must contain only the framed archive and confirm cleanup.
+mkdir -p "${TEST_ROOT}/stream-sessions"
+export TMPDIR="${TEST_ROOT}/stream-sessions"
+RAW_ONLY=1 run_stream_export >"${TEST_ROOT}/stream.txt" 2>"${TEST_ROOT}/stream.log"
+python3 - "${TEST_ROOT}/stream.txt" <<'PY'
+import base64
+import hashlib
+import io
+import sys
+import zipfile
+from pathlib import Path
+
+lines = Path(sys.argv[1]).read_text().splitlines()
+protocol, size, digest = lines[0].split()
+assert protocol == "3XUI_EXPORT_V1"
+assert lines[-1] == "3XUI_EXPORT_DONE"
+data = b"".join(base64.b64decode(line, validate=True) for line in lines[1:-1])
+assert len(data) == int(size)
+assert hashlib.sha256(data).hexdigest() == digest
+with zipfile.ZipFile(io.BytesIO(data)) as bundle:
+    assert bundle.read("subids.txt").decode().strip() == "sub-test"
+    assert bundle.testzip() is None
+PY
+if find "${TMPDIR}" -mindepth 1 -maxdepth 1 | grep -q .; then
+  fail "SSH stream left temporary files"
+fi
+for conflicting_option in --self-destruct --show-links --yes; do
+  if bash "${EXPORTER}" --stream "${conflicting_option}" >"${TEST_ROOT}/stream-conflict.log" 2>&1; then
+    fail "--stream ${conflicting_option} must be rejected"
+  fi
+done
+if bash "${EXPORTER}" --stream --out "${TEST_ROOT}/unsafe" >"${TEST_ROOT}/stream-conflict.log" 2>&1; then
+  fail "--stream --out must be rejected"
+fi
+if DB_OVERRIDE="${TEST_ROOT}/missing.db" RAW_ONLY=1 run_stream_export \
+  >"${TEST_ROOT}/stream-failure.txt" 2>"${TEST_ROOT}/stream-failure.log"; then
+  fail "SSH stream unexpectedly succeeded without a database"
+fi
+[[ ! -s "${TEST_ROOT}/stream-failure.txt" ]] || fail "failed export wrote to the data stream"
+if find "${TMPDIR}" -mindepth 1 -maxdepth 1 | grep -q .; then
+  fail "failed SSH export left temporary files"
+fi
+# Simulate a disconnected receiver and a ZIP writer failing after creating a file.
+if (
+  create_self_destruct_archive() { : > "$2"; return 1; }
+  RAW_ONLY=1 run_stream_export
+) >"${TEST_ROOT}/stream-zip-failure.txt" 2>"${TEST_ROOT}/stream-zip-failure.log"; then
+  fail "SSH export ignored a ZIP creation failure"
+fi
+if find "${TMPDIR}" -mindepth 1 -maxdepth 1 | grep -q .; then
+  fail "ZIP failure left temporary files"
+fi
+if RAW_ONLY=1 run_stream_export 2>"${TEST_ROOT}/stream-disconnect.log" | head -c 1 >/dev/null; then
+  fail "SSH export ignored a disconnected receiver"
+fi
+if find "${TMPDIR}" -mindepth 1 -maxdepth 1 | grep -q .; then
+  fail "disconnected SSH export left temporary files"
+fi
+ok "SSH stream contents, validation, failure and disconnect cleanup"
 
 mkdir -p "${TEST_ROOT}/sessions"
 TMPDIR="${TEST_ROOT}/sessions"
