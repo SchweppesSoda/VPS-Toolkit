@@ -6,6 +6,19 @@ The script is intended for machines you manage. It reads the local 3x-ui SQLite 
 
 ## Quick Start
 
+### Daily SSH subscription collection
+
+[`3x-ui-subscription-exporter.py`](3x-ui-subscription-exporter.py) is the
+non-interactive producer for a collector such as Sub-Store infrastructure.
+It reads a SQLite snapshot and native subscription responses in memory, then
+returns one bounded JSON envelope. It does not install files, packages or tasks
+on the VPS. The existing SSH identity and host-key checking are retained.
+
+The initial producer supports VLESS, VMess and Trojan client identities; other
+protocols fail closed. A private `clientIds` selection is required. Empty,
+incomplete or mismatched native output fails without publishing a partial result.
+See the [transport and cleanup contract](SSH_SUBSCRIPTION_DESIGN.md).
+
 ### Download directly to Windows over SSH
 
 Run the local helper in **Windows PowerShell 5.1 or PowerShell 7**, using an SSH

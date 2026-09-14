@@ -1,5 +1,14 @@
 # 3x-ui exporter changelog
 
+## Subscription producer 1.0.0 — 2026-09-14
+
+- Add an independent Python entry point for transient daily SSH collection.
+- Keep the SQLite snapshot and native subscription responses in memory; return
+  only selected nodes with strict count, size and SHA-256 metadata.
+- Reject partial, empty, unrelated-client and unsupported-protocol output.
+- Preserve SSH/auth/audit logs; no installed remote exporter or export files.
+- Existing Bash 1.2.0 and Windows helper 1.0.0 behavior is unchanged.
+
 ## Exporter 1.2.0 / Windows helper 1.0.0 — 2026-09-13
 
 - Download exports to a chosen Windows directory with one local PowerShell

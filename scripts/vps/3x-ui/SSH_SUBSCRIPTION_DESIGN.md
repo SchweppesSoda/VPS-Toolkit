@@ -1,123 +1,74 @@
-# SSH subscription export contract
+# Transient SSH subscription export
 
-Status: design only, 2026-09-14. The CLI and server entry points below are
-proposed; exporter 1.2.0 does not implement them. Existing interactive and
-Windows ZIP exports keep their current behavior.
+Implementation: `3x-ui-subscription-exporter.py` 1.0.0. The original Bash 1.2.0
+ZIP exporter and Windows helper retain their existing behavior. A separate Python
+entry point avoids embedding another file-based recovery path in the daily job.
 
-## Purpose and ownership
+## Execution
 
-Provide bounded, non-interactive node exports to a trusted collector. The VPS
-supplies node data; the collector owns scheduling, validation, cached HTTP
-delivery and subscription-manager integration. No public subscription listener
-or permanent SSH tunnel is required on the VPS.
+The collector sends a reviewed, SHA-256-pinned Python source and a separate JSON
+configuration over SSH stdin. A fixed Python bootstrap reads at most 256 KiB,
+parses `{code, config}`, and executes the code with `CONFIG` set to that object.
+Private configuration is never interpolated into code or command-line arguments.
+Use `python3 -I -B` to avoid import-path overrides and bytecode files.
 
-This public repository owns the reusable exporter and transient execution protocol.
-Instance addresses, client/subscription selectors, keys and collected nodes
-belong only in private runtime configuration. The deployment repository owns
-the collector lifecycle and subscription-manager integration.
+The existing SSH user/key is reused. The collector pins the existing host key,
+disables agent, PTY and forwarding requests, and bounds the SSH process. These
+client settings do not reduce the account's server-side administrator privileges.
+An encrypted desktop key may be unlocked during provisioning; its automation copy
+must remain in protected collector credentials, inaccessible to HTTP containers.
 
-## Proposed producer
+Private config has `database` (absolute SQLite path), `address` (outward host), and
+`clientIds` (explicit nonempty list of existing VLESS/VMess UUIDs or Trojan passwords).
+Other protocols or database layouts fail closed. No default export-all selection.
 
-Add `--subscription-json` to `3x-ui-node-exporter.sh`, sharing existing SQLite
-snapshot and local subscription-reading helpers. This differs from `--stream`,
-which transfers a ZIP containing a database snapshot.
+## Producer behavior
 
-- Read a consistent SQLite snapshot in memory; never edit the live database.
-  Keep intermediate responses in memory. If a file is unavoidable, use a verified
-  tmpfs private directory, clean it on completion and handled signals, and reject
-  persistent-disk fallback. tmpfs is not a secure-erasure guarantee against swap,
-  crash dumps or host snapshots. Recover owned leftovers after an interrupted run.
-- A collector-owned instance configuration selects the intended active inbound
-  clients and subscription groups. Export all and only that selection. Missing
-  selectors, empty selection or any failed group reject the attempt.
-- Reuse the panel's local subscription renderer. Do not reconstruct private
-  protocol settings using guessed defaults. Validate the outward address and
-  preserve SNI, transport and REALITY fields.
-- Require every expected group to succeed. Reject HTML/JSON errors, invalid
-  node URIs, empty output and unsupported protocols. A partial fetch must never
-  silently become a smaller valid subscription.
-- Deduplicate exact URI lines while preserving order and names. Decreased node
-  count is allowed if every selected group succeeded; deliberate empty-service
-  retirement is an explicit operation.
-- No prompts, package installation, internet script download or self-update during
-  collection. Send the collector's reviewed, pinned exporter through SSH and run
-  it in memory with preflighted dependencies; leave no installed script on the VPS.
-- Validate before stdout. Sanitized stderr must exclude raw curl errors,
-  subIds, request URLs, node lines and private paths.
-- Initial limits: 120 seconds total, 1 MiB normalized node text, 1,000 nodes,
-  16 KiB per URI line. Raising limits requires a reviewed instance change.
+- Read SQLite through a read-only connection and copy a consistent snapshot to
+  `:memory:`. No snapshot, script, request body or response file is written on VPS.
+- Select active, unexpired inbound clients by identity. Removed/disabled members
+  may reduce a nonempty selection. A completely empty selection fails.
+- Read the panel's subscription listener on loopback, using its configured TLS
+  mode, port and path. Do not follow redirects or environment proxies. Loopback
+  TLS uses the local host trust boundary, as the original curl `-k` export did.
+- Reuse native node rendering, including REALITY and transport parameters.
+  Reject shared groups containing unselected identities and require the native
+  output to match every selected active inbound/client pair. Native rendering
+  may itself update the panel's normal subscription-access metadata.
+- Every selected group must succeed. Validate URI structure and identities;
+  deduplicate exact lines while preserving order. Reject HTML, error JSON, empty,
+  partial, unrelated-client and unsupported-protocol output.
+- Require existing Python 3.9+ and standard-library SQLite/TLS support. Never
+  install dependencies, download scripts, self-update or create a remote timer.
+- Producer timeout 120 seconds; responses/node text at most 1 MiB, 1,000 nodes,
+  16 KiB per line. Receiver envelope limit 2 MiB. SSH exit must be zero.
 
-## Transport schema
+## Response
 
-Success exits 0 and writes exactly one UTF-8 JSON object plus a final newline:
+Success writes one UTF-8 JSON object followed by a newline. Fields:
+`schemaVersion: 1`, `exporterVersion`, `exportedAt` (UTC), `expectedGroups`,
+`successfulGroups`, `nodeCount`, `bytes`, `sha256`, and `links`.
+`links` contains LF-separated URIs with exactly one final LF. Counts, byte length,
+digest and producer version are checked by the receiver before publication.
+No database, panel password, SSH key or subId field is transmitted; node URIs
+themselves are credentials and must remain private.
 
-| Field | Meaning |
-| --- | --- |
-| `schemaVersion` | Integer `1` |
-| `exporterVersion` | Collector-pinned exporter version |
-| `exportedAt` | UTC RFC 3339 diagnostic timestamp |
-| `expectedGroups` | Positive count of selected active subscription groups |
-| `successfulGroups` | Must equal `expectedGroups` |
-| `nodeCount` | Positive count after deduplication |
-| `bytes` | Exact UTF-8 byte length of `links` |
-| `sha256` | SHA-256 of those exact bytes |
-| `links` | LF-separated URI lines with one final LF |
+Failure exits nonzero and emits only `3XUI_EXPORT_ERROR <category>` to stderr.
+Interrupted or partial transmissions are discarded. Raw exceptions, URLs and
+response bodies never enter routine collector logs.
 
-No database, private-key, panel-password or subId fields are included. Node
-URIs themselves contain credentials and remain sensitive. Receivers bound the
-envelope to 2 MiB, validate schema/counts/length/digest and require SSH exit 0.
-The digest detects data errors; SSH and pinned host keys establish identity.
+## Cleanup
 
-Failures detected before transmission exit nonzero with no data on stdout.
-Interrupted transmissions may be partial and must be discarded by the receiver.
-Stable error classes cover config, database, selection, fetch, format, limit and
-cleanup failures; receivers never copy untrusted error bodies into routine logs.
+No persistent exporter artifacts are created on VPS. Normal SSH/authentication,
+system audit and panel logs are preserved, as agreed for this implementation.
+This is file-free execution, not a claim of trace-free execution or secure erasure
+of memory, swap, snapshots or provider records.
 
-## Existing SSH identity and transient execution
+## Checks
 
-Reuse the instance owner's existing SSH user and key. Do not create an export
-account, add an authorized key, install a dispatcher, or change sudo/sshd policy.
-The key retains its existing account privileges; disabling PTY and forwarding in
-the collector is a client-side choice, not a server-enforced privilege boundary.
-
-Store the reviewed exporter and instance configuration on the collector. A fixed
-bootstrap receives bounded, separate code/config inputs over SSH stdin and an
-anonymous inherited descriptor, runs the exporter without writing a script file,
-and returns the existing JSON protocol. Do not concatenate private config into
-executable shell strings or command-line arguments. Installed Bash/Python/curl
-dependencies are checked in advance; a missing dependency fails the run.
-
-The scheduler needs access to the existing key and, if required, its passphrase.
-Provide them through protected collector credentials, never argv, general logs or
-HTTP containers. Do not depend on an interactive desktop SSH agent being online.
-Pin the VPS host key using a trusted verification path; keyscan is not verification.
-
-## Cleanup and system-log limits
-
-Leave no exporter installation, instance configuration or retained export files
-on the VPS. Exporter-generated temporary logs are avoided or cleaned with its
-private session. The collector retains its own sanitized outcome and node cache.
-
-System SSH/authentication/audit logs are separate from exporter artifacts. An
-instance request to remove this run's records requires inspecting the actual log
-backends and proving an exact scope, including records emitted after disconnect.
-Do not silently substitute whole-file/shared-journal deletion or stop auditing
-to meet that request. journalctl vacuum acts on archived journal files, not a
-single SSH session. If exact cleanup is unavailable, report that requirement as
-unmet; do not claim a trace-free run or silently change the user's requirement.
-Remote log copies, swap, snapshots and provider-side records are outside local
-file cleanup. No system-log mutation is implemented or executed by this design.
-
-## Implementation and validation
-
-Add the mode, transient execution support and regression tests; bump the exporter
-version when behavior changes. Keep both existing ZIP regression suites.
-New tests cover complete/partial fetches, disabled or missing clients, malformed
-output, bounds, snapshot consistency, signal/disconnect cleanup and redaction.
-Linux integration must verify existing-key authentication, passphrase handling,
-no PTY/forwarding requested, bounded stdin/config delivery and no retained script
-or export files. Do not test or advertise server-enforced key restrictions that
-this design no longer configures. System-log cleanup remains a separate preflight.
-
-References: [OpenSSH remote execution](https://man.openbsd.org/ssh),
-[journalctl retention semantics](https://www.freedesktop.org/software/systemd/man/255/journalctl.html).
+`python -B tools/vps/test_3x_ui_subscription_exporter.py` covers native preservation,
+snapshot consistency, partial groups, removed/disabled clients, selection leakage,
+malformed responses, limits and stderr redaction. Collector integration adds
+transport timeout/overflow, atomic versions, failed-slot deduplication and cache
+visibility tests. Instance details and deployment records belong to the deployment
+repository; never put real configuration or nodes in fixtures.
