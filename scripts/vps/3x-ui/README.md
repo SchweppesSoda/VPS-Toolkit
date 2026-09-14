@@ -156,6 +156,9 @@ PostgreSQL-backed 3x-ui deployments are detected only as a missing SQLite databa
 
 Version history: [CHANGELOG.md](./CHANGELOG.md).
 
+Planned unattended integration: [SSH subscription export contract](./SSH_SUBSCRIPTION_DESIGN.md)
+(design only; its new CLI mode is not yet available).
+
 Run the export/cleanup regression suite with Bash and Python 3:
 
 ```bash

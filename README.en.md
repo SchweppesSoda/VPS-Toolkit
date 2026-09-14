@@ -33,7 +33,7 @@ Start from the relevant README for normal use. `*-technical.md` and `*-design.md
 | [`scripts/vps/proxy-stack/README.md`](./scripts/vps/proxy-stack/README.md) | Fresh deployment, adoption of an existing host, or configuration-driven rebuild for Argosbx, Proxy Gateway Plus, and the sidecar. |
 | [`scripts/vps/ssh-key-only/README.md`](./scripts/vps/ssh-key-only/README.md) | SSH public-key-only hardening. |
 | [`scripts/vps/fail2ban/README.md`](./scripts/vps/fail2ban/README.md) | Fail2ban installation and maintenance. |
-| [`scripts/vps/3x-ui/README.md`](./scripts/vps/3x-ui/README.md) | 3x-ui node/subscription export and one-command SSH download to a chosen Windows directory. |
+| [`scripts/vps/3x-ui/README.md`](./scripts/vps/3x-ui/README.md) | 3x-ui node/subscription export and one-command SSH download to a chosen Windows directory; [unattended export design](./scripts/vps/3x-ui/SSH_SUBSCRIPTION_DESIGN.md). |
 | [`scripts/vps/forwardx/README.md`](./scripts/vps/forwardx/README.md) | ForwardX NAT VPS agent adapter. |
 | [`scripts/vps/reality_dest_finder/README.md`](./scripts/vps/reality_dest_finder/README.md) | REALITY destination finder. |
 
