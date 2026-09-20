@@ -169,8 +169,11 @@ PostgreSQL-backed 3x-ui deployments are detected only as a missing SQLite databa
 
 Version history: [CHANGELOG.md](./CHANGELOG.md).
 
-Planned unattended integration: [SSH subscription export contract](./SSH_SUBSCRIPTION_DESIGN.md)
-(design only; its new CLI mode is not yet available).
+Unattended collection uses the independent
+[`3x-ui-subscription-exporter.py`](./3x-ui-subscription-exporter.py). Its current
+[SSH subscription export contract](./SSH_SUBSCRIPTION_DESIGN.md) describes the
+transient producer and collector transport; the Bash ZIP exporter keeps its
+existing CLI modes.
 
 Run the export/cleanup regression suite with Bash and Python 3:
 
