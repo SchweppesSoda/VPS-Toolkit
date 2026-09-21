@@ -50,6 +50,16 @@ bash vless-raw-enc-argosbx-enhancer.sh
 
 首次进入建议先执行“系统预检 / 环境判断”。如果机器上已有 argosbx，脚本会优先复制 argosbx 的 Xray；如果没有 argosbx，也可以下载官方 Xray 后按 sidecar 模式直接部署。
 
+官方下载安装路径固定到经审核的 `v26.3.27`，按检测到的架构选择内置 SHA256；下载完成后
+先检查 ZIP 摘要，再只提取唯一的 `xray` 成员并核对 ELF 位数、字节序和机器架构，最后原子
+替换现有文件。任一步失败都保留旧二进制，不再运行时追随 `latest`。其它明确版本必须同时
+提供 `XRAY_RELEASE_TAG`（`v数字.数字.数字`）与该架构 ZIP 的 `XRAY_RELEASE_SHA256`；不
+接受只有版本没有摘要的覆盖。来源会记录固定版本、资产名和摘要。
+
+这只保护官方二次下载链路，不改变已有 argosbx、系统或手工指定本地 Xray 的信任边界。
+发布来源、离线验证和恢复限制见 [2026-09-21 维护记录](CHANGELOG.md)。修改本脚本后，上层
+proxy-stack 的 `SIDECAR_SOURCE_SHA256` 也需要在后续授权部署前重新审核，不能自动沿用旧值。
+
 ## 整机编排与接管
 
 需要在全新机器部署、接管已有机器或按私有配置复刻甬哥 Argosbx、Proxy Gateway Plus 和

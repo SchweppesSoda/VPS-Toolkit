@@ -19,6 +19,10 @@ CONFIG_FILE="${FEATURE_DIR}/config.json"
 SHARE_FILE="${FEATURE_DIR}/share.txt"
 PID_FILE="${FEATURE_DIR}/xray.pid"
 XRAY_BIN="${BIN_DIR}/xray"
+# Reviewed official release asset digests; never resolve latest at execution.
+# Custom versions require an explicit matching SHA256 for the detected asset.
+XRAY_RELEASE_TAG="${XRAY_RELEASE_TAG:-v26.3.27}"
+XRAY_RELEASE_SHA256="${XRAY_RELEASE_SHA256:-}"
 
 SERVICE_NAME="agsbx-extra-vless-raw-enc"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
@@ -883,11 +887,75 @@ ensure_unzip() {
   return 1
 }
 
+xray_release_sha256() {
+  if [[ -n "${XRAY_RELEASE_SHA256}" ]]; then
+    [[ "${XRAY_RELEASE_SHA256}" =~ ^[0-9a-fA-F]{64}$ ]] || return 1
+    printf '%s\n' "${XRAY_RELEASE_SHA256,,}"
+    return 0
+  fi
+  [[ "${XRAY_RELEASE_TAG}" == v26.3.27 ]] || return 1
+  # https://api.github.com/repos/XTLS/Xray-core/releases/tags/v26.3.27
+  case "$1" in
+    Xray-linux-32.zip) echo d1eeb0d9a9106eefd286fbb73595c2dfe1c48c56aa91ba1c9aefe04f188d0927 ;;
+    Xray-linux-64.zip) echo 23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae ;;
+    Xray-linux-arm32-v5.zip) echo 0da9a632e15e82504831f61bf6b46c21e3081bcc79ad46bdc16e7dc2f0dc9088 ;;
+    Xray-linux-arm32-v6.zip) echo 0c6e751e2bba3f3ff09a793dd6a6bc45fd6fd89f49b49dfc0cf6d922dc123bec ;;
+    Xray-linux-arm32-v7a.zip) echo c7265ae13c63ca0241a037df4ef960ad37938c8a67d984cc08834b2cfdf5654b ;;
+    Xray-linux-arm64-v8a.zip) echo 4d30283ae614e3057f730f67cd088a42be6fdf91f8639d82cb69e48cde80413c ;;
+    Xray-linux-loong64.zip) echo 4f9c917976d4e454740aa7b4e0ef9c13c950d91152aaa7926aaa652698e6e6c0 ;;
+    Xray-linux-ppc64.zip) echo 60be6b12dbfdd7e9ce915165ef337bfcde4cacce26ba2a27d34c4e6470d4ad7b ;;
+    Xray-linux-ppc64le.zip) echo 2f9ad6c4f35966b1e012c69d601a98bb8b63aba933d303ba6d7b5b67f2ab2acb ;;
+    Xray-linux-riscv64.zip) echo 627ea5870b6fd05d95b7f4ceb5a54d7f2664dd075b30a7ac46ee9a6f9653d6f8 ;;
+    Xray-linux-s390x.zip) echo a209bcea3df9b0dc1ef5938695679ba1308ad9678a671279d7b1b6c5ceec09c7 ;;
+    *) return 1 ;;
+  esac
+}
+
+xray_elf_matches_asset() {
+  local bytes class endian machine
+  local -a header
+  case "$2" in
+    Xray-linux-64.zip) class=2; endian=1; machine=62 ;;
+    Xray-linux-32.zip) class=1; endian=1; machine=3 ;;
+    Xray-linux-arm64-v8a.zip) class=2; endian=1; machine=183 ;;
+    Xray-linux-arm32-*.zip) class=1; endian=1; machine=40 ;;
+    Xray-linux-s390x.zip) class=2; endian=2; machine=22 ;;
+    Xray-linux-riscv64.zip) class=2; endian=1; machine=243 ;;
+    Xray-linux-ppc64le.zip) class=2; endian=1; machine=21 ;;
+    Xray-linux-ppc64.zip) class=2; endian=2; machine=21 ;;
+    Xray-linux-loong64.zip) class=2; endian=1; machine=258 ;;
+    *) return 1 ;;
+  esac
+  bytes="$(LC_ALL=C od -An -v -tu1 -N20 -- "$1")" || return 1
+  bytes="${bytes//$'\n'/ }"
+  read -r -a header <<<"$bytes"
+  [[ "${#header[@]}" == 20 && "${header[*]:0:4}" == '127 69 76 70' ]] || return 1
+  [[ "${header[4]}" == "$class" && "${header[5]}" == "$endian" && "${header[6]}" == 1 ]] || return 1
+  if [[ "$endian" == 1 ]]; then
+    [[ "$((header[18] + 256 * header[19]))" == "$machine" ]]
+  else
+    [[ "$((256 * header[18] + header[19]))" == "$machine" ]]
+  fi
+}
+
 download_official_xray_binary() {
-  local asset url tmp zip
+  local asset url tmp zip expected actual candidate count
   asset="$(xray_release_asset_name)" || {
     err "无法识别当前架构: $(uname -m 2>/dev/null || echo unknown)"
     return 1
+  }
+
+  [[ "${XRAY_RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+    err "Xray 版本必须是明确的 v数字.数字.数字 release。"; return 1;
+  }
+  expected="$(xray_release_sha256 "$asset")" || {
+    err "该 Xray 版本缺少有效的架构 SHA256；请先核对官方资产摘要。"; return 1;
+  }
+  command_exists sha256sum && command_exists od || {
+    err "Xray 校验需要 sha256sum 和 od。"; return 1;
+  }
+  [[ -d "${BIN_DIR}" && ! -L "${BIN_DIR}" && ! -L "${XRAY_BIN}" && ! -d "${XRAY_BIN}" ]] || {
+    err "Xray 安装路径不是普通目录/文件，拒绝覆盖。"; return 1;
   }
 
   if ! ensure_unzip; then
@@ -895,9 +963,10 @@ download_official_xray_binary() {
     return 1
   fi
 
-  tmp="$(mktemp -d)"
+  tmp="$(mktemp -d)" || return 1
+  [[ -n "$tmp" && "$tmp" != / && -d "$tmp" && ! -L "$tmp" ]] || return 1
   zip="${tmp}/${asset}"
-  url="https://github.com/XTLS/Xray-core/releases/latest/download/${asset}"
+  url="https://github.com/XTLS/Xray-core/releases/download/${XRAY_RELEASE_TAG}/${asset}"
 
   info "下载 ${url}"
   if ! download_file "${url}" "${zip}"; then
@@ -906,24 +975,29 @@ download_official_xray_binary() {
     return 1
   fi
 
-  if ! unzip -o "${zip}" -d "${tmp}/xray" >/dev/null; then
+  actual="$(sha256sum -- "$zip")" || { rm -rf -- "$tmp"; return 1; }
+  if [[ "${actual%% *}" != "$expected" ]]; then
     rm -rf "${tmp}"
-    err "解压 Xray 失败。"
+    err "Xray 资产 SHA256 不匹配，保留现有二进制。"
     return 1
   fi
-
-  if [[ ! -f "${tmp}/xray/xray" ]]; then
-    rm -rf "${tmp}"
-    err "release 包中未找到 xray 二进制。"
-    return 1
-  fi
-
-  cp "${tmp}/xray/xray" "${XRAY_BIN}" || {
-    rm -rf "${tmp}"
-    return 1
+  # Extract only the exact member to a regular same-filesystem candidate. Other
+  # ZIP paths (including traversal entries) are never extracted or executed.
+  count="$(unzip -Z1 "$zip" | awk '$0 == "xray" {n++} END {print n+0}')" || {
+    rm -rf -- "$tmp"; return 1;
   }
-  chmod +x "${XRAY_BIN}"
-  XRAY_SOURCE="XTLS/Xray-core latest release (${asset})"
+  [[ "$count" == 1 ]] || { rm -rf -- "$tmp"; err "release 包中 xray 成员缺失或重复。"; return 1; }
+  candidate="$(mktemp "${BIN_DIR}/.xray-candidate.XXXXXXXX")" || { rm -rf -- "$tmp"; return 1; }
+  if ! unzip -p "$zip" xray >"$candidate" || ! xray_elf_matches_asset "$candidate" "$asset"; then
+    rm -f -- "$candidate"; rm -rf -- "$tmp"
+    err "Xray 候选无效或架构不符，保留现有二进制。"
+    return 1
+  fi
+  if ! chmod 755 "$candidate" || ! mv -f -- "$candidate" "$XRAY_BIN"; then
+    rm -f -- "$candidate"; rm -rf -- "$tmp"
+    return 1
+  fi
+  XRAY_SOURCE="XTLS/Xray-core ${XRAY_RELEASE_TAG} (${asset}; sha256:${expected})"
   rm -rf "${tmp}"
   success "已安装官方 Xray 到 ${XRAY_BIN}"
 }
@@ -957,7 +1031,6 @@ ensure_xray_core() {
   if ! verify_xray_binary; then
     warn "当前 Xray 不满足 VLESS ENC 要求，或无法通过基础命令检查。"
     if confirm_yes "是否覆盖为 XTLS/Xray-core 官方 release"; then
-      rm -f "${XRAY_BIN}"
       download_official_xray_binary || return 1
       verify_xray_binary || return 1
     else

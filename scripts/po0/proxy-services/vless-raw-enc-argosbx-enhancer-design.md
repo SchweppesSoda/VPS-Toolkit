@@ -1,5 +1,14 @@
 # vless-raw-enc-argosbx-enhancer.sh 技术文档
 
+## 2026-09-21 官方下载边界
+
+官方 fallback 使用固定 release tag 和各架构资产 SHA256，不跟随 `latest`。摘要通过后只把
+唯一 `xray` ZIP 成员写入 `BIN_DIR` 内的普通临时文件，读取 ELF header 证明位数、字节序和
+机器架构，再 `mv` 替换旧文件。其它 ZIP 成员不解压，候选检查前不 chmod/执行二进制。
+已有 Xray 基础命令与 VLESS ENC 功能检查继续由 `verify_xray_binary()` 执行；摘要和 ELF
+检查不等同于运行能力验证。自定义固定 tag 必须伴随该架构明确摘要，未知 tag 无默认降级。
+维护证据及回退限制见 [CHANGELOG](CHANGELOG.md)。
+
 ## 定位
 
 `vless-raw-enc-argosbx-enhancer.sh` 是 argosbx/Xray 复用增强脚本，不是完整 Xray 面板。
