@@ -128,6 +128,7 @@ MIT
 
 ## 跨仓维护与临时资料
 
+- VPS 模块的独立离线 CI 复用既有 3x-ui、proxy-stack 和 Sidecar 校验测试，分别在 Linux 与 Windows 执行；范围与本地验证限制见 [2026-09-21 CI 维护记录](docs/maintenance/2026-09-21-vps-ci.md)。
 - 本仓 `main` 维护运维源码，提交与发布规则见 [AGENTS.md](./AGENTS.md)。PO0 构建产物由 `tools/po0/` 生成，经既有门禁发布；仅文档整理不重复发布脚本。
 - [proxy-gateway-plus](https://github.com/SchweppesSoda/proxy-gateway-plus) 拥有独立网关；本仓 `scripts/vps/proxy-stack/` 负责调用与编排，不复制网关业务实现。
 - [CustomRules](https://github.com/SchweppesSoda/CustomRules) 拥有公共规则与普通客户端模块；PO0 官方模块仍由本仓维护。[proxy-vps-skills](https://github.com/SchweppesSoda/proxy-vps-skills) 拥有配置维护工作流与审计工具。

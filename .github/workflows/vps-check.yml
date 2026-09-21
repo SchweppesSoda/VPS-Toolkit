@@ -1,0 +1,60 @@
+name: Check VPS tools
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/vps/3x-ui/**
+      - scripts/vps/proxy-stack/**
+      - scripts/po0/proxy-services/**
+      - tools/vps/**
+      - .github/workflows/vps-check.yml
+      - .gitattributes
+  pull_request:
+    paths:
+      - scripts/vps/3x-ui/**
+      - scripts/vps/proxy-stack/**
+      - scripts/po0/proxy-services/**
+      - tools/vps/**
+      - .github/workflows/vps-check.yml
+      - .gitattributes
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check existing validation tools
+        run: |
+          command -v python3 bash zip unzip sha256sum od
+      - name: Shell syntax
+        run: |
+          bash -n scripts/vps/3x-ui/3x-ui-node-exporter.sh
+          bash -n scripts/vps/proxy-stack/proxy-stack-orchestrator.sh
+          bash -n scripts/po0/proxy-services/vless-raw-enc-argosbx-enhancer.sh
+      - name: 3x-ui subscription producer (synthetic SQLite)
+        run: python3 tools/vps/test_3x_ui_subscription_exporter.py
+      - name: 3x-ui export cleanup (isolated files)
+        run: bash tools/vps/test-3x-ui-node-exporter-self-destruct.sh
+      - name: Proxy-stack orchestration (mock services and firewall)
+        run: bash tools/vps/test-proxy-stack-orchestrator.sh
+      - name: Sidecar Xray download (synthetic ZIP; never execute candidate)
+        run: python3 tools/vps/test-sidecar-xray-download.py
+
+  offline-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 3x-ui download (native mock SSH; PowerShell 5.1 and 7)
+        shell: powershell
+        run: |
+          $pythonPath = (Get-Command python.exe -ErrorAction Stop).Source
+          & ./tools/vps/test-3x-ui-download.ps1 -PythonPath $pythonPath
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
