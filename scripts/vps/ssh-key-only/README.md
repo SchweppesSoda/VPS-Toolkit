@@ -40,8 +40,8 @@ curl -fsSL https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scri
 ```
 
 
-## PO0 受限上报 key 兼容
+## 识别历史 PO0 受限上报 key
 
-`setup-ssh-key-only-full.sh` 会读取 `authorized_keys` 并分类显示：普通登录 key、PO0 受限上报 key、其它 forced-command/restricted key。PO0 受限上报 key 通常由 `nftables-relay-manager.sh` 安装，备注形如 `po0-report:scope=egern` 或 `po0-report:scope=worker`。
+`setup-ssh-key-only-full.sh` 会读取 `authorized_keys` 并分类显示：普通登录 key、历史 PO0 受限上报 key、其它 forced-command/restricted key。历史 PO0 key 的备注形如 `po0-report:scope=egern` 或 `po0-report:scope=worker`；其自建 Egern / LAN Worker 上报用途已退役，当前官方上报不依赖这些 key。
 
-使用 `--add-key` 会保留这些受限 key。使用 `--replace-key` 会备份并替换整个 `authorized_keys`，如果检测到 PO0 受限上报 key，脚本会先警告；替换后需要回到 PO0 主控脚本重新安装受限上报 key。
+使用 `--add-key` 会保留这些受限 key。使用 `--replace-key` 会备份并替换整个 `authorized_keys`，如果检测到历史 PO0 受限上报 key，脚本会先警告。执行替换前核对 key 的实际用途、登录保底和备份；不要为恢复已退役上报重新安装受限 key。分类提示不会自动删除、轮换或迁移任何 key。

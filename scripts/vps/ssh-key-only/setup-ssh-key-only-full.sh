@@ -1114,8 +1114,8 @@ warn_replace_removes_po0_restricted_keys() {
   [[ "${count}" =~ ^[0-9]+$ ]] || count=0
   if (( count > 0 )); then
     warn "检测到 ${count} 个 PO0 受限上报 key。替换 authorized_keys 会删除它们。"
-    warn "这些 key 通常由 nftables-relay-manager.sh 安装，用于 Egern / LAN Worker 受限上报。"
-    warn "如果需要保留上报能力，请使用 --add-key，或替换后重新在 PO0 主控脚本里安装受限 key。"
+    warn "这些 key 属于已退役的 PO0 自建 Egern / LAN Worker 上报链路，当前官方上报不依赖它们。"
+    warn "请先核对旧 key 的用途与备份；需要保留现有 key 时使用 --add-key。不要为恢复旧上报而重新安装受限 key。"
   fi
 }
 
