@@ -993,7 +993,9 @@ download_official_xray_binary() {
     err "Xray 候选无效或架构不符，保留现有二进制。"
     return 1
   fi
-  if ! chmod 755 "$candidate" || ! mv -f -- "$candidate" "$XRAY_BIN"; then
+  # Only a digest/architecture-verified candidate may execute. Keep the previous
+  # core until its reported release and existing required commands all pass.
+  if ! chmod 755 "$candidate" || ! verify_xray_binary "$candidate" "$XRAY_RELEASE_TAG" || ! mv -f -- "$candidate" "$XRAY_BIN"; then
     rm -f -- "$candidate"; rm -rf -- "$tmp"
     return 1
   fi
@@ -1002,20 +1004,34 @@ download_official_xray_binary() {
   success "已安装官方 Xray 到 ${XRAY_BIN}"
 }
 
+xray_binary_command() {
+  local binary="$1"
+  shift
+  "$binary" "$@"
+}
+
 verify_xray_binary() {
-  if [[ ! -x "${XRAY_BIN}" ]]; then
-    err "Xray 不存在或不可执行: ${XRAY_BIN}"
+  local binary="${1:-${XRAY_BIN}}" expected_tag="${2:-}" version_output reported_version
+  if [[ ! -x "$binary" ]]; then
+    err "Xray 不存在或不可执行: ${binary}"
     return 1
   fi
-  if ! "${XRAY_BIN}" version >/dev/null 2>&1; then
-    err "Xray version 检查失败: ${XRAY_BIN}"
+  if ! version_output="$(xray_binary_command "$binary" version 2>/dev/null)"; then
+    err "Xray version 检查失败: ${binary}"
     return 1
   fi
-  if ! "${XRAY_BIN}" uuid >/dev/null 2>&1; then
+  if [[ -n "$expected_tag" ]]; then
+    reported_version="$(printf '%s\n' "$version_output" | awk 'NR==1 && $1=="Xray" {print $2}')"
+    if [[ "$reported_version" != "${expected_tag#v}" ]]; then
+      err "Xray 版本报告与固定 release 不符，保留现有二进制。"
+      return 1
+    fi
+  fi
+  if ! xray_binary_command "$binary" uuid >/dev/null 2>&1; then
     err "Xray uuid 命令不可用。"
     return 1
   fi
-  if ! "${XRAY_BIN}" vlessenc >/dev/null 2>&1; then
+  if ! xray_binary_command "$binary" vlessenc >/dev/null 2>&1; then
     err "当前 Xray 不支持 vlessenc，请使用支持 VLESS Encryption 的新版 Xray-core。"
     return 1
   fi

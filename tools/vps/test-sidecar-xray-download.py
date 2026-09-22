@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise the actual downloader with synthetic ZIPs; never run a candidate."""
+"""Exercise downloader/verification with synthetic ZIPs and stubbed commands."""
 import hashlib
 import os
 from pathlib import Path
@@ -30,6 +30,11 @@ class XrayDownload(unittest.TestCase):
         assert source.rstrip().endswith('main "$@"'), "entrypoint changed; review test isolation"
         # Definitions only: do not enter the manager/root/menu/install flow.
         definitions = source.rstrip().rsplit('main "$@"', 1)[0]
+        if os.name == "nt":
+            # Git Bash cannot mark a synthetic ELF executable on NTFS. Commands
+            # remain stubbed; the real POSIX -x check is exercised only on Linux.
+            assert definitions.count('[[ ! -x "$binary" ]]') == 1
+            definitions = definitions.replace('[[ ! -x "$binary" ]]', '[[ ! -f "$binary" ]]')
         self.driver = self.root / "driver.sh"
         self.driver.write_text(definitions + '''
 export PATH="/usr/bin:/bin:$PATH"
@@ -44,6 +49,13 @@ download_file() {
 }
 curl() { echo 'unexpected network operation' >&2; return 99; }
 wget() { echo 'unexpected network operation' >&2; return 99; }
+xray_binary_command() {
+  [[ "$1" == "$BIN_DIR"/.xray-candidate.* ]] || return 98
+  [[ "$(cat "$XRAY_BIN")" == 'synthetic previous binary' ]] || return 97
+  printf '%s\\n' "$2" >> "$TEST_PROBES"
+  [[ "${TEST_PROBE_FAIL:-}" != "$2" ]] || return 1
+  if [[ "$2" == version ]]; then printf 'Xray %s (Xray, Penetrates Everything.)\\n' "${TEST_REPORTED_VERSION}"; fi
+}
 download_official_xray_binary || exit $?
 printf '%s\\n' "$XRAY_SOURCE"
 ''', encoding="utf-8", newline="\n")
@@ -67,7 +79,9 @@ printf '%s\\n' "$XRAY_SOURCE"
                 archive.writestr("../../MUST_NOT_EXTRACT", "synthetic")
         return path, hashlib.sha256(path.read_bytes()).hexdigest(), data
 
-    def run_download(self, *, arch="x86_64", tag="v26.3.27", sha=None, archive=None, fail=False):
+    def run_download(self, *, arch="x86_64", tag="v26.3.27", sha=None, archive=None, fail=False, probe_fail="", reported=None):
+        self.binary.write_bytes(b"synthetic previous binary")
+        (self.root / "probes").unlink(missing_ok=True)
         if archive is None:
             archive, valid_sha, _ = self.archive()
         else:
@@ -76,7 +90,9 @@ printf '%s\\n' "$XRAY_SOURCE"
                    TEST_DOWNLOAD_URL=(self.root / "download-url").as_posix(),
                    TEST_ARCHIVE=archive.as_posix(), XRAY_RELEASE_TAG=tag,
                    XRAY_RELEASE_SHA256=valid_sha if sha is None else sha,
-                   TEST_DOWNLOAD_FAIL="1" if fail else "0")
+                   TEST_DOWNLOAD_FAIL="1" if fail else "0",
+                   TEST_PROBES=(self.root / "probes").as_posix(), TEST_PROBE_FAIL=probe_fail,
+                   TEST_REPORTED_VERSION=reported if reported is not None else tag.removeprefix("v"))
         env.pop("BASH_ENV", None)
         return subprocess.run([BASH, self.driver.as_posix()], env=env, capture_output=True, text=True)
 
@@ -85,7 +101,7 @@ printf '%s\\n' "$XRAY_SOURCE"
         self.assertEqual(self.binary.read_bytes(), b"synthetic previous binary")
         self.assertEqual(list(self.bin.glob(".xray-candidate.*")), [])
 
-    def test_pinned_download_checks_then_installs_without_executing(self):
+    def test_pinned_download_checks_then_probes_candidate_before_replacing(self):
         archive, _, data = self.archive()
         result = self.run_download(archive=archive)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -94,9 +110,21 @@ printf '%s\\n' "$XRAY_SOURCE"
         self.assertEqual(url, "https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip")
         self.assertIn("sha256:", result.stdout)
         self.assertNotIn("latest", result.stdout)
+        self.assertEqual((self.root / "probes").read_text().splitlines(), ["version", "uuid", "vlessenc"])
 
     def test_bad_checksum_preserves_previous_binary(self):
         self.assert_preserved(self.run_download(sha="0" * 64))
+        self.assertFalse((self.root / "probes").exists())
+
+    def test_wrong_reported_version_preserves_previous_binary(self):
+        for report in ("26.3.28", "", "v26.3.27"):
+            self.assert_preserved(self.run_download(reported=report))
+            self.assertEqual((self.root / "probes").read_text().splitlines(), ["version"])
+
+    def test_candidate_command_failures_preserve_previous_binary(self):
+        for command in ("version", "uuid", "vlessenc"):
+            self.assert_preserved(self.run_download(probe_fail=command))
+            self.assertEqual((self.root / "probes").read_text().splitlines()[-1], command)
 
     def test_custom_version_requires_valid_explicit_hash(self):
         self.assert_preserved(self.run_download(tag="v99.1.2", sha=""))
@@ -129,6 +157,7 @@ printf '%s\\n' "$XRAY_SOURCE"
         for data in (self.elf(machine=183), self.elf(cls=1), self.elf(endian=2), b"#!/bin/sh\nexit 0", b"\x7fELF"):
             archive, _, _ = self.archive(data)
             self.assert_preserved(self.run_download(archive=archive))
+            self.assertFalse((self.root / "probes").exists())
 
     def test_duplicate_member_rejected_and_unrelated_paths_not_extracted(self):
         archive, _, _ = self.archive(duplicate=True)
