@@ -60,6 +60,51 @@ bash vless-raw-enc-argosbx-enhancer.sh
 发布来源、离线验证和恢复限制见 [2026-09-21 维护记录](CHANGELOG.md)。修改本脚本后，上层
 proxy-stack 的 `SIDECAR_SOURCE_SHA256` 也需要在后续授权部署前重新审核，不能自动沿用旧值。
 
+## 安装 / 修复如何应用配置
+
+“安装 / 修复 VLESS RAW ENC”和“安装 / 修复 SS2022”先在仅 root 可读的目录生成状态和
+配置候选，并由当前 Xray 校验；校验成功后才替换正式文件。systemd 模式会启用开机启动
+并重启 sidecar，首次安装、已停止服务和正在运行的服务都适用。pid+cron 模式先确认旧
+进程退出，再启动新进程并写入 `@reboot`。因此先装 VLESS 再增加 SS，或在安装 / 修复中
+调整端口、Flow、密钥，会应用完整的新配置。独立“服务控制 → 启动”仍只负责启动，已
+运行时不会借此重新载入配置。pid+cron 在应用前核对 PID 对应的完整 Xray 命令和配置路径；
+PID 被无关进程复用或无法确认身份时拒绝应用，不会自动终止该进程。
+
+配置生成或校验失败时，正式配置和服务状态保持原样。文件应用、服务启用、重启或启动后
+存活检查失败时，安装 / 修复返回失败，不更新或展示新分享链接，并尝试恢复旧文件及原有
+运行 / 停止、开机启用状态；pid+cron 还恢复变更前的 crontab。不要同时运行另一个管理器
+修改同一 sidecar 或这份 crontab。
+
+每次尝试的恢复资料位于输出所示的
+`/opt/agsbx-extra/vless-raw-enc/.config-apply.XXXXXXXX/`（目录 `0700`），按执行进度保留
+未应用候选、已有文件的 `*.before`、`previous-state` 和受限诊断日志。成功后保留旧资料，确认
+不再需要恢复时才清理。如果提示“自动恢复未完成”，依据 `previous-state` 先停止本
+sidecar，将存在的 `service.env.before`、`config.json.before` 和服务 unit 的 `.before`
+放回原路径；原来不存在的文件应撤除本次新增版本。systemd 再执行 `daemon-reload`，
+按记录恢复 enabled / enabled-runtime / disabled 及运行状态；pid+cron 按记录恢复
+`crontab.before` 或原来的无 crontab 状态。`share.txt.before` 可用于核对原有分享内容。
+这是同一次执行中的尽力恢复，不保证断电或强制杀进程时所有文件一起恢复。
+
+这套恢复只覆盖上述两个安装 / 修复入口的配置与服务状态。此前准备 Xray core 时可能
+已经安装或更换二进制；core 不在该恢复范围内，旧配置在新 core 下不能启动时会明确报告
+恢复未完成。不要把“候选失败”理解为二进制完全未变。
+
+本地回归使用合成配置与服务命令 stub，在仓库根目录运行：
+
+```bash
+python3 tools/vps/test-sidecar-config-apply.py
+bash -n scripts/po0/proxy-services/vless-raw-enc-argosbx-enhancer.sh
+```
+
+部署时按实际条件检查当前配置、服务进程和受影响端口。脚本只做配置校验及启动后一次
+存活检查；这些结果不证明客户端认证、UDP 回程或重启后的可用性。真实协议检查有条件
+再做，无法验证就记录“未验证”，不为补齐记录强行重启设备。只需端口转发时优先使用
+现有转发管理能力，不必增设协议 sidecar。
+
+分享链接、`service.env`、配置和诊断日志可能包含 UUID、密钥或完整 ENC；只在受限终端
+查看，不把原文、完整 URI 或凭据摘要写入公开仓库与报告。共享验证结果只记录对象标识、
+协议、端口、成功 / 失败和验证范围。
+
 ## 整机编排与接管
 
 需要在全新机器部署、接管已有机器或按私有配置复刻甬哥 Argosbx、Proxy Gateway Plus 和

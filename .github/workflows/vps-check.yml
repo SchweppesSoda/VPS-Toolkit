@@ -44,6 +44,8 @@ jobs:
         run: bash tools/vps/test-proxy-stack-orchestrator.sh
       - name: Sidecar Xray download (synthetic ZIP; never execute candidate)
         run: python3 tools/vps/test-sidecar-xray-download.py
+      - name: Sidecar config application (mock services and isolated state)
+        run: python3 tools/vps/test-sidecar-config-apply.py
 
   offline-windows:
     runs-on: windows-latest

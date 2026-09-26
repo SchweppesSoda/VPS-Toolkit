@@ -112,7 +112,16 @@ systemd 环境写入：
 - PID 文件
 - crontab `@reboot`
 
-配置改写后会先执行 Xray 配置测试，通过后再重启 sidecar。
+安装 / 修复 VLESS 和 SS2022 使用 `apply_install_config`：先在功能目录内的私有临时
+目录生成 `service.env.next` 和 `config.json.next`，通过 Xray 校验后保存 before-image
+及服务状态，再依次 rename 正式文件。systemd 显式 enable + restart；pid+cron 确认旧
+进程停止后启动，两个分支都在启动后检查存活。安装 / 修复的 core 准备不提前写入
+`service.env`；独立 core 操作仍保存来源状态。
+
+失败时恢复旧配置、unit 与原有运行 / 启用状态，非 systemd 还恢复 crontab；新分享
+链接仅在成功后生成。旧资料与诊断保留在 `.config-apply.*` 中，恢复失败必须明确报告。
+这是同一进程内的尽力恢复，不覆盖断电、并发管理或此前更换的 core。仅上述两个入口
+使用该恢复路径，独立启动及其它设置入口保持原有流程。操作边界见 [README](README.md)。
 
 ## 卸载边界
 
