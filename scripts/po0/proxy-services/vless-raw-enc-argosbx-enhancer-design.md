@@ -43,7 +43,7 @@
 - 不做 cnblock / 中国大陆直连或屏蔽
 - 不写全局 routing 策略或安全屏蔽策略
 - 不做 doctor / smoke / export 全局诊断
-- 不做 Xray 指定版本升级和失败回滚
+- 不做任意 Xray 版本升级编排；仅对本脚本的本地核心同步提供候选验证及失败恢复
 - 不做 GitHub 下载镜像兜底
 
 这些功能适合完整 Xray 管理器，不适合“复用增强脚本”。
@@ -95,7 +95,7 @@ SS2022 inbound 使用 Xray 的 `shadowsocks` 协议：
 1. 已存在的 `/opt/agsbx-extra/bin/xray`
 2. argosbx 目录里的 `xray`
 3. 系统 PATH 里的 `xray`
-4. 官方 Xray latest release
+4. 经版本及 SHA256 固定的官方 Xray release
 5. 用户手动指定二进制路径
 
 如果 argosbx 后续更新了自己的 Xray core，可以通过菜单“从 argosbx 同步 Xray core”手动复制到 sidecar。
@@ -112,16 +112,34 @@ systemd 环境写入：
 - PID 文件
 - crontab `@reboot`
 
-安装 / 修复 VLESS 和 SS2022 使用 `apply_install_config`：先在功能目录内的私有临时
-目录生成 `service.env.next` 和 `config.json.next`，通过 Xray 校验后保存 before-image
+所有协议参数变更使用 `apply_install_config`：先在功能目录内的私有临时
+目录生成 `service.env.next`、`config.json.next` 和 `share.txt.next`，用 `run -test -format json`
+显式校验后保存 before-image
 及服务状态，再依次 rename 正式文件。systemd 显式 enable + restart；pid+cron 确认旧
 进程停止后启动，两个分支都在启动后检查存活。安装 / 修复的 core 准备不提前写入
 `service.env`；独立 core 操作仍保存来源状态。
 
-失败时恢复旧配置、unit 与原有运行 / 启用状态，非 systemd 还恢复 crontab；新分享
-链接仅在成功后生成。旧资料与诊断保留在 `.config-apply.*` 中，恢复失败必须明确报告。
-这是同一进程内的尽力恢复，不覆盖断电、并发管理或此前更换的 core。仅上述两个入口
-使用该恢复路径，独立启动及其它设置入口保持原有流程。操作边界见 [README](README.md)。
+失败时恢复旧配置、分享文件、unit 与原有运行 / 启用状态，非 systemd 还恢复 crontab；分享
+候选提前生成，仅应用成功后替换当前分享文件并展示。旧资料与诊断保留在 `.config-apply.*`
+中，恢复失败必须明确报告。
+这是同一进程内的尽力恢复，不覆盖断电、并发管理或此前更换的 core。显示元数据走同一事务的 `metadata` 模式、不触碰服务；最后一个协议禁用走 `stop` 模式，
+写无监听配置并撤掉开机启动。独立启动保持幂等，停止与重启统一核实进程身份和返回值。操作边界见 [README](README.md)。
+
+## 持续校时与诊断边界
+
+SS2022 的配置应用与手动启动/重启检查 `ensure_ss_time_sync`；时间服务仍由系统维护，
+不嵌入 Xray service 或另造常驻监督器。探测把开机启用、运行与同步证据分开，
+timesyncd 用易失同步标记的新鲜度，chrony/ntpd 用其本机查询接口，均不向外请求任意时间。
+校时查询失败不等于系统时间一定错误，但不能据此通过部署门禁。默认不替换已有 NTP。
+
+`repair_time_sync` 的包安装和启用是单独的系统动作，需交互确认；保留已有时间源，
+没有已知服务时仅支持 apt/systemd 安装 timesyncd。未同步时配置应用失败，校时服务保留。
+非 systemd 的实际配置与重启维护不扩展成通用系统初始化框架。
+
+配置测试显式指定 JSON，不依据 `.next` 或临时文件名推测；测试不改正式配置。
+SS 连接测试在私有临时目录创建回环客户端，通过 EXIT/信号清理进程和文件；显式排除
+`NO_PROXY` 对测试的绕过。协议回归另使用固定真实 Xray，合成配置和系统命令 stub 只证明
+应用/恢复流程，不能替代协议兼容性验证。
 
 ## 卸载边界
 

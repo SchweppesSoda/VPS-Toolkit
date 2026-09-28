@@ -3,6 +3,11 @@ set -uo pipefail
 
 # vless-raw-enc-argosbx-enhancer.sh
 # Manages an independently deployed or argosbx-reused Xray sidecar.
+SCRIPT_VERSION="2026.09.28.1"
+# CHANGELOG_BEGIN
+# 补齐 SS2022 持续校时检查与修复；统一配置变更、分享链接及失败恢复。
+# 修复 JSON 候选和连接测试格式识别；只读测试不再改配置，服务停止失败不报成功。
+# CHANGELOG_END
 
 APP_ROOT="/opt/agsbx-extra"
 BIN_DIR="${APP_ROOT}/bin"
@@ -40,6 +45,9 @@ ARGOSBX_SINGBOX=""
 ARGOSBX_UUID=""
 ARGOSBX_DETECTED="0"
 HAS_SYSTEMD="0"
+TIME_SYNC_SERVICE=""
+TIME_SYNC_DETAIL="尚未检查"
+TIME_SYNC_MARKER="/run/systemd/timesync/synchronized"
 
 PORT=""
 UUID=""
@@ -192,6 +200,138 @@ detect_init_system() {
   else
     HAS_SYSTEMD="0"
   fi
+}
+
+# Time belongs to the host, not the sidecar. Reuse one persistent provider;
+# never replace chrony/ntpd just because timesyncd is our Debian fallback.
+time_service_active() {
+  if [[ "${HAS_SYSTEMD}" == "1" ]]; then
+    systemctl is-active --quiet "$1" 2>/dev/null
+  else
+    command_exists rc-service && rc-service "$1" status >/dev/null 2>&1
+  fi
+}
+
+time_service_enabled() {
+  if [[ "${HAS_SYSTEMD}" == "1" ]]; then
+    [[ "$(systemctl is-enabled "$1" 2>/dev/null)" == "enabled" ]]
+  else
+    command_exists rc-update && rc-update show 2>/dev/null |
+      awk -v name="$1" '$1==name && /\|.*(boot|default)/ {found=1} END {exit !found}'
+  fi
+}
+
+time_service_candidates() {
+  printf '%s\n' systemd-timesyncd chrony chronyd ntp ntpd ntpsec
+}
+
+probe_time_sync() {
+  local service now modified age report
+  TIME_SYNC_SERVICE=""
+  TIME_SYNC_DETAIL="未发现运行且开机启用的校时服务"
+  command_exists timeout || { TIME_SYNC_DETAIL="缺少 timeout，无法限时核验校时"; return 1; }
+  while IFS= read -r service; do
+    time_service_active "${service}" || continue
+    TIME_SYNC_SERVICE="${service}"
+    if ! time_service_enabled "${service}"; then
+      TIME_SYNC_DETAIL="${service} 正在运行，但未确认开机启用"
+      continue
+    fi
+    TIME_SYNC_DETAIL="${service} 已运行并开机启用，但未确认实际同步"
+    case "${service}" in
+      systemd-timesyncd)
+        # systemd updates this volatile marker on each successful NTP sync.
+        # Unlike /var/lib/systemd/timesync/clock it is not just saved wall time.
+        modified="$(stat -c %Y "${TIME_SYNC_MARKER}" 2>/dev/null)" || continue
+        now="$(date +%s)"
+        [[ "${modified}" =~ ^[0-9]+$ && "${now}" =~ ^[0-9]+$ ]] || continue
+        age=$((now - modified))
+        (( age >= 0 && age <= 3600 )) || continue
+        ;;
+      chrony|chronyd)
+        command_exists chronyc || continue
+        timeout 5 chronyc -n waitsync 1 0.5 >/dev/null 2>&1 || continue
+        ;;
+      ntp|ntpd|ntpsec)
+        command_exists ntpq || continue
+        report="$(timeout 5 ntpq -n -c 'rv 0 leap,stratum,offset' 2>/dev/null)" || continue
+        printf '%s\n' "${report}" | tr ',' '\n' | awk -F= '
+          {gsub(/[[:space:]]/, "", $1); gsub(/[[:space:]]/, "", $2)}
+          $1=="leap" && $2=="00" {leap=1}
+          $1=="stratum" && $2 ~ /^[0-9]+$/ && $2>0 && $2<16 {stratum=1}
+          $1=="offset" && $2 ~ /^[-+]?[0-9]+(\.[0-9]+)?$/ && $2>-500 && $2<500 {offset=1}
+          END {exit !(leap && stratum && offset)}' || continue
+        ;;
+    esac
+    TIME_SYNC_DETAIL="${service} 已运行、开机启用，实际同步检查通过"
+    return 0
+  done < <(time_service_candidates)
+  return 1
+}
+
+show_time_sync() {
+  if probe_time_sync; then info "${TIME_SYNC_DETAIL}"
+  else warn "${TIME_SYNC_DETAIL}；SS2022 要求两端时间差不超过 30 秒。"; fi
+}
+
+repair_time_sync() {
+  local service identity selected="" installed="" count=0 deadline
+  local -a time_units=()
+  local -A seen=()
+  detect_init_system
+  command_exists timeout || { err "请先安装 timeout，以便限时检查同步。"; return 1; }
+  if probe_time_sync; then success "${TIME_SYNC_DETAIL}"; return 0; fi
+  warn "${TIME_SYNC_DETAIL}"
+  if [[ "${HAS_SYSTEMD}" != "1" ]]; then
+    err "请用系统服务管理器启用 chrony/ntpd 的开机校时，再检查同步；不会另建 cron 校时任务。"
+    return 1
+  fi
+  while IFS= read -r service; do
+    identity="$(systemctl show "${service}" -p Id --value 2>/dev/null)"
+    identity="${identity:-${service}}"
+    [[ -z "${seen[${identity}]:-}" ]] || continue
+    seen["${identity}"]=1
+    if time_service_active "${service}"; then selected="${service}"; count=$((count + 1)); fi
+    if [[ "$(systemctl show "${service}" -p LoadState --value 2>/dev/null)" == "loaded" ]]; then
+      installed+="${service} "
+    fi
+  done < <(time_service_candidates)
+  (( count <= 1 )) || { err "多个校时服务同时运行，请先处理冲突。"; return 1; }
+  if [[ -z "${selected}" ]]; then
+    read -r -a time_units <<< "${installed}"
+    if (( ${#time_units[@]} > 1 )); then
+      err "发现多个已安装的校时服务，请先选择并启用其中一个。"
+      return 1
+    fi
+    selected="${time_units[0]:-}"
+  fi
+  if [[ -z "${selected}" ]]; then
+    # Refuse to install another daemon over an unmanaged running one.
+    if pgrep -x 'chronyd|ntpd|systemd-timesyn' >/dev/null 2>&1; then
+      err "发现未识别归属的校时进程，请先用系统服务管理器核对。"; return 1
+    fi
+    command_exists apt-get || { err "请安装并启用本发行版的 NTP 服务，然后重新检查。"; return 1; }
+    confirm_yes "安装并开机启用 systemd-timesyncd（系统校时会在卸载代理后保留）" || return 1
+    apt-get install -y --no-remove --no-install-recommends systemd-timesyncd || return 1
+    selected=systemd-timesyncd
+  else
+    confirm_yes "启用现有 ${selected} 持续校时并等待同步（保留原时间源）" || return 1
+  fi
+  systemctl enable --now "${selected}" || return 1
+  deadline=$((SECONDS + 60))
+  while (( SECONDS < deadline )); do
+    if probe_time_sync; then success "${TIME_SYNC_DETAIL}"; return 0; fi
+    sleep 2
+  done
+  err "校时服务已启用，但未在 60 秒内确认同步；请检查时间源和 UDP/123 出站后重试。"
+  return 1
+}
+
+ensure_ss_time_sync() {
+  [[ "${SS_ENABLED:-0}" == "1" && "${SS_METHOD:-}" == 2022-* ]] || return 0
+  if probe_time_sync; then return 0; fi
+  warn "${TIME_SYNC_DETAIL}；尚未应用代理配置。"
+  repair_time_sync
 }
 
 trim() {
@@ -464,6 +604,7 @@ show_preflight() {
   else
     printf 'curl/wget: 缺失\n'
   fi
+  show_time_sync
   printf 'unzip: %s\n' "$(command_exists unzip && echo "可用" || echo "缺失，下载官方 Xray 时会尝试自动安装")"
   printf 'openssl: %s\n' "$(command_exists openssl && echo "可用" || echo "缺失，可用 /dev/urandom 兜底生成 SS 密钥")"
   echo ""
@@ -497,14 +638,9 @@ service_status_label() {
 }
 
 process_running() {
-  local pid=""
-  if [[ -f "${PID_FILE}" ]]; then
-    pid="$(cat "${PID_FILE}" 2>/dev/null || true)"
-    if [[ "${pid}" =~ ^[0-9]+$ ]] && kill -0 "${pid}" 2>/dev/null; then
-      return 0
-    fi
-  fi
-  pgrep -f "${XRAY_BIN} run -config ${CONFIG_FILE}" >/dev/null 2>&1
+  local pids
+  pids="$(install_process_pids)" || return 1
+  [[ -n "${pids}" ]]
 }
 
 print_dashboard() {
@@ -516,6 +652,7 @@ print_dashboard() {
   print_panel_section "基础信息"
   print_panel_row "根目录" "${APP_ROOT}"
   print_panel_row "功能" "${FEATURE_NAME}"
+  print_panel_row "脚本版本" "${SCRIPT_VERSION}"
   print_panel_row "运行模式" "$(service_mode_label)"
   print_panel_row "Argosbx" "$(argosbx_status_label)"
   print_panel_row "本服务" "$(service_status_label)"
@@ -534,22 +671,23 @@ print_dashboard() {
 print_main_menu() {
   print_menu_section "部署与修复"
   print_menu_item 1 "系统预检 / 环境判断"
-  print_menu_item 2 "安装 / 修复 Xray core"
-  print_menu_item 3 "从 argosbx 同步 Xray core"
-  print_menu_item 4 "安装 / 修复 ${VLESS_NAME}"
-  print_menu_item 5 "安装 / 修复 ${SS_NAME}"
+  print_menu_item 2 "检查 / 修复系统校时"
+  print_menu_item 3 "安装 / 修复 Xray core"
+  print_menu_item 4 "从 argosbx 同步 Xray core"
+  print_menu_item 5 "安装 / 修复 ${VLESS_NAME}"
+  print_menu_item 6 "安装 / 修复 ${SS_NAME}"
   print_menu_section "配置与服务"
-  print_menu_item 8 "VLESS 设置（端口 / 名称 / Flow / UUID / ENC）"
-  print_menu_item 9 "SS2022 设置（端口 / 名称 / 方法 / 密钥）"
-  print_menu_item 10 "重写配置并重启"
-  print_menu_item 11 "启动 / 停止 / 重启服务"
-  print_menu_item 15 "卸载本功能"
+  print_menu_item 7 "VLESS 设置（端口 / 名称 / Flow / UUID / ENC）"
+  print_menu_item 8 "SS2022 设置（端口 / 名称 / 方法 / 密钥）"
+  print_menu_item 9 "重写配置并重启"
+  print_menu_item 10 "启动 / 停止 / 重启服务"
+  print_menu_item 11 "卸载本功能"
   print_menu_section "查看与诊断"
-  print_menu_item 6 "显示节点链接"
-  print_menu_item 7 "查看详细状态"
-  print_menu_item 12 "连接测试"
-  print_menu_item 13 "查看日志"
-  print_menu_item 14 "防火墙 / 安全组提示"
+  print_menu_item 12 "显示节点链接"
+  print_menu_item 13 "查看详细状态"
+  print_menu_item 14 "连接测试"
+  print_menu_item 15 "查看日志"
+  print_menu_item 16 "防火墙 / 安全组提示"
   print_menu_footer
   print_menu_item 0 "退出"
   print_menu_footer
@@ -1065,7 +1203,8 @@ install_or_repair_xray_core() {
   fi
 }
 
-sync_xray_from_argosbx() {
+sync_xray_from_argosbx() (
+  umask 077
   print_title "从 argosbx 同步 Xray core"
   detect_argosbx >/dev/null 2>&1 || true
   detect_init_system
@@ -1075,18 +1214,45 @@ sync_xray_from_argosbx() {
     err "未检测到 argosbx Xray，无法同步。"
     return 1
   fi
-  backup_file "${XRAY_BIN}"
-  cp "${ARGOSBX_XRAY}" "${XRAY_BIN}" || return 1
-  chmod +x "${XRAY_BIN}"
-  XRAY_SOURCE="${ARGOSBX_XRAY}"
-  verify_xray_binary || return 1
+  local recovery candidate was_running=0 had_core=0
+  ensure_ss_time_sync || return 1
+  recovery="$(mktemp -d "${BIN_DIR}/.core-sync.XXXXXXXX")" || return 1
+  candidate="${recovery}/xray.next"
+  cp "${ARGOSBX_XRAY}" "${candidate}" && chmod 700 "${candidate}" || return 1
+  verify_xray_binary "${candidate}" || return 1
   if [[ -f "${CONFIG_FILE}" ]]; then
-    test_config || return 1
-    restart_service || return 1
+    (XRAY_BIN="${candidate}"; test_config "${recovery}/config-test.log") || return 1
   fi
-  write_state
-  success "已从 argosbx 同步 Xray: ${ARGOSBX_XRAY}"
-}
+  if [[ -f "${XRAY_BIN}" ]]; then
+    cp -p "${XRAY_BIN}" "${recovery}/xray.before" || return 1
+    had_core=1
+  fi
+  if [[ -f "${ENV_FILE}" ]]; then cp -p "${ENV_FILE}" "${recovery}/service.env.before" || return 1; fi
+  service_is_running && was_running=1
+  mv "${candidate}" "${XRAY_BIN}" || return 1
+  XRAY_SOURCE="${ARGOSBX_XRAY}"
+  if { [[ "${was_running}" == 0 ]] || restart_service; } && write_state; then
+    success "已从 argosbx 同步 Xray；恢复资料: ${recovery}"
+    return 0
+  fi
+  err "同步应用失败，尝试恢复原核心。恢复资料: ${recovery}"
+  if [[ "${had_core}" == 1 ]]; then
+    cp -p "${recovery}/xray.before" "${recovery}/xray.restore" &&
+      mv "${recovery}/xray.restore" "${XRAY_BIN}" || return 1
+  else
+    rm -f "${XRAY_BIN}" || return 1
+  fi
+  if [[ -f "${recovery}/service.env.before" ]]; then
+    cp -p "${recovery}/service.env.before" "${ENV_FILE}" || return 1
+  else
+    rm -f "${ENV_FILE}" || return 1
+  fi
+  load_state
+  if [[ "${was_running}" == 1 ]]; then
+    restart_service || { err "原核心已恢复，但服务恢复未完成。"; return 1; }
+  fi
+  return 1
+)
 
 generate_uuid() {
   local value
@@ -1151,15 +1317,14 @@ generate_ss_password() {
 }
 
 urlencode() {
-  local value="$1"
-  if command_exists python3; then
-    python3 - "$value" <<'PY'
-import sys, urllib.parse
-print(urllib.parse.quote(sys.argv[1], safe=""))
-PY
-    return 0
-  fi
-  printf '%s' "${value}" | sed 's/ /%20/g;s/#/%23/g;s/:/%3A/g;s/\//%2F/g;s/+/%2B/g;s/=/%3D/g'
+  local LC_ALL=C value="$1" char index
+  for ((index=0; index<${#value}; index++)); do
+    char="${value:index:1}"
+    case "${char}" in
+      [a-zA-Z0-9.~_-]) printf '%s' "${char}" ;;
+      *) printf '%%%02X' "'${char}" ;;
+    esac
+  done
 }
 
 base64_urlsafe_nopad() {
@@ -1184,6 +1349,7 @@ backup_file() {
 }
 
 write_config() {
+  local mode="${1:-apply}"
   local flow_line=""
   local vless_inbound=""
   local ss_inbound=""
@@ -1256,7 +1422,7 @@ EOF
 )
   fi
 
-  if [[ -z "${vless_inbound}${ss_inbound}" ]]; then
+  if [[ -z "${vless_inbound}${ss_inbound}" && "${mode}" != "stop" ]]; then
     err "没有可写入的协议配置，请先安装 VLESS 或 SS2022。"
     return 1
   fi
@@ -1285,17 +1451,11 @@ EOF
 test_config() {
   local out="${1:-${FEATURE_DIR}/config-test.log}"
   (umask 077; : > "${out}") && chmod 600 "${out}" || return 1
-  if "${XRAY_BIN}" run -test -config "${CONFIG_FILE}" > "${out}" 2>&1; then
+  if "${XRAY_BIN}" run -test -format json -config "${CONFIG_FILE}" > "${out}" 2>&1; then
     success "Xray 配置测试通过。"
     return 0
   fi
-  if "${XRAY_BIN}" test -config "${CONFIG_FILE}" > "${out}" 2>&1; then
-    success "Xray 配置测试通过。"
-    return 0
-  fi
-
-  err "Xray 配置测试失败，输出如下："
-  cat "${out}" >&2
+  err "Xray 配置测试失败；详情保存在仅管理员可读的 ${out}"
   return 1
 }
 
@@ -1322,67 +1482,71 @@ EOF
   systemctl daemon-reload
 }
 
-install_cron_reboot() {
-  local tmp
-  tmp="$(mktemp)"
-  crontab -l 2>/dev/null | grep -v "${CONFIG_FILE}" > "${tmp}" || true
-  echo "@reboot sleep 10 && nohup ${XRAY_BIN} run -config ${CONFIG_FILE} >> ${LOG_DIR}/${FEATURE_ID}.log 2>&1 &" >> "${tmp}"
-  if ! crontab "${tmp}" >/dev/null 2>&1; then
-    rm -f "${tmp}"
-    err "写入 crontab 失败。"
-    return 1
+update_cron_reboot() (
+  umask 077
+  local mode="$1" tmp
+  tmp="$(mktemp -d)" || return 1
+  trap 'rm -rf -- "${tmp}"' EXIT
+  if ! LC_ALL=C crontab -l > "${tmp}/before" 2> "${tmp}/error"; then
+    if ! grep -q 'no crontab for' "${tmp}/error"; then
+      err "无法读取原有计划任务，未修改 crontab。"; return 1
+    fi
+    : > "${tmp}/before"
   fi
-  rm -f "${tmp}"
-}
+  awk -v path="${CONFIG_FILE}" '!($1=="@reboot" && index($0,path))' "${tmp}/before" > "${tmp}/next" || return 1
+  if [[ "${mode}" == install ]]; then
+    printf '@reboot sleep 10 && nohup %s run -config %s >> %s 2>&1 &\n' \
+      "$(shell_quote "${XRAY_BIN}")" "$(shell_quote "${CONFIG_FILE}")" \
+      "$(shell_quote "${LOG_DIR}/${FEATURE_ID}.log")" >> "${tmp}/next" || return 1
+  fi
+  crontab "${tmp}/next" || { err "写入计划任务失败。"; return 1; }
+)
 
-remove_cron_reboot() {
-  local tmp
-  tmp="$(mktemp)"
-  crontab -l 2>/dev/null | grep -v "${CONFIG_FILE}" > "${tmp}" || true
-  crontab "${tmp}" >/dev/null 2>&1 || true
-  rm -f "${tmp}"
-}
+install_cron_reboot() { update_cron_reboot install; }
+remove_cron_reboot() { update_cron_reboot remove; }
 
 start_service() {
+  ensure_any_protocol_ready && ensure_ss_time_sync || return 1
   if [[ "${HAS_SYSTEMD}" == "1" ]]; then
-    systemctl enable --now "${SERVICE_NAME}"
+    systemctl enable --now "${SERVICE_NAME}" || return 1
+    sleep 1
+    service_is_running
     return $?
   fi
 
-  if process_running; then
+  local pids
+  pids="$(install_process_pids)" || return 1
+  if [[ -n "${pids}" ]]; then
     warn "服务已经在运行。"
     return 0
   fi
   nohup "${XRAY_BIN}" run -config "${CONFIG_FILE}" >> "${LOG_DIR}/${FEATURE_ID}.log" 2>&1 &
   echo "$!" > "${PID_FILE}"
-  install_cron_reboot
+  install_cron_reboot || return 1
+  sleep 1
+  service_is_running
 }
 
 stop_service() {
-  local pid=""
   if [[ "${HAS_SYSTEMD}" == "1" ]]; then
-    systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
-    return 0
+    systemctl stop "${SERVICE_NAME}" || return 1
+    wait_service_stopped
+  else
+    stop_install_process
   fi
-
-  if [[ -f "${PID_FILE}" ]]; then
-    pid="$(cat "${PID_FILE}" 2>/dev/null || true)"
-    if [[ "${pid}" =~ ^[0-9]+$ ]]; then
-      kill "${pid}" 2>/dev/null || true
-    fi
-  fi
-  pkill -f "${XRAY_BIN} run -config ${CONFIG_FILE}" 2>/dev/null || true
-  rm -f "${PID_FILE}"
 }
 
 restart_service() {
+  ensure_any_protocol_ready && ensure_ss_time_sync || return 1
   if [[ "${HAS_SYSTEMD}" == "1" ]]; then
-    systemctl restart "${SERVICE_NAME}"
+    systemctl restart "${SERVICE_NAME}" || return 1
   else
-    stop_service
+    stop_service || return 1
     sleep 1
-    start_service
+    start_service || return 1
   fi
+  sleep 1
+  service_is_running
 }
 
 # Installation may stop an existing process automatically. A stale PID file
@@ -1455,6 +1619,19 @@ apply_config_service() {
   service_is_running
 }
 
+restore_config_files() {
+  local recovery="$1" file failed=0
+  for file in "${ENV_FILE}" "${CONFIG_FILE}" "${SHARE_FILE}" "${SERVICE_FILE}"; do
+    [[ "${file}" != "${SERVICE_FILE}" || "${HAS_SYSTEMD}" == "1" ]] || continue
+    if [[ -f "${recovery}/$(basename "${file}").before" ]]; then
+      cp -p "${recovery}/$(basename "${file}").before" "${file}" || failed=1
+    else
+      rm -f "${file}" || failed=1
+    fi
+  done
+  [[ "${failed}" == "0" ]]
+}
+
 restore_install_config() {
   local recovery="$1" was_running="$2" was_enabled="$3" had_cron="$4"
   local file failed=0
@@ -1469,14 +1646,8 @@ restore_install_config() {
   fi
   wait_service_stopped || failed=1
 
-  for file in "${ENV_FILE}" "${CONFIG_FILE}" "${SERVICE_FILE}"; do
-    [[ "${file}" != "${SERVICE_FILE}" || "${HAS_SYSTEMD}" == "1" ]] || continue
-    if [[ -f "${recovery}/$(basename "${file}").before" ]]; then
-      cp -p "${recovery}/$(basename "${file}").before" "${file}" || failed=1
-    else
-      rm -f "${file}" || failed=1
-    fi
-  done
+  restore_config_files "${recovery}" || failed=1
+  load_state
 
   if [[ "${HAS_SYSTEMD}" == "1" ]]; then
     systemctl daemon-reload || failed=1
@@ -1510,22 +1681,50 @@ restore_install_config() {
   [[ "${failed}" == "0" ]]
 }
 
+apply_change_service() {
+  case "$1" in
+    apply) apply_config_service ;;
+    metadata) return 0 ;;
+    stop)
+      stop_service || return 1
+      if [[ "${HAS_SYSTEMD}" == "1" ]]; then systemctl disable "${SERVICE_NAME}"
+      else remove_cron_reboot; fi
+      ;;
+  esac
+}
+
+restore_change() {
+  local mode="$1"
+  shift
+  if [[ "${mode}" == metadata ]]; then restore_config_files "$1"
+  else restore_install_config "$@"; fi
+}
+
 # This is a bounded, same-process recovery path, not crash-atomic storage.
 # The directory remains private and holds before-images plus failed diagnostics.
 apply_install_config() (
   umask 077
-  local recovery file pids was_running=0 was_enabled="" had_cron=0
+  local mode="${1:-apply}" recovery file pids was_running=0 was_enabled="" had_cron=0
+  case "${mode}" in apply|metadata|stop) ;; *) return 1 ;; esac
+  [[ "${mode}" != apply ]] || ensure_ss_time_sync || return 1
   recovery="$(mktemp -d "${FEATURE_DIR}/.config-apply.XXXXXXXX")" || return 1
   if ! (
     ENV_FILE="${recovery}/service.env.next"
     CONFIG_FILE="${recovery}/config.json.next"
-    write_state && write_config && test_config "${recovery}/config-test.log"
+    SHARE_FILE="${recovery}/share.txt.next"
+    write_state || exit 1
+    if [[ "${mode}" != metadata ]]; then
+      write_config "${mode}" && test_config "${recovery}/config-test.log" || exit 1
+    fi
+    write_share_links
   ) > "${recovery}/prepare.log" 2>&1; then
     err "候选配置生成或校验失败，原配置和服务状态未改。诊断目录: ${recovery}"
     return 1
   fi
 
-  if [[ "${HAS_SYSTEMD}" == "1" ]]; then
+  if [[ "${mode}" == metadata ]]; then
+    : # No service or cron mutation is needed for display-only changes.
+  elif [[ "${HAS_SYSTEMD}" == "1" ]]; then
     service_is_running && was_running=1
     was_enabled="$(systemctl is-enabled "${SERVICE_NAME}" 2>/dev/null || true)"
     case "${was_enabled}" in
@@ -1556,14 +1755,15 @@ apply_install_config() (
     "${HAS_SYSTEMD}" "${was_running}" "${was_enabled}" "${had_cron}" > "${recovery}/previous-state" || return 1
 
   if mv "${recovery}/service.env.next" "${ENV_FILE}" &&
-      mv "${recovery}/config.json.next" "${CONFIG_FILE}" &&
-      apply_config_service > "${recovery}/apply.log" 2>&1; then
+      { [[ "${mode}" == metadata ]] || mv "${recovery}/config.json.next" "${CONFIG_FILE}"; } &&
+      apply_change_service "${mode}" > "${recovery}/apply.log" 2>&1 &&
+      mv "${recovery}/share.txt.next" "${SHARE_FILE}"; then
     info "配置已应用；应用前恢复资料: ${recovery}"
     return 0
   fi
 
-  err "配置应用失败，不生成新分享链接。正在恢复旧配置和服务状态。"
-  if restore_install_config "${recovery}" "${was_running}" "${was_enabled}" "${had_cron}" \
+  err "配置应用失败，不展示候选分享链接。正在恢复旧配置和服务状态。"
+  if restore_change "${mode}" "${recovery}" "${was_running}" "${was_enabled}" "${had_cron}" \
       > "${recovery}/restore.log" 2>&1; then
     warn "旧配置及原有服务状态已恢复。恢复资料: ${recovery}"
   else
@@ -1610,7 +1810,7 @@ write_share_links() {
     addr="$(format_host_for_share "${ip}")"
   fi
 
-  : > "${SHARE_FILE}"
+  (umask 077; : > "${SHARE_FILE}") || return 1
 
   if [[ -n "${PORT:-}" && -n "${UUID:-}" && -n "${ENCRYPTION:-}" ]]; then
     node="$(urlencode "${NODE_NAME:-vl-raw-enc-$(safe_hostname)}")"
@@ -1625,7 +1825,7 @@ write_share_links() {
       echo "${raw_link}"
       echo "${tcp_link}"
       echo ""
-    } >> "${SHARE_FILE}"
+    } >> "${SHARE_FILE}" || return 1
   fi
 
   if [[ "${SS_ENABLED:-0}" == "1" && -n "${SS_PORT:-}" && -n "${SS_METHOD:-}" && -n "${SS_PASSWORD:-}" ]]; then
@@ -1633,16 +1833,20 @@ write_share_links() {
     ss_host="$(format_host_for_share "${ss_host}")"
     ss_port="${SS_PUBLIC_PORT:-${SS_PORT}}"
     ss_node="$(urlencode "${SS_NODE_NAME:-${DEFAULT_SS_NODE_NAME}-$(safe_hostname)}")"
-    ss_userinfo="$(base64_urlsafe_nopad "${SS_METHOD}:${SS_PASSWORD}")"
+    if [[ "${SS_METHOD}" == 2022-* ]]; then
+      ss_userinfo="$(urlencode "${SS_METHOD}"):$(urlencode "${SS_PASSWORD}")"
+    else
+      ss_userinfo="$(base64_urlsafe_nopad "${SS_METHOD}:${SS_PASSWORD}")"
+    fi
     ss_link="ss://${ss_userinfo}@${ss_host}:${ss_port}#${ss_node}"
     {
       echo "[${SS_NAME}]"
       echo "${ss_link}"
       echo ""
-    } >> "${SHARE_FILE}"
+    } >> "${SHARE_FILE}" || return 1
   fi
 
-  chmod 600 "${SHARE_FILE}" 2>/dev/null || true
+  chmod 600 "${SHARE_FILE}"
 }
 
 ensure_ready_for_config() {
@@ -1715,7 +1919,6 @@ install_or_repair_vless() {
   [[ -n "${NODE_NAME:-}" ]] || NODE_NAME="vl-raw-enc-$(safe_hostname)"
 
   apply_install_config || { load_state; return 1; }
-  write_share_links
   success "${VLESS_NAME} 安装 / 修复完成。"
   show_links
 }
@@ -1818,7 +2021,6 @@ install_or_repair_ss() {
   SS_ENABLED="1"
 
   apply_install_config || { load_state; return 1; }
-  write_share_links
   success "${SS_NAME} 安装 / 修复完成。"
   show_links
 }
@@ -1838,6 +2040,7 @@ show_detail_status() {
   printf 'Argosbx Sing-box: %s\n' "${ARGOSBX_SINGBOX:-未检测到}"
   printf '管理模式: %s\n' "$(service_mode_label)"
   printf '服务状态: %s\n' "$(service_status_label)"
+  show_time_sync
   printf '监听端口: %s\n' "${PORT:-未设置}"
   printf '监听地址: %s\n' "${LISTEN:-${DEFAULT_LISTEN}}"
   printf '节点名称: %s\n' "${NODE_NAME:-未设置}"
@@ -1876,7 +2079,7 @@ show_links() {
   if ! ensure_any_protocol_ready; then
     return 1
   fi
-  write_share_links
+  [[ -f "${SHARE_FILE}" ]] || { err "尚无已应用的分享链接，请先安装或修复配置。"; return 1; }
   cat "${SHARE_FILE}"
   echo ""
   info "VLESS 分组第一条为 type=raw；第二条为兼容部分客户端的 type=tcp&headerType=none。SS2022 分组为 SIP002 ss:// 链接。"
@@ -1891,11 +2094,7 @@ change_port() {
     err "VLESS 端口不能与 SS2022 端口相同: ${PORT}"
     return 1
   fi
-  write_state
-  write_config
-  test_config || return 1
-  restart_service
-  write_share_links
+  apply_install_config || { load_state; return 1; }
   success "端口已修改为 ${PORT}。"
 }
 
@@ -1911,8 +2110,7 @@ change_node_name() {
     return 1
   fi
   NODE_NAME="${value}"
-  write_state
-  write_share_links
+  apply_install_config metadata || { load_state; return 1; }
   success "节点名称已更新为 ${NODE_NAME}。"
 }
 
@@ -1921,11 +2119,7 @@ change_flow_mode() {
   load_state
   ensure_ready_for_config || return 1
   FLOW="$(prompt_flow_mode "${FLOW:-none}")"
-  write_state
-  write_config
-  test_config || return 1
-  restart_service
-  write_share_links
+  apply_install_config || { load_state; return 1; }
   success "Flow 已更新为 $(flow_label "${FLOW}")。"
 }
 
@@ -1936,11 +2130,7 @@ regenerate_uuid() {
   warn "重新生成 UUID 后，旧客户端链接会失效。"
   confirm_yes "确认继续" || return 0
   generate_uuid || return 1
-  write_state
-  write_config
-  test_config || return 1
-  restart_service
-  write_share_links
+  apply_install_config || { load_state; return 1; }
   success "UUID 已更新。"
 }
 
@@ -1951,11 +2141,7 @@ regenerate_enc() {
   warn "重新生成 ENC key 后，旧客户端链接会失效。"
   confirm_yes "确认继续" || return 0
   generate_vlessenc || return 1
-  write_state
-  write_config
-  test_config || return 1
-  restart_service
-  write_share_links
+  apply_install_config || { load_state; return 1; }
   success "VLESS ENC key 已更新。"
 }
 
@@ -1999,11 +2185,7 @@ change_ss_port() {
     err "SS2022 端口不能与 VLESS 端口相同: ${SS_PORT}"
     return 1
   fi
-  write_state
-  write_config
-  test_config || return 1
-  restart_service
-  write_share_links
+  apply_install_config || { load_state; return 1; }
   success "SS2022 端口已修改为 ${SS_PORT}。"
 }
 
@@ -2019,8 +2201,7 @@ change_ss_node_name() {
     return 1
   fi
   SS_NODE_NAME="${value}"
-  write_state
-  write_share_links
+  apply_install_config metadata || { load_state; return 1; }
   success "SS2022 节点名称已更新为 ${SS_NODE_NAME}。"
 }
 
@@ -2032,11 +2213,7 @@ change_ss_method() {
   confirm_yes "确认继续" || return 0
   SS_METHOD="$(prompt_ss_method "${SS_METHOD:-${DEFAULT_SS_METHOD}}")"
   SS_PASSWORD="$(generate_ss_password "${SS_METHOD}")" || return 1
-  write_state
-  write_config
-  test_config || return 1
-  restart_service
-  write_share_links
+  apply_install_config || { load_state; return 1; }
   success "SS2022 加密方法和密钥已更新。"
 }
 
@@ -2047,11 +2224,7 @@ regenerate_ss_password() {
   warn "重新生成密钥后，旧客户端链接会失效。"
   confirm_yes "确认继续" || return 0
   SS_PASSWORD="$(generate_ss_password "${SS_METHOD:-${DEFAULT_SS_METHOD}}")" || return 1
-  write_state
-  write_config
-  test_config || return 1
-  restart_service
-  write_share_links
+  apply_install_config || { load_state; return 1; }
   success "SS2022 密钥已更新。"
 }
 
@@ -2060,8 +2233,7 @@ change_ss_public_entry() {
   load_state
   ensure_ss_ready || return 1
   prompt_ss_public_entry || return 1
-  write_state
-  write_share_links
+  apply_install_config metadata || { load_state; return 1; }
   success "SS2022 公网入口信息已更新。"
 }
 
@@ -2072,16 +2244,12 @@ disable_ss() {
   warn "此操作会从 Xray 配置移除 SS2022 inbound，但保留密钥和状态，之后可重新启用。"
   confirm_yes "确认禁用 SS2022" || return 0
   SS_ENABLED="0"
-  write_state
   if [[ -n "${PORT:-}" && -n "${UUID:-}" && -n "${DECRYPTION:-}" && -n "${ENCRYPTION:-}" ]]; then
-    write_config
-    test_config || return 1
-    restart_service
+    apply_install_config || { load_state; return 1; }
   else
-    stop_service
-    warn "当前没有其它已启用协议，服务已停止。"
+    apply_install_config stop || { load_state; return 1; }
+    warn "当前没有其它已启用协议，服务和开机启动已停止。"
   fi
-  write_share_links
   success "SS2022 已禁用。"
 }
 
@@ -2125,11 +2293,7 @@ rewrite_and_restart() {
   print_title "重写配置并重启"
   load_state
   ensure_any_protocol_ready || return 1
-  write_state
-  write_config
-  test_config || return 1
-  restart_service
-  write_share_links
+  apply_install_config || { load_state; return 1; }
   success "配置已重写，服务已重启。"
 }
 
@@ -2181,11 +2345,12 @@ next_local_test_port() {
   printf '%s\n' "${port}"
 }
 
-run_ss_xray_test() {
+run_ss_xray_test() (
+  umask 077
   local target_host="$1"
   local target_port="$2"
   local label="$3"
-  local bind_port tmp_cfg tmp_log pid status
+  local bind_port tmp_cfg tmp_log pid="" status scratch
   load_state
   ensure_ss_ready || return 1
   command_exists curl || {
@@ -2198,8 +2363,13 @@ run_ss_xray_test() {
   }
 
   bind_port="$(next_local_test_port)"
-  tmp_cfg="$(mktemp)"
-  tmp_log="$(mktemp)"
+  scratch="$(mktemp -d)" || return 1
+  trap '[[ -z "${pid}" ]] || { kill "${pid}" >/dev/null 2>&1 || true; wait "${pid}" 2>/dev/null || true; }; rm -rf -- "${scratch}"' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  tmp_cfg="${scratch}/client.json"
+  tmp_log="${scratch}/client.log"
+  validate_port "${target_port}" && validate_json_safe_string "${target_host}" && validate_no_whitespace "${target_host}" || return 1
   cat > "${tmp_cfg}" <<EOF
 {
   "log": { "loglevel": "warning" },
@@ -2231,14 +2401,14 @@ run_ss_xray_test() {
 }
 EOF
 
-  if ! "${XRAY_BIN}" run -test -config "${tmp_cfg}" > "${tmp_log}" 2>&1; then
+  if ! "${XRAY_BIN}" run -test -format json -config "${tmp_cfg}" > "${tmp_log}" 2>&1; then
     err "临时 Xray 客户端配置测试失败："
     cat "${tmp_log}" >&2
     rm -f "${tmp_cfg}" "${tmp_log}"
     return 1
   fi
 
-  "${XRAY_BIN}" run -config "${tmp_cfg}" > "${tmp_log}" 2>&1 &
+  "${XRAY_BIN}" run -format json -config "${tmp_cfg}" > "${tmp_log}" 2>&1 &
   pid="$!"
   sleep 1
   if ! kill -0 "${pid}" 2>/dev/null; then
@@ -2248,10 +2418,11 @@ EOF
     return 1
   fi
 
-  curl --max-time 12 -x "socks5h://127.0.0.1:${bind_port}" "${TEST_URL}"
+  curl --fail --noproxy "" --max-time 12 -x "socks5h://127.0.0.1:${bind_port}" "${TEST_URL}"
   status=$?
   kill "${pid}" >/dev/null 2>&1 || true
   wait "${pid}" >/dev/null 2>&1 || true
+  pid=""
   rm -f "${tmp_cfg}" "${tmp_log}"
 
   if [[ "${status}" -eq 0 ]]; then
@@ -2260,7 +2431,7 @@ EOF
     err "${label} 测试失败，curl exit code: ${status}"
     return 1
   fi
-}
+)
 
 test_menu() {
   local choice host port
@@ -2278,7 +2449,7 @@ test_menu() {
     case "${choice}" in
       1)
         load_state
-        ensure_any_protocol_ready && write_config && test_config
+        ensure_any_protocol_ready && test_config
         pause_before_return
         ;;
       2)
@@ -2462,18 +2633,37 @@ open_firewall_port() {
   local port="$1"
   local proto="${2:-tcp}"
   local source="${3:-}"
-  local nft_chain family table chain
-  if command_exists ufw && ufw status 2>/dev/null | grep -qi active; then
-    ufw allow "${port}/tcp"
-    [[ "${proto}" == "tcp,udp" ]] && ufw allow "${port}/udp"
+  local nft_chain family table chain transport address_family=ip iptables_cmd=iptables
+  local -a transports=(tcp)
+  validate_port "${port}" || { err "端口无效。"; return 1; }
+  [[ "${proto}" == tcp || "${proto}" == tcp,udp ]] || return 1
+  [[ "${proto}" != tcp,udp ]] || transports+=(udp)
+  if [[ -n "${source}" ]]; then
+    [[ "${source}" =~ ^[0-9a-fA-F.:/]+$ ]] || { err "来源必须是 IP 或 CIDR。"; return 1; }
+    if [[ "${source}" == *:* ]]; then address_family=ip6; iptables_cmd=ip6tables; fi
+  fi
+  if command_exists ufw && LC_ALL=C ufw status 2>/dev/null | grep -q '^Status: active$'; then
+    for transport in "${transports[@]}"; do
+      if [[ -n "${source}" ]]; then
+        ufw allow from "${source}" to any port "${port}" proto "${transport}" || return 1
+      else
+        ufw allow "${port}/${transport}" || return 1
+      fi
+    done
     success "已通过 ufw 放行 ${port}/${proto}。"
     return 0
   fi
 
   if command_exists firewall-cmd && firewall-cmd --state >/dev/null 2>&1; then
-    firewall-cmd --permanent --add-port="${port}/tcp"
-    [[ "${proto}" == "tcp,udp" ]] && firewall-cmd --permanent --add-port="${port}/udp"
-    firewall-cmd --reload
+    for transport in "${transports[@]}"; do
+      if [[ -n "${source}" ]]; then
+        family=ipv4; [[ "${address_family}" != ip6 ]] || family=ipv6
+        firewall-cmd --permanent --add-rich-rule="rule family=\"${family}\" source address=\"${source}\" port port=\"${port}\" protocol=\"${transport}\" accept" || return 1
+      else
+        firewall-cmd --permanent --add-port="${port}/${transport}" || return 1
+      fi
+    done
+    firewall-cmd --reload || return 1
     success "已通过 firewalld 放行 ${port}/${proto}。"
     return 0
   fi
@@ -2483,31 +2673,31 @@ open_firewall_port() {
     if [[ -n "${nft_chain}" ]]; then
       read -r family table chain <<< "${nft_chain}"
       if [[ -n "${source}" ]]; then
-        nft add rule "${family}" "${table}" "${chain}" ip saddr "${source}" tcp dport "${port}" accept
-        [[ "${proto}" == "tcp,udp" ]] && nft add rule "${family}" "${table}" "${chain}" ip saddr "${source}" udp dport "${port}" accept
+        nft add rule "${family}" "${table}" "${chain}" "${address_family}" saddr "${source}" tcp dport "${port}" accept || return 1
+        if [[ "${proto}" == "tcp,udp" ]]; then nft add rule "${family}" "${table}" "${chain}" "${address_family}" saddr "${source}" udp dport "${port}" accept || return 1; fi
       else
-        nft add rule "${family}" "${table}" "${chain}" tcp dport "${port}" accept
-        [[ "${proto}" == "tcp,udp" ]] && nft add rule "${family}" "${table}" "${chain}" udp dport "${port}" accept
+        nft add rule "${family}" "${table}" "${chain}" tcp dport "${port}" accept || return 1
+        if [[ "${proto}" == "tcp,udp" ]]; then nft add rule "${family}" "${table}" "${chain}" udp dport "${port}" accept || return 1; fi
       fi
       success "已向 nftables ${family} ${table} ${chain} 添加 ${port}/${proto} 临时放行规则。持久化请写入系统当前 nftables 配置。"
       return 0
     fi
   fi
 
-  if command_exists iptables; then
+  if command_exists "${iptables_cmd}"; then
     if [[ -n "${source}" ]]; then
-      iptables -C INPUT -p tcp -s "${source}" --dport "${port}" -j ACCEPT 2>/dev/null || \
-        iptables -I INPUT -p tcp -s "${source}" --dport "${port}" -j ACCEPT
+      "${iptables_cmd}" -C INPUT -p tcp -s "${source}" --dport "${port}" -j ACCEPT 2>/dev/null || \
+        "${iptables_cmd}" -I INPUT -p tcp -s "${source}" --dport "${port}" -j ACCEPT || return 1
       if [[ "${proto}" == "tcp,udp" ]]; then
-        iptables -C INPUT -p udp -s "${source}" --dport "${port}" -j ACCEPT 2>/dev/null || \
-          iptables -I INPUT -p udp -s "${source}" --dport "${port}" -j ACCEPT
+        "${iptables_cmd}" -C INPUT -p udp -s "${source}" --dport "${port}" -j ACCEPT 2>/dev/null || \
+          "${iptables_cmd}" -I INPUT -p udp -s "${source}" --dport "${port}" -j ACCEPT || return 1
       fi
     else
-      iptables -C INPUT -p tcp --dport "${port}" -j ACCEPT 2>/dev/null || \
-        iptables -I INPUT -p tcp --dport "${port}" -j ACCEPT
+      "${iptables_cmd}" -C INPUT -p tcp --dport "${port}" -j ACCEPT 2>/dev/null || \
+        "${iptables_cmd}" -I INPUT -p tcp --dport "${port}" -j ACCEPT || return 1
       if [[ "${proto}" == "tcp,udp" ]]; then
-        iptables -C INPUT -p udp --dport "${port}" -j ACCEPT 2>/dev/null || \
-          iptables -I INPUT -p udp --dport "${port}" -j ACCEPT
+        "${iptables_cmd}" -C INPUT -p udp --dport "${port}" -j ACCEPT 2>/dev/null || \
+          "${iptables_cmd}" -I INPUT -p udp --dport "${port}" -j ACCEPT || return 1
       fi
     fi
     success "已通过 iptables 放行 ${port}/${proto}。持久化请使用系统对应工具保存。"
@@ -2530,13 +2720,13 @@ uninstall_feature() {
   warn "此操作只删除 ${APP_ROOT} 下本 sidecar 文件和 ${SERVICE_NAME}.service，不会删除 /root/agsbx。"
   confirm_yes "确认卸载" || return 0
 
-  stop_service
+  stop_service || { err "无法确认服务停止，取消卸载。"; return 1; }
   if [[ "${HAS_SYSTEMD}" == "1" ]]; then
-    systemctl disable "${SERVICE_NAME}" >/dev/null 2>&1 || true
-    rm -f "${SERVICE_FILE}"
-    systemctl daemon-reload
+    systemctl disable "${SERVICE_NAME}" || return 1
+    rm -f "${SERVICE_FILE}" || return 1
+    systemctl daemon-reload || return 1
   else
-    remove_cron_reboot
+    remove_cron_reboot || return 1
   fi
 
   case "${FEATURE_DIR}" in
@@ -2548,7 +2738,17 @@ uninstall_feature() {
 
 main() {
   local choice
+  case "${1:-}" in
+    --version) printf '%s\n' "${SCRIPT_VERSION}"; return 0 ;;
+    --changelog)
+      printf '%s\n' "${SCRIPT_VERSION}" "补齐持续校时检查与修复；统一配置变更及失败恢复；修复 JSON 校验与连接测试。"
+      return 0 ;;
+    --help) printf '%s\n' "用法: $0 [--version|--changelog|--help]；无参数进入管理菜单。"; return 0 ;;
+    "") ;;
+    *) err "未知参数: $1"; return 1 ;;
+  esac
   setup_colors
+  umask 077
   check_root
   detect_init_system
 
@@ -2559,20 +2759,21 @@ main() {
     choice="$(read_prompt "请选择: ")" || exit 0
     case "${choice}" in
       1) show_preflight; pause_before_return ;;
-      2) install_or_repair_xray_core; pause_before_return ;;
-      3) sync_xray_from_argosbx; pause_before_return ;;
-      4) install_or_repair_vless; pause_before_return ;;
-      5) install_or_repair_ss; pause_before_return ;;
-      6) show_links; pause_before_return ;;
-      7) show_detail_status; pause_before_return ;;
-      8) vless_settings_menu ;;
-      9) ss_settings_menu ;;
-      10) rewrite_and_restart; pause_before_return ;;
-      11) service_control_menu ;;
-      12) test_menu ;;
-      13) show_logs; pause_before_return ;;
-      14) firewall_menu; pause_before_return ;;
-      15) uninstall_feature; pause_before_return ;;
+      2) repair_time_sync; pause_before_return ;;
+      3) install_or_repair_xray_core; pause_before_return ;;
+      4) sync_xray_from_argosbx; pause_before_return ;;
+      5) install_or_repair_vless; pause_before_return ;;
+      6) install_or_repair_ss; pause_before_return ;;
+      7) vless_settings_menu ;;
+      8) ss_settings_menu ;;
+      9) rewrite_and_restart; pause_before_return ;;
+      10) service_control_menu ;;
+      11) uninstall_feature; pause_before_return ;;
+      12) show_links; pause_before_return ;;
+      13) show_detail_status; pause_before_return ;;
+      14) test_menu ;;
+      15) show_logs; pause_before_return ;;
+      16) firewall_menu; pause_before_return ;;
       0) exit 0 ;;
       *) warn "无效选择。"; pause_before_return ;;
     esac

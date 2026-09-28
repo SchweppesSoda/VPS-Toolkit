@@ -46,6 +46,28 @@ jobs:
         run: python3 tools/vps/test-sidecar-xray-download.py
       - name: Sidecar config application (mock services and isolated state)
         run: python3 tools/vps/test-sidecar-config-apply.py
+      - name: Sidecar clock and maintenance (mock host services)
+        run: |
+          python3 tools/vps/test-sidecar-time-sync.py
+          python3 tools/vps/test-sidecar-maintenance.py
+
+  sidecar-real-xray:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch checksum-pinned official Xray for isolated tests
+        run: |
+          mkdir -p .tmp/xray-test
+          curl --fail --location --retry 2 --max-time 120 \
+            https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip \
+            -o .tmp/xray-test/xray.zip
+          echo '23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae  .tmp/xray-test/xray.zip' | sha256sum -c -
+          unzip -j .tmp/xray-test/xray.zip xray -d .tmp/xray-test
+          chmod 700 .tmp/xray-test/xray
+      - name: Real JSON validation, SS TCP/UDP and VLESS ENC over loopback
+        env:
+          SIDECAR_XRAY_BIN: ${{ github.workspace }}/.tmp/xray-test/xray
+        run: python3 tools/vps/test-sidecar-xray-integration.py
 
   offline-windows:
     runs-on: windows-latest

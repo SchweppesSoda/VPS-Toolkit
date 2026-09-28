@@ -83,7 +83,7 @@ systemctl() {
     disable) printf 'disabled\n' > "$ENABLED" ;;
     restart) launch restart ;;
     start) launch start ;;
-    stop) printf '0\n' > "$RUNNING" ;;
+    stop) [[ "$TEST_FAILURE" != stop ]] || return 1; printf '0\n' > "$RUNNING" ;;
     *) echo "unexpected systemctl operation" >&2; return 99 ;;
   esac
 }
@@ -138,6 +138,7 @@ pkill() {
 }
 sleep() { command sleep 0.05; }
 detect_init_system() { HAS_SYSTEMD="$TEST_SYSTEMD"; }
+probe_time_sync() { TIME_SYNC_DETAIL="synthetic NTP"; [[ "$TEST_FAILURE" != clock ]]; }
 detect_argosbx() { ARGOSBX_DETECTED=0; return 1; }
 copy_xray_binary() { XRAY_SOURCE=synthetic; }
 verify_xray_binary() { return 0; }
@@ -145,6 +146,7 @@ generate_uuid() { UUID=00000000-0000-4000-8000-000000000001; }
 generate_vlessenc() { DECRYPTION=synthetic.decryption; ENCRYPTION=synthetic.encryption; }
 generate_ss_password() { printf 'synthetic-password\n'; }
 read_prompt() { printf '\n'; }
+prompt_with_default() { printf 'renamed-node\n'; }
 confirm_yes() { [[ "$TEST_REKEY" == 1 ]]; }
 choose_free_port() { printf '19001\n'; }
 prompt_port() {
@@ -199,12 +201,14 @@ mktemp() {
     case "$TEST_FAILURE" in
       state_write) mkdir "$path/service.env.next" ;;
       config_write) mkdir "$path/config.json.next" ;;
+      share_write) mkdir "$path/share.txt.next" ;;
     esac
   fi
   printf '%s\n' "$path"
 }
 mv() {
   if [[ "$TEST_FAILURE" == rename && "$1" == */config.json.next ]]; then return 1; fi
+  if [[ "$TEST_FAILURE" == share_rename && "$1" == */share.txt.next ]]; then return 1; fi
   command mv "$@"
 }
 cp() {
@@ -217,12 +221,28 @@ case "$TEST_ACTION" in
   ss) install_or_repair_ss ;;
   start) start_service ;;
   core) ensure_xray_core ;;
+  ss_port) change_ss_port ;;
+  vless_port) change_port ;;
+  flow) change_flow_mode ;;
+  ss_key) regenerate_ss_password ;;
+  uuid) regenerate_uuid ;;
+  enc) regenerate_enc ;;
+  ss_name) change_ss_node_name ;;
+  vless_name) change_node_name ;;
+  entry) change_ss_public_entry ;;
+  disable) disable_ss ;;
+  rewrite) rewrite_and_restart ;;
+  stop) stop_service ;;
+  show) show_links ;;
+  check) test_config ;;
+
 esac
 '''
 
 XRAY_STUB = r'''#!/usr/bin/env bash
 set -u
 printf 'validate %s\n' "$*" >> "$EVENTS"
+[[ "$1 $2 $3 $4 $5" == 'run -test -format json -config' ]] || exit 96
 config="${*: -1}"
 if [[ -f "$BASELINE" ]]; then
   cmp -s "$BASELINE" "$LIVE_CONFIG" && cmp -s "$TEST_ROOT/baseline.env" "$LIVE_ENV" || exit 97
@@ -502,6 +522,83 @@ class ConfigApply(unittest.TestCase):
         self.run_case(action="core")
         self.assertEqual(self.result.returncode, 0)
         self.assertIn("XRAY_SOURCE='synthetic'", (self.feature / "service.env").read_text())
+
+
+    def test_clock_failure_never_changes_proxy_files(self):
+        self.run_case(failure="clock")
+        self.assert_failed()
+        self.assertFalse(any(e.startswith("launch ") for e in self.events))
+
+    def test_share_generation_failure_keeps_old_config(self):
+        self.run_case(failure="share_write")
+        self.assert_failed()
+
+    def test_share_install_failure_restores_running_config(self):
+        self.run_case(failure="share_rename")
+        self.assert_failed()
+
+    def test_parameter_actions_use_candidate_and_restore_on_failure(self):
+        for action in ("ss_port", "vless_port", "flow", "ss_key", "uuid", "enc", "rewrite"):
+            with self.subTest(action=action):
+                self.run_case(existing="both", action=action, rekey=True, failure="share_rename")
+                self.assert_failed()
+
+    def test_metadata_actions_do_not_restart_service(self):
+        for action in ("ss_name", "vless_name", "entry"):
+            with self.subTest(action=action):
+                self.run_case(existing="both", action=action)
+                self.assertEqual(self.result.returncode, 0, self.result.stdout + self.result.stderr)
+                self.assertEqual(self.config.read_bytes(), (self.root / "baseline.json").read_bytes())
+                self.assertFalse(any(e.startswith(("launch ", "systemctl", "validate ")) for e in self.events))
+
+    def test_metadata_share_failure_restores_without_service_calls(self):
+        self.run_case(existing="both", action="ss_name", failure="share_rename")
+        self.assert_failed()
+        self.assertFalse(any(e.startswith(("launch ", "systemctl")) for e in self.events))
+
+    def test_disable_last_protocol_removes_listener_and_autostart(self):
+        for systemd in (True, False):
+            with self.subTest(systemd=systemd):
+                self.run_case(existing="ss", action="disable", rekey=True, systemd=systemd)
+                self.assertEqual(self.result.returncode, 0, self.result.stdout + self.result.stderr)
+                self.assertEqual(json.loads(self.config.read_text())["inbounds"], [])
+                self.assertEqual((self.root / "running").read_text().strip(), "0")
+                if systemd:
+                    self.assertEqual((self.root / "enabled").read_text().strip(), "disabled")
+                else:
+                    self.assertNotIn("@reboot", (self.root / "crontab").read_text())
+                self.assertNotIn("ss://", (self.feature / "share.txt").read_text())
+
+    def test_disable_last_protocol_failure_restores_old_service(self):
+        for systemd in (True, False):
+            with self.subTest(systemd=systemd):
+                self.run_case(existing="ss", action="disable", rekey=True, systemd=systemd,
+                              failure="share_rename")
+                self.assert_failed(cron=None if systemd else True)
+
+    def test_disable_ss_keeps_vless_running(self):
+        self.run_case(existing="both", action="disable", rekey=True)
+        self.assertEqual(self.result.returncode, 0, self.result.stdout + self.result.stderr)
+        self.assertEqual([x["protocol"] for x in json.loads(self.config.read_text())["inbounds"]], ["vless"])
+        self.assertEqual((self.root / "running").read_text().strip(), "1")
+
+    def test_independent_stop_reports_failure(self):
+        self.run_case(action="stop", failure="stop")
+        self.assertNotEqual(self.result.returncode, 0)
+        self.assertEqual((self.root / "running").read_text().strip(), "1")
+
+    def test_show_and_check_are_read_only(self):
+        for action in ("show", "check"):
+            with self.subTest(action=action):
+                self.run_case(action=action)
+                self.assertEqual(self.result.returncode, 0, self.result.stdout + self.result.stderr)
+                self.assertEqual(self.config.read_bytes(), (self.root / "baseline.json").read_bytes())
+                self.assertEqual((self.feature / "share.txt").read_text(), "synthetic old share\n")
+
+    def test_ss2022_uri_uses_percent_encoded_credentials(self):
+        self.run_case(existing="none", running=False)
+        self.assertEqual(self.result.returncode, 0, self.result.stdout + self.result.stderr)
+        self.assertIn("ss://2022-blake3-aes-128-gcm:synthetic-password@", (self.feature / "share.txt").read_text())
 
 
 if __name__ == "__main__":

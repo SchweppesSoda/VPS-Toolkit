@@ -29,7 +29,7 @@ Start from the relevant README for normal use. `*-technical.md` and `*-design.md
 | [`scripts/po0/README.md`](./scripts/po0/README.md) | PO0 subsystem navigation. |
 | [`scripts/po0/relay/README.md`](./scripts/po0/relay/README.md) | PO0 forwarding, LAN update mirror, and seven official reporting clients. |
 | [`scripts/po0/reinstall/README.md`](./scripts/po0/reinstall/README.md) | PO0 Debian reinstall. |
-| [`scripts/po0/proxy-services/README.md`](./scripts/po0/proxy-services/README.md) | PO0 proxy-service sidecar. |
+| [`scripts/po0/proxy-services/README.md`](./scripts/po0/proxy-services/README.md) | Independent Xray dual-protocol management, persistent clock checks, configuration application and recovery. |
 | [`scripts/vps/proxy-stack/README.md`](./scripts/vps/proxy-stack/README.md) | Fresh deployment, adoption of an existing host, or configuration-driven rebuild for Argosbx, Proxy Gateway Plus, and the sidecar. |
 | [`scripts/vps/ssh-key-only/README.md`](./scripts/vps/ssh-key-only/README.md) | SSH public-key-only hardening. |
 | [`scripts/vps/fail2ban/README.md`](./scripts/vps/fail2ban/README.md) | Fail2ban installation and maintenance. |

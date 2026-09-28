@@ -29,7 +29,7 @@
 | [`scripts/po0/README.md`](./scripts/po0/README.md) | PO0 子系统导航。 |
 | [`scripts/po0/relay/README.md`](./scripts/po0/relay/README.md) | PO0 转发、LAN 更新镜像与七端官方上报。 |
 | [`scripts/po0/reinstall/README.md`](./scripts/po0/reinstall/README.md) | PO0 Debian 重装。 |
-| [`scripts/po0/proxy-services/README.md`](./scripts/po0/proxy-services/README.md) | PO0 代理服务增强 sidecar。 |
+| [`scripts/po0/proxy-services/README.md`](./scripts/po0/proxy-services/README.md) | 独立 Xray 双协议管理：持续校时、配置应用与失败恢复。 |
 | [`scripts/vps/proxy-stack/README.md`](./scripts/vps/proxy-stack/README.md) | Argosbx、Proxy Gateway Plus、sidecar 的全新部署、已有机器接管和按配置复刻。 |
 | [`scripts/vps/ssh-key-only/README.md`](./scripts/vps/ssh-key-only/README.md) | SSH 仅公钥登录加固。 |
 | [`scripts/vps/fail2ban/README.md`](./scripts/vps/fail2ban/README.md) | Fail2ban 安装与维护。 |
