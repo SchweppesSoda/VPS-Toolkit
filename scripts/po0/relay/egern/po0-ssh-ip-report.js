@@ -1,4 +1,4 @@
-// PO0 防火墙上报 · 20260929-firewall-ui-v2
+// PO0 防火墙上报 · 20260929-firewall-ui-v3
 function retiredAction(ctx) {
   return /自建|ssh-report|设备 ID|本机设备|Device ID|设备标识/i.test(scriptLabel(ctx)) || Boolean(ctx?.request);
 }
@@ -572,7 +572,7 @@ function officialDisplaySlot(slot) {
 
 function officialCoveredSlotText(entry) {
   const slot = officialDisplaySlot(entry?.coveredSlot);
-  return slot ? '槽位 #' + slot : '未编号记录';
+  return slot ? '槽位 #' + slot : '自动槽位';
 }
 
 function officialSameNetwork(left, right) {
@@ -644,8 +644,8 @@ function widgetSlotLabel(entry) {
   const fixed = officialDisplaySlot(entry.fixedSlot);
   const covered = officialDisplaySlot(entry.coveredSlot);
   if (covered) return (entry.status === 'shared' ? '共用 #' : '槽位 #') + covered;
-  if (entry.currentInWhitelist) return '槽位未知';
-  return fixed ? '指定槽位 #' + fixed : '自动分配槽位';
+  if (entry.currentInWhitelist) return '自动槽位';
+  return fixed ? '指定槽位 #' + fixed : '自动槽位';
 }
 
 function officialOrderedWhitelist(entry) {
@@ -666,7 +666,7 @@ function widgetWhitelist(entry, maxRows, size, allSlots = false, showHeading = t
     ...shown.map(row => {
       const covered = officialSameNetwork(row.ip, entry.currentIp);
       return { ...widgetRow([
-        { ...widgetText((officialDisplaySlot(row.slot) ? '#' + officialDisplaySlot(row.slot) : '未编号') + ' · ' + (row.ip || '未占用'), size, covered ? WIDGET_COLORS.green : row.ip ? WIDGET_COLORS.heading : WIDGET_COLORS.dim), flex: 1, minScale: 0.8 },
+        { ...widgetText((officialDisplaySlot(row.slot) ? '#' + officialDisplaySlot(row.slot) : '自动') + ' · ' + (row.ip || '未占用'), size, covered ? WIDGET_COLORS.green : row.ip ? WIDGET_COLORS.heading : WIDGET_COLORS.dim), flex: 1, minScale: 0.8 },
         ...(covered && size >= 15 ? [widgetText('当前网段', 12, WIDGET_COLORS.green)] : []),
       ], 4), flex: allSlots ? 1 : undefined };
     }),
@@ -750,7 +750,7 @@ function officialReadOnlyWidget(state, ctx, env) {
       widgetText('白名单 · ' + (entry.limit > 0 ? `占用 ${entry.used}/${entry.limit}` : '占用未知'), 12),
     );
     for (const row of officialOrderedWhitelist(entry)) children.push(widgetText(
-      `${officialDisplaySlot(row.slot) ? '#' + officialDisplaySlot(row.slot) : '未编号'} · ${row.ip}`,
+      `${officialDisplaySlot(row.slot) ? '#' + officialDisplaySlot(row.slot) : '自动'} · ${row.ip}`,
       12, officialSameNetwork(row.ip, entry.currentIp) ? WIDGET_COLORS.green : WIDGET_COLORS.text,
     ));
   }
@@ -1447,7 +1447,7 @@ function officialUpdateSummary(result) {
   const entries = Array.isArray(result?.state?.entries) ? result.state.entries : [];
   return entries.filter(entry => entry.status === 'updated').map(entry => {
     const slot = officialDisplaySlot(entry.coveredSlot);
-    return (entry.name || '账号 ' + (entry.ordinal || '?')) + ' · 已放行 · ' + (slot ? '槽位 #' + slot : '槽位未知') + ' · ' + (entry.currentIp || '出口 IP 未知');
+    return (entry.name || '账号 ' + (entry.ordinal || '?')) + ' · 已放行 · ' + (slot ? '槽位 #' + slot : '自动槽位') + ' · ' + (entry.currentIp || '出口 IP 未知');
   }).join('；');
 }
 
@@ -1489,7 +1489,7 @@ function officialDisplayEnv(env, runtimeEnv) {
 function officialSavedNameRows(env) {
   let items;
   try { items = parseOfficialTokens(env.PO0_FIREWALL_TOKENS); } catch (_) { return []; }
-  return items.map((item, index) => officialAccountName(env, index) + ' · ' + (officialDisplaySlot(item.slot) ? '指定槽位 #' + officialDisplaySlot(item.slot) : '自动分配槽位'));
+  return items.map((item, index) => officialAccountName(env, index) + ' · ' + (officialDisplaySlot(item.slot) ? '指定槽位 #' + officialDisplaySlot(item.slot) : '自动槽位'));
 }
 
 function officialNamesForSave(stored, runtime, tokens) {

@@ -826,7 +826,7 @@ function testEgernScriptCopiesStaySynchronized() {
   assert.equal(previousYaml, yamlSource);
   const urls = [...yamlSource.matchAll(/script_url: "([^"]+)"/g)].map(match => match[1]);
   assert.equal(urls.length, 12);
-  assert(urls.every(url => url === 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20260929-firewall-ui-v2'));
+  assert(urls.every(url => url === 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20260929-firewall-ui-v3'));
 }
 
 
@@ -1301,7 +1301,7 @@ async function testWhitelistSortsNumberedSlotsBeforeAutomatic() {
     { slot: 0, ip: '192.0.2.40/24' },
     { slot: null, ip: '192.0.2.50/24' },
   ];
-  const expected = ['#1 · 192.0.2.40/24', '#2 · 198.51.100.30/24', '#4 · 203.0.113.10/24', '未编号 · 192.0.2.20/24', '未编号 · 192.0.2.50/24'];
+  const expected = ['#1 · 192.0.2.40/24', '#2 · 198.51.100.30/24', '#4 · 203.0.113.10/24', '自动 · 192.0.2.20/24', '自动 · 192.0.2.50/24'];
   const nodesOf = node => [node, ...(node.children || []).flatMap(nodesOf)];
   for (const [trigger, widgetFamily, count, visibleCount] of [
     ['PO0 防火墙上报状态', 'systemLarge', 1, 5],
@@ -1314,7 +1314,7 @@ async function testWhitelistSortsNumberedSlotsBeforeAutomatic() {
       httpGet: () => response(officialPayload({ whitelist })),
     });
     const widget = await runEgernReport(ctx);
-    const rows = nodesOf(widget).filter(node => node.type === 'text' && /^(?:#\d|未编号) · /.test(node.text));
+    const rows = nodesOf(widget).filter(node => node.type === 'text' && /^(?:#\d|自动) · /.test(node.text));
     assert.deepEqual(rows.map(row => row.text), Array.from({ length: count }, () => expected.slice(0, visibleCount)).flat());
     const covered = rows.find(row => row.text === expected[2]);
     if (covered) assert.equal(covered.textColor, '#30D158', 'covered network stays green in widgets and read-only results without changing order');
@@ -1337,13 +1337,17 @@ async function testWhitelistNetworkHighlightAcrossViews() {
         httpGet: () => response(officialPayload({ currentIp: '203.0.113.99/24', whitelist })),
       });
       const assertRows = widget => {
-        const rows = nodesOf(widget).filter(node => node.type === 'text' && /^(?:#\d|未编号) · /.test(node.text));
-        assert.equal(rows.find(row => row.text.endsWith('203.0.113.0/24')).textColor, '#30D158', 'same /24 must be green even without a slot or with a different host octet');
+        const rows = nodesOf(widget).filter(node => node.type === 'text' && /^(?:#\d|自动) · /.test(node.text));
+        const currentRow = rows.find(row => row.text.endsWith('203.0.113.0/24'));
+        assert.equal(currentRow.textColor, '#30D158', 'same /24 must be green even without a slot or with a different host octet');
+        assert.equal(currentRow.text, `${slot == null ? '自动' : '#' + (slot + 1)} · 203.0.113.0/24`);
+        assert.doesNotMatch(visibleText(widget), /未编号|槽位未知/);
         assert(rows.filter(row => !row.text.endsWith('203.0.113.0/24')).every(row => row.textColor !== '#30D158'), 'other networks and empty slots must not be green');
       };
       assertRows(await runEgernReport(run.ctx));
       const saved = await officialStateOf(run.storage);
       assert.equal(saved.entries[0].currentInWhitelist, true);
+      assert.equal(saved.entries[0].coveredSlot, slot ?? null, 'display labels must not invent a numbered slot');
       assert.equal(run.calls.post.length, 0, 'highlighting must not claim a slot');
       assert.equal(Boolean(saved.entries[0].lastAttemptAt), trigger.includes('上报状态'), 'read-only query must not advance report due time');
       run.ctx.name = run.ctx.trigger = '查看官方防火墙最近结果';
@@ -1485,7 +1489,7 @@ async function testUiTimeUnitsSpacingAndUserNames() {
       });
       const texts = nodesOf(await runEgernReport(run.ctx)).filter(node => node.type === 'text').map(node => node.text);
       assert(texts.includes('每 ' + expected));
-      assert(texts.includes('槽位未知'), 'a missing server slot must not be presented as an assigned or automatic slot');
+      assert(texts.includes('自动槽位'), 'slotless records keep the familiar automatic label');
       for (const text of texts) {
         assert.doesNotMatch(text, /[\p{Script=Han}][A-Za-z0-9#]|[A-Za-z0-9][\p{Script=Han}]|\d+[smh]\b| {2,}|never|已加白|SSID跳过/u);
       }

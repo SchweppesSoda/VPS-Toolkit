@@ -41,61 +41,61 @@ scriptings:
 # 查看与手动操作
   - generic:
       name: PO0 防火墙 · 查看配置
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20260929-firewall-ui-v2"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20260929-firewall-ui-v3"
       update_interval: 86400
       timeout: 10
       debug: true
   - generic:
       name: PO0 防火墙状态
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20260929-firewall-ui-v2"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20260929-firewall-ui-v3"
       update_interval: 86400
       timeout: 90
       debug: true
   - generic:
       name: PO0 防火墙 · 保存配置
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20260929-firewall-ui-v2"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20260929-firewall-ui-v3"
       update_interval: 86400
       timeout: 10
       debug: true
   - generic:
       name: PO0 防火墙 · 启用自动上报
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20260929-firewall-ui-v2"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20260929-firewall-ui-v3"
       update_interval: 86400
       timeout: 10
       debug: true
   - generic:
       name: PO0 防火墙 · 停用自动上报
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20260929-firewall-ui-v2"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20260929-firewall-ui-v3"
       update_interval: 86400
       timeout: 10
       debug: true
   - generic:
       name: PO0 防火墙 · 强制上报
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20260929-firewall-ui-v2"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20260929-firewall-ui-v3"
       update_interval: 86400
       timeout: 90
       debug: true
   - generic:
       name: PO0 防火墙 · 查询白名单
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20260929-firewall-ui-v2"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20260929-firewall-ui-v3"
       update_interval: 86400
       timeout: 90
       debug: true
   - generic:
       name: PO0 防火墙 · 清除配置
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20260929-firewall-ui-v2"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20260929-firewall-ui-v3"
       update_interval: 86400
       timeout: 10
       debug: true
   - generic:
       name: PO0 防火墙 · 最近结果
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20260929-firewall-ui-v2"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20260929-firewall-ui-v3"
       update_interval: 86400
       timeout: 90
       debug: true
   - generic:
       name: PO0 防火墙 · 立即上报
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20260929-firewall-ui-v2"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20260929-firewall-ui-v3"
       update_interval: 86400
       timeout: 90
       debug: true
@@ -103,13 +103,13 @@ scriptings:
   - schedule:
       name: PO0 防火墙 · 定时上报
       cron: "* * * * *"
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20260929-firewall-ui-v2"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20260929-firewall-ui-v3"
       update_interval: 86400
       timeout: 90
       debug: false
   - network:
       name: PO0 防火墙 · 网络变化上报
-      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20260929-firewall-ui-v2"
+      script_url: "https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20260929-firewall-ui-v3"
       update_interval: 86400
       timeout: 90
       debug: false
