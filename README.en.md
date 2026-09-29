@@ -139,3 +139,5 @@ MIT
 - Task-specific agent contracts — [PO0 build / release](docs/agent-maintenance/po0-release.md)
 
 - Task-specific agent contracts — [Script development / validation](docs/agent-maintenance/script-development.md)
+
+[Maintenance documentation](docs/maintenance/INDEX.md).

@@ -57,7 +57,7 @@ bash vless-raw-enc-argosbx-enhancer.sh
 接受只有版本没有摘要的覆盖。来源会记录固定版本、资产名和摘要。
 
 这只保护官方二次下载链路，不改变已有 argosbx、系统或手工指定本地 Xray 的信任边界。
-发布来源、离线验证和恢复限制见 [2026-09-21 维护记录](CHANGELOG.md)。修改本脚本后，上层
+版本历史见 [CHANGELOG](CHANGELOG.md)。修改本脚本后，上层
 proxy-stack 的 `SIDECAR_SOURCE_SHA256` 也需要在后续授权部署前重新审核，不能自动沿用旧值。
 
 ## 版本与系统校时
