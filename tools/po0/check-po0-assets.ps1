@@ -95,6 +95,8 @@ function Test-RawReferences {
         (Join-Path $RepoRoot "AGENTS.md")
     )
     $allowed = @(
+        "scripts/po0/nftables/clients/egern/PO0-Firewall.yaml",
+        "scripts/po0/nftables/clients/egern/po0-firewall.js",
         "scripts/po0/nftables/clients/egern/PO0-SSH-IP-Report.yaml",
         "scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js",
         "scripts/po0/nftables/clients/loon/PO0.LAN-Report.lpx",
@@ -140,19 +142,25 @@ function Test-RawReferences {
 
 function Test-EgernCompatibilitySync {
     Write-Host "Checking Egern legacy compatibility copy"
-    foreach ($name in @("PO0-SSH-IP-Report.yaml", "po0-ssh-ip-report.js")) {
-        $canonical = Join-Path $RepoRoot "scripts/po0/nftables/clients/egern/$name"
-        $legacy = Join-Path $RepoRoot "scripts/po0/relay/egern/$name"
+    $files = [ordered]@{
+        "PO0-Firewall.yaml" = "PO0-SSH-IP-Report.yaml"
+        "po0-firewall.js" = "po0-ssh-ip-report.js"
+    }
+    foreach ($entry in $files.GetEnumerator()) {
+        $canonical = Join-Path $RepoRoot "scripts/po0/nftables/clients/egern/$($entry.Key)"
         if (-not (Test-Path -LiteralPath $canonical)) {
             throw "Canonical Egern file missing: $canonical"
         }
-        if (-not (Test-Path -LiteralPath $legacy)) {
-            throw "Legacy Egern compatibility file missing: $legacy"
-        }
         $canonicalText = [System.IO.File]::ReadAllText($canonical).Replace("`r`n", "`n").Replace("`r", "`n")
-        $legacyText = [System.IO.File]::ReadAllText($legacy).Replace("`r`n", "`n").Replace("`r", "`n")
-        if ($canonicalText -ne $legacyText) {
-            throw "Legacy Egern compatibility file differs from canonical after LF normalization: $name"
+        foreach ($directory in @("nftables/clients/egern", "relay/egern")) {
+            $legacy = Join-Path $RepoRoot "scripts/po0/$directory/$($entry.Value)"
+            if (-not (Test-Path -LiteralPath $legacy)) {
+                throw "Legacy Egern compatibility file missing: $legacy"
+            }
+            $legacyText = [System.IO.File]::ReadAllText($legacy).Replace("`r`n", "`n").Replace("`r", "`n")
+            if ($canonicalText -ne $legacyText) {
+                throw "Legacy Egern compatibility file differs from canonical: $legacy"
+            }
         }
     }
 }

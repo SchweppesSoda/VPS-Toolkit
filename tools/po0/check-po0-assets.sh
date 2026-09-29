@@ -60,6 +60,8 @@ check_raw_refs() {
     while IFS= read -r line; do
         [[ "${line}" == *"raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0"* ]] || continue
         case "${line}" in
+            *"scripts/po0/nftables/clients/egern/PO0-Firewall.yaml"*|\
+            *"scripts/po0/nftables/clients/egern/po0-firewall.js"*|\
             *"scripts/po0/nftables/clients/egern/PO0-SSH-IP-Report.yaml"*|\
             *"scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js"*|\
             *"scripts/po0/nftables/clients/loon/PO0.LAN-Report.lpx"*|\
@@ -82,16 +84,18 @@ check_raw_refs() {
 }
 
 check_egern_compat_sync() {
-    local file canonical legacy
-    for file in PO0-SSH-IP-Report.yaml po0-ssh-ip-report.js; do
-        canonical="${repo_root}/scripts/po0/nftables/clients/egern/${file}"
-        legacy="${repo_root}/scripts/po0/relay/egern/${file}"
+    local mapping directory canonical legacy
+    for mapping in PO0-Firewall.yaml:PO0-SSH-IP-Report.yaml po0-firewall.js:po0-ssh-ip-report.js; do
+        canonical="${repo_root}/scripts/po0/nftables/clients/egern/${mapping%%:*}"
         [[ -f "${canonical}" ]] || { printf 'Canonical Egern file missing: %s\n' "${canonical}" >&2; exit 1; }
-        [[ -f "${legacy}" ]] || { printf 'Legacy Egern compatibility file missing: %s\n' "${legacy}" >&2; exit 1; }
-        if ! cmp -s <(tr -d '\r' < "${canonical}") <(tr -d '\r' < "${legacy}"); then
-            printf 'Legacy Egern compatibility file differs from canonical after LF normalization: %s\n' "${file}" >&2
-            exit 1
-        fi
+        for directory in nftables/clients/egern relay/egern; do
+            legacy="${repo_root}/scripts/po0/${directory}/${mapping#*:}"
+            [[ -f "${legacy}" ]] || { printf 'Legacy Egern compatibility file missing: %s\n' "${legacy}" >&2; exit 1; }
+            if ! cmp -s <(tr -d '\r' < "${canonical}") <(tr -d '\r' < "${legacy}"); then
+                printf 'Legacy Egern compatibility file differs from canonical: %s\n' "${legacy}" >&2
+                exit 1
+            fi
+        done
     done
 }
 

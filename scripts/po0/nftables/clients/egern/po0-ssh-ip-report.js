@@ -1,4 +1,4 @@
-// PO0 官方防火墙上报 · 20260929-official-highlight-v1
+// PO0 防火墙上报 · 20260929-firewall-ui-v1
 function retiredAction(ctx) {
   return /自建|ssh-report|设备 ID|本机设备|Device ID|设备标识/i.test(scriptLabel(ctx)) || Boolean(ctx?.request);
 }
@@ -18,6 +18,7 @@ async function migrateRetiredState(ctx) {
   if (!await storageSet(ctx, marker, '1')) throw new Error('无法完成本机配置迁移');
 }
 
+// Keep device settings and locks compatible with the old script URLs.
 const STORAGE_KEY = 'po0-ssh-ip-report:last';
 const ERROR_STORAGE_KEY = 'po0-ssh-ip-report:last-error';
 const OFFICIAL_STORAGE_KEY = 'po0-ssh-ip-report:official:v1';
@@ -28,8 +29,8 @@ const DEFAULT_OFFICIAL_INTERVAL_SECONDS = 600;
 const OFFICIAL_FIREWALL_MAX_TOKENS = 16;
 const REPORT_LOCK_KEY = 'po0-ssh-ip-report:run-lock:v1';
 const REPORT_LOCK_TTL_MS = 120000;
-const REPORT_TITLE = 'PO0 官方防火墙';
-const REPORT_FAILED_TITLE = 'PO0 官方防火墙上报失败';
+const REPORT_TITLE = 'PO0 防火墙';
+const REPORT_FAILED_TITLE = 'PO0 防火墙 · 检查失败';
 // Official targets and the automatic switch stay on this device.
 const OFFICIAL_CONFIG_KEYS = ['PO0_FIREWALL_TOKENS', 'PO0_FIREWALL_NAMES', 'PO0_FIREWALL_WIFI_TOKENS', 'PO0_FIREWALL_WIFI_NAMES', 'OFFICIAL_AUTO_ENABLED'];
 const PERSISTED_ENV_KEYS = [...OFFICIAL_CONFIG_KEYS];
@@ -96,7 +97,7 @@ function officialNowIso() {
 function parseOfficialTokenItem(value) {
   const row = String(value ?? '').trim();
   if (!row || /[\r\n]/.test(row)) {
-    throw new Error('PO0 官方防火墙 token 配置包含空项或换行。');
+    throw new Error('Token配置包含空项或换行。');
   }
 
   const [item, name, ...options] = row.split('|').map(part => part.trim());
@@ -106,7 +107,7 @@ function parseOfficialTokenItem(value) {
   if (options.length === 1 && /^(?:ttl=)?\d+$/i.test(options[0])) {
     const seconds = Number(options[0].replace(/^ttl=/i, ''));
     if (!Number.isInteger(seconds) || (seconds !== 0 && (seconds < 60 || seconds > 86400))) {
-      throw new Error('官方目标上报间隔必须为 0 或 60..86400 秒；0 只关闭定时。');
+      throw new Error('旧版间隔参数无效，请删除账号中的间隔参数，改用“上报间隔”设置。');
     }
     if (seconds === 0) settings.timer = false;
     else settings.interval = seconds;
@@ -115,17 +116,17 @@ function parseOfficialTokenItem(value) {
   for (const option of options) {
     if (!option) continue;
     if (/^ttl\s*=/i.test(option) || /^\d+$/.test(option)) {
-      throw new Error('官方目标格式为 Token@槽位|名称|上报间隔秒数；上报间隔可留空，填 0 或 60..86400。');
+      throw new Error('账号格式：Token@槽位|名称；间隔请在“上报间隔”中设置。');
     }
     const match = /^(interval|timer)=(.+)$/.exec(option);
-    if (!match) throw new Error('官方目标格式为 Token@槽位|名称|上报间隔秒数；上报间隔可留空，填 0 或 60..86400。');
+    if (!match) throw new Error('账号格式：Token@槽位|名称；间隔请在“上报间隔”中设置。');
     const [, key, raw] = match;
-    if (Object.prototype.hasOwnProperty.call(settings, key)) throw new Error('官方目标可选参数不能重复。');
+    if (Object.prototype.hasOwnProperty.call(settings, key)) throw new Error('账号可选参数不能重复。');
     if (key === 'interval') {
-      if (!/^\d+$/.test(raw) || Number(raw) < 60 || Number(raw) > 86400) throw new Error('官方目标上报间隔必须为 60..86400 秒。');
+      if (!/^\d+$/.test(raw) || Number(raw) < 60 || Number(raw) > 86400) throw new Error('旧版间隔参数无效，请删除账号中的间隔参数，改用“上报间隔”设置。');
       settings.interval = Number(raw);
     } else {
-      if (!/^(true|false)$/.test(raw)) throw new Error('官方目标定时开关必须为 timer=true 或 timer=false。');
+      if (!/^(true|false)$/.test(raw)) throw new Error('旧版定时参数无效，请删除账号中的定时参数，改用“启用定期上报”设置。');
       settings.timer = raw === 'true';
     }
   }
@@ -134,18 +135,18 @@ function parseOfficialTokenItem(value) {
   const at = item.indexOf('@');
   if (at >= 0) {
     if (at !== item.lastIndexOf('@')) {
-      throw new Error('PO0 官方防火墙 token 配置无效：槽位只能写 @0 到 @4。');
+      throw new Error('Token配置无效：槽位只能写@0～@4。');
     }
     token = item.slice(0, at);
     const slotText = item.slice(at + 1);
     if (!/^[0-4]$/.test(slotText)) {
-      throw new Error('PO0 官方防火墙 token 配置无效：槽位只能写 @0 到 @4。');
+      throw new Error('Token配置无效：槽位只能写@0～@4。');
     }
     slot = Number(slotText);
   }
 
   if (!/^pgnfw_[A-Za-z0-9._~-]{1,240}$/.test(token)) {
-    throw new Error('PO0 官方防火墙 token 配置无效：请使用 pgnfw_...。');
+    throw new Error('Token配置无效：请使用pgnfw_...。');
   }
   return { token, slot, name, ...settings };
 }
@@ -167,12 +168,12 @@ function parseOfficialTokens(raw) {
     // A token identifies one official account; slot hints are not separate accounts.
     const key = item.token;
     if (seen.has(key)) {
-      throw new Error('PO0 官方防火墙 token 列表包含重复项。');
+      throw new Error('Token列表包含重复项。');
     }
     seen.add(key);
   }
   if (tokens.length > OFFICIAL_FIREWALL_MAX_TOKENS) {
-    throw new Error(`PO0 官方防火墙 token 数量超过上限（最多 ${OFFICIAL_FIREWALL_MAX_TOKENS} 个）。`);
+    throw new Error(`Token数量超过上限（最多${OFFICIAL_FIREWALL_MAX_TOKENS}个）。`);
   }
   return tokens;
 }
@@ -191,7 +192,7 @@ function officialNetworkEnv(env, network) {
 
 function officialNetworkSettingsRows(env) {
   const enabled = boolEnv(env.OFFICIAL_NETWORK_TARGETS_ENABLED, false);
-  return ['官方按网络选择目标：' + (enabled ? '开启；原目标用于蜂窝' : '关闭；使用原目标'),
+  return ['按网络选择账号：' + (enabled ? '已启用；上报账号用于蜂窝' : '已停用；所有网络使用上报账号'),
     ...(enabled ? officialSavedNameRows(officialNetworkEnv(env, { kind: 'wifi' })).map(row => 'Wi-Fi · ' + row) : []),
   ];
 }
@@ -211,38 +212,38 @@ function officialCidr24(value) {
 
 function officialNormalizePayload(data) {
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
-    throw new Error('官方防火墙返回数据无效。');
+    throw new Error('防火墙返回数据无效。');
   }
   if (data.enabled !== true) {
-    throw new Error('官方防火墙当前未启用。');
+    throw new Error('防火墙当前未启用。');
   }
   const currentIp = officialCidr24(data.currentIp);
   if (!currentIp) {
-    throw new Error('官方防火墙未返回有效当前出口 IPv4。');
+    throw new Error('防火墙未返回有效的出口IPv4。');
   }
   const limit = data.limit;
   if (!Number.isInteger(limit) || limit < 1 || limit > 5) {
-    throw new Error('官方防火墙返回的名额无效。');
+    throw new Error('防火墙返回的槽位数量无效。');
   }
   if (!Array.isArray(data.whitelist) || data.whitelist.length > limit || data.whitelist.length > 5) {
-    throw new Error('官方防火墙返回的白名单无效。');
+    throw new Error('防火墙返回的白名单无效。');
   }
 
   const seenSlots = new Set();
   const whitelist = data.whitelist.map((entry) => {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-      throw new Error('官方防火墙返回的白名单无效。');
+      throw new Error('防火墙返回的白名单无效。');
     }
     const ip = officialCidr24(entry.ip);
-    if (!ip) throw new Error('官方防火墙返回的白名单 IP 无效。');
+    if (!ip) throw new Error('防火墙返回的白名单IP无效。');
 
     let slot = null;
     if (entry.slot !== undefined && entry.slot !== null && entry.slot !== '') {
       if (!Number.isInteger(entry.slot) || entry.slot < 0 || entry.slot > 4) {
-        throw new Error('官方防火墙返回的槽位无效。');
+        throw new Error('防火墙返回的槽位无效。');
       }
       if (seenSlots.has(entry.slot)) {
-        throw new Error('官方防火墙返回了重复槽位。');
+        throw new Error('防火墙返回了重复槽位。');
       }
       seenSlots.add(entry.slot);
       slot = entry.slot;
@@ -260,14 +261,14 @@ function officialNormalizePayload(data) {
 }
 
 function officialHttpError(status, operation) {
-  const phase = operation === 'post' ? '加白' : '查询';
+  const phase = operation === 'post' ? '更新' : '查询';
   const suffix = Number.isInteger(status) ? '（HTTP ' + status + '）' : '';
   const hint = status === 403
     ? operation === 'post'
-      ? '：服务端拒绝写入，请核对官方白名单槽位。'
-      : '：服务端拒绝查询，请核对官方 Token 与防火墙开关。'
+      ? '：服务端拒绝写入，请核对白名单槽位。'
+      : '：服务端拒绝查询，请核对Token与防火墙开关。'
     : '。';
-  const error = new Error('官方防火墙' + phase + '失败' + suffix + hint);
+  const error = new Error('防火墙' + phase + '失败' + suffix + hint);
   error.httpStatus = status;
   return error;
 }
@@ -288,7 +289,7 @@ async function officialPayloadFromResponse(response, operation) {
     }
     if (typeof data === 'string') data = JSON.parse(data);
   } catch (_) {
-    throw new Error('官方防火墙返回数据无效。');
+    throw new Error('防火墙返回数据无效。');
   }
   return officialNormalizePayload(data);
 }
@@ -304,7 +305,7 @@ async function officialDirectRequest(ctx, item, operation) {
 
   const request = ctx?.http?.[method];
   if (typeof request !== 'function') {
-    throw new Error('Egern HTTP 能力不可用。');
+    throw new Error('Egern无法发送网络请求。');
   }
 
   let response;
@@ -322,36 +323,44 @@ async function officialDirectRequest(ctx, item, operation) {
     // Extract only the status; never retain the URL or raw response body.
     const status = String(error?.message || '').match(/\bstatus:\s*([1-5]\d{2})\b/i);
     if (status) throw officialHttpError(Number(status[1]), method);
-    throw new Error('官方防火墙网络请求失败。');
+    throw new Error('防火墙网络请求失败。');
   }
   return await officialPayloadFromResponse(response, method);
 }
 
 function officialSafeError(error) {
-  if (error?.message === '无法识别当前网络，已跳过官方上报。') return error.message;
-  const text = String(error?.message || '');
+  if (error?.message === '无法识别当前网络，已跳过上报。') return error.message;
+  const text = String(error?.message || '').replace(/^官方防火墙/, '防火墙').replace(/^PO0 官方防火墙 token /, 'Token').replace(/^防火墙加白/, '防火墙更新');
   if ([
-    '官方目标格式为 Token@槽位|名称|上报间隔秒数；上报间隔可留空，填 0 或 60..86400。',
-    '官方目标上报间隔必须为 0 或 60..86400 秒；0 只关闭定时。',
-    '官方目标可选参数不能重复。',
-    '官方目标上报间隔必须为 60..86400 秒。',
-    '官方目标定时开关必须为 timer=true 或 timer=false。',
+    '账号格式：Token@槽位|名称；间隔请在“上报间隔”中设置。',
+    '旧版间隔参数无效，请删除账号中的间隔参数，改用“上报间隔”设置。',
+    '账号可选参数不能重复。',
+    '上报间隔必须为60～86400秒',
+    '旧版定时参数无效，请删除账号中的定时参数，改用“启用定期上报”设置。',
   ].includes(text)) return text;
-  if (text === '官方防火墙网络请求失败。' || text === 'Egern HTTP 能力不可用。') return text;
-  const http = text.match(/^官方防火墙请求失败（HTTP (\d{3})）。$/);
-  if (http) return `官方防火墙请求失败（HTTP ${http[1]}）。`;
-  const phasedHttp = text.match(/^官方防火墙(查询|加白)失败（HTTP (\d{3})）/);
+  if (text === '防火墙网络请求失败。' || text === 'Egern无法发送网络请求。') return text;
+  const http = text.match(/^防火墙请求失败（HTTP (\d{3})）。$/);
+  if (http) return `防火墙请求失败（HTTP ${http[1]}）。`;
+  const phasedHttp = text.match(/^防火墙(查询|更新)失败（HTTP (\d{3})）/);
   if (phasedHttp) {
-    const safe = officialHttpError(Number(phasedHttp[2]), phasedHttp[1] === '加白' ? 'post' : 'get').message;
+    const safe = officialHttpError(Number(phasedHttp[2]), phasedHttp[1] === '更新' ? 'post' : 'get').message;
     if (text === safe) return safe;
   }
-  if (/^官方防火墙(?:当前未启用|未返回有效当前出口 IPv4|返回数据无效|返回的名额无效|返回的白名单无效|返回的槽位无效|返回了重复槽位|加白后未确认当前出口)。$/.test(text)) return text;
-  if (/^PO0 官方防火墙 token (?:配置包含空项或换行|配置无效：槽位只能写 @0 到 @4|配置无效：请使用 pgnfw_\.\.\.|列表包含重复项|数量超过上限（最多 16 个）)。$/.test(text)) return text;
-  return '官方防火墙请求失败。';
+  if (/^防火墙(?:当前未启用|未返回有效的出口IPv4|返回数据无效|返回的槽位数量无效|返回的白名单无效|返回的白名单IP无效|返回的槽位无效|返回了重复槽位|更新后未确认当前出口)。$/.test(text)) return text;
+  if (/^Token(?:配置包含空项或换行|配置无效：槽位只能写@0～@4|配置无效：请使用pgnfw_\.\.\.|列表包含重复项|数量超过上限（最多16个）)。$/.test(text)) return text;
+  return '防火墙请求失败。';
 }
 
 function scriptLabel(ctx) {
   const aliases = {
+    'PO0 防火墙 · 查看配置': '查看本机上报设置',
+    'PO0 防火墙状态': 'PO0 防火墙上报状态',
+    'PO0 防火墙 · 保存配置': '保存本机 PO0 官方防火墙配置',
+    'PO0 防火墙 · 启用自动上报': '启用官方防火墙自动上报',
+    'PO0 防火墙 · 停用自动上报': '停用官方防火墙自动上报',
+    'PO0 防火墙 · 查询白名单': 'PO0 官方防火墙状态（只读）',
+    'PO0 防火墙 · 清除配置': '清除本机 PO0 官方防火墙 Token',
+    'PO0 防火墙 · 最近结果': '查看最近结果',
     '查看本机配置': '查看本机上报设置',
     '查看本机官方防火墙配置': '查看本机上报设置',
     '查看官方防火墙最近结果': '查看最近结果',
@@ -443,22 +452,27 @@ function isOfficialConfigClearRun(ctx) {
 }
 
 function formatTime(value) {
-  if (!value) return 'never';
+  if (!value) return '未检查';
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+  if (Number.isNaN(date.getTime())) return '时间未知';
+  const time = date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+  const now = new Date(officialNowMs());
+  if (date.toDateString() === now.toDateString()) return time;
+  const day = [String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('/');
+  return (date.getFullYear() === now.getFullYear() ? day : date.getFullYear() + '/' + day) + ' ' + time;
 }
-
 
 function formatDurationSeconds(seconds) {
   const value = Number(seconds);
   if (!Number.isFinite(value) || value <= 0) return '未知';
-  if (value < 60) return `${Math.floor(value)}s`;
-  const minutes = Math.floor(value / 60);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return rest > 0 ? `${hours}h ${rest}m` : `${hours}h`;
+  let remaining = Math.floor(value);
+  const parts = [];
+  for (const [unit, length] of [['天', 86400], ['小时', 3600], ['分钟', 60], ['秒', 1]]) {
+    const count = Math.floor(remaining / length);
+    if (count) parts.push(count + unit);
+    remaining %= length;
+  }
+  return parts.join('') || '0秒';
 }
 
 const WIDGET_COLORS = {
@@ -544,10 +558,10 @@ function widgetPanel(title, content, ok, ctx) {
 
 
 function officialStatusText(entry) {
-  if (entry?.status === 'shared') return '当前网段已放行，共用' + officialCoveredSlotText(entry);
-  if (entry?.status === 'hit') return '当前出口已命中';
-  if (entry?.status === 'updated') return '已更新当前出口';
-  if (entry?.status === 'missing') return '当前出口未加白（只读）';
+  if (entry?.status === 'shared') return '当前网段已放行 · 共用' + officialCoveredSlotText(entry);
+  if (entry?.status === 'hit') return '当前网段已放行';
+  if (entry?.status === 'updated') return '当前网段已放行';
+  if (entry?.status === 'missing') return '当前网段未放行（只读）';
   if (entry?.status === 'error') return entry.error || '检查失败';
   return '未检查';
 }
@@ -558,7 +572,7 @@ function officialDisplaySlot(slot) {
 
 function officialCoveredSlotText(entry) {
   const slot = officialDisplaySlot(entry?.coveredSlot);
-  return slot ? '槽位 #' + slot : '自动槽位';
+  return slot ? '槽位#' + slot : '未编号记录';
 }
 
 function officialSameNetwork(left, right) {
@@ -603,13 +617,13 @@ function widgetOfficialEntries(state, env, runtimeEnv = {}) {
 
 function widgetAutoState(configured, enabled, ssidMatched) {
   if (!configured) return { text: '未配置', icon: 'circle.dashed', color: WIDGET_COLORS.dim };
-  if (!enabled) return { text: '自动停用', icon: 'pause.circle.fill', color: WIDGET_COLORS.yellow };
-  if (ssidMatched) return { text: 'SSID跳过', icon: 'wifi.slash', color: WIDGET_COLORS.blue };
-  return { text: '自动开启', icon: 'clock.arrow.circlepath', color: WIDGET_COLORS.green };
+  if (!enabled) return { text: '自动上报已停用', icon: 'pause.circle.fill', color: WIDGET_COLORS.yellow };
+  if (ssidMatched) return { text: 'Wi-Fi已跳过', icon: 'wifi.slash', color: WIDGET_COLORS.blue };
+  return { text: '自动上报已启用', icon: 'clock.arrow.circlepath', color: WIDGET_COLORS.green };
 }
 
 function widgetRefreshSchedule(env, officialAuto, entries) {
-  const intervals = officialAuto.text === '自动开启' ? entries.filter(entry => entry.timerEnabled && entry.intervalSeconds).map(entry => entry.intervalSeconds) : [];
+  const intervals = officialAuto.text === '自动上报已启用' ? entries.filter(entry => entry.timerEnabled && entry.intervalSeconds).map(entry => entry.intervalSeconds) : [];
   return intervals.length ? { refreshAfter: new Date(Date.now() + Math.min(...intervals) * 1000).toISOString() } : {};
 }
 
@@ -618,10 +632,10 @@ function widgetColumn(children, gap = 3, extra = {}) {
 }
 
 function widgetEntryResult(entry) {
-  if (entry.status === 'shared') return { text: '共用放行', color: WIDGET_COLORS.green };
-  if (entry.status === 'updated') return { text: '已加白·更新', color: WIDGET_COLORS.green };
-  if (entry.status === 'hit') return { text: '已加白', color: WIDGET_COLORS.green };
-  if (entry.status === 'missing') return { text: '未加白', color: WIDGET_COLORS.yellow };
+  if (entry.status === 'shared') return { text: '已放行 · 共用', color: WIDGET_COLORS.green };
+  if (entry.status === 'updated') return { text: '已放行', color: WIDGET_COLORS.green };
+  if (entry.status === 'hit') return { text: '已放行', color: WIDGET_COLORS.green };
+  if (entry.status === 'missing') return { text: '未放行', color: WIDGET_COLORS.yellow };
   if (entry.status === 'error') return { text: '检查失败', color: WIDGET_COLORS.red };
   return { text: '待检查', color: WIDGET_COLORS.dim };
 }
@@ -629,8 +643,9 @@ function widgetEntryResult(entry) {
 function widgetSlotLabel(entry) {
   const fixed = officialDisplaySlot(entry.fixedSlot);
   const covered = officialDisplaySlot(entry.coveredSlot);
-  return entry.status === 'shared' && covered ? '共用 #' + covered
-    : '槽位 ' + (covered || fixed ? '#' + (covered || fixed) : '自动');
+  if (covered) return (entry.status === 'shared' ? '共用#' : '槽位#') + covered;
+  if (entry.currentInWhitelist) return '槽位未知';
+  return fixed ? '指定槽位#' + fixed : '自动分配槽位';
 }
 
 function officialOrderedWhitelist(entry) {
@@ -647,11 +662,11 @@ function widgetWhitelist(entry, maxRows, size, allSlots = false, showHeading = t
   const shown = rows.slice(0, maxRows);
   const remaining = rows.length - shown.length;
   return widgetColumn([
-    ...(showHeading ? [widgetText('白名单' + (remaining ? ` · 另 ${remaining} 条` : ''), size, WIDGET_COLORS.heading, 'medium')] : []),
+    ...(showHeading ? [widgetText('白名单' + (remaining ? ` · 另${remaining}条` : ''), size, WIDGET_COLORS.heading, 'medium')] : []),
     ...shown.map(row => {
       const covered = officialSameNetwork(row.ip, entry.currentIp);
       return { ...widgetRow([
-        { ...widgetText((officialDisplaySlot(row.slot) ? '#' + officialDisplaySlot(row.slot) : '自动') + '  ' + (row.ip || '未占用'), size, covered ? WIDGET_COLORS.green : row.ip ? WIDGET_COLORS.heading : WIDGET_COLORS.dim), flex: 1, minScale: 0.8 },
+        { ...widgetText((officialDisplaySlot(row.slot) ? '#' + officialDisplaySlot(row.slot) : '未编号') + ' · ' + (row.ip || '未占用'), size, covered ? WIDGET_COLORS.green : row.ip ? WIDGET_COLORS.heading : WIDGET_COLORS.dim), flex: 1, minScale: 0.8 },
         ...(covered && size >= 15 ? [widgetText('当前网段', 12, WIDGET_COLORS.green)] : []),
       ], 4), flex: allSlots ? 1 : undefined };
     }),
@@ -669,27 +684,27 @@ function widgetAccountCard(entry, family, count) {
     : count === 1 ? 14 : 12;
   const resultNode = widgetText(result.text, full ? 13 : count === 1 ? 12 : 11, result.color, 'medium');
   const attempt = Date.parse(entry.lastAttemptAt || '');
-  const attemptText = Number.isFinite(attempt) ? '上报 ' + formatTime(entry.lastAttemptAt) : '尚无上报记录';
+  const attemptText = Number.isFinite(attempt) ? '检查' + formatTime(entry.lastAttemptAt) : '尚未检查';
   // Failed GETs have no quota data; 0/0 would look like an exhausted account.
-  const quota = entry.limit > 0 ? `${entry.used}/${entry.limit}` : '?/5';
+  const quota = entry.limit > 0 ? `${entry.used}/${entry.limit}` : '未知';
   const children = [
     widgetRow([
-      { ...widgetText(entry.name || '官方账号', nameSize, WIDGET_COLORS.text, 'semibold'), flex: 1, minScale: 0.8 },
+      { ...widgetText(entry.name || '账号', nameSize, WIDGET_COLORS.text, 'semibold'), flex: 1, minScale: 0.8 },
       ...(!(large && count === 2) ? [resultNode] : []),
     ], 3),
     ...(large && count === 2 ? [resultNode] : []),
     widgetRow([
       widgetText(widgetSlotLabel(entry), detailSize, WIDGET_COLORS.heading), spacerNode(),
-      widgetText('占用 ' + quota, detailSize, WIDGET_COLORS.heading),
+      widgetText('占用' + quota, detailSize, WIDGET_COLORS.heading),
     ], 3),
   ];
   if (large) {
-    if (count > 1) children.push({ ...widgetText(entry.currentIp || '暂无出口结果', full ? 13 : 12, WIDGET_COLORS.accent, 'medium'), minScale: 0.8 });
+    if (count > 1) children.push({ ...widgetText(entry.currentIp || '出口IP未知', full ? 13 : 12, WIDGET_COLORS.accent, 'medium'), minScale: 0.8 });
     const hiddenWhitelist = Math.max(0, (entry.whitelist?.length || 0) - 1);
-    children.push(widgetText(attemptText + (count > 4 && entry.status !== 'error' ? ' · 白名单' + (hiddenWhitelist ? ' +' + hiddenWhitelist : '') : ''), full ? 12 : 10, WIDGET_COLORS.dim));
+    children.push(widgetText(attemptText + (count > 4 && entry.status !== 'error' ? ' · 白名单' + (hiddenWhitelist ? ' · 另' + hiddenWhitelist + '条' : '') : ''), full ? 12 : 10, WIDGET_COLORS.dim));
     if (entry.status === 'error') {
       children.push({ ...widgetText(entry.error || '请求失败，请刷新重试', full ? 13 : 11, WIDGET_COLORS.red), maxLines: full ? 3 : 1 });
-      if (full) children.push({ ...widgetText('刷新小组件重试；持续失败时检查官方账号与网络。', 13, WIDGET_COLORS.dim), maxLines: 3 });
+      if (full) children.push({ ...widgetText('请刷新重试，或检查账号与网络。', 13, WIDGET_COLORS.dim), maxLines: 3 });
     } else {
       children.push(widgetWhitelist(entry, full ? 5 : count <= 4 ? 2 : 1, detailSize, full, count <= 4));
     }
@@ -708,8 +723,8 @@ function widgetAccounts(entries, family) {
   const limit = family === 'small' ? 2 : family === 'large' ? 6 : 3;
   const shown = entries.slice(0, limit);
   if (!shown.length) return widgetColumn([
-    widgetText('尚未设置官方目标', family === 'small' ? 14 : 18, WIDGET_COLORS.heading, 'medium'),
-    { ...widgetText('填写模块目标后，运行“保存配置”', family === 'small' ? 12 : 15, WIDGET_COLORS.dim), maxLines: 3 },
+    widgetText('尚未配置账号', family === 'small' ? 14 : 18, WIDGET_COLORS.heading, 'medium'),
+    { ...widgetText('填写上报账号后，运行“PO0 防火墙 · 保存配置”', family === 'small' ? 12 : 15, WIDGET_COLORS.dim), maxLines: 3 },
   ], 6, { flex: 1, padding: 9, backgroundColor: WIDGET_COLORS.card, borderRadius: 9 });
   const cards = shown.map(entry => widgetAccountCard(entry, family, shown.length));
   const rows = [];
@@ -727,19 +742,19 @@ function widgetAccounts(entries, family) {
 function officialReadOnlyWidget(state, ctx, env) {
   const metrics = widgetMetrics(ctx);
   const entries = widgetOfficialEntries(state, env, ctx?.env);
-  const children = [widgetText('官方防火墙 · 只读状态', 14, WIDGET_COLORS.text, 'semibold'), widgetText('本次只查询，不新增白名单。', 12)];
+  const children = [widgetText('PO0 防火墙 · 白名单', 14, WIDGET_COLORS.text, 'semibold'), widgetText('仅查询，不修改白名单。', 12)];
   for (const entry of entries) {
     children.push(
       widgetText(entry.name + ' · ' + officialStatusText(entry), 12),
-      widgetText(`出口 ${entry.currentIp || '未知'} · 固定槽位 ${officialDisplaySlot(entry.fixedSlot) ? '#' + officialDisplaySlot(entry.fixedSlot) : '自动'}`, 12),
-      widgetText(`白名单 · 名额 ${entry.used ?? '?'}/${entry.limit ?? 5}`, 12),
+      widgetText(`出口IP：${entry.currentIp || '未知'} · 指定槽位：${officialDisplaySlot(entry.fixedSlot) ? '#' + officialDisplaySlot(entry.fixedSlot) : '自动分配'}`, 12),
+      widgetText('白名单 · 占用' + (entry.limit > 0 ? `${entry.used}/${entry.limit}` : '未知'), 12),
     );
     for (const row of officialOrderedWhitelist(entry)) children.push(widgetText(
-      `${officialDisplaySlot(row.slot) ? '#' + officialDisplaySlot(row.slot) : '自动'}  ${row.ip}`,
+      `${officialDisplaySlot(row.slot) ? '#' + officialDisplaySlot(row.slot) : '未编号'} · ${row.ip}`,
       12, officialSameNetwork(row.ip, entry.currentIp) ? WIDGET_COLORS.green : WIDGET_COLORS.text,
     ));
   }
-  if (!entries.length) children.push(widgetText(state?.error || '官方防火墙尚无结果。', 12));
+  if (!entries.length) children.push(widgetText(state?.error || '尚无检查结果。', 12));
   return {
     type: 'widget', padding: metrics.padding, gap: 5, backgroundColor: WIDGET_COLORS.background,
     children: children.map(node => ({ ...node, maxLines: 2 })),
@@ -755,37 +770,37 @@ function widgetFromState(state, ctx, deviceId = '', env = ctx?.env || {}) {
   const auto = widgetAutoState(officialTokensConfigured(env), boolEnv(env.OFFICIAL_AUTO_ENABLED, true), Boolean(ssid && normalizeSsidSkipList(env.SKIP_WIFI_SSIDS).includes(ssid)));
   const lastTime = state?.official?.checkedAt || state?.checkedAt || state?.at;
   const ips = [...new Set(entries.map(entry => entry.currentIp?.replace(/\/\d+$/, '')).filter(Boolean))];
-  const ip = ips.length > 1 ? '多个出口' : ips[0] || state?.official?.currentIp?.replace(/\/\d+$/, '') || state?.ip || '暂无出口结果';
+  const ip = ips.length > 1 ? '多个出口IP' : ips[0] || state?.official?.currentIp?.replace(/\/\d+$/, '') || state?.ip || '出口IP未知';
   const successCount = entries.filter(entry => /^(hit|updated|shared)$/.test(entry.status)).length;
   const failures = entries.filter(entry => entry.status === 'error').length;
-  const summary = !entries.length ? '待配置' : failures ? failures + ' 个异常' : successCount + '/' + entries.length + ' 已放行';
+  const summary = !entries.length ? '未配置' : failures ? failures + '个账号异常' : successCount + '/' + entries.length + '已放行';
   const statusColor = failures ? WIDGET_COLORS.red : successCount ? WIDGET_COLORS.green : WIDGET_COLORS.dim;
   const limit = family === 'small' ? 2 : family === 'large' ? 6 : 3;
-  const more = entries.length > limit ? ' · +' + (entries.length - limit) + ' 个账号' : '';
+  const more = entries.length > limit ? ' · 另' + (entries.length - limit) + '个账号' : '';
   const networkText = ssid || network.value || '网络未知';
-  const notice = state?.uiNotice || (state?.skipType === 'wifi-ssid' ? 'SSID 跳过 · 保留上次结果'
-    : state?.skipped ? '未到间隔 · 保留上次结果' : failures ? '检查失败 · 请查看账号结果' : '');
-  const schedule = auto.text !== '自动开启' ? auto.text : officialTimerEnabled(env) ? '每 ' + formatDurationSeconds(officialIntervalSeconds(env)) : '仅网络变化';
+  const notice = state?.uiNotice || (state?.skipType === 'wifi-ssid' ? 'Wi-Fi已跳过 · 显示上次结果'
+    : state?.skipped ? '未到检查时间 · 显示上次结果' : failures ? '检查失败 · 请查看账号结果' : '');
+  const schedule = auto.text !== '自动上报已启用' ? auto.text : officialTimerEnabled(env) ? '每' + formatDurationSeconds(officialIntervalSeconds(env)) : '网络变化时检查';
   const timestamp = lastTime && Number.isFinite(Date.parse(lastTime)) ? formatTime(lastTime) : '未检查';
   const children = [
     widgetRow([
       ...(family !== 'small' ? [iconNode('checkmark.shield.fill', WIDGET_COLORS.accent, 16)] : []),
-      widgetText(family === 'small' ? 'PO0' : 'PO0 官方防火墙', family === 'small' ? 13 : 16, WIDGET_COLORS.text, 'semibold'),
+      widgetText(family === 'small' ? 'PO0' : 'PO0 防火墙', family === 'small' ? 13 : 16, WIDGET_COLORS.text, 'semibold'),
       ...(family === 'small' ? [{ ...widgetText(networkText, 11, WIDGET_COLORS.heading), flex: 1 }] : [spacerNode()]),
-      widgetText(family === 'small' ? (failures ? failures + ' 异常' : successCount + '/' + entries.length) : summary + more, family === 'small' ? 11 : 12, statusColor, 'medium'),
+      widgetText(family === 'small' ? (!entries.length ? '未配置' : failures ? failures + '个异常' : successCount + '/' + entries.length + '已放行') : summary + more, family === 'small' ? 11 : 12, statusColor, 'medium'),
     ], 4),
   ];
   const ipNode = { ...widgetText(ip, family === 'large' ? 27 : family === 'medium' ? 21 : entries.length <= 1 ? 23 : 20, WIDGET_COLORS.accent, 'semibold'), minScale: 0.75 };
   const networkNode = widgetRow([iconNode(network.icon || 'network', WIDGET_COLORS.dim, 12), { ...widgetText(networkText, 13, WIDGET_COLORS.heading), flex: 1 }], 4);
   if (family === 'medium') {
-    const connection = widgetColumn([widgetText('当前出口', 12, WIDGET_COLORS.dim), ipNode, networkNode, widgetText(schedule, 12, auto.color)], 6, { flex: 1 });
+    const connection = widgetColumn([widgetText('出口IP', 12, WIDGET_COLORS.dim), ipNode, networkNode, { ...widgetText(schedule, 12, auto.color), maxLines: 2 }], 6, { flex: 1 });
     children.push({ ...widgetRow([connection, { ...widgetAccounts(entries, family), flex: 1 }], 8), flex: 1, alignItems: 'start' });
   } else {
     children.push(family === 'large' ? widgetRow([{ ...ipNode, flex: 6 }, { ...networkNode, flex: 4 }], 8) : ipNode);
     children.push(widgetAccounts(entries, family));
   }
   children.push(widgetRow([
-    { ...widgetText(family === 'small' ? (state?.skipType === 'wifi-ssid' ? 'SSID跳过' : notice ? '保留结果' : schedule) + more : notice || (family === 'medium' ? '最近检查' : schedule), family === 'large' ? 12 : 11, notice ? WIDGET_COLORS.yellow : WIDGET_COLORS.dim), flex: 1 },
+    { ...widgetText(family === 'small' ? (state?.skipType === 'wifi-ssid' ? 'Wi-Fi已跳过' : notice ? '显示上次结果' : schedule) + more : notice || (family === 'medium' ? '最近检查' : schedule), family === 'large' ? 12 : 11, notice ? WIDGET_COLORS.yellow : WIDGET_COLORS.dim), flex: 1, maxLines: 2 },
     widgetText(timestamp, family === 'large' ? 12 : 11, WIDGET_COLORS.dim),
   ], 3));
   return {
@@ -1020,7 +1035,7 @@ async function storedReportConfig(ctx) {
     try {
       parsed = JSON.parse(String(raw));
     } catch (_) {
-      throw new Error('本机 PO0 上报配置已损坏；请运行“清除本机全部 PO0 上报配置”后重新保存。');
+      throw new Error('本机配置已损坏；请运行“PO0 防火墙 · 清除配置”后重新保存。');
     }
   }
 
@@ -1031,7 +1046,7 @@ async function storedReportConfig(ctx) {
     || !parsed.values
     || typeof parsed.values !== 'object'
   ) {
-    throw new Error('本机 PO0 上报配置版本无效；请运行“清除本机全部 PO0 上报配置”后重新保存。');
+    throw new Error('本机配置版本无效；请运行“PO0 防火墙 · 清除配置”后重新保存。');
   }
 
   const values = persistableEnvValues(parsed.values);
@@ -1067,7 +1082,7 @@ async function saveReportConfig(ctx, env) {
     values,
   }));
   if (!saved) {
-    throw new Error('当前 Egern 脚本环境不支持本机 storage，无法保存 PO0 上报配置。');
+    throw new Error('Egern本机存储不可用，无法保存配置。');
   }
   return { values, savedAt };
 }
@@ -1170,7 +1185,7 @@ function isNetworkChangeRun(ctx) {
 }
 function officialIntervalSeconds(env, item = {}) {
   const value = Number(String(env?.OFFICIAL_INTERVAL_SECONDS ?? '').trim() || DEFAULT_OFFICIAL_INTERVAL_SECONDS);
-  if (!Number.isInteger(value) || value < 60 || value > 86400) throw new Error('官方上报间隔必须为 60..86400 秒');
+  if (!Number.isInteger(value) || value < 60 || value > 86400) throw new Error('上报间隔必须为60～86400秒');
   return value;
 }
 function officialTimerEnabled(env, item = {}) {
@@ -1224,7 +1239,7 @@ async function runOfficialFirewall(ctx, env, mode = 'report') {
   let previous = await storedOfficialState(ctx);
   const networkContext = env._officialNetwork || '';
   if (networkContext === 'unknown') {
-    return officialConfigErrorState(new Error('无法识别当前网络，已跳过官方上报。'), mode, previous);
+    return officialConfigErrorState(new Error('无法识别当前网络，已跳过上报。'), mode, previous);
   }
   if (networkContext && previous?.networkContext !== networkContext) previous = null;
   let items;
@@ -1310,7 +1325,7 @@ async function runOfficialFirewall(ctx, env, mode = 'report') {
       } else if (!covered) {
         try {
           const updated = await officialDirectRequest(ctx, item, 'post');
-          if (!applyOfficialPayload(entry, updated, item, 'updated')) throw new Error('官方防火墙加白后未确认当前出口。');
+          if (!applyOfficialPayload(entry, updated, item, 'updated')) throw new Error('防火墙更新后未确认当前出口。');
         } catch (error) {
           if (error.httpStatus !== 403) throw error;
           // Another device may have added this network after our first GET.
@@ -1339,7 +1354,7 @@ async function runOfficialFirewall(ctx, env, mode = 'report') {
   for (const [index, result] of results.entries()) {
     entries.push(result.entry);
     if (due[index] && result.entry.status === 'error') {
-      try { logMessage(ctx, 'error', '官方防火墙账号 #' + result.entry.ordinal + ' 失败', result.entry.error); } catch (_) {}
+      try { logMessage(ctx, 'error', '账号' + result.entry.ordinal + '检查失败', result.entry.error); } catch (_) {}
     }
   }
   needsNotification = results.some((result) => result.needsNotification);
@@ -1375,12 +1390,12 @@ function logMessage(ctx, level, message, detail = '') {
 }
 
 async function handleScopedConfigSaveScript(ctx, runtimeEnv, storedValues) {
-  const title = '官方防火墙配置';
+  const title = '配置';
   try {
     let candidate;
     {
       const input = String(runtimeEnv.PO0_FIREWALL_TOKENS || '').trim() || String(storedValues?.PO0_FIREWALL_TOKENS || '').trim();
-      if (!input) throw new Error('请填写官方 Token；清除请使用独立的清除官方 Token 操作。');
+      if (!input) throw new Error('请填写上报账号；清空请运行“PO0 防火墙 · 清除配置”。');
       parseOfficialTokens(input);
       candidate = { ...(storedValues || {}), PO0_FIREWALL_TOKENS: input };
       candidate.PO0_FIREWALL_NAMES = officialNamesForSave(storedValues || {}, runtimeEnv, input);
@@ -1396,13 +1411,13 @@ async function handleScopedConfigSaveScript(ctx, runtimeEnv, storedValues) {
           { PO0_FIREWALL_TOKENS: runtimeEnv.PO0_FIREWALL_WIFI_TOKENS }, candidate.PO0_FIREWALL_WIFI_TOKENS);
       }
       if (boolEnv(runtimeEnv.OFFICIAL_NETWORK_TARGETS_ENABLED, false) && !candidate.PO0_FIREWALL_WIFI_TOKENS) {
-        throw new Error('开启按网络选择目标前，请填写 Wi-Fi 官方上报目标。');
+        throw new Error('请先填写并保存Wi-Fi账号，再开启按网络选择。');
       }
       officialIntervalSeconds(effectiveReportEnv(candidate, runtimeEnv));
     }
     await saveReportConfig(ctx, candidate);
-    notify(ctx, 'PO0 Egern Config', title + '已保存');
-    return widgetPanel(REPORT_TITLE, [title + '已保存。', ...officialSavedNameRows(effectiveReportEnv(candidate, runtimeEnv)), ...officialNetworkSettingsRows(effectiveReportEnv(candidate, runtimeEnv)), '已保存本机 Token、名称及槽位；间隔和定期开关直接读取模块参数。本次未上报。'], true, ctx);
+    notify(ctx, REPORT_TITLE, '配置已保存');
+    return widgetPanel(REPORT_TITLE, [title + '已保存。', ...officialSavedNameRows(effectiveReportEnv(candidate, runtimeEnv)), ...officialNetworkSettingsRows(effectiveReportEnv(candidate, runtimeEnv)), '账号和槽位已保存到本机，本次未上报。'], true, ctx);
   } catch (error) {
     return widgetPanel(REPORT_TITLE, [title + '未保存。', redactError(error, { ...(storedValues || {}), ...runtimeEnv })], false, ctx);
   }
@@ -1413,7 +1428,7 @@ async function handleOfficialConfigClearScript(ctx) {
   await storageDelete(ctx, OFFICIAL_STORAGE_KEY);
   await storageDelete(ctx, STORAGE_KEY);
   await storageDelete(ctx, ERROR_STORAGE_KEY);
-  return widgetPanel(REPORT_TITLE, ['本机官方配置和最近状态已清除。', '同步参数不会自动恢复；重新填写后使用“官方防火墙 · 保存配置”。'], true, ctx);
+  return widgetPanel(REPORT_TITLE, ['本机账号、配置和最近结果已清除，自动上报已停用。', '恢复使用请保存账号，再启用自动上报。'], true, ctx);
 }
 
 function officialFailureSummary(result) {
@@ -1422,22 +1437,18 @@ function officialFailureSummary(result) {
     .filter((entry) => entry.status === 'error')
     .map((entry) => {
       const displaySlot = officialDisplaySlot(entry.slot);
-      const slot = displaySlot === null ? '' : `（槽位 ${displaySlot}）`;
-      return `官方账号 #${entry.ordinal || '?'}${slot}：${entry.error || '官方防火墙请求失败。'}`;
+      const slot = displaySlot === null ? '' : `（槽位#${displaySlot}）`;
+      return `${entry.name || '账号' + (entry.ordinal || '?')}${slot}：${entry.error || '防火墙请求失败。'}`;
     })
     .join('；');
 }
 
 function officialUpdateSummary(result) {
   const entries = Array.isArray(result?.state?.entries) ? result.state.entries : [];
-  return entries
-    .filter((entry) => entry.status === 'updated')
-    .map((entry) => {
-      const displaySlot = officialDisplaySlot(entry.slot);
-      const slot = displaySlot === null ? '' : `，槽位 ${displaySlot}`;
-      return `账号 #${entry.ordinal || '?'}${slot} 当前出口 ${entry.currentIp || '未知'}`;
-    })
-    .join('；');
+  return entries.filter(entry => entry.status === 'updated').map(entry => {
+    const slot = officialDisplaySlot(entry.coveredSlot);
+    return (entry.name || '账号' + (entry.ordinal || '?')) + ' · 已放行 · ' + (slot ? '槽位#' + slot : '槽位未知') + ' · ' + (entry.currentIp || '出口IP未知');
+  }).join('；');
 }
 
 function parseOfficialNames(value) {
@@ -1453,7 +1464,7 @@ function officialAccountLabel(env, item, index) {
 function officialAccountName(env, index) {
   let item = {};
   try { item = parseOfficialTokens(env.PO0_FIREWALL_TOKENS)[index] || {}; } catch (_) {}
-  return officialAccountLabel(env, item, index) || ('官方账号 ' + (index + 1));
+  return officialAccountLabel(env, item, index) || ('账号' + (index + 1));
 }
 
 function officialDisplayEnv(env, runtimeEnv) {
@@ -1478,8 +1489,7 @@ function officialDisplayEnv(env, runtimeEnv) {
 function officialSavedNameRows(env) {
   let items;
   try { items = parseOfficialTokens(env.PO0_FIREWALL_TOKENS); } catch (_) { return []; }
-  return items.map((item, index) => '官方目标：' + officialAccountName(env, index) + ' · ' + (officialDisplaySlot(item.slot) ? '固定槽位 #' + officialDisplaySlot(item.slot) : '自动槽位')
-    + ' · ' + ('上报间隔 ' + officialIntervalSeconds(env, item) + ' 秒' + (officialTimerEnabled(env, item) ? '' : '（暂不使用）')) + ' · 网络变化检查');
+  return items.map((item, index) => officialAccountName(env, index) + ' · ' + (officialDisplaySlot(item.slot) ? '指定槽位#' + officialDisplaySlot(item.slot) : '自动分配槽位'));
 }
 
 function officialNamesForSave(stored, runtime, tokens) {
@@ -1514,7 +1524,7 @@ async function handleLocalChannelAction(ctx, env, action) {
   if (action === 'recent') {
     const state = sanitizedStoredState(await storageGet(ctx, STORAGE_KEY)) || {};
     state.official = await storedOfficialState(ctx);
-    state.uiNotice = '查看官方防火墙最近结果 · 本次未上报';
+    state.uiNotice = '显示上次结果 · 本次未检查';
     return widgetFromState(state, ctx, '', officialNetworkEnv(env, networkInfo(ctx)));
   }
   const next = { ...env };
@@ -1523,13 +1533,13 @@ async function handleLocalChannelAction(ctx, env, action) {
     await saveReportConfig(ctx, next);
   }
   return widgetPanel(REPORT_TITLE + ' · 本机设置', [
-    '目标、名称、槽位及自动总开关保存在本机。',
-    '间隔、定期开关、按网络选择及 SSID 跳过直接读取当前模块参数。',
+    '账号与槽位保存在本机。',
+    '其他设置修改后立即生效。',
     '自动上报：' + (boolEnv(next.OFFICIAL_AUTO_ENABLED, true) ? '已启用' : '已停用'),
-    '启用定期上报：' + (officialTimerEnabled(next) ? '是' : '否') + '；上报间隔：' + officialIntervalSeconds(next) + ' 秒' + (officialTimerEnabled(next) ? '' : '（暂不使用）'),
+    '定期上报：' + (officialTimerEnabled(next) ? '每' + formatDurationSeconds(officialIntervalSeconds(next)) : '已停用'),
     ...officialSavedNameRows(officialDisplayEnv(next, ctx?.env)), ...officialNetworkSettingsRows(next),
-    'SSID 跳过：' + (next.SKIP_WIFI_SSIDS || '未设置'),
-    '普通上报和小组件刷新遵守 SSID 跳过；仅明确的强制上报可绕过，只读查询不新增白名单。',
+    '跳过的Wi-Fi：' + (next.SKIP_WIFI_SSIDS || '未设置'),
+    '“强制上报”可忽略Wi-Fi跳过设置；“查询白名单”不修改白名单。',
   ], true, ctx);
 }
 
@@ -1552,7 +1562,7 @@ async function runEgernReportUnlocked(ctx) {
   state.network = network;
   const result = () => shouldReturnWidget(ctx) ? widgetFromState(state, ctx, '', env) : state;
   if (!officialTokensConfigured(configEnv)) {
-    state = { ...state, ok: true, skipped: true, uiNotice: '尚未配置官方上报目标' };
+    state = { ...state, ok: true, skipped: true, uiNotice: '尚未配置账号' };
     return result();
   }
   try {
@@ -1560,24 +1570,24 @@ async function runEgernReportUnlocked(ctx) {
     if (configEnv.PO0_FIREWALL_WIFI_TOKENS) parseOfficialTokens(configEnv.PO0_FIREWALL_WIFI_TOKENS);
     if (!stored.exists) await saveReportConfig(ctx, configEnv);
     if (automatic && (!boolEnv(env.OFFICIAL_AUTO_ENABLED, true) || (!isNetworkChangeRun(ctx) && !officialTimerEnabled(env)))) {
-      state = { ...state, ok: true, skipped: true, uiNotice: '自动或定期上报已停用，配置保留' };
+      state = { ...state, ok: true, skipped: true, uiNotice: '自动上报已暂停 · 显示上次结果' };
       return result();
     }
     if (!isOfficialStatusRun(ctx) && ssidSkipDecision(ctx, env, network).skip) {
-      state = { ...state, ok: true, skipped: true, skipType: 'wifi-ssid', uiNotice: 'SSID 跳过 · 本次未上报 · 保留上次结果' };
+      state = { ...state, ok: true, skipped: true, skipType: 'wifi-ssid', uiNotice: 'Wi-Fi已跳过 · 本次未上报 · 显示上次结果' };
       if (!await storageSet(ctx, STORAGE_KEY, JSON.stringify(state))) throw new Error('无法保存跳过状态');
-      logMessage(ctx, 'info', 'SSID 跳过：本次未发起官方请求，保留上次结果。');
+      logMessage(ctx, 'info', 'Wi-Fi已跳过：本次未检查，显示上次结果。');
       return result();
     }
     const reported = await runOfficialFirewall(ctx, env, isOfficialStatusRun(ctx) ? 'status' : 'report');
-    state = { ok: reported.ok, network, official: reported.state, skipped: reported.skipped, checkedAt: officialNowIso(), ip: reported.state?.currentIp?.replace(/\/\d+$/, '') || '', error: reported.ok ? '' : '官方上报未完成' };
+    state = { ok: reported.ok, network, official: reported.state, skipped: reported.skipped, checkedAt: officialNowIso(), ip: reported.state?.currentIp?.replace(/\/\d+$/, '') || '', error: reported.ok ? '' : '防火墙检查未完成' };
     if (!reported.skipped && reported.ok) state.at = reported.state?.lastSuccessAt || officialNowIso();
     if (!await storageSet(ctx, STORAGE_KEY, JSON.stringify(state))) throw new Error('无法保存上报状态');
     if (!reported.ok && boolEnv(env.NOTIFY_FAILURE, true)) notify(ctx, REPORT_FAILED_TITLE, officialFailureSummary(reported));
-    else if (reported.needsNotification || (!automatic && boolEnv(env.NOTIFY_SUCCESS, false))) notify(ctx, REPORT_TITLE, officialUpdateSummary(reported) || '官方检查完成');
+    else if (reported.needsNotification || (!automatic && boolEnv(env.NOTIFY_SUCCESS, false))) notify(ctx, REPORT_TITLE, officialUpdateSummary(reported) || '防火墙检查完成');
     return result();
   } catch (error) {
-    state = { ...state, ok: false, error: redactError(error, env), uiNotice: '官方操作未完成' };
+    state = { ...state, ok: false, error: redactError(error, env), uiNotice: '操作未完成' };
     if (!automatic && boolEnv(env.NOTIFY_FAILURE, true)) notify(ctx, REPORT_FAILED_TITLE, state.error);
     return result();
   }
@@ -1653,7 +1663,7 @@ export default async function(ctx) {
     return widgetPanel(REPORT_TITLE, [
       '本次操作未完成。',
       '本机存储暂时不可用，请稍后重试。',
-      '可在“查看本机官方防火墙配置”核对保存结果。',
+      '可运行“PO0 防火墙 · 查看配置”核对结果。',
     ], false, ctx);
   }
 }

@@ -4,13 +4,15 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const scriptPath = resolve(repoRoot, 'scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js');
+const scriptPath = resolve(repoRoot, 'scripts/po0/nftables/clients/egern/po0-firewall.js');
 const compatibilityScriptPath = resolve(repoRoot, 'scripts/po0/relay/egern/po0-ssh-ip-report.js');
-const yamlPath = resolve(repoRoot, 'scripts/po0/nftables/clients/egern/PO0-SSH-IP-Report.yaml');
+const yamlPath = resolve(repoRoot, 'scripts/po0/nftables/clients/egern/PO0-Firewall.yaml');
 const source = await readFile(scriptPath, 'utf8');
 const compatibilitySource = await readFile(compatibilityScriptPath, 'utf8');
 const yamlSource = await readFile(yamlPath, 'utf8');
 const compatibilityYaml = await readFile(resolve(repoRoot, 'scripts/po0/relay/egern/PO0-SSH-IP-Report.yaml'), 'utf8');
+const previousScript = await readFile(resolve(repoRoot, 'scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js'), 'utf8');
+const previousYaml = await readFile(resolve(repoRoot, 'scripts/po0/nftables/clients/egern/PO0-SSH-IP-Report.yaml'), 'utf8');
 const moduleUrl = `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
 const { default: runEgernReport } = await import(moduleUrl);
 
@@ -217,8 +219,8 @@ async function testMissingReportsWithFixedSlotAndNotifiesUpdate() {
   assert.equal(calls.get.length, 1);
   assert.equal(calls.post.length, 1);
   assert.equal(calls.notifications.length, 1);
-  assert.match(calls.notifications[0].body, /账号 #1/);
-  assert.match(calls.notifications[0].body, /槽位 4/);
+  assert.match(calls.notifications[0].body, /账号1/);
+  assert.match(calls.notifications[0].body, /槽位#4/);
   const official = await officialStateOf(storage);
   assert.equal(official.entries[0].status, 'updated');
   assert.equal(official.entries[0].fixedSlot, 3);
@@ -294,7 +296,7 @@ async function testPost403RechecksOnceWithoutRepeatingWrite() {
       assert.deepEqual(run.calls.order, ['GET ' + API_BASE + '/' + token, 'POST ' + API_BASE + '/' + token + '/add?slot=0', 'GET ' + API_BASE + '/' + token]);
       assert.equal(state.ok, confirmed);
       assert.equal(state.entries[0].status, confirmed ? 'shared' : 'error');
-      if (!confirmed) assert.match(state.entries[0].error, /加白失败（HTTP 403）/);
+      if (!confirmed) assert.match(state.entries[0].error, /更新失败（HTTP 403）/);
       const visible = visibleText({ state, result, logs: run.calls.logs, notifications: run.calls.notifications });
       assert(!visible.includes(token));
       assert(!visible.includes('private-value'));
@@ -309,7 +311,7 @@ async function testPost403RechecksOnceWithoutRepeatingWrite() {
   });
   await runEgernReport(failedRecheck.ctx);
   assert.equal(failedRecheck.calls.post.length, 1);
-  assert.match((await officialStateOf(failedRecheck.storage)).entries[0].error, /加白失败（HTTP 403）/);
+  assert.match((await officialStateOf(failedRecheck.storage)).entries[0].error, /更新失败（HTTP 403）/);
 }
 
 async function testGet403DoesNotPostOrAssumeSlotConflict() {
@@ -354,7 +356,7 @@ async function testWidgetAndReportStatusInitializeSavedToken() {
     const before = await runEgernReport(readOnly.ctx);
     assert.equal(readOnly.calls.get.length, 1);
     assert.equal(readOnly.calls.post.length, 0);
-    assert.match(visibleText(before), /当前出口未加白（只读）/);
+    assert.match(visibleText(before), /当前网段未放行（只读）/);
 
     let whitelist = [];
     const refresh = createContext({
@@ -380,8 +382,8 @@ async function testWidgetAndReportStatusInitializeSavedToken() {
     assert.equal(official.entries[0].status, 'updated');
     assert.equal(official.lastAttemptAt, new Date(now).toISOString());
     assert.equal(official.lastSuccessAt, new Date(now).toISOString());
-    assert.match(visibleText(widget), /已加白/);
-    assert.doesNotMatch(visibleText(widget), /当前出口未加白/);
+    assert.match(visibleText(widget), /已放行/);
+    assert.doesNotMatch(visibleText(widget), /当前网段未放行/);
 
     await runEgernReport(refresh.ctx);
     assert.equal(refresh.calls.get.length, 2, 'each refresh must check even within the automatic interval');
@@ -806,9 +808,9 @@ function testEgernTimeoutBudget() {
 
 function testEgernWidgetBindingsStayCompatible() {
   const widgets = yamlSource.slice(yamlSource.indexOf('\nwidgets:'));
-  assert(widgets.includes('name: PO0 官方防火墙上报状态'));
-  assert(widgets.includes('script_name: PO0 官方防火墙上报状态'));
-  assert(yamlSource.includes('      name: PO0 官方防火墙上报状态'));
+  assert(widgets.includes('name: PO0 防火墙状态'));
+  assert(widgets.includes('script_name: PO0 防火墙状态'));
+  assert(yamlSource.includes('      name: PO0 防火墙状态'));
   for (const removed of ['PO0 SSH 上报状态', '强制上报 PO0 防火墙', 'PO0 防火墙本机设备 ID']) {
     assert(!yamlSource.includes('      name: ' + removed), 'redundant entries must not be republished');
   }
@@ -820,6 +822,11 @@ function testEgernWidgetBindingsStayCompatible() {
 function testEgernScriptCopiesStaySynchronized() {
   assert.equal(compatibilitySource, source);
   assert.equal(compatibilityYaml, yamlSource);
+  assert.equal(previousScript, source);
+  assert.equal(previousYaml, yamlSource);
+  const urls = [...yamlSource.matchAll(/script_url: "([^"]+)"/g)].map(match => match[1]);
+  assert.equal(urls.length, 12);
+  assert(urls.every(url => url === 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20260929-firewall-ui-v1'));
 }
 
 
@@ -960,7 +967,7 @@ async function testInlineOfficialTargetsPersistAndMatchNames() {
   const result = await runEgernReport(save.ctx);
   assert.match(visibleText(result), /手机/);
   assert.match(visibleText(result), /Office Firewall/);
-  assert.match(visibleText(result), /上报间隔 600 秒/);
+  assert.match(visibleText(result), /指定槽位#/);
   assert.equal(save.calls.get.length + save.calls.post.length, 0);
   let values = JSON.parse(await storage.get(CONFIG_STORAGE_KEY)).values;
   assert.equal(values.PO0_FIREWALL_NAMES, '手机;Office Firewall');
@@ -988,12 +995,12 @@ async function testInlineOfficialTargetsPersistAndMatchNames() {
 
 async function testInlineOfficialTargetValidation() {
   for (const [row, expected] of [
-    ['pgnfw_invalid@0|名称|59', /60\.\.86400/],
-    ['pgnfw_invalid@0|名称|86401', /60\.\.86400/],
+    ['pgnfw_invalid@0|名称|59', /间隔参数无效/],
+    ['pgnfw_invalid@0|名称|86401', /间隔参数无效/],
     ['pgnfw_invalid@0|名称|ttl=abc', /格式/],
-    ['pgnfw_invalid@0|家庭|interval=59', /60\.\.86400/],
-    ['pgnfw_invalid@0|家庭|interval=86401', /60\.\.86400/],
-    ['pgnfw_invalid@0|家庭|timer=maybe', /timer=true 或 timer=false/],
+    ['pgnfw_invalid@0|家庭|interval=59', /间隔参数无效/],
+    ['pgnfw_invalid@0|家庭|interval=86401', /间隔参数无效/],
+    ['pgnfw_invalid@0|家庭|timer=maybe', /定时参数无效/],
     ['pgnfw_invalid@0|家庭|interval=600|interval=900', /不能重复/],
     ['pgnfw_invalid@0|名称|foo=bar', /格式/],
     ['pgnfw_invalid@0|家庭\npgnfw_invalid@2|重复', /重复/],
@@ -1081,7 +1088,7 @@ async function testOfficialIntervalDefaultsAndLegacyAlias() {
     assert.equal(values.PO0_FIREWALL_TOKENS, normalized);
     assert.equal(values.PO0_FIREWALL_NAMES, '显示名称');
     assert.doesNotMatch(visibleText(result), /interval=|timer=/);
-    if (!normalized.includes('||')) assert.match(visibleText(result), /上报间隔 600 秒/);
+    if (!normalized.includes('||')) assert.match(visibleText(result), /指定槽位#/);
     assert.equal(save.calls.get.length + save.calls.post.length, 0);
   }
   const env = { PO0_FIREWALL_TOKENS: 'pgnfw_period|显示名称|43200', OFFICIAL_INTERVAL_SECONDS: '43200' };
@@ -1185,12 +1192,12 @@ async function testWidgetAccountDetailsAcrossSizes() {
     const text = visibleText(widget);
     for (let index = 1; index <= shown; index++) assert(text.includes(`账号${index}`));
     assert(!text.includes(`账号${shown + 1}`));
-    assert.match(text, /共用 #3/);
-    assert.match(text, /占用 1\/5/);
-    assert.match(text, /共用放行/);
+    assert.match(text, /共用#3/);
+    assert.match(text, /占用1\/5/);
+    assert.match(text, /已放行 · 共用/);
     assert.match(text, /CafeWiFi/);
     assert.match(text, /203\.0\.113\.10/);
-    assert.match(text, /\+1 个账号/);
+    assert.match(text, /另1个账号/);
     assert.doesNotMatch(text, /pgnfw_|自建|Worker|SSH|TTL/);
     assert.equal(calls.get.length, count);
     assert.equal(calls.post.length, 0, 'layout must preserve GET-first shared coverage');
@@ -1203,26 +1210,26 @@ async function testWidgetExpandedDetailsAndUnknownQuota() {
     httpGet: () => response(officialPayload({ whitelist: [{ ip: '203.0.113.10/24', slot: 3 }] })),
   });
   const text = visibleText(await runEgernReport(success.ctx));
-  assert.match(text, /槽位 #4/, 'automatic accounts show the actual assigned slot');
+  assert.match(text, /槽位#4/, 'automatic accounts show the actual assigned slot');
   assert.match(text, /白名单/);
   assert.match(text, /未占用/);
   assert.match(text, /当前网段/);
-  assert.match(text, /上报 \d{2}:\d{2}/);
+  assert.match(text, /检查\d{2}:\d{2}/);
   const failure = createContext({
     widgetFamily: 'systemLarge',
     httpGet: () => response({}, 503),
   });
   const failed = visibleText(await runEgernReport(failure.ctx));
-  assert.match(failed, /1 个异常/);
+  assert.match(failed, /1个账号异常/);
   assert.match(failed, /检查失败/);
   assert.match(failed, /HTTP 503/);
-  assert.match(failed, /占用 \?\/5/);
+  assert.match(failed, /占用未知/);
   assert.doesNotMatch(failed, /占用 0\/0|pgnfw_/);
   assert.equal(failure.calls.post.length, 0);
 
   const empty = createContext({ widgetFamily: 'systemSmall', env: { PO0_FIREWALL_TOKENS: '' } });
   const emptyText = visibleText(await runEgernReport(empty.ctx));
-  assert.match(emptyText, /尚未设置官方目标/);
+  assert.match(emptyText, /尚未配置账号/);
   assert.match(emptyText, /保存配置/);
   assert.equal(empty.calls.get.length + empty.calls.post.length, 0);
 }
@@ -1268,13 +1275,13 @@ async function testWidgetUsesSpaceAndSeparatesWhitelistRows() {
       const texts = nodes.filter(node => node.type === 'text');
       assert(!widget.children.some(node => node.type === 'spacer'), 'remaining height must go to content instead of a blank footer spacer');
       assert(widget.children.some(node => node.type === 'stack' && node.flex > 0), 'account content must receive the available height');
-      const accountName = texts.find(node => node.text === '官方账号 1');
+      const accountName = texts.find(node => node.text === '账号1');
       assert(accountName.font.size >= (count === 1 ? 16 : 13), 'sparse widgets must use readable account text');
       for (const node of texts) {
         assert((node.text.match(/\d+\.\d+\.\d+\.\d+\/24/g) || []).length <= 1, 'each whitelist address must have its own row');
       }
       if (family === 'systemLarge') {
-        for (const row of whitelist) assert.equal(texts.filter(node => node.text === `#${row.slot + 1}  ${row.ip}`).length, count, 'every slot must be visible for both expanded accounts');
+        for (const row of whitelist) assert.equal(texts.filter(node => node.text === `#${row.slot + 1} · ${row.ip}`).length, count, 'every slot must be visible for both expanded accounts');
       }
       assert.equal(calls.post.length, 0, 'layout changes must not alter a covered account');
     }
@@ -1294,7 +1301,7 @@ async function testWhitelistSortsNumberedSlotsBeforeAutomatic() {
     { slot: 0, ip: '192.0.2.40/24' },
     { slot: null, ip: '192.0.2.50/24' },
   ];
-  const expected = ['#1  192.0.2.40/24', '#2  198.51.100.30/24', '#4  203.0.113.10/24', '自动  192.0.2.20/24', '自动  192.0.2.50/24'];
+  const expected = ['#1 · 192.0.2.40/24', '#2 · 198.51.100.30/24', '#4 · 203.0.113.10/24', '未编号 · 192.0.2.20/24', '未编号 · 192.0.2.50/24'];
   const nodesOf = node => [node, ...(node.children || []).flatMap(nodesOf)];
   for (const [trigger, widgetFamily, count, visibleCount] of [
     ['PO0 防火墙上报状态', 'systemLarge', 1, 5],
@@ -1307,7 +1314,7 @@ async function testWhitelistSortsNumberedSlotsBeforeAutomatic() {
       httpGet: () => response(officialPayload({ whitelist })),
     });
     const widget = await runEgernReport(ctx);
-    const rows = nodesOf(widget).filter(node => node.type === 'text' && /^(?:#\d|自动)  /.test(node.text));
+    const rows = nodesOf(widget).filter(node => node.type === 'text' && /^(?:#\d|未编号) · /.test(node.text));
     assert.deepEqual(rows.map(row => row.text), Array.from({ length: count }, () => expected.slice(0, visibleCount)).flat());
     const covered = rows.find(row => row.text === expected[2]);
     if (covered) assert.equal(covered.textColor, '#30D158', 'covered network stays green in widgets and read-only results without changing order');
@@ -1330,7 +1337,7 @@ async function testWhitelistNetworkHighlightAcrossViews() {
         httpGet: () => response(officialPayload({ currentIp: '203.0.113.99/24', whitelist })),
       });
       const assertRows = widget => {
-        const rows = nodesOf(widget).filter(node => node.type === 'text' && /^(?:#\d|自动)  /.test(node.text));
+        const rows = nodesOf(widget).filter(node => node.type === 'text' && /^(?:#\d|未编号) · /.test(node.text));
         assert.equal(rows.find(row => row.text.endsWith('203.0.113.0/24')).textColor, '#30D158', 'same /24 must be green even without a slot or with a different host octet');
         assert(rows.filter(row => !row.text.endsWith('203.0.113.0/24')).every(row => row.textColor !== '#30D158'), 'other networks and empty slots must not be green');
       };
@@ -1348,25 +1355,25 @@ async function testWhitelistNetworkHighlightAcrossViews() {
   const missing = createContext({ trigger: '查询官方白名单',
     httpGet: () => response(officialPayload({ whitelist: [{ ip: '192.0.2.10/24', slot: 0 }] })),
   });
-  const missingRows = nodesOf(await runEgernReport(missing.ctx)).filter(node => node.type === 'text' && /^#\d  /.test(node.text));
+  const missingRows = nodesOf(await runEgernReport(missing.ctx)).filter(node => node.type === 'text' && /^#\d · /.test(node.text));
   assert(missingRows.every(row => row.textColor !== '#30D158'), 'uncovered current IP must not highlight another network');
   assert.equal(missing.calls.post.length, 0);
 }
 
 async function testPublishedOfficialActionNamesAndLegacyAliases() {
   const expected = new Map([
-    ['查看本机官方防火墙配置', [0, 0]],
-    ['PO0 官方防火墙上报状态', [1, 1]],
-    ['官方防火墙 · 保存配置', [0, 0]],
-    ['启用官方防火墙自动上报', [0, 0]],
-    ['停用官方防火墙自动上报', [0, 0]],
-    ['官方防火墙 · 强制上报', [1, 1]],
-    ['查询官方白名单', [1, 0]],
-    ['清除本机 PO0 官方防火墙 Token', [0, 0]],
-    ['查看官方防火墙最近结果', [0, 0]],
-    ['官方防火墙 · 立即上报', [1, 1]],
-    ['PO0 官方防火墙定时上报（后台自动）', [1, 1]],
-    ['PO0 官方防火墙网络变化上报（后台自动）', [1, 1]],
+    ['PO0 防火墙 · 查看配置', [0, 0]],
+    ['PO0 防火墙状态', [1, 1]],
+    ['PO0 防火墙 · 保存配置', [0, 0]],
+    ['PO0 防火墙 · 启用自动上报', [0, 0]],
+    ['PO0 防火墙 · 停用自动上报', [0, 0]],
+    ['PO0 防火墙 · 强制上报', [1, 1]],
+    ['PO0 防火墙 · 查询白名单', [1, 0]],
+    ['PO0 防火墙 · 清除配置', [0, 0]],
+    ['PO0 防火墙 · 最近结果', [0, 0]],
+    ['PO0 防火墙 · 立即上报', [1, 1]],
+    ['PO0 防火墙 · 定时上报', [1, 1]],
+    ['PO0 防火墙 · 网络变化上报', [1, 1]],
   ]);
   const published = [...yamlSource.matchAll(/  - (generic|schedule|network):\n      name: (.+)/g)];
   assert.deepEqual(published.map(match => match[2]), [...expected.keys()]);
@@ -1380,9 +1387,9 @@ async function testPublishedOfficialActionNamesAndLegacyAliases() {
     run.ctx.script = { name, type: type || 'generic' };
     const result = await runEgernReport(run.ctx);
     assert.deepEqual([run.calls.get.length, run.calls.post.length], counts, name + ' must retain its intended action');
-    if (name.includes('上报状态')) {
-      assert.match(visibleText(result), /已加白/);
-      assert.doesNotMatch(visibleText(result), /本次只查询/, 'renamed dashboard must not become a read-only query');
+    if (name.includes('上报状态') || name === 'PO0 防火墙状态') {
+      assert.match(visibleText(result), /已放行/);
+      assert.doesNotMatch(visibleText(result), /仅查询/, 'renamed dashboard must not become a read-only query');
     }
   }
 }
@@ -1417,7 +1424,7 @@ async function testSsidGuardAcrossReportEntrypoints() {
     assert.equal(await setup.storage.get(OFFICIAL_STORAGE_KEY), before, 'skip must preserve results and due timestamps');
     const saved = await stateOf(setup.storage);
     assert.equal(saved.skipType, 'wifi-ssid');
-    assert.match(saved.uiNotice, /SSID 跳过.*本次未上报/);
+    assert.match(saved.uiNotice, /Wi-Fi已跳过.*本次未上报/);
     assert.equal(run.calls.notifications.length, 0);
     // The next non-matching network can report immediately; skipped runs consume no interval.
     run.ctx.device.wifi.ssid = 'CafeWiFi';
@@ -1432,7 +1439,7 @@ async function testSsidGuardAcrossReportEntrypoints() {
   const firstRun = createContext({ trigger: '', ssid: 'HomeWiFi', env: { SKIP_WIFI_SSIDS: 'HomeWiFi' }, widgetFamily: 'systemSmall' });
   const widget = await runEgernReport(firstRun.ctx);
   assert.equal(firstRun.calls.get.length + firstRun.calls.post.length, 0);
-  assert.match(visibleText(widget), /SSID跳过/);
+  assert.match(visibleText(widget), /Wi-Fi已跳过/);
   assert.equal(await firstRun.storage.get(OFFICIAL_STORAGE_KEY), null);
   firstRun.ctx.env.SKIP_WIFI_SSIDS = '';
   await runEgernReport(firstRun.ctx);
@@ -1440,7 +1447,7 @@ async function testSsidGuardAcrossReportEntrypoints() {
 }
 
 async function testSsidExplicitForceReadonlyAndUnavailable() {
-  for (const trigger of ['官方防火墙 · 强制上报', '仅官方防火墙强制上报', 'force', '查询官方白名单']) {
+  for (const trigger of ['PO0 防火墙 · 强制上报', '官方防火墙 · 强制上报', '仅官方防火墙强制上报', 'force', '查询官方白名单']) {
     const run = createContext({ trigger: '', ssid: 'HomeWiFi', env: { SKIP_WIFI_SSIDS: 'HomeWiFi' } });
     run.ctx.script = { name: trigger };
     await runEgernReport(run.ctx);
@@ -1456,7 +1463,74 @@ async function testSsidExplicitForceReadonlyAndUnavailable() {
   }
 }
 
+
+async function testUiTimeUnitsSpacingAndUserNames() {
+  const { formatDurationSeconds, formatTime } = await import('data:text/javascript;base64,' + Buffer.from(source + '\nexport { formatDurationSeconds, formatTime };').toString('base64'));
+  for (const [input, expected] of [[30, '30秒'], [60, '1分钟'], [90, '1分钟30秒'], [600, '10分钟'], [3600, '1小时'], [3661, '1小时1分钟1秒'], [86400, '1天']]) {
+    assert.equal(formatDurationSeconds(input), expected);
+  }
+  assert.equal(formatDurationSeconds(0), '未知');
+  globalThis.__PO0_EGERN_TEST_NOW = new Date(2026, 8, 29, 12, 0).getTime();
+  assert.equal(formatTime(new Date(2026, 8, 29, 9, 5).toISOString()), '09:05');
+  assert.equal(formatTime(new Date(2026, 8, 28, 9, 5).toISOString()), '09/28 09:05');
+  assert.equal(formatTime(new Date(2025, 8, 28, 9, 5).toISOString()), '2025/09/28 09:05');
+  assert.equal(formatTime('invalid'), '时间未知');
+  assert.equal(formatTime(''), '未检查');
+  const nodesOf = node => [node, ...(node.children || []).flatMap(nodesOf)];
+  for (const family of ['systemSmall', 'systemMedium', 'systemLarge']) {
+    for (const [seconds, expected] of [[90, '1分钟30秒'], [600, '10分钟'], [3661, '1小时1分钟1秒']]) {
+      const run = createContext({ trigger: 'PO0 防火墙状态', widgetFamily: family,
+        env: { OFFICIAL_INTERVAL_SECONDS: String(seconds) },
+        httpGet: () => response(officialPayload({ whitelist: [{ ip: '203.0.113.0/24' }] })),
+      });
+      const texts = nodesOf(await runEgernReport(run.ctx)).filter(node => node.type === 'text').map(node => node.text);
+      assert(texts.includes('每' + expected));
+      assert(texts.includes('槽位未知'), 'a missing server slot must not be presented as an assigned or automatic slot');
+      for (const text of texts) {
+        assert.doesNotMatch(text, /(?:每|占用|检查|槽位)\s+\d|\d\s+(?:秒|分钟|小时|天|个)|\d+[smh]\b| {2,}|never|已加白|SSID跳过/);
+      }
+      assert.equal(run.calls.post.length, 0);
+    }
+  }
+  const named = createContext({ trigger: 'PO0 防火墙状态', widgetFamily: 'systemLarge', ssid: 'Home  5G',
+    env: { PO0_FIREWALL_TOKENS: 'pgnfw_ui_name@0|手机  1' },
+    httpGet: () => response(officialPayload({ whitelist: [{ ip: '203.0.113.0/24', slot: 0 }] })),
+  });
+  const text = visibleText(await runEgernReport(named.ctx));
+  assert(text.includes('手机  1'));
+  assert(text.includes('Home  5G'));
+  const settings = createContext({ trigger: 'PO0 防火墙 · 查看配置', env: { OFFICIAL_INTERVAL_SECONDS: '90' } });
+  assert(visibleText(await runEgernReport(settings.ctx)).includes('定期上报：每1分钟30秒'));
+  assert.equal(settings.calls.get.length + settings.calls.post.length, 0);
+}
+
+async function testNotificationsUseAssignedSlotAndHonestLabels() {
+  const updated = createContext({ trigger: 'PO0 防火墙 · 立即上报',
+    httpPost: () => response(officialPayload({ whitelist: [{ ip: '203.0.113.0/24', slot: 3 }] })),
+  });
+  await runEgernReport(updated.ctx);
+  assert.equal(updated.calls.notifications.length, 1);
+  assert.match(JSON.stringify(updated.calls.notifications), /槽位#4/);
+  assert.doesNotMatch(JSON.stringify(updated.calls.notifications), /官方|Config|账号 #/);
+  for (const [trigger, enabled, expected] of [['PO0 防火墙 · 立即上报', 'false', 0], ['PO0 防火墙 · 立即上报', 'true', 1], ['schedule', 'true', 0]]) {
+    const run = createContext({ trigger, env: { NOTIFY_SUCCESS: enabled },
+      httpGet: () => response(officialPayload({ whitelist: [{ ip: '203.0.113.0/24', slot: 0 }] })),
+    });
+    await runEgernReport(run.ctx);
+    assert.equal(run.calls.notifications.length, expected);
+  }
+  const invalidIp = createContext({ trigger: 'PO0 防火墙 · 查询白名单',
+    httpGet: () => response(officialPayload({ whitelist: [{ ip: 'invalid', slot: 0 }] })),
+  });
+  assert.match(visibleText(await runEgernReport(invalidIp.ctx)), /白名单IP无效/);
+  assert.equal(invalidIp.calls.post.length, 0);
+  const empty = createContext({ trigger: 'PO0 防火墙状态', widgetFamily: 'systemSmall', env: { PO0_FIREWALL_TOKENS: '' } });
+  assert.doesNotMatch(visibleText(await runEgernReport(empty.ctx)), /0\/0/);
+}
+
 const tests = [
+  testUiTimeUnitsSpacingAndUserNames,
+  testNotificationsUseAssignedSlotAndHonestLabels,
   testWhitelistNetworkHighlightAcrossViews,
   testPublishedOfficialActionNamesAndLegacyAliases,
   testSsidGuardAcrossReportEntrypoints,
