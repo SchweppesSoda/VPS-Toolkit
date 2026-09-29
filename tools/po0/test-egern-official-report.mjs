@@ -10,6 +10,7 @@ const yamlPath = resolve(repoRoot, 'scripts/po0/nftables/clients/egern/PO0-SSH-I
 const source = await readFile(scriptPath, 'utf8');
 const compatibilitySource = await readFile(compatibilityScriptPath, 'utf8');
 const yamlSource = await readFile(yamlPath, 'utf8');
+const compatibilityYaml = await readFile(resolve(repoRoot, 'scripts/po0/relay/egern/PO0-SSH-IP-Report.yaml'), 'utf8');
 const moduleUrl = `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
 const { default: runEgernReport } = await import(moduleUrl);
 
@@ -799,15 +800,15 @@ async function testSsidSkipsOfficialAndExistingSshTogether() {
 }
 
 function testEgernTimeoutBudget() {
-  assert.equal((yamlSource.match(/timeout: 90/g) || []).length, 8);
+  assert.equal((yamlSource.match(/timeout: 90/g) || []).length, 7);
   assert.equal((yamlSource.match(/timeout: 30/g) || []).length, 0);
 }
 
 function testEgernWidgetBindingsStayCompatible() {
   const widgets = yamlSource.slice(yamlSource.indexOf('\nwidgets:'));
-  assert(widgets.includes('name: PO0 防火墙上报状态'));
-  assert(widgets.includes('script_name: PO0 防火墙上报状态'));
-  assert(yamlSource.includes('      name: PO0 防火墙上报状态'));
+  assert(widgets.includes('name: PO0 官方防火墙上报状态'));
+  assert(widgets.includes('script_name: PO0 官方防火墙上报状态'));
+  assert(yamlSource.includes('      name: PO0 官方防火墙上报状态'));
   for (const removed of ['PO0 SSH 上报状态', '强制上报 PO0 防火墙', 'PO0 防火墙本机设备 ID']) {
     assert(!yamlSource.includes('      name: ' + removed), 'redundant entries must not be republished');
   }
@@ -818,6 +819,7 @@ function testEgernWidgetBindingsStayCompatible() {
 
 function testEgernScriptCopiesStaySynchronized() {
   assert.equal(compatibilitySource, source);
+  assert.equal(compatibilityYaml, yamlSource);
 }
 
 
@@ -1308,15 +1310,90 @@ async function testWhitelistSortsNumberedSlotsBeforeAutomatic() {
     const rows = nodesOf(widget).filter(node => node.type === 'text' && /^(?:#\d|自动)  /.test(node.text));
     assert.deepEqual(rows.map(row => row.text), Array.from({ length: count }, () => expected.slice(0, visibleCount)).flat());
     const covered = rows.find(row => row.text === expected[2]);
-    if (covered && widgetFamily) assert.equal(covered.textColor, '#30D158', 'covered slot stays green without jumping ahead of lower slots');
+    if (covered) assert.equal(covered.textColor, '#30D158', 'covered network stays green in widgets and read-only results without changing order');
     const saved = await officialStateOf(storage);
     assert.deepEqual(saved.entries[0].whitelist, whitelist, 'display sorting must not reorder stored API data');
     assert.equal(calls.post.length, 0);
   }
 }
 
+async function testWhitelistNetworkHighlightAcrossViews() {
+  const nodesOf = node => [node, ...(node.children || []).flatMap(nodesOf)];
+  for (const slot of [undefined, null, 0, 3]) {
+    for (const trigger of ['PO0 官方防火墙上报状态', '查询官方白名单']) {
+      const whitelist = [
+        { ip: '192.0.2.10/24', slot: 4 },
+        { ip: '203.0.113.0/24', ...(slot === undefined ? {} : { slot }) },
+      ];
+      const run = createContext({ trigger, widgetFamily: trigger.includes('上报状态') ? 'systemLarge' : '',
+        env: { PO0_FIREWALL_TOKENS: 'pgnfw_highlight_not_real@0' },
+        httpGet: () => response(officialPayload({ currentIp: '203.0.113.99/24', whitelist })),
+      });
+      const assertRows = widget => {
+        const rows = nodesOf(widget).filter(node => node.type === 'text' && /^(?:#\d|自动)  /.test(node.text));
+        assert.equal(rows.find(row => row.text.endsWith('203.0.113.0/24')).textColor, '#30D158', 'same /24 must be green even without a slot or with a different host octet');
+        assert(rows.filter(row => !row.text.endsWith('203.0.113.0/24')).every(row => row.textColor !== '#30D158'), 'other networks and empty slots must not be green');
+      };
+      assertRows(await runEgernReport(run.ctx));
+      const saved = await officialStateOf(run.storage);
+      assert.equal(saved.entries[0].currentInWhitelist, true);
+      assert.equal(run.calls.post.length, 0, 'highlighting must not claim a slot');
+      assert.equal(Boolean(saved.entries[0].lastAttemptAt), trigger.includes('上报状态'), 'read-only query must not advance report due time');
+      run.ctx.name = run.ctx.trigger = '查看官方防火墙最近结果';
+      run.ctx.widgetFamily = 'systemLarge';
+      assertRows(await runEgernReport(run.ctx));
+      assert.equal(run.calls.get.length, 1, 'cached results must render without another request');
+    }
+  }
+  const missing = createContext({ trigger: '查询官方白名单',
+    httpGet: () => response(officialPayload({ whitelist: [{ ip: '192.0.2.10/24', slot: 0 }] })),
+  });
+  const missingRows = nodesOf(await runEgernReport(missing.ctx)).filter(node => node.type === 'text' && /^#\d  /.test(node.text));
+  assert(missingRows.every(row => row.textColor !== '#30D158'), 'uncovered current IP must not highlight another network');
+  assert.equal(missing.calls.post.length, 0);
+}
+
+async function testPublishedOfficialActionNamesAndLegacyAliases() {
+  const expected = new Map([
+    ['查看本机官方防火墙配置', [0, 0]],
+    ['PO0 官方防火墙上报状态', [1, 1]],
+    ['官方防火墙 · 保存配置', [0, 0]],
+    ['启用官方防火墙自动上报', [0, 0]],
+    ['停用官方防火墙自动上报', [0, 0]],
+    ['官方防火墙 · 强制上报', [1, 1]],
+    ['查询官方白名单', [1, 0]],
+    ['清除本机 PO0 官方防火墙 Token', [0, 0]],
+    ['查看官方防火墙最近结果', [0, 0]],
+    ['官方防火墙 · 立即上报', [1, 1]],
+    ['PO0 官方防火墙定时上报（后台自动）', [1, 1]],
+    ['PO0 官方防火墙网络变化上报（后台自动）', [1, 1]],
+  ]);
+  const published = [...yamlSource.matchAll(/  - (generic|schedule|network):\n      name: (.+)/g)];
+  assert.deepEqual(published.map(match => match[2]), [...expected.keys()]);
+  const legacy = [
+    ['查看本机配置', [0, 0]], ['查看最近结果', [0, 0]],
+    ['PO0 防火墙上报状态', [1, 1]], ['立即上报', [1, 1]],
+    ['仅官方防火墙立即上报', [1, 1]], ['仅官方防火墙强制上报', [1, 1]],
+  ];
+  for (const [name, counts, type] of [...published.map(match => [match[2], expected.get(match[2]), match[1]]), ...legacy]) {
+    const run = createContext({ trigger: '' });
+    run.ctx.script = { name, type: type || 'generic' };
+    const result = await runEgernReport(run.ctx);
+    assert.deepEqual([run.calls.get.length, run.calls.post.length], counts, name + ' must retain its intended action');
+    if (name.includes('上报状态')) {
+      assert.match(visibleText(result), /已加白/);
+      assert.doesNotMatch(visibleText(result), /本次只查询/, 'renamed dashboard must not become a read-only query');
+    }
+  }
+}
+
 async function testSsidGuardAcrossReportEntrypoints() {
   const scenarios = [
+    { script: { name: 'PO0 官方防火墙定时上报（后台自动）' }, cron: '* * * * *' },
+    { script: { name: 'PO0 官方防火墙网络变化上报（后台自动）' } },
+    { script: { name: '官方防火墙 · 立即上报' } },
+    { script: { name: 'PO0 官方防火墙上报状态' } },
+    { script: { name: 'PO0 官方防火墙上报状态' }, widgetFamily: 'systemLarge' },
     { script: { name: 'PO0 防火墙定时上报（后台自动）' }, cron: '* * * * *' },
     { script: { name: 'PO0 防火墙网络变化上报（后台自动）' } },
     { script: { name: '立即上报' } },
@@ -1363,7 +1440,7 @@ async function testSsidGuardAcrossReportEntrypoints() {
 }
 
 async function testSsidExplicitForceReadonlyAndUnavailable() {
-  for (const trigger of ['仅官方防火墙强制上报', 'force', '查询官方白名单']) {
+  for (const trigger of ['官方防火墙 · 强制上报', '仅官方防火墙强制上报', 'force', '查询官方白名单']) {
     const run = createContext({ trigger: '', ssid: 'HomeWiFi', env: { SKIP_WIFI_SSIDS: 'HomeWiFi' } });
     run.ctx.script = { name: trigger };
     await runEgernReport(run.ctx);
@@ -1380,6 +1457,8 @@ async function testSsidExplicitForceReadonlyAndUnavailable() {
 }
 
 const tests = [
+  testWhitelistNetworkHighlightAcrossViews,
+  testPublishedOfficialActionNamesAndLegacyAliases,
   testSsidGuardAcrossReportEntrypoints,
   testSsidExplicitForceReadonlyAndUnavailable,
   testWhitelistSortsNumberedSlotsBeforeAutomatic,

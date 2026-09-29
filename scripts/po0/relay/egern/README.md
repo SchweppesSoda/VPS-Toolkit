@@ -1,4 +1,4 @@
-# Egern SSH IP Report Legacy Compatibility
+# Egern PO0 官方防火墙上报兼容入口
 
 `scripts/po0/relay/egern/` 只作为旧 raw URL 兼容路径保留，当前新安装和文档入口使用 canonical 路径：
 

@@ -1,3 +1,4 @@
+// PO0 官方防火墙上报 · 20260929-official-highlight-v1
 function retiredAction(ctx) {
   return /自建|ssh-report|设备 ID|本机设备|Device ID|设备标识/i.test(scriptLabel(ctx)) || Boolean(ctx?.request);
 }
@@ -28,7 +29,7 @@ const OFFICIAL_FIREWALL_MAX_TOKENS = 16;
 const REPORT_LOCK_KEY = 'po0-ssh-ip-report:run-lock:v1';
 const REPORT_LOCK_TTL_MS = 120000;
 const REPORT_TITLE = 'PO0 官方防火墙';
-const REPORT_FAILED_TITLE = 'PO0 防火墙上报失败';
+const REPORT_FAILED_TITLE = 'PO0 官方防火墙上报失败';
 // Official targets and the automatic switch stay on this device.
 const OFFICIAL_CONFIG_KEYS = ['PO0_FIREWALL_TOKENS', 'PO0_FIREWALL_NAMES', 'PO0_FIREWALL_WIFI_TOKENS', 'PO0_FIREWALL_WIFI_NAMES', 'OFFICIAL_AUTO_ENABLED'];
 const PERSISTED_ENV_KEYS = [...OFFICIAL_CONFIG_KEYS];
@@ -350,7 +351,14 @@ function officialSafeError(error) {
 }
 
 function scriptLabel(ctx) {
-  const aliases = {"查看本机配置":"查看本机上报设置","自建防火墙 · 保存配置":"保存本机 PO0 自建防火墙配置","官方防火墙 · 保存配置":"保存本机 PO0 官方防火墙配置","查询官方白名单":"PO0 官方防火墙状态（只读）"};
+  const aliases = {
+    '查看本机配置': '查看本机上报设置',
+    '查看本机官方防火墙配置': '查看本机上报设置',
+    '查看官方防火墙最近结果': '查看最近结果',
+    '自建防火墙 · 保存配置': '保存本机 PO0 自建防火墙配置',
+    '官方防火墙 · 保存配置': '保存本机 PO0 官方防火墙配置',
+    '查询官方白名单': 'PO0 官方防火墙状态（只读）',
+  };
   return [
     ctx?.name,
     ctx?.script?.name,
@@ -396,7 +404,8 @@ function isStatusRun(ctx) {
 }
 
 function isOfficialStatusRun(ctx) {
-  return /官方防火墙.*状态|official firewall status/i.test(scriptLabel(ctx));
+  const label = scriptLabel(ctx);
+  return !/上报状态/.test(label) && /官方防火墙.*状态|official firewall status/i.test(label);
 }
 
 function shouldReturnWidget(ctx) {
@@ -552,10 +561,15 @@ function officialCoveredSlotText(entry) {
   return slot ? '槽位 #' + slot : '自动槽位';
 }
 
+function officialSameNetwork(left, right) {
+  const leftIp = officialCidr24(left);
+  const rightIp = officialCidr24(right);
+  return Boolean(leftIp && rightIp && leftIp.split('.').slice(0, 3).join('.') === rightIp.split('.').slice(0, 3).join('.'));
+}
+
 function officialMatchingRow(payload, item) {
   // The API authorizes /24 networks, not devices or individual host addresses.
-  const network = value => officialCidr24(value).split('.').slice(0, 3).join('.');
-  const matches = payload.whitelist.filter(row => network(row.ip) === network(payload.currentIp));
+  const matches = payload.whitelist.filter(row => officialSameNetwork(row.ip, payload.currentIp));
   return matches.find(row => item.slot === null || row.slot === item.slot) || matches[0];
 }
 
@@ -635,7 +649,7 @@ function widgetWhitelist(entry, maxRows, size, allSlots = false, showHeading = t
   return widgetColumn([
     ...(showHeading ? [widgetText('白名单' + (remaining ? ` · 另 ${remaining} 条` : ''), size, WIDGET_COLORS.heading, 'medium')] : []),
     ...shown.map(row => {
-      const covered = Boolean(row.ip && officialDisplaySlot(entry.coveredSlot) && row.slot === entry.coveredSlot);
+      const covered = officialSameNetwork(row.ip, entry.currentIp);
       return { ...widgetRow([
         { ...widgetText((officialDisplaySlot(row.slot) ? '#' + officialDisplaySlot(row.slot) : '自动') + '  ' + (row.ip || '未占用'), size, covered ? WIDGET_COLORS.green : row.ip ? WIDGET_COLORS.heading : WIDGET_COLORS.dim), flex: 1, minScale: 0.8 },
         ...(covered && size >= 15 ? [widgetText('当前网段', 12, WIDGET_COLORS.green)] : []),
@@ -713,17 +727,22 @@ function widgetAccounts(entries, family) {
 function officialReadOnlyWidget(state, ctx, env) {
   const metrics = widgetMetrics(ctx);
   const entries = widgetOfficialEntries(state, env, ctx?.env);
-  const lines = ['本次只查询，不新增白名单。'];
+  const children = [widgetText('官方防火墙 · 只读状态', 14, WIDGET_COLORS.text, 'semibold'), widgetText('本次只查询，不新增白名单。', 12)];
   for (const entry of entries) {
-    lines.push(entry.name + ' · ' + officialStatusText(entry));
-    lines.push(`出口 ${entry.currentIp || '未知'} · 固定槽位 ${officialDisplaySlot(entry.fixedSlot) ? '#' + officialDisplaySlot(entry.fixedSlot) : '自动'}`);
-    lines.push(`白名单 · 名额 ${entry.used ?? '?'}/${entry.limit ?? 5}`);
-    for (const row of officialOrderedWhitelist(entry)) lines.push(`${officialDisplaySlot(row.slot) ? '#' + officialDisplaySlot(row.slot) : '自动'}  ${row.ip}`);
+    children.push(
+      widgetText(entry.name + ' · ' + officialStatusText(entry), 12),
+      widgetText(`出口 ${entry.currentIp || '未知'} · 固定槽位 ${officialDisplaySlot(entry.fixedSlot) ? '#' + officialDisplaySlot(entry.fixedSlot) : '自动'}`, 12),
+      widgetText(`白名单 · 名额 ${entry.used ?? '?'}/${entry.limit ?? 5}`, 12),
+    );
+    for (const row of officialOrderedWhitelist(entry)) children.push(widgetText(
+      `${officialDisplaySlot(row.slot) ? '#' + officialDisplaySlot(row.slot) : '自动'}  ${row.ip}`,
+      12, officialSameNetwork(row.ip, entry.currentIp) ? WIDGET_COLORS.green : WIDGET_COLORS.text,
+    ));
   }
-  if (!entries.length) lines.push(state?.error || '官方防火墙尚无结果。');
+  if (!entries.length) children.push(widgetText(state?.error || '官方防火墙尚无结果。', 12));
   return {
     type: 'widget', padding: metrics.padding, gap: 5, backgroundColor: WIDGET_COLORS.background,
-    children: [widgetText('官方防火墙 · 只读状态', 14, WIDGET_COLORS.text, 'semibold'), ...lines.map(line => ({ ...widgetText(line, 12), maxLines: 2 }))],
+    children: children.map(node => ({ ...node, maxLines: 2 })),
   };
 }
 
@@ -1315,7 +1334,7 @@ async function runOfficialFirewall(ctx, env, mode = 'report') {
 
   // Accounts are independent, so run them concurrently. Each account keeps
   // its own strict GET -> optional POST sequence, and Promise.all preserves
-  // configured order for state/UI output. Worker SSH starts only afterwards.
+  // configured order for state/UI output.
   const results = await Promise.all(items.map((item, index) => runOfficialAccount(item, index)));
   for (const [index, result] of results.entries()) {
     entries.push(result.entry);
@@ -1495,7 +1514,7 @@ async function handleLocalChannelAction(ctx, env, action) {
   if (action === 'recent') {
     const state = sanitizedStoredState(await storageGet(ctx, STORAGE_KEY)) || {};
     state.official = await storedOfficialState(ctx);
-    state.uiNotice = '查看最近结果 · 本次未上报';
+    state.uiNotice = '查看官方防火墙最近结果 · 本次未上报';
     return widgetFromState(state, ctx, '', officialNetworkEnv(env, networkInfo(ctx)));
   }
   const next = { ...env };
@@ -1634,7 +1653,7 @@ export default async function(ctx) {
     return widgetPanel(REPORT_TITLE, [
       '本次操作未完成。',
       '本机存储暂时不可用，请稍后重试。',
-      '可在“查看本机上报设置”核对保存结果。',
+      '可在“查看本机官方防火墙配置”核对保存结果。',
     ], false, ctx);
   }
 }
