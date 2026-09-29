@@ -135,5 +135,3 @@ MIT
 - 按任务读取的 agent 合同 — [PO0 build / release](docs/agent-maintenance/po0-release.md)
 
 - 按任务读取的 agent 合同 — [Script development / validation](docs/agent-maintenance/script-development.md)
-
-[维护文档](docs/maintenance/INDEX.md)。
