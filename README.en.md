@@ -13,7 +13,7 @@ This repository contains VPS maintenance scripts and PO0 relay tooling. Operatio
 | PO0 proxy-service sidecar | [`scripts/po0/proxy-services/README.md`](./scripts/po0/proxy-services/README.md) | Maintained as needed |
 | VPS proxy-stack deployment, adoption, or configuration-driven rebuild | [`scripts/vps/proxy-stack/README.md`](./scripts/vps/proxy-stack/README.md) | Inventory-driven upper-layer calls to Argosbx, Proxy Gateway Plus, and the sidecar |
 | SSH public-key-only hardening | [`scripts/vps/ssh-key-only/README.md`](./scripts/vps/ssh-key-only/README.md) | General VPS tool |
-| 3x-ui export or REALITY destination lookup | [3x-ui](./scripts/vps/3x-ui/README.md) / [REALITY finder](./scripts/vps/reality_dest_finder/README.md) | Independent tools, maintained as needed |
+| Xray / 3x-ui export or REALITY destination lookup | [Xray](./scripts/vps/xray/README.md) / [3x-ui](./scripts/vps/3x-ui/README.md) / [REALITY finder](./scripts/vps/reality_dest_finder/README.md) | Independent tools, maintained as needed |
 | Fail2ban or ForwardX | [Fail2ban](./scripts/vps/fail2ban/README.md) / [ForwardX](./scripts/vps/forwardx/README.md) | Low-frequency use; retained for compatibility, not default deployment paths |
 | Browser tools | [Live site](https://schweppessoda.github.io/vps-toolkit-web/) / [`vps-toolkit-web` source](https://github.com/SchweppesSoda/vps-toolkit-web) | Moved out of this repository |
 | Repository maintenance with Codex / agents | [`AGENTS.md`](./AGENTS.md) | Read before changing code |
@@ -34,6 +34,7 @@ Start from the relevant README for normal use. `*-technical.md` and `*-design.md
 | [`scripts/vps/ssh-key-only/README.md`](./scripts/vps/ssh-key-only/README.md) | SSH public-key-only hardening. |
 | [`scripts/vps/fail2ban/README.md`](./scripts/vps/fail2ban/README.md) | Fail2ban installation and maintenance. |
 | [`scripts/vps/3x-ui/README.md`](./scripts/vps/3x-ui/README.md) | 3x-ui node/subscription export and one-command SSH download to a chosen Windows directory; [unattended export design](./scripts/vps/3x-ui/SSH_SUBSCRIPTION_DESIGN.md). |
+| [`scripts/vps/xray/README.md`](./scripts/vps/xray/README.md) | In-memory Xray JSON subscription export; explicitly selects every public VLESS TCP/RAW REALITY client. |
 | [`scripts/vps/forwardx/README.md`](./scripts/vps/forwardx/README.md) | ForwardX NAT VPS agent adapter. |
 | [`scripts/vps/reality_dest_finder/README.md`](./scripts/vps/reality_dest_finder/README.md) | REALITY destination finder. |
 

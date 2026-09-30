@@ -12,4 +12,6 @@
 *.js text eol=lf
 *.md text eol=lf
 *.txt text eol=lf
+# This source is vendored by SHA-256 into the SSH collector.
+scripts/vps/xray/xray-subscription-exporter.py text eol=lf
 checksums.txt text eol=lf

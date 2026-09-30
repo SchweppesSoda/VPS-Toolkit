@@ -13,7 +13,7 @@
 | PO0 代理服务增强 sidecar | [`scripts/po0/proxy-services/README.md`](./scripts/po0/proxy-services/README.md) | 按需维护 |
 | VPS 代理栈部署、接管与复刻 | [`scripts/vps/proxy-stack/README.md`](./scripts/vps/proxy-stack/README.md) | Inventory 驱动；上层调用 Argosbx、Proxy Gateway Plus 和 sidecar |
 | SSH 仅公钥登录加固 | [`scripts/vps/ssh-key-only/README.md`](./scripts/vps/ssh-key-only/README.md) | 通用 VPS 工具 |
-| 3x-ui 导出、REALITY 回落域名查找 | [3x-ui](./scripts/vps/3x-ui/README.md) / [REALITY finder](./scripts/vps/reality_dest_finder/README.md) | 独立工具，按需维护 |
+| Xray / 3x-ui 导出、REALITY 回落域名查找 | [Xray](./scripts/vps/xray/README.md) / [3x-ui](./scripts/vps/3x-ui/README.md) / [REALITY finder](./scripts/vps/reality_dest_finder/README.md) | 独立工具，按需维护 |
 | Fail2ban、ForwardX | [Fail2ban](./scripts/vps/fail2ban/README.md) / [ForwardX](./scripts/vps/forwardx/README.md) | 低频使用；保留兼容，不作为默认部署入口 |
 | 网页工具 | [在线入口](https://schweppessoda.github.io/vps-toolkit-web/) / [`vps-toolkit-web` 源码](https://github.com/SchweppesSoda/vps-toolkit-web) | 已迁出本仓库 |
 | Codex / agent 仓库维护规则 | [`AGENTS.md`](./AGENTS.md) | 改代码前必读 |
@@ -34,6 +34,7 @@
 | [`scripts/vps/ssh-key-only/README.md`](./scripts/vps/ssh-key-only/README.md) | SSH 仅公钥登录加固。 |
 | [`scripts/vps/fail2ban/README.md`](./scripts/vps/fail2ban/README.md) | Fail2ban 安装与维护。 |
 | [`scripts/vps/3x-ui/README.md`](./scripts/vps/3x-ui/README.md) | 3x-ui 节点和订阅导出；Windows 通过 SSH 一键下载到指定目录；[无人值守订阅导出设计](./scripts/vps/3x-ui/SSH_SUBSCRIPTION_DESIGN.md)。 |
+| [`scripts/vps/xray/README.md`](./scripts/vps/xray/README.md) | Xray JSON 内存订阅导出；显式选择公网 VLESS TCP/RAW REALITY 的全部客户端。 |
 | [`scripts/vps/forwardx/README.md`](./scripts/vps/forwardx/README.md) | ForwardX NAT VPS 被控机适配。 |
 | [`scripts/vps/reality_dest_finder/README.md`](./scripts/vps/reality_dest_finder/README.md) | REALITY 回落域名查找。 |
 

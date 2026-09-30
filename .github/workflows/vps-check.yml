@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - scripts/vps/3x-ui/**
+      - scripts/vps/xray/**
       - scripts/vps/proxy-stack/**
       - scripts/po0/proxy-services/**
       - tools/vps/**
@@ -13,6 +14,7 @@ on:
   pull_request:
     paths:
       - scripts/vps/3x-ui/**
+      - scripts/vps/xray/**
       - scripts/vps/proxy-stack/**
       - scripts/po0/proxy-services/**
       - tools/vps/**
@@ -38,6 +40,8 @@ jobs:
           bash -n scripts/po0/proxy-services/vless-raw-enc-argosbx-enhancer.sh
       - name: 3x-ui subscription producer (synthetic SQLite)
         run: python3 tools/vps/test_3x_ui_subscription_exporter.py
+      - name: Xray subscription producer (synthetic JSON and RFC 7748 key)
+        run: python3 -B tools/vps/test_xray_subscription_exporter.py
       - name: 3x-ui export cleanup (isolated files)
         run: bash tools/vps/test-3x-ui-node-exporter-self-destruct.sh
       - name: Proxy-stack orchestration (mock services and firewall)
@@ -76,6 +80,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Xray and 3x-ui subscription contracts (synthetic data)
+        run: |
+          python -B tools/vps/test_xray_subscription_exporter.py
+          python -B tools/vps/test_3x_ui_subscription_exporter.py
       - name: 3x-ui download (native mock SSH; PowerShell 5.1 and 7)
         shell: powershell
         run: |
