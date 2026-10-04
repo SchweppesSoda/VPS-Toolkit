@@ -1,6 +1,6 @@
 configure_official_interactive() {
     local previous_tokens="${PO0_FIREWALL_TOKENS}"
-    print_panel_section "PO0 官方防火墙参数"
+    print_panel_section "PO0 防火墙参数"
     printf '官方定时上报可关闭、可修改，默认 600 秒；网络变化单独触发。Token 可带 @0..4 指定槽位。\n'
     po0_firewall_read_tokens_interactive || { PO0_FIREWALL_TOKENS="${previous_tokens}"; return 1; }
     sync_official_account_names "$previous_tokens"
@@ -16,7 +16,7 @@ clear_official_tokens_interactive() {
 }
 
 show_current_config() {
-    print_title 'PO0 官方防火墙 · 本机配置'
+    print_title 'PO0 防火墙 · 本机配置'
     show_channel_config official
     print_panel_row 'SSID 跳过' "${SKIP_WIFI_SSIDS:-未设置}"
     print_panel_row '配置文件' "$CONFIG_FILE"

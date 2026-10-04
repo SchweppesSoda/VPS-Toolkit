@@ -67,7 +67,7 @@ po0_firewall_validate_tokens() {
     raw="$(po0_firewall_normalize_tokens "${PO0_FIREWALL_TOKENS:-}")"
     [[ -n "${raw}" ]] || return 0
     [[ "${raw}" != ,* && "${raw}" != *, && "${raw}" != *,,* ]] || {
-        printf 'PO0 官方防火墙 token 列表包含空项。\n' >&2
+        printf 'PO0 防火墙 token 列表包含空项。\n' >&2
         return 1
     }
     rest="${raw},"
@@ -76,22 +76,22 @@ po0_firewall_validate_tokens() {
         rest="${rest#*,}"
         item="$(trim "${item}")"
         [[ -n "${item}" ]] || {
-            printf 'PO0 官方防火墙 token 列表包含空项。\n' >&2
+            printf 'PO0 防火墙 token 列表包含空项。\n' >&2
             return 1
         }
         po0_firewall_parse_item "${item}" || {
-            printf 'PO0 官方防火墙 token 配置无效：请使用 pgnfw_...，槽位可写为 @0 到 @4。\n' >&2
+            printf 'PO0 防火墙 token 配置无效：请使用 pgnfw_...，槽位可写为 @0 到 @4。\n' >&2
             return 1
         }
         key="${PO0_FIREWALL_ITEM_TOKEN}"
         [[ "${seen}" != *";${key};"* ]] || {
-            printf 'PO0 官方防火墙 token 列表包含重复项。\n' >&2
+            printf 'PO0 防火墙 token 列表包含重复项。\n' >&2
             return 1
         }
         seen="${seen}${key};"
         count=$((count + 1))
         (( count <= 16 )) || {
-            printf 'PO0 官方防火墙 token 数量超过上限（最多 16 个）。\n' >&2
+            printf 'PO0 防火墙 token 数量超过上限（最多 16 个）。\n' >&2
             return 1
         }
     done
@@ -1036,11 +1036,11 @@ po0_firewall_run() {
     PO0_FIREWALL_STATE_RECORDS=""
     [[ "${mode}" == "status" || "${mode}" == "report" ]] || return 1
     po0_firewall_configured || {
-        printf 'PO0 官方防火墙未启用（默认关闭）。\n' >&2
+        printf 'PO0 防火墙未启用（默认关闭）。\n' >&2
         return 1
     }
     command -v curl >/dev/null 2>&1 || {
-        printf '缺少 curl，无法检查 PO0 官方防火墙。\n' >&2
+        printf '缺少 curl，无法检查 PO0 防火墙。\n' >&2
         return 1
     }
     raw="$(po0_firewall_normalize_tokens "${PO0_FIREWALL_TOKENS}")"

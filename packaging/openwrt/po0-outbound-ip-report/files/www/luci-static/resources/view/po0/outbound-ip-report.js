@@ -294,7 +294,7 @@ function renderOfficialStatus(raw) {
 var OfficialStatusSection = form.NamedSection.extend({
 	render: function() {
 		return Promise.resolve(E('div', { 'class': 'cbi-section po0-official-status-section' }, [
-			E('h3', {}, [ _('PO0 官方防火墙状态') ]),
+			E('h3', {}, [ _('PO0 防火墙状态') ]),
 			E('p', { 'class': 'po0-official-help' }, [
 				_('这里显示每个官方目标绑定的 WAN、当前出口 IPv4、白名单和 5 个名额的使用情况。同一目标最多 5 个槽位；这里展示实际出口、槽位和最近执行结果。')
 			]),
@@ -502,7 +502,7 @@ return view.extend({
  handleReset: null,
  render: function() {
   return uci.load('po0_outbound_ip_report').then(function() {
-   var m = new form.Map('po0_outbound_ip_report', _('PO0 出口上报'),
+   var m = new form.Map('po0_outbound_ip_report', _('PO0 防火墙'),
     _('官方防火墙按已配置 WAN 查询白名单，缺失时才加白。目标、槽位与源地址在本机保存。'));
    m.data = new form.JSONMap(reporterFormData()).data;
    m.channelKeys = { official: [], network: ['enabled'] };
@@ -519,7 +519,7 @@ return view.extend({
    var commonParse = common.parse;
    common.parse = function() { return m.po0SaveChannel && m.po0SaveChannel !== 'network' ? Promise.resolve() : commonParse.apply(this, arguments); };
    var s = m.section(form.NamedSection, 'main', 'reporter', _('上报通道'));
-   s.tab('official', _('PO0 官方防火墙'));
+   s.tab('official', _('PO0 防火墙'));
    s.tab('network', _('出口与探测'));
    function field(tab, type, key, title, description) {
     var item = type === form.SectionValue

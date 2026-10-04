@@ -8,7 +8,7 @@
 
 | 使用场景 | 入口 | 维护状态 |
 | --- | --- | --- |
-| PO0 转发、LAN 更新镜像与七端官方上报 | [`scripts/po0/relay/README.md`](./scripts/po0/relay/README.md) | 核心功能，持续维护 |
+| PO0 转发、LAN 更新镜像与六端官方上报 | [`scripts/po0/relay/README.md`](./scripts/po0/relay/README.md) | 核心功能，持续维护 |
 | PO0 Debian 重装 | [`scripts/po0/reinstall/README.md`](./scripts/po0/reinstall/README.md) | 按需维护；会重装系统盘 |
 | PO0 代理服务增强 sidecar | [`scripts/po0/proxy-services/README.md`](./scripts/po0/proxy-services/README.md) | 按需维护 |
 | VPS 代理栈部署、接管与复刻 | [`scripts/vps/proxy-stack/README.md`](./scripts/vps/proxy-stack/README.md) | Inventory 驱动；上层调用 Argosbx、Proxy Gateway Plus 和 sidecar |
@@ -27,7 +27,7 @@
 | 文档 | 用途 |
 | --- | --- |
 | [`scripts/po0/README.md`](./scripts/po0/README.md) | PO0 子系统导航。 |
-| [`scripts/po0/relay/README.md`](./scripts/po0/relay/README.md) | PO0 转发、LAN 更新镜像与七端官方上报。 |
+| [`scripts/po0/relay/README.md`](./scripts/po0/relay/README.md) | PO0 转发、LAN 更新镜像与六端官方上报。 |
 | [`scripts/po0/reinstall/README.md`](./scripts/po0/reinstall/README.md) | PO0 Debian 重装。 |
 | [`scripts/po0/proxy-services/README.md`](./scripts/po0/proxy-services/README.md) | 独立 Xray 双协议管理：持续校时、配置应用与失败恢复。 |
 | [`scripts/vps/proxy-stack/README.md`](./scripts/vps/proxy-stack/README.md) | Argosbx、Proxy Gateway Plus、sidecar 的全新部署、已有机器接管和按配置复刻。 |
@@ -42,7 +42,8 @@
 
 | 文档 | 用途 |
 | --- | --- |
-| [`scripts/po0/nftables/clients/egern/README.md`](./scripts/po0/nftables/clients/egern/README.md) | Egern 标准客户端路径、设备 ID、Widget 和多 PO0 配置。 |
+| [`scripts/po0/nftables/clients/egern/README.md`](./scripts/po0/nftables/clients/egern/README.md) | Egern PO0 防火墙账号、标准入口与状态组件。 |
+| [`scripts/po0/nftables/clients/stash/README.md`](./scripts/po0/nftables/clients/stash/README.md) | Stash PO0 防火墙配置、标准入口与兼容说明。 |
 | [`scripts/po0/relay/egern/README.md`](./scripts/po0/relay/egern/README.md) | Egern 历史兼容路径说明。 |
 | [`scripts/vps/fail2ban/fail2ban-guide.md`](./scripts/vps/fail2ban/fail2ban-guide.md) | Fail2ban 配置与使用说明。 |
 | [`scripts/vps/docs/vps-port-firewall-summary.md`](./scripts/vps/docs/vps-port-firewall-summary.md) | VPS 端口段和防火墙约定。 |
@@ -97,7 +98,7 @@ po0-lan-client --menu
 
 ## PO0 发布架构与边界
 
-PO0 主线分为转发管理器、LAN Worker 更新镜像、Windows/macOS/Linux 官方上报器及 OpenWrt 官方 APK；Egern、Stash、Loon 使用独立手机模块。自建白名单、接收器、DDNS/WebAuth/学习与资源任务已退役。旧版完整资产固定保存在非 Latest 的 `archive/po0-full-20260907.1` Release。
+PO0 主线分为转发管理器、LAN Worker 更新镜像、Windows/macOS/Linux 官方上报器及 OpenWrt 官方 APK；Egern、Stash 使用独立手机模块。自建白名单、接收器、DDNS/WebAuth/学习与资源任务已退役。旧版完整资产固定保存在非 Latest 的 `archive/po0-full-20260907.1` Release。
 
 PO0 仍通过 Worker HTTP 镜像更新，以 nonce/HMAC 校验脚本。官方账号保留 GET-first、槽位、名称、开关、间隔及各客户端原有网络行为；配置迁移先备份。操作与恢复见 [PO0 README](scripts/po0/relay/README.md)。
 
@@ -113,7 +114,7 @@ PO0 正式版本通过 [GitHub Releases](https://github.com/SchweppesSoda/VPS-To
 - `po0-outbound-ip-report.apk`
 - `checksums.txt`
 
-脚本与 APK 可独立发布，详见[发布范围说明](scripts/po0/relay/README.md#选择发布范围)。脚本使用 Latest；APK 使用各自 Release 的固定版本地址。旧版 raw 可执行入口已禁用；Egern、Stash、Loon 和未纳入 Release 的独立工具仍按各自文档使用允许的 raw 路径。
+脚本与 APK 可独立发布，详见[发布范围说明](scripts/po0/relay/README.md#选择发布范围)。脚本使用 Latest；APK 使用各自 Release 的固定版本地址。旧版 raw 可执行入口已禁用；Egern、Stash 和未纳入 Release 的独立工具仍按各自文档使用允许的 raw 路径。
 
 本仓库不再发布 GitHub Pages，也不应从仓库根目录启用 Pages。
 

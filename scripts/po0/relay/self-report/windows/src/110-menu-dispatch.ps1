@@ -3,7 +3,7 @@
 }
 
 function Show-ClientOverview {
-    Write-Title 'PO0 官方防火墙'
+    Write-Title 'PO0 防火墙'
     Write-PanelRow '自动上报' (Get-ChannelAutoLabel official)
     Write-PanelRow '自动任务' (Get-ScheduledReporterSummary official)
     Show-OfficialTargetNames

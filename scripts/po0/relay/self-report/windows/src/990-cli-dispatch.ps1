@@ -75,7 +75,7 @@ if ($UpgradeSelf) {
         exit 0
     } catch {
         Write-SelfReportIncomplete $_.Exception.Message
-        Show-WindowsSelfReportNotification -Title "PO0 Outbound IP Report 未完成" -Message $_.Exception.Message -Kind "Error"
+        Show-WindowsSelfReportNotification -Title "PO0 防火墙 未完成" -Message $_.Exception.Message -Kind "Error"
         exit 1
     }
 }
@@ -136,6 +136,6 @@ try {
     }
 } catch {
     Write-SelfReportIncomplete $_.Exception.Message
-    Show-WindowsSelfReportNotification -Title "PO0 Outbound IP Report 未完成" -Message $_.Exception.Message -Kind "Error"
+    Show-WindowsSelfReportNotification -Title "PO0 防火墙 未完成" -Message $_.Exception.Message -Kind "Error"
     exit 1
 }

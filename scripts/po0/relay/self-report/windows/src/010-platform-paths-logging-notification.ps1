@@ -124,14 +124,14 @@ function Write-SelfReportLogLine {
 
 function Write-SelfReportCompleted {
     param([string]$Message)
-    Write-Host "PO0 Outbound IP Report 已完成：$Message" -ForegroundColor Green
-    Write-SelfReportLogLine "OK" "PO0 Outbound IP Report 已完成：$Message"
+    Write-Host "PO0 防火墙 已完成：$Message" -ForegroundColor Green
+    Write-SelfReportLogLine "OK" "PO0 防火墙 已完成：$Message"
 }
 
 function Write-SelfReportIncomplete {
     param([string]$Message)
-    [Console]::Error.WriteLine("PO0 Outbound IP Report 未完成：$Message")
-    Write-SelfReportLogLine "ERROR" "PO0 Outbound IP Report 未完成：$Message"
+    [Console]::Error.WriteLine("PO0 防火墙 未完成：$Message")
+    Write-SelfReportLogLine "ERROR" "PO0 防火墙 未完成：$Message"
 }
 
 function Show-WindowsSelfReportNotification {
@@ -156,7 +156,7 @@ function Show-WindowsSelfReportNotification {
         if ($Message.Length -gt 240) {
             $Message = $Message.Substring(0, 237) + "..."
         }
-        $notify.Text = "PO0 Outbound IP Report"
+        $notify.Text = "PO0 防火墙"
         $notify.BalloonTipTitle = $Title
         $notify.BalloonTipText = $Message
         $notify.Visible = $true

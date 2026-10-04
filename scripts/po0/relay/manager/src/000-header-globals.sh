@@ -2,11 +2,11 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-nftables-relay-manager"
-SCRIPT_VERSION="2026.09.08+build.1"
-SCRIPT_RELEASE_DATE="2026-09-08"
+SCRIPT_VERSION="2026.10.04+build.1"
+SCRIPT_RELEASE_DATE="2026-10-04"
 # CHANGELOG_BEGIN
-# - 精简为转发管理；保留 Worker 鉴权更新、备份恢复和旧配置迁移检查。
-# - 退役自建白名单、接收与资源任务；不接管系统入站防火墙。
+# - 与 PO0 防火墙客户端使用统一脚本发布版本。
+# - 转发、鉴权更新、备份与迁移检查保持现有行为。
 # CHANGELOG_END
 CONF_DIR="${PO0_CONF_DIR:-/etc/nftables.d}"
 MAIN_CONF="${PO0_MAIN_CONF:-/etc/nftables.conf}"

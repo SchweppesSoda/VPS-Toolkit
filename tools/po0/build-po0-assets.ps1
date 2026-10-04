@@ -1,6 +1,7 @@
 param(
     [string]$OutputDir = "",
-    [switch]$NoChecksum
+    [switch]$NoChecksum,
+    [switch]$SyncClientCompatibility
 )
 
 $ErrorActionPreference = "Stop"
@@ -23,6 +24,10 @@ $tmpPo0Prefix = (Join-Path $tmpRoot "po0-")
 if (-not $OutputDir.StartsWith($tmpPo0Prefix, [System.StringComparison]::OrdinalIgnoreCase)) {
     throw "OutputDir must be inside the repository .tmp directory and start with 'po0-': $OutputDir"
 }
+
+$compatMode = if ($SyncClientCompatibility) { "--write" } else { "--check" }
+& node (Join-Path $RepoRoot "tools/po0/sync-po0-client-compat.mjs") $compatMode
+if ($LASTEXITCODE -ne 0) { throw "PO0 client compatibility synchronization failed." }
 
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 $Utf8Bom = [System.Text.UTF8Encoding]::new($true)

@@ -42,7 +42,8 @@ Start from the relevant README for normal use. `*-technical.md` and `*-design.md
 
 | Document | Purpose |
 | --- | --- |
-| [`scripts/po0/nftables/clients/egern/README.md`](./scripts/po0/nftables/clients/egern/README.md) | Standard Egern path, device IDs, Widget, and multi-PO0 configuration. |
+| [`scripts/po0/nftables/clients/egern/README.md`](./scripts/po0/nftables/clients/egern/README.md) | Egern PO0 firewall accounts, standard entry points and widgets. |
+| [`scripts/po0/nftables/clients/stash/README.md`](./scripts/po0/nftables/clients/stash/README.md) | Stash PO0 firewall settings, standard entry points and compatibility. |
 | [`scripts/po0/relay/egern/README.md`](./scripts/po0/relay/egern/README.md) | Historical Egern compatibility-path notes. |
 | [`scripts/vps/fail2ban/fail2ban-guide.md`](./scripts/vps/fail2ban/fail2ban-guide.md) | Fail2ban configuration and usage. |
 | [`scripts/vps/docs/vps-port-firewall-summary.md`](./scripts/vps/docs/vps-port-firewall-summary.md) | VPS port ranges and firewall conventions. |
@@ -97,7 +98,7 @@ Use each tool's own README for installation, parameters, and removal instruction
 
 ## PO0 Release Architecture and Boundaries
 
-PO0 now contains a forwarding manager, a LAN update mirror, Linux/macOS/Windows official reporters, the official OpenWrt APK, and Egern/Stash/Loon modules. The self-hosted firewall, receivers, DDNS/WebAuth, learning and resource jobs have retired. Complete old assets are frozen in the non-Latest `archive/po0-full-20260907.1` Release.
+PO0 now contains a forwarding manager, a LAN update mirror, Linux/macOS/Windows official reporters, the official OpenWrt APK, and Egern/Stash modules. The self-hosted firewall, receivers, DDNS/WebAuth, learning and resource jobs have retired. Complete old assets are frozen in the non-Latest `archive/po0-full-20260907.1` Release.
 
 PO0 still obtains manager updates over LAN HTTP with nonce/HMAC verification. Official reporters preserve GET-first behavior, tokens, slots, names, timers, disabled choices and their existing routing. Migration saves local backups first. See the [PO0 guide](scripts/po0/relay/README.md) for migration and archive restoration.
 
@@ -113,7 +114,7 @@ PO0 releases are published through [GitHub Releases](https://github.com/Schweppe
 - `po0-outbound-ip-report.apk`
 - `checksums.txt`
 
-Scripts and APKs can be released separately; see the [release scope guide](scripts/po0/relay/README.md#选择发布范围). Scripts use Latest, while APK downloads use their own versioned release URLs. Legacy raw executable entry points are disabled. Egern, Stash, Loon, and independent tools not included in the Release continue to use the allowed raw paths documented by their own guides.
+Scripts and APKs can be released separately; see the [release scope guide](scripts/po0/relay/README.md#选择发布范围). Scripts use Latest, while APK downloads use their own versioned release URLs. Legacy raw executable entry points are disabled. Egern, Stash, and independent tools not included in the Release continue to use the allowed raw paths documented by their own guides.
 
 This repository no longer publishes GitHub Pages. Do not enable Pages from the repository root.
 

@@ -98,6 +98,8 @@ self_report_append_target_success() {
 self_report_log_event_summary() {
     local line="$1"
     line="$(normalize_self_report_log_line "${line}")" || return 1
+    # Normalize current and historical display names before summarizing logs.
+    line="${line/#PO0 防火墙 /PO0 Outbound IP Report }"
     case "${line}" in
         "PO0 Outbound IP Report 已完成：已跳过："*)
             printf '跳过：%s\n' "${line#PO0 Outbound IP Report 已完成：已跳过：}"

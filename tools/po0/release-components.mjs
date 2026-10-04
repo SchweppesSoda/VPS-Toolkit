@@ -99,7 +99,7 @@ export function publishAssets(tag, directory, adapter) {
     if (!release) {
       const notesFile = path.join(temp, 'notes.txt');
       const notes = plan.component === 'scripts'
-        ? 'PO0 scripts ' + plan.version + '. APKs are published separately under po0-apk-v tags. Egern, Stash and Loon continue to use their documented raw URLs.'
+        ? 'PO0 scripts ' + plan.version + '. APKs are published separately under po0-apk-v tags. Egern and Stash continue to use their documented raw URLs.'
         : plan.component === 'apk'
           ? 'PO0 OpenWrt APK release. Download APKs from this versioned release; the script Latest release remains unchanged.'
           : 'PO0 scripts and APK release.';

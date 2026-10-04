@@ -5,9 +5,9 @@ command -v rg >/dev/null 2>&1 || { printf 'ripgrep (rg) is required for PO0 refe
 
 repo_root="$(cd "$(git rev-parse --show-toplevel)" && pwd -P)"
 asset_dir="${1:-${repo_root}/.tmp/po0-check-assets-bash}"
-expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.09.08+build.1}"
-expected_po0_release_date="${PO0_EXPECTED_RELEASE_DATE:-2026-09-08}"
-expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.09.08.1}"
+expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.10.04+build.1}"
+expected_po0_release_date="${PO0_EXPECTED_RELEASE_DATE:-2026-10-04}"
+expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.10.04.1}"
 
 manifest_entries() {
     local manifest="$1"
@@ -64,8 +64,9 @@ check_raw_refs() {
             *"scripts/po0/nftables/clients/egern/po0-firewall.js"*|\
             *"scripts/po0/nftables/clients/egern/PO0-SSH-IP-Report.yaml"*|\
             *"scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js"*|\
-            *"scripts/po0/nftables/clients/loon/PO0.LAN-Report.lpx"*|\
-            *"scripts/po0/nftables/clients/loon/po0-loon-report.js"*|\
+            *"scripts/po0/nftables/clients/stash/PO0-Firewall.stoverride"*|\
+            *"scripts/po0/nftables/clients/stash/po0-firewall.js"*|\
+            *"scripts/po0/nftables/clients/stash/PO0.LAN-Report.stoverride"*|\
             *"scripts/po0/nftables/clients/stash/po0-stash-report.js"*|\
             *"scripts/po0/relay/egern/PO0-SSH-IP-Report.yaml"*|\
             *"scripts/po0/relay/egern/po0-ssh-ip-report.js"*|\
@@ -665,8 +666,8 @@ bash "${repo_root}/tools/po0/test-manager-nft-atomic-reload.sh"
 bash "${repo_root}/tools/po0/test-debian-reinstall-grub.sh"
 node "${repo_root}/tools/po0/test-release-version-tags.mjs"
 node "${repo_root}/tools/po0/test-egern-official-report.mjs"
-node "${repo_root}/tools/po0/test-loon-report.js"
 node "${repo_root}/tools/po0/test-stash-report.js"
+node "${repo_root}/tools/po0/test-client-compat-sync.mjs"
 bash "${repo_root}/tools/po0/build-po0-assets.sh" "${asset_dir}"
 
 for asset in nftables-relay-manager.sh po0-lan-client.sh po0-outbound-ip-report.sh po0-outbound-ip-report-macos.sh; do
@@ -692,6 +693,7 @@ check_versions_match_tag
 check_versions_consistent
 check_raw_refs
 check_egern_compat_sync
+node "${repo_root}/tools/po0/sync-po0-client-compat.mjs" --check
 check_asset_inventory
 check_unix_outbound_ip_report_canonical_path "${asset_dir}/po0-outbound-ip-report.sh" "Linux/OpenWrt"
 check_unix_outbound_ip_report_canonical_path "${asset_dir}/po0-outbound-ip-report-macos.sh" "macOS"

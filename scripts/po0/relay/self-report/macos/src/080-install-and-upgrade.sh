@@ -99,7 +99,7 @@ ensure_install_path_visible() {
 
     profile="$(shell_path_profile_path 2>/dev/null || true)"
     line="$(shell_path_export_line "${dir}")"
-    printf '提示：已安装 PO0 Outbound IP Report 命令：%s\n' "${dest}" >&2
+    printf '提示：已安装 PO0 防火墙命令：%s\n' "${dest}" >&2
     printf '提示：当前终端 PATH 尚未包含安装目录：%s\n' "${dir}" >&2
     printf '本次可直接运行：%s --menu\n' "${dest}" >&2
     if [[ -n "${profile}" ]]; then
@@ -262,7 +262,7 @@ invoke_legacy_path_self_heal() {
     [[ "${dest}" != "${source}" ]] || return 1
     install_self >/dev/null || return 1
     refresh_schedule_after_script_update "${dest}" || true
-    printf '已迁移 PO0 Outbound IP Report 客户端脚本到标准安装路径：%s\n' "${dest}"
+    printf '已迁移 PO0 防火墙客户端脚本到标准安装路径：%s\n' "${dest}"
     if [[ "${reopen_menu}" == "1" ]]; then
         printf '正在从标准安装路径重新打开新版菜单：%s --menu\n' "${dest}"
         exec_updated_script "${dest}" --menu
@@ -297,7 +297,7 @@ upgrade_self_from_download() {
     fi
     if ! grep -q 'po0-outbound-ip-report-macos.sh' "${tmp}" || ! grep -q 'PO0 自上报客户端（macOS）' "${tmp}" || ! grep -q '^SCRIPT_NAME="po0-outbound-ip-report"' "${tmp}"; then
         rm -f "${tmp}" 2>/dev/null || true
-        printf '更新文件校验失败：下载到的脚本不是 PO0 Outbound IP Report macOS 客户端。\n' >&2
+        printf '更新文件校验失败：下载到的脚本不是 PO0 防火墙 macOS 客户端。\n' >&2
         return 1
     fi
     if awk '/^default_install_path\(\)/{flag=1} flag{print; if ($0 ~ /^}/) exit}' "${tmp}" | grep -q 'po0-self-report'; then
@@ -327,7 +327,7 @@ upgrade_self_from_download() {
     else
         ensure_install_path_visible "${dest}" "0" || true
     fi
-    printf '已更新 PO0 Outbound IP Report 客户端脚本：%s\n' "${dest}"
+    printf '已更新 PO0 防火墙客户端脚本：%s\n' "${dest}"
     printf '下载 URL：%s\n' "${DOWNLOAD_URL}"
     printf '%s\n' "${chmod_message}"
     if [[ -n "${new_version}" ]]; then

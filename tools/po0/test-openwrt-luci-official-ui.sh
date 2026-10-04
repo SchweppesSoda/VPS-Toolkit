@@ -27,7 +27,7 @@ grep -Fq "String(slot - 1)" "${ui}" || fail "UI does not map slot 1-5 to backend
 grep -Fq "'official-status'" "${ui}" || fail "read-only official status action is missing"
 grep -Fq "channel + '-report'" "${ui}" || fail "explicit official report action is missing"
 grep -Fq "pgnfw[_-][A-Za-z0-9._~-]+" "${ui}" || fail "official token redaction does not cover the full token character set"
-grep -Fq "PO0 官方防火墙状态" "${ui}" || fail "official status table heading is missing"
+grep -Fq "PO0 防火墙状态" "${ui}" || fail "official status table heading is missing"
 grep -Fq "status === 'missing'" "${ui}" || fail "normal missing status is not rendered as a distinct state"
 grep -Fq "当前出口尚未加白" "${ui}" || fail "missing status summary is missing"
 

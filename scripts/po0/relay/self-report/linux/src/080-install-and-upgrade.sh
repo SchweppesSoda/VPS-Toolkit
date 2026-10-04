@@ -166,7 +166,7 @@ invoke_legacy_path_self_heal() {
     [[ "${dest}" != "${source}" ]] || return 1
     install_self >/dev/null || return 1
     refresh_schedule_after_script_update "${dest}" || true
-    printf '已迁移 PO0 Outbound IP Report 客户端脚本到标准安装路径：%s\n' "${dest}"
+    printf '已迁移 PO0 防火墙客户端脚本到标准安装路径：%s\n' "${dest}"
     if [[ "${reopen_menu}" == "1" ]]; then
         printf '正在从标准安装路径重新打开新版菜单：%s --menu\n' "${dest}"
         exec_updated_script "${dest}" --menu
@@ -201,7 +201,7 @@ upgrade_self_from_download() {
     fi
     if ! grep -q 'po0-outbound-ip-report.sh' "${tmp}" || ! grep -q 'PO0 自上报客户端（Linux/OpenWrt）' "${tmp}" || ! grep -q '^SCRIPT_NAME="po0-outbound-ip-report"' "${tmp}"; then
         rm -f "${tmp}" 2>/dev/null || true
-        printf '更新文件校验失败：下载到的脚本不是 PO0 Outbound IP Report Linux/OpenWrt 客户端。\n' >&2
+        printf '更新文件校验失败：下载到的脚本不是 PO0 防火墙 Linux/OpenWrt 客户端。\n' >&2
         return 1
     fi
     if awk '/^default_install_path\(\)/{flag=1} flag{print; if ($0 ~ /^}/) exit}' "${tmp}" | grep -q 'po0-self-report'; then
@@ -226,7 +226,7 @@ upgrade_self_from_download() {
         chmod_message="警告：已更新，但自动设置执行权限失败；请手动执行 chmod 755 ${dest}"
     fi
     cleanup_legacy_self_report_artifacts "${dest}" || true
-    printf '已更新 PO0 Outbound IP Report 客户端脚本：%s\n' "${dest}"
+    printf '已更新 PO0 防火墙客户端脚本：%s\n' "${dest}"
     printf '下载 URL：%s\n' "${DOWNLOAD_URL}"
     printf '%s\n' "${chmod_message}"
     if [[ -n "${new_version}" ]]; then

@@ -10,13 +10,13 @@
 | `po0-lan-client.sh` | 能访问 GitHub 的 LAN Worker | 固定 manager 脚本更新镜像 |
 | Linux / macOS / Windows 上报器 | 访问设备 | 官方账号上报、只读查询、定期与网络触发、本机配置 |
 | OpenWrt APK | 主路由或旁路设备 | 官方 WAN/源地址绑定、UCI、procd、LuCI |
-| Egern / Stash / Loon | 手机客户端 | 官方上报与本机状态界面 |
+| Egern / Stash | 手机客户端 | 官方上报与本机状态界面 |
 
 ```mermaid
 flowchart LR
   R[GitHub Release] -->|HTTPS 下载| W[LAN Worker 更新镜像]
   W -->|HTTP + nonce/HMAC 校验| P[PO0 转发管理器]
-  C[七端官方上报客户端] -->|GET 检查 / 必要时 POST| O[官方防火墙 API]
+  C[六端官方上报客户端] -->|GET 检查 / 必要时 POST| O[官方防火墙 API]
 ```
 
 PO0 无法直连 GitHub，继续使用 Worker HTTP 镜像。现有更新地址、服务名、密钥、nonce/HMAC 协议及 `/po0-manager-update/nftables-relay-manager.sh` 路径保留。镜像只能下载固定的 Release manager 资产，不能转发任意 URL。
@@ -31,7 +31,9 @@ PO0 无法直连 GitHub，继续使用 Worker HTTP 镜像。现有更新地址�
 - `po0-outbound-ip-report-macos.sh`
 - `po0-outbound-ip-report.ps1`
 
-OpenWrt 使用 [APK 2026.09.08-r1](https://github.com/SchweppesSoda/VPS-Toolkit/releases/tag/po0-apk-v2026.09.08.1) 的固定版本下载地址。APK 不使用 Latest URL。手机模块继续使用 `scripts/po0/nftables/clients/` 下的公开 raw 文件；历史文件名是导入兼容标识，不表示还支持自建上报。
+OpenWrt 使用 [APK 2026.10.04-r1](https://github.com/SchweppesSoda/VPS-Toolkit/releases/tag/po0-apk-v2026.10.04.1) 的固定版本下载地址。APK 不使用 Latest URL。六端界面统一为“PO0 防火墙”，桌面安装路径、任务身份与 OpenWrt 包名保持兼容。手机模块继续使用 `scripts/po0/nftables/clients/` 下的公开 raw 文件；历史文件名是导入兼容标识，不表示还支持自建上报。
+
+手机标准入口为 Egern 的 `PO0-Firewall.yaml` 与 Stash 的 `PO0-Firewall.stoverride`，脚本均为各自目录中的 `po0-firewall.js`。使用方式分别见 [Egern](../nftables/clients/egern/README.md)与 [Stash](../nftables/clients/stash/README.md)。
 
 本地按 manifest 构建和检查：
 
@@ -46,6 +48,8 @@ Windows 对应入口：
 ```
 
 检查需要 Bash、Node.js、Python 3、PowerShell。Windows 使用 Git Bash；构建输出仅放在仓库 `.tmp/po0-*` 下。
+
+手机标准文件是唯一维护源。修改后用 `bash tools/po0/build-po0-assets.sh .tmp/po0-assets --sync-client-compat`，或 PowerShell 的 `./tools/po0/build-po0-assets.ps1 -SyncClientCompatibility`，按照 `tools/po0/manifests/client-compat.txt` 同步旧公开入口。普通构建与两种 checker 只检查副本一致性，不自动改写源文件。
 
 ### 选择发布范围
 
@@ -99,7 +103,7 @@ OpenWrt APK 升级脚本先把 UCI 备份到 `/usr/lib/po0/legacy/official-only-
 
 定期上报默认 600 秒，可调整或关闭；停用定期保留原间隔，网络触发单独设置。支持 SSID 读取的设备使用本机跳过规则，读取失败继续；强制操作只绕过本机条件。SSID 不随官方请求上传。Stash 没有公开 SSID API/原生网络变化事件，使用每分钟出口变化轮询。
 
-Egern、Loon、Stash 的按网络选择默认关闭；启用后原目标用于蜂窝，Wi-Fi 使用另填列表，用户保存的槽位不变。Egern 小组件按尺寸显示官方账号、槽位、占用和当前 IP；Stash 紧凑 Tile 显示摘要与前两个账号，点击进入完整管理页；Loon 最近结果只读。
+Egern、Stash 的按网络选择默认关闭；启用后原目标用于蜂窝，Wi-Fi 使用另填列表，用户保存的槽位不变。Egern 小组件按尺寸显示官方账号、槽位、占用和当前 IP；Stash 紧凑 Tile 显示摘要与前两个账号，点击进入完整管理页。
 
 主 OpenWrt 使用 mwan3 选择 WAN，旁路 OpenWrt 使用本机专用源地址并保留上游 WAN-only 分流。地址缺失或指定 WAN 故障不回退。其它客户端保持现有官方请求网络行为。Token 只在受保护的配置和主动打开的本机编辑页中出现，不进入日志、通知、运行状态或命令参数。
 
@@ -109,6 +113,6 @@ manager 的新版备份只含转发配置、规则与更新配对，恢复后不
 
 旧版资产固定在 [archive/po0-full-20260907.1](https://github.com/SchweppesSoda/VPS-Toolkit/releases/tag/archive/po0-full-20260907.1)，包括源码 ZIP、五个脚本、APK、manifest、校验文件和恢复说明。该 Release 始终非 Latest，不覆盖 tag，也不建立维护分支。下载后先校验 `checksums.txt`，按 `RESTORE.md` 恢复到单独目录核对；不要直接覆盖当前设备配置。
 
-私有 ProxyConfig 的配置与凭据资产只在其私有仓库的同名 tag/Release 中归档，不进入公开资产。
+长期历史资产仅保存在 GitHub 固定 tag 和冻结 Release；本地下载只用于临时核验，不建立独立归档或 Git bundle。私有 ProxyConfig 的配置与凭据资产只在其私有仓库的同名 tag/Release 中归档，不进入公开资产。
 
-实现边界见 [技术说明](po0-relay-technical.md)，变更记录见 [CHANGELOG](CHANGELOG.md)，Egern 导入见 [Egern README](../nftables/clients/egern/README.md)。
+实现边界见 [技术说明](po0-relay-technical.md)，变更记录见 [CHANGELOG](CHANGELOG.md)。

@@ -1,0 +1,7 @@
+# Canonical source | legacy public compatibility copy
+scripts/po0/nftables/clients/egern/PO0-Firewall.yaml|scripts/po0/nftables/clients/egern/PO0-SSH-IP-Report.yaml
+scripts/po0/nftables/clients/egern/PO0-Firewall.yaml|scripts/po0/relay/egern/PO0-SSH-IP-Report.yaml
+scripts/po0/nftables/clients/egern/po0-firewall.js|scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js
+scripts/po0/nftables/clients/egern/po0-firewall.js|scripts/po0/relay/egern/po0-ssh-ip-report.js
+scripts/po0/nftables/clients/stash/PO0-Firewall.stoverride|scripts/po0/nftables/clients/stash/PO0.LAN-Report.stoverride
+scripts/po0/nftables/clients/stash/po0-firewall.js|scripts/po0/nftables/clients/stash/po0-stash-report.js

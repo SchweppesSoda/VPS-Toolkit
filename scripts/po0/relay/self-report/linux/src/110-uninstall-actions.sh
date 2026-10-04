@@ -34,7 +34,7 @@ uninstall_self_report_interactive() {
     echo "本机安装脚本：${install_path}"
     echo "旧兼容命令：${legacy_path}"
     echo "配置文件和日志默认保留，后续可选择是否一起删除。"
-    if ! prompt_yes_no "确认卸载 PO0 Outbound IP Report 客户端" "n"; then
+    if ! prompt_yes_no "确认卸载 PO0 防火墙 客户端" "n"; then
         echo "已取消。"
         return 2
     fi

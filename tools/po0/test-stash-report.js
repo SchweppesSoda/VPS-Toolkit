@@ -6,8 +6,8 @@ const path = require("path");
 const vm = require("vm");
 
 const clientDir = path.join(__dirname, "..", "..", "scripts", "po0", "nftables", "clients", "stash");
-const scriptPath = path.join(clientDir, "po0-stash-report.js");
-const overridePath = path.join(clientDir, "PO0.LAN-Report.stoverride");
+const scriptPath = path.join(clientDir, "po0-firewall.js");
+const overridePath = path.join(clientDir, "PO0-Firewall.stoverride");
 const sshOverridePath = path.join(clientDir, "PO0.SSH-Report.PoC.stoverride");
 const source = fs.readFileSync(scriptPath, "utf8");
 const override = fs.readFileSync(overridePath, "utf8");
@@ -156,7 +156,7 @@ function execute(options = {}) {
     };
 
     try {
-      vm.runInNewContext(source, context, { filename: "po0-stash-report.js" });
+      vm.runInNewContext(source, context, { filename: "po0-firewall.js" });
     } catch (error) {
       clearTimeout(timeout);
       reject(error);
@@ -409,7 +409,64 @@ async function testRetirementMigration() {
   assert.equal(cleared.requests.length,0,'clear remains a tombstone against synchronized arguments');
 }
 
+function routeArgument(route) {
+  const url = 'http://po0-report.invalid/' + route;
+  const blocks = override.split(/^    - match: /m).slice(1);
+  const matches = blocks.filter(block => new RegExp(block.split('\n')[0].trim()).test(url));
+  assert.equal(matches.length, 1, 'one HTTP route must handle ' + route);
+  assert.match(matches[0], /name: po0-stash-report-worker-v2/);
+  const argument = /^      argument: '(.*)'$/m.exec(matches[0]);
+  assert(argument, 'route must supply an argument: ' + route);
+  return JSON.parse(argument[1]);
+}
+
+async function testStandardEntrypointsAndLegacyRoutes() {
+  const normalize = text => text.replace(/\r\n?/g, '\n');
+  assert.equal(normalize(fs.readFileSync(path.join(clientDir, 'po0-stash-report.js'), 'utf8')), normalize(source));
+  assert.equal(normalize(fs.readFileSync(path.join(clientDir, 'PO0.LAN-Report.stoverride'), 'utf8')), normalize(override));
+  assert.match(override, /^name: PO0 防火墙$/m);
+  assert.match(override, /stash\/po0-firewall\.js\?rev=20261004-firewall-v1/);
+  assert.match(override, /^  po0-stash-report-worker-v2:$/m);
+  for (const route of ['report', 'official-now', 'report-now', 'official-force']) {
+    const token = 'pgnfw_legacy_route_fixture';
+    const result = await execute({ argument: JSON.stringify(routeArgument(route)), scriptType: 'request', store: { [FIREWALL_KEY]: token + '@2' }, officialGets: [{ body: officialBody([{ ip: '8.8.8.8/24', slot: 2 }]) }] });
+    assert.deepEqual(result.requests.map(item => item.method), ['get'], route + ' must use the official engine');
+    assert.equal(result.value.response.status, 200);
+    assert.equal(JSON.parse(result.store.get(STORE_KEY)).official.accounts[0].fixed_slot, 2);
+    assert.match(result.value.response.body, /<title>PO0 防火墙 · /);
+    assert.equal((result.value.response.body.match(/>立即上报<\/a>/g) || []).length, 1);
+    assert.equal((result.value.response.body.match(/>强制上报<\/a>/g) || []).length, 1);
+  }
+}
+
+async function testTileRemainsReadOnly() {
+  const store = new Map([
+    [STORE_KEY, JSON.stringify({ official: { accounts: [{ name: '测试账号', status: 'ok', current: '8.8.8.8/24' }] } })],
+    [STORE_KEY + '.worker-config', 'retired fixture awaiting migration'],
+    [STORE_KEY + '.channel-settings', JSON.stringify({ version: 1, officialNames: '测试账号', officialAutoEnabled: false })],
+  ]);
+  const before = Array.from(store.entries());
+  const result = await execute({ scriptType: 'tile', store, writeError: true });
+  assert.deepEqual(result.requests, []);
+  assert.deepEqual(result.notifications, []);
+  assert.deepEqual(Array.from(store.entries()), before, 'tile cannot migrate or write any stored state');
+  assert.equal(result.value.title, 'PO0 防火墙');
+  assert.equal(result.value.url, 'http://po0-report.invalid/settings');
+  const payload = /    payload: \|\n([\s\S]*?)\n\n/.exec(override)[1].replace(/^      /gm, '');
+  let tile;
+  vm.runInNewContext(payload, {
+    $persistentStore: { read: key => store.get(key) || null, write: () => { throw new Error('tile wrote state'); } },
+    $httpClient: { get: () => { throw new Error('tile requested network'); }, post: () => { throw new Error('tile requested network'); } },
+    $done: value => { tile = value; },
+  });
+  assert.equal(tile.title, 'PO0 防火墙');
+  assert.equal(tile.url, 'http://po0-report.invalid/settings');
+  assert.deepEqual(Array.from(store.entries()), before);
+}
+
 (async () => {
+  await testStandardEntrypointsAndLegacyRoutes();
+  await testTileRemainsReadOnly();
   await testOfficialNetworkTargets();
   await testFlexibleOfficialSeparators();
   await testLocalSlotSurvivesSync();

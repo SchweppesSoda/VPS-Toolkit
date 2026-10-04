@@ -1,6 +1,6 @@
 {
   "po0-outbound-ip-report": {
-    "description": "Manage the PO0 outbound IPv4 reporter and official firewall bindings",
+    "description": "管理 PO0 防火墙账号、网络绑定和上报设置",
     "read": {
       "uci": [ "po0_outbound_ip_report" ],
       "ubus": { "file": [ "exec" ], "service": [ "list" ] }

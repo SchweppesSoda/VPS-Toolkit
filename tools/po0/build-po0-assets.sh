@@ -3,6 +3,13 @@ set -euo pipefail
 
 repo_root="$(cd "$(git rev-parse --show-toplevel)" && pwd -P)"
 output_dir="${1:-${repo_root}/.tmp/po0-assets}"
+compat_mode="--check"
+if [[ "${2:-}" == "--sync-client-compat" && "$#" -le 2 ]]; then
+    compat_mode="--write"
+elif [[ -n "${2:-}" || "$#" -gt 2 ]]; then
+    printf 'Usage: bash tools/po0/build-po0-assets.sh [output-dir] [--sync-client-compat]\n' >&2
+    exit 1
+fi
 
 case "${output_dir}" in
     /*) ;;
@@ -19,6 +26,8 @@ case "${output_dir}" in
         exit 1
         ;;
 esac
+
+node "${repo_root}/tools/po0/sync-po0-client-compat.mjs" "${compat_mode}"
 
 normalize_text() {
     perl -0pe 's/\A\xEF\xBB\xBF//; s/\r\n?/\n/g; s/\n+\z//'

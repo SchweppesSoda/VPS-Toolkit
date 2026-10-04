@@ -60,7 +60,7 @@ function Invoke-SelfReportCore {
         throw "没有配置可执行的上报通道。"
     }
     if ($officialActive -and $script:Po0FirewallOfficialOnly -and -not (Test-Po0FirewallConfigured)) {
-        throw "PO0 官方防火墙未启用（默认关闭）。"
+        throw "PO0 防火墙未启用（默认关闭）。"
     }
 
     $successCount = 0
@@ -111,7 +111,7 @@ function Invoke-SelfReportCore {
 
 
     if ($officialResult -and $officialResult.NeedsNotify) {
-        Show-WindowsSelfReportNotification -Title "PO0 官方防火墙状态已更新" -Message "官方防火墙白名单状态已更新。" -Kind "Info"
+        Show-WindowsSelfReportNotification -Title "PO0 防火墙状态已更新" -Message "官方防火墙白名单状态已更新。" -Kind "Info"
     }
 }
 

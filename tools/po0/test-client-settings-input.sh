@@ -94,6 +94,11 @@ for platform in linux macos; do
         run_channel_interactive official > /dev/null
         grep -Fq 'manual-official-result' "$(schedule_channel_log_path official)"
         [[ ! -e "$(schedule_channel_log_path worker)" ]]
+        for brand in 'PO0 防火墙' 'PO0 Outbound IP Report'; do
+            [[ "$(self_report_log_event_summary "$brand 已完成：检查完成")" == '成功：检查完成' ]]
+            [[ "$(self_report_log_event_summary "$brand 未完成：网络失败")" == '失败：网络失败' ]]
+            [[ "$(self_report_log_event_summary "$brand 已完成：已跳过：Wi-Fi")" == '跳过：Wi-Fi' ]]
+        done
         # Read each menu through the actual dispatcher without installing or reporting.
         printf '1\n0\n6\n0\n0\n' > "$test_dir/menu-input"
         exec 9< "$test_dir/menu-input"
@@ -102,6 +107,7 @@ for platform in linux macos; do
         cron_status_summary() { printf '未安装'; }
         menu_loop > "$test_dir/menu-$platform"
         exec 9<&-
+        grep -Fq 'PO0 防火墙' "$test_dir/menu-$platform"
         grep -Fq '保存配置（编辑参数）' "$test_dir/menu-$platform"
         grep -Fq '清除本通道配置' "$test_dir/menu-$platform"
         grep -Fq '维护与诊断' "$test_dir/menu-$platform"

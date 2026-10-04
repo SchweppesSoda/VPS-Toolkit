@@ -133,7 +133,7 @@ function Save-ClientConfig {
 
 function Show-Usage {
     Write-Host @'
-PO0 官方防火墙客户端（Windows）
+PO0 防火墙客户端（Windows）
 -Menu / -Version / -Changelog / -UpgradeSelf
 -ConfigPath PATH / -SaveConfig / -RunOnce / -OfficialOnly
 -OfficialStatus：只读查询 / -ClearPo0FirewallTokens

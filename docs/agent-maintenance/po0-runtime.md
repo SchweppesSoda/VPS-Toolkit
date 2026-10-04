@@ -7,9 +7,9 @@
 - 用户已全面弃用自建防火墙。manager 只管理转发、NAT/SNAT/MSS、可选 BBR、诊断、备份及鉴权更新；不得恢复 input/source 白名单、DDNS、SSH/HTTP 接收、WebAuth、学习与 iplist/ipdb 任务。
 - LAN Worker 只提供固定 manager 脚本更新镜像。PO0 无法直连 GitHub，必须保持现有 HTTP 路径、nonce/HMAC、密钥与服务入口；上游使用固定 GitHub Release HTTPS 资产，不能成为任意 URL 代理。
 - 原 Worker 官方账号显式迁移至同机 Linux 官方单文件客户端（也可在具备依赖的 OpenWrt 上运行），保持本机正常路由/OpenClash 行为。不得静默改成 APK WAN 源地址绑定，不得丢失账号或建立重复任务。
-- 七端只保留官方上报。先 GET、必要时 POST；Egern 同 /24 共用既有槽位，403 只复查一次。只读不 POST、不推进 due；Token、槽位、名称、间隔、停用与网络触发选择必须保留。
+- 六端只保留官方上报。先 GET、必要时 POST；Egern 同 /24 共用既有槽位，403 只复查一次。只读不 POST、不推进 due；Token、槽位、名称、间隔、停用与网络触发选择必须保留。
 - 主 OpenWrt 用 mwan3 指定 WAN；旁路 OpenWrt 绑定专用源地址，真实 DNS 按本机 probe_dns_server（默认 192.168.88.1）解析。指定 WAN/地址失败不回退。其它端保持原网络行为。官方 Token 不进入日志、通知、命令参数和运行状态；主动打开的本机编辑页按用户要求显示完整已保存 Token。
-- 支持 SSID 的客户端采用本地 guard，读取失败继续；Stash 没有公开 SSID API，出口变化依靠轮询。强制仅绕过本机条件，仍先 GET。Egern/Stash/Loon 按网络选择默认关闭，开启后原目标为蜂窝、另填目标为 Wi-Fi，用户槽位不变。
+- 支持 SSID 的客户端采用本地 guard，读取失败继续；Stash 没有公开 SSID API，出口变化依靠轮询。强制仅绕过本机条件，仍先 GET。Egern/Stash 按网络选择默认关闭，开启后原目标为蜂窝、另填目标为 Wi-Fi，用户槽位不变。
 - manager 的迁移 guard 必须拒绝仍有旧保护的配置/运行表，不得静默削弱保护。托管 NAT/MANGLE 的删除与新表定义在同一 batch，先 nft -c，正式阶段只一次 nft -f，不 flush ruleset。
 - 旧版资产固定 tag/非 Latest Release `archive/po0-full-20260907.1`；历史不是维护分支，不把归档功能带回 main。最小旧协议测试夹具仅供测试，不参与安装。私有 ProxyConfig 的归档不得进入公开仓库/Release。
 

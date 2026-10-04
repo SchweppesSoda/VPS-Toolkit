@@ -1,5 +1,5 @@
 usage() {
-    printf '%s\n' 'PO0 官方防火墙客户端' \
+    printf '%s\n' 'PO0 防火墙客户端' \
         'Token、名称与槽位在本机权限 600 的配置文件保存；菜单可编辑。' \
         '--menu / --version / --changelog / --upgrade-self' \
         '--config PATH / --save-config / --run-once / --official-only' \

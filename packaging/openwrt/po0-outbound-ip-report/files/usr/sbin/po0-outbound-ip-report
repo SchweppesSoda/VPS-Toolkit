@@ -7,11 +7,11 @@ case "${1:-run-once}" in
         exec /usr/libexec/po0-outbound-ip-report-uci "$@"
         ;;
     --version)
-        printf '%s\n' 'po0-outbound-ip-report 2026.09.08+build.1 (OpenWrt APK)'
+        printf '%s\n' 'po0-outbound-ip-report 2026.10.04+build.1 (OpenWrt APK)'
         ;;
     --help|-h)
         printf '%s\n' \
-            'PO0 outbound IP reporter (OpenWrt APK)' \
+            'PO0 防火墙（OpenWrt APK）' \
             'Usage: po0-outbound-ip-report [run-once|--run-once|--version]' \
             'Configuration is managed by UCI/LuCI; scheduling is managed by procd.'
         ;;

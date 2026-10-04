@@ -26,7 +26,6 @@ function migrateRetiredState() {
 const STORE_KEY = "proxyconfig.po0.stash-report.v1";
 const RUN_LOCK_KEY = STORE_KEY + ".run-lock";
 const NETWORK_GROUP = "📡 PO0 网络识别（自动）";
-const FORCE_URL = "http://po0-report.invalid/report-now";
 const FIREWALL_TOKENS_KEY = "PO0_FIREWALL_TOKENS";
 const OFFICIAL_API_URL = "https://124.221.69.228/api/firewall";
 const OFFICIAL_USER_AGENT = "ProxyConfig-PO0-Firewall/Stash";
@@ -236,16 +235,16 @@ function parseFirewallTokens(raw) {
     const item = String(rawItem).trim();
     const match = item.match(/^(pgnfw_[A-Za-z0-9._~-]{1,240})(?:@([0-4]))?$/);
     if (!match) {
-      throw new Error("PO0 官方防火墙 token 配置无效：请使用 pgnfw_...，槽位可写为 @0 到 @4");
+      throw new Error("PO0 防火墙 token 配置无效：请使用 pgnfw_...，槽位可写为 @0 到 @4");
     }
     const token = match[1];
     const fixedSlot = match[2] === undefined ? null : Number(match[2]);
     // A token identifies one official account; slot hints are not separate accounts.
     const key = token;
-    if (seen.indexOf(key) >= 0) throw new Error("PO0 官方防火墙 token 列表包含重复项");
+    if (seen.indexOf(key) >= 0) throw new Error("PO0 防火墙 token 列表包含重复项");
     seen.push(key);
     tokens.push({ token, fixedSlot });
-    if (tokens.length > MAX_FIREWALL_TOKENS) throw new Error("PO0 官方防火墙 token 数量超过上限");
+    if (tokens.length > MAX_FIREWALL_TOKENS) throw new Error("PO0 防火墙 token 数量超过上限");
   }
   return tokens;
 }
@@ -578,9 +577,9 @@ function tile(state) {
   const official = state && state.official;
   const accounts = official && Array.isArray(official.accounts) ? official.accounts : [];
   const errors = accounts.some(account => account.status === 'error');
-  return { title: 'PO0 官方防火墙', content: officialSummary(official),
+  return { title: 'PO0 防火墙', content: officialSummary(official),
     icon: errors ? 'exclamationmark.triangle.fill' : 'checkmark.shield.fill',
-    backgroundColor: errors ? '#b45309' : accounts.length ? '#178f55' : '#6b7280', url: FORCE_URL };
+    backgroundColor: errors ? '#b45309' : accounts.length ? '#178f55' : '#6b7280', url: 'http://po0-report.invalid/settings' };
 }
 
 function escapeHtml(value) {
@@ -590,12 +589,12 @@ function escapeHtml(value) {
 function htmlResult(ok, message, state, mode) {
   const heading = mode === 'settings' ? '本机设置' : mode === 'status' ? '上报状态' : ok ? '操作完成' : '操作未完成';
   const link = (path, label, danger) => '<a class="action' + (danger ? ' danger' : '') + '" href="http://po0-report.invalid/' + path + '"' + (danger ? ' onclick="return confirm(\'确认清除此通道的本机保存配置？\')"' : '') + '>' + label + '</a>';
-  return '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PO0 · ' + heading + '</title>' +
+  return '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PO0 防火墙 · ' + heading + '</title>' +
     '<style>body{margin:0;background:#f4f6f9;color:#172333;font:16px/1.65 -apple-system,sans-serif}main{max-width:680px;margin:auto;padding:28px 18px 48px}h1{font-size:28px;margin:4px 0}h2{font-size:18px;margin:0 0 12px}.eyebrow{font-size:12px;letter-spacing:2px;color:#59718c}.card{background:white;border:1px solid #e0e6ee;border-radius:16px;padding:20px;margin:16px 0}.detail{white-space:pre-wrap;overflow-wrap:anywhere}.actions{display:flex;gap:8px;flex-wrap:wrap}.action{display:block;background:#edf3fa;color:#245581;text-decoration:none;padding:10px 14px;border-radius:10px;font-size:14px}.danger{color:#a13535;background:#fceded}.muted{color:#637286;font-size:13px}</style>' +
-    '<main><div class="eyebrow">PO0 · 出口上报</div><h1>' + heading + '</h1><p class="muted">官方上报独立计时；每 60 秒轮询检测出口 IP 变化。</p>' +
+    '<main><div class="eyebrow">PO0 防火墙</div><h1>' + heading + '</h1><p class="muted">官方上报独立计时；每 60 秒轮询检测出口 IP 变化。</p>' +
     '<section class="card"><h2>' + (ok ? '✓ ' : '！ ') + heading + '</h2><div class="detail">' + escapeHtml(message === 'status' ? officialSummary(state && state.official) : message) + '</div></section>' +
     '<section class="card"><h2>官方防火墙</h2><div class="actions">' + link('save-official','保存配置') + link('toggle-official-timer','启用 / 停用定期上报') + link('toggle-official','停用 / 恢复自动') + link('official-now','立即上报') + link('official-force','强制上报') + link('clear-official','清除本机配置',true) + '</div><p class="muted">Token、名称、定期开关和上报间隔在模块的 /save-official 参数中填写；上报间隔默认 600 秒；关闭定期上报保留原间隔；出口变化由每分钟轮询检测。</p></section>' +
-    '<div class="actions">' + link('settings','查看本机配置') + link('recent','查看最近结果') + link('status','查询官方白名单') + link('report','立即上报') + link('report-now','强制上报') + '<a class="action" href="stash://">返回 Stash</a></div><p class="muted">Stash 公开脚本接口不提供当前 SSID，因此此客户端没有 SSID 跳过名单。</p></main></html>';
+    '<div class="actions">' + link('settings','查看本机配置') + link('recent','查看最近结果') + link('status','查询官方白名单') + '<a class="action" href="stash://">返回 Stash</a></div><p class="muted">Stash 公开脚本接口不提供当前 SSID，因此此客户端没有 SSID 跳过名单。</p></main></html>';
 }
 
 function finish(mode, ok, message, state, meta) {
@@ -608,10 +607,10 @@ function finish(mode, ok, message, state, meta) {
     return $done(tile(state));
   }
   if (mode === "auto" && (!ok || Number(details.added || 0) > 0)) {
-    $notification.post("PO0 自动上报", ok ? "新增官方白名单" : "部分失败", message);
+    $notification.post("PO0 防火墙", ok ? "新增官方白名单" : "部分失败", message);
   }
   if ($script.type === "request" || mode === "force") {
-    if (mode === "force") $notification.post("PO0 上报", ok ? "成功" : "失败", message);
+    if (mode === "force") $notification.post("PO0 防火墙", ok ? "成功" : "失败", message);
     return $done({ response: { status: ok ? 200 : 502, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" }, body: htmlResult(ok, message, state, mode) } });
   }
   return $done();
@@ -711,6 +710,6 @@ run().catch((error) => {
     state.last_error_at = Math.floor(Date.now() / 1000);
     writeJSON(STORE_KEY, state);
   }
-  console.log("[PO0] " + message);
+  console.log("[PO0 防火墙] " + message);
   finish(mode, false, message, state);
 });

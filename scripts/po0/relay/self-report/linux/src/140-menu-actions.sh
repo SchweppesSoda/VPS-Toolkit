@@ -19,7 +19,7 @@ official_read_secret_prompt() {
 
 configure_official_interactive() {
     local token_input previous_tokens="${PO0_FIREWALL_TOKENS:-}"
-    print_panel_section "PO0 官方防火墙参数"
+    print_panel_section "PO0 防火墙参数"
     print_panel_row "当前官方 Token" "${PO0_FIREWALL_TOKENS:-未设置}"
     printf '官方定时上报可关闭、可修改，默认 600 秒；网络变化单独触发。可用逗号、分号、空格或换行分隔，槽位写 @0..4。空行结束；直接空行保留，单独 - 清空。\n'
     token_input="$(official_read_secret_prompt '输入官方 Token（空行结束）: ')" || return 1
@@ -53,7 +53,7 @@ clear_official_tokens_interactive() {
 }
 
 show_current_config() {
-    print_title 'PO0 官方防火墙 · 本机配置'
+    print_title 'PO0 防火墙 · 本机配置'
     show_channel_config official
     print_panel_row 'SSID 跳过' "${SKIP_WIFI_SSIDS:-未设置}"
     print_panel_row '配置文件' "$CONFIG_FILE"

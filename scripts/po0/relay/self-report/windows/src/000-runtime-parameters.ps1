@@ -45,11 +45,11 @@ $ErrorActionPreference = "Stop"
 $ReleaseDownloadBaseUrl = $(if ($env:PO0_RELEASE_DOWNLOAD_BASE_URL) { $env:PO0_RELEASE_DOWNLOAD_BASE_URL } else { "https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download" })
 $DownloadUrl = $(if ($env:PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL) { $env:PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL } elseif ($env:PO0_SELF_REPORT_PS_DOWNLOAD_URL) { $env:PO0_SELF_REPORT_PS_DOWNLOAD_URL } else { "$ReleaseDownloadBaseUrl/po0-outbound-ip-report.ps1" })
 $ScriptName = "po0-outbound-ip-report"
-$ScriptVersion = "2026.09.08+build.1"
-$ScriptReleaseDate = "2026-09-08"
+$ScriptVersion = "2026.10.04+build.1"
+$ScriptReleaseDate = "2026-10-04"
 # CHANGELOG_BEGIN
-# - 只保留官方上报与精简菜单，旧自建动作停止执行。
-# - 迁移先备份设置与旧任务，保留官方账号、槽位、间隔和停用选择。
+# - 界面、通知和输出统一为 PO0 防火墙，保留现有账号、槽位和任务。
+# - 官方请求、定期与网络触发、停用及升级行为保持兼容。
 # CHANGELOG_END
 $PanelValueColumn = 24
 $MenuRightColumn = 46

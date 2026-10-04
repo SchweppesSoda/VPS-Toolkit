@@ -246,7 +246,7 @@ client_maintenance_menu() {
 }
 
 show_client_overview() {
-    print_title 'PO0 官方防火墙'
+    print_title 'PO0 防火墙'
     print_panel_row '自动上报' "$(channel_auto_label official)"
     print_panel_row '自动任务' "$(cron_status_summary official)"
     print_official_target_names

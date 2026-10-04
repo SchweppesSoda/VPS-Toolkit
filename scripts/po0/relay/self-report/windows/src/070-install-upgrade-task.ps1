@@ -513,7 +513,7 @@ function Invoke-LegacyPathSelfHeal {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
     }
     Copy-Item -LiteralPath $PSCommandPath -Destination $dest -Force
-    Write-Host "已迁移 Windows PO0 Outbound IP Report 客户端脚本到标准安装路径：$dest"
+    Write-Host "已迁移 Windows PO0 防火墙客户端脚本到标准安装路径：$dest"
 
     try {
         $legacySettings = Get-LegacyReporterRecord
@@ -585,7 +585,7 @@ function Upgrade-SelfFromDownload {
         $newVersion = Get-ScriptFileVersion -Path $tmp
         $newChangelog = Get-ScriptFileChangelog -Path $tmp
         Move-Item -LiteralPath $tmp -Destination $dest -Force
-        Write-Host "已更新 PO0 Outbound IP Report 客户端脚本：$dest"
+        Write-Host "已更新 PO0 防火墙客户端脚本：$dest"
         Write-Host "下载 URL：$DownloadUrl"
         if ($newVersion) {
             if ($newVersion -eq $ScriptVersion) {

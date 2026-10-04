@@ -10,9 +10,9 @@ if (-not $OutputDir) {
 }
 
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.09.08+build.1" }
-$ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-09-08" }
-$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.09.08.1" }
+$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.10.04+build.1" }
+$ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-10-04" }
+$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.10.04.1" }
 
 function ConvertTo-RepoRelativePath {
     param([string]$Path)
@@ -99,8 +99,9 @@ function Test-RawReferences {
         "scripts/po0/nftables/clients/egern/po0-firewall.js",
         "scripts/po0/nftables/clients/egern/PO0-SSH-IP-Report.yaml",
         "scripts/po0/nftables/clients/egern/po0-ssh-ip-report.js",
-        "scripts/po0/nftables/clients/loon/PO0.LAN-Report.lpx",
-        "scripts/po0/nftables/clients/loon/po0-loon-report.js",
+        "scripts/po0/nftables/clients/stash/PO0-Firewall.stoverride",
+        "scripts/po0/nftables/clients/stash/po0-firewall.js",
+        "scripts/po0/nftables/clients/stash/PO0.LAN-Report.stoverride",
         "scripts/po0/nftables/clients/stash/po0-stash-report.js",
         "scripts/po0/relay/egern/PO0-SSH-IP-Report.yaml",
         "scripts/po0/relay/egern/po0-ssh-ip-report.js",
@@ -686,6 +687,8 @@ function Test-VersionsMatchTag {
 
 Test-RawReferences
 Test-EgernCompatibilitySync
+& node (Join-Path $RepoRoot "tools/po0/sync-po0-client-compat.mjs") --check
+if ($LASTEXITCODE -ne 0) { throw "PO0 client compatibility check failed." }
 
 Test-ManifestCoverage `
     -Name "manager" `
@@ -859,16 +862,13 @@ if ($LASTEXITCODE -ne 0) { throw "Release version tag checks failed." }
 Write-Host "Checking node tools/po0/test-egern-official-report.mjs"
 & node (Join-Path $RepoRoot "tools/po0/test-egern-official-report.mjs") | Out-Host
 if ($LASTEXITCODE -ne 0) { throw "Egern official report checks failed." }
-Write-Host "Checking node tools/po0/test-loon-report.js"
-& node (Join-Path $RepoRoot "tools/po0/test-loon-report.js") | Out-Host
-if ($LASTEXITCODE -ne 0) {
-    throw "Command failed: node tools/po0/test-loon-report.js"
-}
 Write-Host "Checking node tools/po0/test-stash-report.js"
 & node (Join-Path $RepoRoot "tools/po0/test-stash-report.js") | Out-Host
 if ($LASTEXITCODE -ne 0) {
     throw "Command failed: node tools/po0/test-stash-report.js"
 }
+& node (Join-Path $RepoRoot "tools/po0/test-client-compat-sync.mjs") | Out-Host
+if ($LASTEXITCODE -ne 0) { throw "PO0 client compatibility writer checks failed." }
 Invoke-BashSyntax "nftables-relay-manager.sh"
 Invoke-BashSyntax "po0-lan-client.sh"
 Invoke-BashSyntax "po0-outbound-ip-report.sh"

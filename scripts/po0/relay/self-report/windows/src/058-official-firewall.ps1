@@ -36,7 +36,7 @@ function Get-Po0FirewallTokenItems {
     foreach ($part in $parts) {
         $item = ([string]$part).Trim()
         if (-not $item) {
-            throw "PO0 官方防火墙 token 列表包含空项。"
+            throw "PO0 防火墙 token 列表包含空项。"
         }
 
         $token = $item
@@ -44,24 +44,24 @@ function Get-Po0FirewallTokenItems {
         $at = $item.IndexOf("@")
         if ($at -ge 0) {
             if ($at -le 0 -or $item.IndexOf("@", $at + 1) -ge 0) {
-                throw "PO0 官方防火墙 token 配置无效。"
+                throw "PO0 防火墙 token 配置无效。"
             }
             $token = $item.Substring(0, $at)
             $slot = $item.Substring($at + 1)
             if ($slot -notmatch "^[0-4]$") {
-                throw "PO0 官方防火墙 token 配置无效。"
+                throw "PO0 防火墙 token 配置无效。"
             }
         }
         if ($token -notmatch "^pgnfw_[A-Za-z0-9._~-]{1,240}$") {
-            throw "PO0 官方防火墙 token 配置无效。"
+            throw "PO0 防火墙 token 配置无效。"
         }
         # A token identifies one official account; slot hints are not separate accounts.
         $key = $token
         if (-not $seen.Add($key)) {
-            throw "PO0 官方防火墙 token 列表包含重复项。"
+            throw "PO0 防火墙 token 列表包含重复项。"
         }
         if ($items.Count -ge 16) {
-            throw "PO0 官方防火墙 token 数量超过上限。"
+            throw "PO0 防火墙 token 数量超过上限。"
         }
         $items.Add([pscustomobject]@{
             Token = $token
@@ -87,7 +87,7 @@ function Assert-Po0FirewallTokens {
     param([switch]$AllowEmpty)
     $items = @(Get-Po0FirewallTokenItems)
     if (-not $AllowEmpty -and $items.Count -eq 0) {
-        throw "PO0 官方防火墙未启用（默认关闭）。"
+        throw "PO0 防火墙未启用（默认关闭）。"
     }
     return $items
 }
@@ -547,7 +547,7 @@ function Invoke-Po0FirewallReport {
         NewEntryCount = 0
         NeedsNotify = $false
         Skipped = $false
-        Message = "PO0 官方防火墙未启用（默认关闭）。"
+        Message = "PO0 防火墙未启用（默认关闭）。"
         Accounts = @()
     }
     if (-not (Test-Po0FirewallConfigured)) {
@@ -560,13 +560,13 @@ function Invoke-Po0FirewallReport {
         $result.Succeeded = $false
         $result.ExitCode = 1
         $result.Status = "failed"
-        $result.Message = "PO0 官方防火墙 token 配置无效。"
+        $result.Message = "PO0 防火墙 token 配置无效。"
         return [pscustomobject]$result
     }
     if ($Mode -eq "report" -and $script:Po0FirewallScheduledRun -and -not $script:Po0FirewallForce -and -not (Test-Po0FirewallDue)) {
         $result.Status = "skipped"
         $result.Skipped = $true
-        $result.Message = "PO0 官方防火墙本次未到期。"
+        $result.Message = "PO0 防火墙本次未到期。"
         return [pscustomobject]$result
     }
     if ($Mode -eq "report") {
@@ -576,7 +576,7 @@ function Invoke-Po0FirewallReport {
             $result.Succeeded = $false
             $result.ExitCode = 1
             $result.Status = "failed"
-            $result.Message = "PO0 官方防火墙独立状态保存失败。"
+            $result.Message = "PO0 防火墙独立状态保存失败。"
             return [pscustomobject]$result
         }
     }
@@ -609,7 +609,7 @@ function Invoke-Po0FirewallReport {
             $result.Succeeded = $false
             $result.ExitCode = 1
             $result.Status = "failed"
-            $result.Message = "PO0 官方防火墙状态保存失败。"
+            $result.Message = "PO0 防火墙状态保存失败。"
             return [pscustomobject]$result
         }
     }
@@ -621,7 +621,7 @@ function Invoke-Po0FirewallReport {
             $result.Succeeded = $false
             $result.ExitCode = 1
             $result.Status = "failed"
-            $result.Message = "PO0 官方防火墙只读状态保存失败。"
+            $result.Message = "PO0 防火墙只读状态保存失败。"
             return [pscustomobject]$result
         }
     }
@@ -630,16 +630,16 @@ function Invoke-Po0FirewallReport {
         $result.ExitCode = 1
         $result.Status = if ($success -gt 0) { "partial" } else { "failed" }
         if ($success -gt 0) {
-            $result.Message = "PO0 官方防火墙上报部分完成：成功 $success 条，失败 $failure 条。"
+            $result.Message = "PO0 防火墙上报部分完成：成功 $success 条，失败 $failure 条。"
         } else {
-            $result.Message = "PO0 官方防火墙上报失败：$failure 条请求未完成。"
+            $result.Message = "PO0 防火墙上报失败：$failure 条请求未完成。"
         }
     } elseif ($Mode -eq "status") {
         $result.Status = "success"
-        $result.Message = "PO0 官方防火墙只读检查完成：成功 $success 条。"
+        $result.Message = "PO0 防火墙只读检查完成：成功 $success 条。"
     } else {
         $result.Status = "success"
-        $result.Message = "PO0 官方防火墙上报完成：成功 $success 条。"
+        $result.Message = "PO0 防火墙上报完成：成功 $success 条。"
     }
     return [pscustomobject]$result
 }

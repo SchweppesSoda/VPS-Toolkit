@@ -577,6 +577,13 @@ try {
 
     Assert-False ((Test-Path -LiteralPath $logPath) -and (Get-Content -LiteralPath $logPath -Raw -ErrorAction SilentlyContinue).Contains($tokenA)) "Token must not enter log."
 
+    foreach ($brand in @('PO0 防火墙', 'PO0 Outbound IP Report')) {
+        $row = Convert-SelfReportLogLineForDisplay "[2026-10-04 12:34:56] [OK] $brand 已完成：检查完成"
+        Assert-Equal '检查完成' $row.Message 'Current and historical report brands must share log summaries.'
+        $row = Convert-SelfReportLogLineForDisplay "[2026-10-04 12:34:56] [ERROR] $brand 未完成：网络失败"
+        Assert-Equal '网络失败' $row.Message 'Current and historical failure brands must share log summaries.'
+    }
+    Assert-Equal 'Outbound IP Report' $script:TaskName 'Display branding must preserve the scheduled task identity.'
     Write-Host "Windows official firewall mock tests passed."
 } catch {
     Write-Host $_.ScriptStackTrace
