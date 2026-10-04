@@ -93,7 +93,24 @@ AuthenticationMethods publickey
 PermitRootLogin prohibit-password
 ```
 
-这意味着新端口只允许公钥认证。`PermitRootLogin prohibit-password` 保留 root 公钥登录能力，但禁止 root 密码登录。
+这组设置用于让新端口只允许公钥认证。`PermitRootLogin prohibit-password` 保留 root 公钥登录能力，但禁止 root 密码登录。若更早的 `Match` 或 Include 中的匹配块已设置同一项，后追加的值可能不生效，必须检查实际连接条件下的最终认证组合。
+
+## 初始化与重启边界
+
+加固前应确认 SSH、`authorized_keys`、主机密钥和 DNS 分别由谁维护。cloud-init 的部分模块按实例执行；数据源的 `instance-id` 变化或初始化状态被清理后，已有初始化内容可能重新执行。普通重启不等同于重新初始化，但 `scripts-per-boot` 等每次启动执行的脚本需要单独检查。
+
+至少检查以下来源及其实际执行频率：
+
+- cloud-init 当前数据源、seed 的 `instance-id`，以及 user-data / vendor-data 中的 `runcmd`、`bootcmd`。
+- cloud-init 实例脚本和 `scripts-per-boot`，以及面板或镜像安装的启动服务、定时任务和配置重置脚本。
+- 对 `sshd_config`、Include 文件、`authorized_keys` 和 `ssh_host_*` 的写入或删除；区分登录公钥与服务器主机密钥。
+- 对 `/etc/resolv.conf` 及其上游网络配置的写入，确认重启后 DNS 的管理来源。
+
+`network: {config: disabled}` 只停用 cloud-init 的网络配置功能，不能阻止 `runcmd`、`bootcmd` 或其它脚本自行重写 DNS、SSH 或公钥。只按关键词删除认证设置、再在文件末尾追加默认值的脚本还可能破坏已有 `Match`：注释或缩进不会结束匹配块，追加的 `PubkeyAuthentication no` 若仍位于要求 `AuthenticationMethods publickey` 的块内，就会让该连接没有可用认证组合。
+
+不得把禁用 cloud-init 作为通用加固动作。应先辨明实例是否依赖它管理网络、用户、公钥或其它配置，再处理具体冲突；用户已授权具体处置时，在该范围内实施并验证。本脚本不会自动检查这些管理来源，也不会修改初始化策略。
+
+现场处置前，保留受影响配置、数据源与实例标识、相关脚本的哈希、文件时间和执行日志，存入权限受限的运维位置。seed、user-data、vendor-data 和脚本可能含凭据，不能整份写入公开仓库或报告。未做整机重启测试时，应明确记录该限制，不能用一次 reload 或新会话登录推定重启后的状态。
 
 ## 配置校验和回滚
 
@@ -111,6 +128,15 @@ PermitRootLogin prohibit-password
 如果语法检查失败，或 `sshd -T` 没看到新端口，脚本会恢复备份并退出。
 
 如果 reload/restart SSH 服务失败，脚本也会恢复备份，尝试重新加载 SSH，并删除本次刚添加的新端口 nft accept 规则。
+
+以上自动检查只覆盖语法和监听端口，不保证所有 `Match` 条件下的认证组合可用。部署者还需按 sshd 实际看到的用户名、客户端地址、服务端地址和端口检查有效配置；经跳板或转发连接时，使用服务器看到的来源信息：
+
+```bash
+sshd -T -C 'user=<user>,host=<client-host>,addr=<client-ip>,laddr=<server-ip>,lport=<new_port>' \
+  | grep -E '^(port|pubkeyauthentication|passwordauthentication|kbdinteractiveauthentication|authenticationmethods|permitrootlogin) '
+```
+
+目标端口应为预期值，公钥认证应为 `yes`，密码与键盘交互认证应为 `no`，`authenticationmethods` 应为 `publickey`；使用 root 时还需确认 `permitrootlogin` 允许公钥登录。`sshd -T -C` 返回成功也不代替检查这些值：要求的方法可能已被其它匹配设置禁用。发现冲突时定位第一处生效设置，不能只在末尾追加相反值。
 
 ## nftables 处理
 
@@ -161,16 +187,22 @@ chain input { type filter hook input priority -50; policy accept; }
 - 密码登录失败测试命令。
 - 手动回滚命令。
 
-用户必须保留当前 SSH 会话，再开新终端测试：
+用户必须保留当前 SSH 会话及可用的控制台恢复路径，再开新终端，使用预期私钥且不复用现有连接测试；未计划轮换密钥时，使用原私钥：
 
 ```bash
-ssh -p <new_port> <user>@YOUR_VPS_IP
+ssh -o ControlMaster=no -o ControlPath=none -o IdentitiesOnly=yes \
+  -o IdentityAgent=none -o StrictHostKeyChecking=yes \
+  -i <private_key> -p <new_port> <user>@YOUR_VPS_IP
 ```
+
+同时核对客户端本次认证使用的公钥指纹，确认成功的是预期密钥；不能仅凭某个已配置密钥登录成功判断原密钥仍可用。
 
 并测试密码登录应失败：
 
 ```bash
-ssh -p <new_port> -o PreferredAuthentications=password -o PubkeyAuthentication=no <user>@YOUR_VPS_IP
+ssh -o ControlMaster=no -o ControlPath=none -o StrictHostKeyChecking=yes \
+  -p <new_port> -o PreferredAuthentications=password \
+  -o PubkeyAuthentication=no <user>@YOUR_VPS_IP
 ```
 
 确认新端口和公钥登录可用后，再关闭旧会话。
