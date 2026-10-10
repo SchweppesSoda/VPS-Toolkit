@@ -8,4 +8,4 @@
 
 “立即上报”和“强制上报”始终先查询，缺少覆盖才写入。“查询官方白名单”只读；“最近结果”和首页 Tile 显示缓存。Tile 不请求网络、不写存储、不执行迁移，点击进入本机管理页。
 
-标准文件为 `PO0-Firewall.stoverride` 和 `po0-firewall.js`。旧模块 `PO0.LAN-Report.stoverride`、旧脚本 `po0-stash-report.js` 为同步兼容副本，旧本机操作 URL 继续有效。`worker-v2`、本机存储键与探测组名保留既有身份。源码维护只编辑标准文件，再通过 [PO0 构建入口](../../../relay/README.md#下载与构建)同步兼容副本。
+标准文件为 `PO0-Firewall.stoverride` 和 `po0-firewall.js`。旧模块 `PO0.LAN-Report.stoverride`、旧脚本 `po0-stash-report.js` 为同步兼容副本，旧本机操作 URL 继续有效。`worker-v2` 与本机存储键保持原身份。探测默认使用旧 `📡 PO0 Wi-Fi 探测` / `📡 PO0 蜂窝探测`；若主配置重命名，可在各次脚本调用的 JSON 参数中设置 `PO0_PROBE_WIFI_GROUP` / `PO0_PROBE_CELLULAR_GROUP` 为对应组名。两组必须仍有互补的网络策略；恰好一个成功才识别网络，其它结果继续跳过官方请求。源码维护只编辑标准文件，再通过 [PO0 构建入口](../../../relay/README.md#下载与构建)同步兼容副本。

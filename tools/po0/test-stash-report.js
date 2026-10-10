@@ -77,7 +77,10 @@ function execute(options = {}) {
           } else if (String(request.url || "").includes("generate_204")) {
             const group = decodeURIComponent(request.headers['X-Stash-Selected-Proxy'] || '');
             const network = options.network || 'wifi';
-            const blocked = group === '📡 PO0 Wi-Fi 探测' ? network !== 'wifi' : group === '📡 PO0 蜂窝探测' ? network !== 'cellular' : false;
+            const probeArgs = JSON.parse(options.argument || '{}');
+            const wifiGroup = probeArgs.PO0_PROBE_WIFI_GROUP || '📡 PO0 Wi-Fi 探测';
+            const cellularGroup = probeArgs.PO0_PROBE_CELLULAR_GROUP || '📡 PO0 蜂窝探测';
+            const blocked = group === wifiGroup ? network !== 'wifi' : group === cellularGroup ? network !== 'cellular' : false;
             result = blocked && network !== 'both' ? { error: 'mock blocked probe' } : { response: { status: 204 }, data: '' };
           } else {
             result = { response: { status: 200 }, data: JSON.stringify({ ip: "8.8.8.8" }) };
@@ -340,7 +343,9 @@ async function testOfficialNetworkTargets() {
   assert.equal(result.requests.length, 0, 'saving network targets must stay offline');
   const snapshot = store.get(STORE_KEY + '.official-config');
   assert.equal(JSON.parse(snapshot).networkTargetsEnabled, true);
+  const groupHeaders = result => result.requests.filter(x => x.request.url.includes('generate_204')).map(x => decodeURIComponent(x.request.headers['X-Stash-Selected-Proxy']));
   result = await call({mode:'auto', channel:'official'}, 'cellular', {officialPosts:[{body:officialBody([{ip:'8.8.8.8/24',slot:1}])}]});
+  assert.deepEqual(groupHeaders(result), ['📡 PO0 Wi-Fi 探测', '📡 PO0 蜂窝探测'], 'old configurations retain both original probe names');
   assert(posts(result)[0].request.url.endsWith('/add?slot=1'), 'cellular must use the original user slot');
   result = await call({mode:'auto', channel:'official', PO0_FIREWALL_WIFI_TOKENS:'pgnfw_synced_other@4'});
   assert(posts(result)[0].request.url.endsWith('/add'), 'Wi-Fi uses the saved unslotted target exactly');
@@ -358,6 +363,16 @@ async function testOfficialNetworkTargets() {
   assert.equal(officialRequests(result).length, 0, 'unknown network must not select either official list');
   result = await call({mode:'force', channel:'official'}, 'both');
   assert.equal(officialRequests(result).length, 0, 'ambiguous complementary probes must not select a target');
+  const plainGroups = {PO0_PROBE_WIFI_GROUP:'PO0 Wi-Fi 探测', PO0_PROBE_CELLULAR_GROUP:'PO0 蜂窝探测'};
+  result = await call({mode:'status', ...plainGroups}, 'wifi');
+  assert.deepEqual(groupHeaders(result), ['PO0 Wi-Fi 探测', 'PO0 蜂窝探测'], 'new configurations explicitly bind the renamed probes');
+  assert(officialRequests(result).length > 0 && posts(result).length === 0, 'renamed Wi-Fi probes keep official status read-only');
+  result = await call({mode:'force', channel:'official', ...plainGroups}, 'cellular', {officialPosts:[{body:officialBody([{ip:'8.8.8.8/24',slot:1}])}]});
+  assert(posts(result)[0].request.url.endsWith('/add?slot=1'), 'renamed cellular probes preserve the original slot');
+  for (const network of ['unknown','both']) {
+    result = await call({mode:'force', channel:'official', ...plainGroups}, network);
+    assert.equal(officialRequests(result).length, 0, 'renamed uncertain probes must retain the existing fail-closed behavior');
+  }
   await call(Object.assign({},save,{PO0_FIREWALL_WIFI_TOKENS:token+'@4'}));
   result = await call({mode:'force', channel:'official'}, 'wifi', {officialPosts:[{body:officialBody([{ip:'8.8.8.8/24',slot:4}])}]});
   assert(posts(result)[0].request.url.endsWith('/add?slot=4'), 'Wi-Fi fixed slot must never be stripped');

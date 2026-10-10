@@ -271,11 +271,12 @@ function selectedHeaders(proxy) {
   };
 }
 
-async function detectNetwork(split = false) {
+async function detectNetwork(split = false, args = {}) {
   if (split) {
     // Complementary SSID policies: exactly one probe must succeed. An outage,
     // missing groups, or a switch during the probes must not be guessed as cellular.
-    const probes = await Promise.all(['📡 PO0 Wi-Fi 探测', '📡 PO0 蜂窝探测'].map(async group => {
+    const probeGroups = [args.PO0_PROBE_WIFI_GROUP || '📡 PO0 Wi-Fi 探测', args.PO0_PROBE_CELLULAR_GROUP || '📡 PO0 蜂窝探测'];
+    const probes = await Promise.all(probeGroups.map(async group => {
       try {
         const result = await request('get', { url: 'https://www.gstatic.com/generate_204', headers: selectedHeaders(group), timeout: 5, 'auto-redirect': false });
         return responseStatus(result) === 204;
@@ -642,7 +643,7 @@ async function runUnlocked() {
 
   if (mode === "status") {
     firewallRawValue(args);
-    const kind = officialNetworkEnabled(args) ? await detectNetwork(true) : undefined;
+    const kind = officialNetworkEnabled(args) ? await detectNetwork(true, args) : undefined;
     const tokens = selectedFirewallTokens(args, kind);
     if (officialNetworkEnabled(args) && kind === 'unknown') return finish(mode, false, '无法识别当前网络，已跳过官方查询', state, {});
     if (!tokens.length) return finish(mode, true, "status", state, {});
@@ -658,7 +659,7 @@ async function runUnlocked() {
   // duplicate-account input fails closed without touching the network.
   if (channelAllowed(args, mode, 'official')) parseFirewallTokens(firewallRawValue(args));
   if (!parseFirewallTokens(firewallRawValue(args)).length) { return finish(mode, true, '尚未配置官方上报目标', state, {}); }
-  const detectedNetwork = officialNetworkEnabled(args) ? await detectNetwork(true) : 'default';
+  const detectedNetwork = officialNetworkEnabled(args) ? await detectNetwork(true, args) : 'default';
   const tokens = channelAllowed(args, mode, 'official') ? selectedFirewallTokens(args, detectedNetwork) : [];
   const unknownOfficialNetwork = channelAllowed(args, mode, 'official') && officialNetworkEnabled(args) && detectedNetwork === 'unknown';
   const officialNetworkChanged = officialNetworkEnabled(args) && state.official?.network !== detectedNetwork;
