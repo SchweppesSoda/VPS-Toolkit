@@ -78,7 +78,18 @@ case "$action" in
 ' >&2; exit 1; }
    curl -4 -fsS --connect-timeout 5 --max-time 30 "$url?wan=list"
   fi;;
- reload) exec /etc/init.d/po0-outbound-ip-report reload;;
+ reload)
+  # Reload may start a new timer or restart one after an interval change.
+  # Give only those new processes a quiet first interval; an already running
+  # timer keeps its deadline. This is not an official attempt/result timestamp.
+  umask 077
+  apply_file="${BASE}.official.apply"
+  apply_tmp="$(mktemp "${apply_file}.XXXXXX")" || exit 1
+  if ! date +%s > "$apply_tmp" || ! mv -f "$apply_tmp" "$apply_file"; then
+   rm -f "$apply_tmp"
+   exit 1
+  fi
+  exec /etc/init.d/po0-outbound-ip-report reload;;
  *) printf '未知操作。
 ' >&2; exit 2;;
 esac

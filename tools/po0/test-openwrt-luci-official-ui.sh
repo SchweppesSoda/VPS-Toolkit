@@ -16,8 +16,8 @@ fail() {
 [[ -r "${acl}" ]] || fail "LuCI ACL is missing"
 
 grep -Fq "'require uci';" "${ui}" || fail "LuCI view does not load UCI"
-grep -Fq "form.TableSection, 'official_target'" "${ui}" || fail "official target table is missing"
-grep -Fq "form.TableSection, 'official_binding'" "${ui}" || fail "official binding table is missing"
+grep -Fq "OrderedTableSection, 'official_target'" "${ui}" || fail "official target table is missing"
+grep -Fq "OrderedTableSection, 'official_binding'" "${ui}" || fail "official binding table is missing"
 grep -Fq "'official_enabled'" "${ui}" || fail "official switch is missing"
 grep -Fq "'official_source_' + wan" "${ui}" || fail "gateway WAN source settings are missing"
 for key in official_interval_seconds official_network_enabled official_timer_enabled; do
@@ -27,13 +27,13 @@ grep -Fq "String(slot - 1)" "${ui}" || fail "UI does not map slot 1-5 to backend
 grep -Fq "'official-status'" "${ui}" || fail "read-only official status action is missing"
 grep -Fq "channel + '-report'" "${ui}" || fail "explicit official report action is missing"
 grep -Fq "pgnfw[_-][A-Za-z0-9._~-]+" "${ui}" || fail "official token redaction does not cover the full token character set"
-grep -Fq "PO0 防火墙状态" "${ui}" || fail "official status table heading is missing"
+grep -Fq "E('h3', {}, [ _('状态') ])" "${ui}" || fail "official status table heading is missing"
 grep -Fq "status === 'missing'" "${ui}" || fail "normal missing status is not rendered as a distinct state"
 grep -Fq "当前出口尚未加白" "${ui}" || fail "missing status summary is missing"
 
 grep -Fq "o.password = false" "${ui}" || fail "tokens must be visible in configuration"
 grep -Fq "s.tab('official'" "${ui}" || fail "official channel tab is missing"
-grep -Fq "保存配置" "${ui}" || fail "consistent save/report action is missing"
+grep -Fq "保存并应用配置" "${ui}" || fail "unified apply action is missing"
 grep -Fq "必须包含 pgnfw_ 前缀" "${ui}" || fail "full token explanation is missing"
 
 grep -Fq "'probe_dns_server'" "${ui}" || fail "real DNS server setting is missing"

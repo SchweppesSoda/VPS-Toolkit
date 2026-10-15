@@ -147,4 +147,29 @@ called '--official-only --timer-trigger'
 OFFICIAL_TIMER=0 sh "$work/start" > "$work/procd"
 ! grep -Fqx 'instance=official' "$work/procd" || fail 'explicit timer switch registered official instance'
 ! grep -Fqx 'instance=worker' "$work/procd" || fail 'retired instance returned'
-printf 'PASS: OpenWrt independent instances, optional timers, events, and migration.\n'
+# Applying config cannot trigger a first/overdue timer attempt on reload.
+old_timer="$(cat "$base.official.timer.state")"
+printf '10000\n' > "$base.official.apply"
+NOW=10000 run official
+not_called; wait_is 600
+[[ "$(cat "$base.official.timer.state")" == "$old_timer" ]] || fail 'apply fabricated a timer attempt'
+NOW=10000 OFFICIAL_INTERVAL=900 run official
+not_called; wait_is 900
+NOW=9990 run official
+not_called; wait_is 600
+NOW=10100 OFFICIAL_INTERVAL=900 run official
+not_called; wait_is 800
+NOW=10000 TOTAL=0 run official
+not_called; [[ ! -s "$work/sleep.log" ]] || fail 'disabled service waited after apply'
+NOW=10000 OFFICIAL_TIMER=0 run official network wan2
+called '--official-only --network-changed --official-wan wan2'
+[[ "$(cat "$base.official.timer.state")" == "$old_timer" ]] || fail 'network event after apply moved deadline'
+NOW=10600 run official
+called '--official-only --timer-trigger'
+# A fresh timer with no previous result also waits, without writing fake state.
+rm -f "$base.official.timer.state" "$base.official.state"
+printf '20000\n' > "$base.official.apply"
+NOW=20000 run official
+not_called; wait_is 600
+[[ ! -e "$base.official.timer.state" ]] || fail 'fresh apply wrote fake timer state'
+printf 'PASS: OpenWrt independent timers/events, migration and quiet apply startup.\n'

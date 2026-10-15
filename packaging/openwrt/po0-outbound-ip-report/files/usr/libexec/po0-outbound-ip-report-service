@@ -117,6 +117,19 @@ if [ "$trigger" = network ]; then
 	exit 0
 fi
 
+# A LuCI apply must not turn a newly enabled/restarted timer into an immediate
+# report. Do not change attempt timestamps or the deadline of an existing loop.
+if automatic_enabled && [ -r "${BASE}.${lane}.apply" ]; then
+	applied="$(cat "${BASE}.${lane}.apply")"
+	case "$applied" in ''|*[!0-9]*) applied=0 ;; esac
+	now="$(date +%s)"
+	if [ "$applied" -gt 0 ]; then
+		remaining="$(interval_for)"
+		[ "$now" -lt "$applied" ] || remaining=$((applied + remaining - now))
+		[ "$remaining" -le 0 ] || sleep "$remaining"
+	fi
+fi
+
 while automatic_enabled; do
 	remaining="$(seconds_until_due)"
 	if [ "$remaining" -eq 0 ]; then

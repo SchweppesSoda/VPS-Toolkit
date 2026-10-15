@@ -32,6 +32,10 @@ manager 核对所有响应头、实际大小与摘要、HMAC、脚本身份、ch
 
 OpenWrt APK 使用独立的 POSIX shell 官方 runner/request；不再打包通用 Linux 自建引擎。历史 engine 路径仅转交 UCI 适配器。UCI/procd/hotplug 只有官方实例，手动与查询仍可在自动总开关关闭时运行。真实 DNS 解析、WAN/源地址绑定、无故障回退、限长响应和互斥处理保持原有行为。
 
+LuCI 使用 JSON 表单暂存增删、排序及各页签输入，唯一保存入口将全部受管字段提交到本包 UCI 并 reload。目标 section 顺序是分组依据，绑定按目标顺序及组内顺序持久化；状态按已保存的绑定投影缓存，新增结果携带 binding ID，旧缓存按目标/WAN/槽位兼容匹配，变更后的绑定不继承旧成功结果。保存只重排已有缓存，不调用状态查询或上报。
+
+保存时 control 写入独立的 `.official.apply` 时间戳，再 reload。新启动的 timer 进程在该时刻加一个当前周期之后才开始检查 due；未重启的 timer 不读取此标记，继续原截止点。标记不伪造上报时间、不修改 `.timer.state`，也不阻止独立的 network/manual 动作。启动延迟结束后仍检查自动开关；普通开机及已有标记过期后的启动沿用原 due 逻辑。
+
 Egern / Stash 保持 Token、槽位及按网络选择的本机保存契约。新活动状态只含官方字段，原配置与状态另存不可覆盖快照。旧动作返回退役结果；缓存 Tile 无副作用。Stash 原 provider 标识中的 `worker-v2` 只是脚本执行身份，继续保留以避免缓存绑定变化。
 
 Egern SSID guard 覆盖所有普通上报入口，包括状态组件与 Widget 刷新；只允许非 Widget 的明确手动强制入口绕过。匹配前从当前模块参数读取跳过列表，使用 ctx.device.wifi.ssid；命中后不进入官方请求引擎，只保存本机跳过提示，官方结果和 due 保持不变。只读查询仍允许 GET，绝不 POST。

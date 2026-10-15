@@ -72,7 +72,14 @@ MOCK
 chmod +x "$tmp_dir/bin/uci" "$tmp_dir/bin/init"
 export PATH="$tmp_dir/bin:$PATH"
 control="$repo_root/packaging/openwrt/po0-outbound-ip-report/files/usr/libexec/po0-outbound-ip-report-control"
-sed "s|/etc/init.d/po0-outbound-ip-report|$tmp_dir/bin/init|g" "$control" > "$tmp_dir/control"
+sed -e "s|/etc/init.d/po0-outbound-ip-report|$tmp_dir/bin/init|g" \
+    -e "s|^BASE=.*|BASE='$tmp_dir/result'|" "$control" > "$tmp_dir/control"
+# Applying only marks a quiet startup and reloads: no UCI runner or official API.
+sh "$tmp_dir/control" reload
+grep -Eq '^[0-9]+$' "$tmp_dir/result.official.apply"
+[[ "$(cat "$PO0_TEST_RELOAD")" == reload ]]
+[[ ! -e "$tmp_dir/result.official.timer.state" ]]
+: > "$PO0_TEST_RELOAD"
 cat > "$tmp_dir/original" <<'DATA'
 po0_outbound_ip_report.main=reporter
 po0_outbound_ip_report.main.enabled=1

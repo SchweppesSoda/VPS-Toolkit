@@ -194,6 +194,7 @@ binding_exists() {
 emit_row() {
 	# LuCI accepts this key/value format. API response text is never copied
 	# directly into the page, and target tokens are never emitted.
+	printf 'entry_binding=%s\n' "$(safe_text "$binding")"
 	printf 'entry_target=%s\n' "$(safe_text "$target")"
 	printf 'entry_label=%s\n' "$(safe_text "$label")"
 	printf 'entry_wan=%s\n' "$(safe_text "$wan")"

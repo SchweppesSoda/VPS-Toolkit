@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import assert from 'node:assert/strict';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -18,7 +19,7 @@ for (const expectedSource of [
     "channel + '-report'",
     "channel + '-progress'",
     'po0-result-card',
-    '保存配置'
+    '保存并应用配置'
 ]) {
     if (!source.includes(expectedSource))
         throw new Error(`LuCI source missing asynchronous/UI feature: ${expectedSource}`);
@@ -67,9 +68,11 @@ async function exerciseSave(acl, { saveFails = false, overrideConfig } = {}) {
         }
     };
     const commit = Function('rpc', `return ${declaration};`)(rpc);
-    const save = Function('commitReporter', 'refreshChannelResult',
+    const save = Function('commitReporter', 'persistReporterConfig', 'fs', 'CONTROL', 'renderOfficialStatus', 'lastOfficialResult',
         `${source.slice(saveStart, saveEnd)}; return saveReporter;`)(
-        commit, async channel => { events.push(`cached-result:${channel}`); });
+        commit, async () => { events.push('persist-all'); },
+        { exec: async (_path, args) => { events.push(args.join(' ')); return {code: 0}; } }, 'mock-control',
+        () => { events.push('render-cache'); }, 'cached');
     let failure;
     try {
         await save({ save: async () => {
@@ -80,19 +83,19 @@ async function exerciseSave(acl, { saveFails = false, overrideConfig } = {}) {
     return { events, failure };
 }
 const saved = await exerciseSave(reporterAcl);
-const expectedEvents = ['form-save', {
+const expectedEvents = ['form-save', 'persist-all', {
     object: 'uci', method: 'commit', params: { config: configName }
-}, 'cached-result:official'];
+}, 'reload', 'render-cache'];
 if (saved.failure || JSON.stringify(saved.events) !== JSON.stringify(expectedEvents))
-    throw new Error('save must commit exactly the reporter config before reading cached results');
+    throw new Error('apply must persist all settings, commit only this config and reload without a query or report');
 const withoutCommit = structuredClone(reporterAcl);
 delete withoutCommit.write.ubus.uci;
 const deniedMethod = await exerciseSave(withoutCommit);
-if (deniedMethod.failure !== 'ubus method access denied' || deniedMethod.events.length !== 2)
+if (deniedMethod.failure !== 'ubus method access denied' || deniedMethod.events.length !== 3)
     throw new Error('legacy ACL must reproduce commit access denied before result refresh');
 for (const config of ['network', 'firewall', '*', '']) {
     const deniedConfig = await exerciseSave(reporterAcl, { overrideConfig: config });
-    if (deniedConfig.failure !== 'UCI config write access denied' || deniedConfig.events.length !== 2)
+    if (deniedConfig.failure !== 'UCI config write access denied' || deniedConfig.events.length !== 3)
         throw new Error('commit method permission must not permit other UCI configs');
 }
 const invalidForm = await exerciseSave(reporterAcl, { saveFails: true });
@@ -110,42 +113,172 @@ const runAction = Function('fs','CONTROL','showActionResult','renderOfficialStat
     { exec: async (_, args) => { calls.push(args[0]); return { code:0,stdout:'',stderr:'' }; } }, 'mock-control',
     () => {}, () => ({rows:[]}), () => '', () => ({}), async () => {}, x => x, globalThis._);
 const neverSave = { save() { throw new Error('read/report must not save'); } };
-for (const action of ['official-status','official-report']) await runAction(neverSave, action.startsWith('official')?'official':'worker', action);
-if (calls.join(',') !== 'official-status,official-report') throw new Error('explicit actions did not run independently');
-console.log('OpenWrt LuCI scoped-save and no-implicit-save action tests passed.');
+for (const action of ['official-status','official-report','official-force-report']) await runAction(neverSave, action.startsWith('official')?'official':'worker', action);
+if (calls.join(',') !== 'official-status,official-report,official-force-report') throw new Error('explicit actions did not run independently');
+console.log('OpenWrt LuCI unified apply and independent manual action tests passed.');
 
-// Pending native table edits must never be committed by the other save button.
-const persistStart = source.indexOf('function persistReporterChannel(map)');
-const persistEnd = source.indexOf('function saveReporter(map)', persistStart);
-const initial = {
- main: {'.type':'reporter','.name':'main',worker_url:'saved-worker',secret:'saved-secret',source_id:'stable-source',interval_seconds:'5400',worker_timer_enabled:'0',official_enabled:'1',official_interval_seconds:'900',enabled:'1'},
- account: {'.type':'official_target','.name':'account',token:'pgnfw_saved_fixture',label:'saved-account'},
- binding: {'.type':'official_binding','.name':'binding',target:'account',wan:'wan1',slot:'3'}
-};
-let stored = structuredClone(initial);
-const draft = structuredClone(initial);
-draft.main.worker_url = 'edited-worker';
-draft.main.official_interval_seconds = '1800';
-delete draft.account;
-draft.new_account = {'.type':'official_target','.name':'new_account',token:'pgnfw_new_fixture',label:'edited-account'};
-draft.binding.target = 'new_account';
-const mutations=[];
-const backend = {
- unload() {}, async load() {}, async save() {mutations.push('save');},
- get(_c,id,key) {return key ? stored[id]?.[key] : stored[id];},
- set(_c,id,key,value) {if(value == null) delete stored[id][key]; else stored[id][key]=value; mutations.push(id+'.'+key);},
- sections(_c,type) {return Object.values(stored).filter(x=>x['.type']===type);},
- remove(_c,id) {delete stored[id]; mutations.push('remove:'+id);},
- add(_c,type,id) {stored[id]={'.type':type,'.name':id};mutations.push('add:'+id);},
- move() {}
-};
-const persist = Function('uci', source.slice(persistStart,persistEnd)+';return persistReporterChannel;')(backend);
-const pendingMap = {
- po0SaveChannel:'worker', channelKeys:{worker:['worker_url','secret','source_id','interval_seconds','worker_timer_enabled'],official:['official_enabled','official_interval_seconds'],network:['enabled']},
- data:{get(_c,id,key){return draft[id]?.[key];},sections(_c,type){return Object.values(draft).filter(x=>x['.type']===type);}}
-};
-stored=structuredClone(initial); mutations.length=0; pendingMap.po0SaveChannel='official';
-await persist(pendingMap);
-if(stored.main.worker_url!=='saved-worker' || stored.main.secret!=='saved-secret' || stored.main.worker_timer_enabled!=='0' || stored.main.interval_seconds!=='5400' || stored.main.source_id!=='stable-source') throw new Error('official save overwrote Worker parameters');
-if(stored.account || !stored.new_account || stored.binding.target!=='new_account' || stored.binding.slot!=='3' || stored.main.official_interval_seconds!=='1800') throw new Error('official target/binding save lost stable slot or pending edits');
-console.log('OpenWrt LuCI pending table edits and channel persistence isolation tests passed.');
+
+// UCI fixture with ordered sections, so reordering persistence is exercised.
+function store(initial) {
+ const data = structuredClone(initial);
+ return {
+  data, unload() {}, async load() {}, async save() {},
+  get(_c,id,key) {return key ? data[id]?.[key] : data[id];},
+  set(_c,id,key,value) {if(value == null) delete data[id][key]; else data[id][key]=value;},
+  sections(_c,type) {return Object.values(data).filter(x=>!type || x['.type']===type).sort((a,b)=>a['.index']-b['.index']);},
+  remove(_c,id) {delete data[id];},
+  add(_c,type,id) {data[id]={'.type':type,'.name':id,'.index':1000};},
+  move(_c,id,neighbor,after) {
+   if (!data[id] || !data[neighbor] || id===neighbor) return false;
+   const rows=this.sections(_c).filter(row=>row['.name']!==id);
+   rows.splice(rows.findIndex(row=>row['.name']===neighbor)+Number(!!after),0,data[id]);
+   rows.forEach((row,index)=>{row['.index']=index;});
+   return true;
+  }
+ };
+}
+const initial = Object.fromEntries([
+ ['main','reporter',{enabled:'0',official_enabled:'1',official_interval_seconds:'600',probe_dns_server:'192.0.2.1',worker_url:'untouched'}],
+ ['a','official_target',{label:'甲',token:'pgnfw_fixture_a',enabled:'1'}],
+ ['b','official_target',{label:'乙',token:'pgnfw_fixture_b',enabled:'1'}],
+ ['a1','official_binding',{target:'a',wan:'wan1',slot:'0',enabled:'1'}],
+ ['b1','official_binding',{target:'b',wan:'wan1',slot:'0',enabled:'1'}],
+ ['a2','official_binding',{target:'a',wan:'wan2',slot:'1',enabled:'1'}],
+ ['b2','official_binding',{target:'b',wan:'wan2',slot:'1',enabled:'1'}]
+].map(([id,type,values],index)=>[id,{'.name':id,'.type':type,'.index':index,...values}]));
+const stored=store(initial), draft=store(initial);
+const helperSource=source.slice(source.indexOf('function safeOfficialText'),source.indexOf('var OfficialStatusSection'))+
+ source.slice(source.indexOf('function orderedBindings'),source.indexOf('var OrderedTableSection'));
+const {orderedBindings,orderedOfficialRows,moveReporterRow,parseOfficialStatus}=Function('uci','_',helperSource+
+ ';return {orderedBindings,orderedOfficialRows,moveReporterRow,parseOfficialStatus};')(stored,globalThis._);
+const ids=rows=>rows.map(row=>row['.name']);
+assert.deepEqual(ids(orderedBindings(draft,configName)),['a1','a2','b1','b2']);
+assert.equal(moveReporterRow({data:draft},'official_target','b','a',false),true);
+assert.deepEqual(ids(orderedBindings(draft,configName)),['b1','b2','a1','a2']);
+assert.equal(moveReporterRow({data:draft},'official_binding','b2','b1',false),true);
+assert.deepEqual(ids(orderedBindings(draft,configName)),['b2','b1','a1','a2']);
+assert.equal(moveReporterRow({data:draft},'official_binding','a1','b2',false),false);
+assert.equal(moveReporterRow({data:draft},'official_target','a','b1',false),false);
+assert.equal(moveReporterRow({data:draft},'official_target','a','a',false),false);
+assert.equal(moveReporterRow({data:draft},'official_binding','missing','a1',false),false);
+assert.deepEqual(ids(stored.sections(configName,'official_target')),['a','b']);
+
+// All tabs and the total switch save together, without touching retired fields.
+draft.set(configName,'main','enabled','1');
+draft.set(configName,'main','official_interval_seconds','900');
+draft.set(configName,'main','probe_dns_server','192.0.2.53');
+draft.set(configName,'main','worker_url','must-not-save');
+draft.set(configName,'b','label','乙改名');
+const persist=Function('uci','orderedBindings',source.slice(source.indexOf('function persistReporterConfig'),source.indexOf('function saveReporter'))+
+ ';return persistReporterConfig;')(stored,orderedBindings);
+const map={data:draft,configKeys:['enabled','official_enabled','official_interval_seconds','probe_dns_server']};
+await persist(map);
+assert.deepEqual(ids(stored.sections(configName,'official_target')),['b','a']);
+assert.deepEqual(ids(stored.sections(configName,'official_binding')),['b2','b1','a1','a2']);
+assert.equal(stored.data.main.enabled,'1');
+assert.equal(stored.data.main.official_interval_seconds,'900');
+assert.equal(stored.data.main.probe_dns_server,'192.0.2.53');
+assert.equal(stored.data.main.worker_url,'untouched');
+assert.equal(stored.data.b2.slot,'1');
+assert.equal(stored.data.b.token,'pgnfw_fixture_b');
+
+// Old logs and new binding IDs both follow saved target/WAN ordering.
+const legacy=['a1','b1','a2','b2'].map(id=>{
+ const row=initial[id];
+ return `entry_target=${row.target}\nentry_wan=${row.wan}\nentry_slot=${row.slot}\nentry_status=success\nentry_current_ip=198.51.100.1\n`;
+}).join('\n');
+const oldRows=parseOfficialStatus(legacy).rows;
+assert.equal(oldRows.length,4);
+assert.deepEqual(orderedOfficialRows(oldRows).map(row=>`${row.target}/${row.wan}`),['b/wan2','b/wan1','a/wan1','a/wan2']);
+assert.equal(orderedOfficialRows(oldRows)[0].label,'乙改名');
+assert.equal(orderedOfficialRows(oldRows)[0].status,'success');
+const current=parseOfficialStatus('entry_binding=b2\nentry_target=b\nentry_wan=wan2\nentry_slot=1\nentry_status=success\n\n').rows;
+assert.equal(current.length,1,'binding ID must not split a result');
+assert.equal(current[0].binding,'b2');
+assert.equal(orderedOfficialRows(current)[0].status,'success');
+stored.set(configName,'b2','slot','4');
+assert.equal(orderedOfficialRows(current)[0].status,'unknown','changed slot must not reuse old success');
+stored.set(configName,'b2','slot','1');
+assert.equal(orderedOfficialRows([{...current[0],binding:'different'}])[0].status,'unknown');
+assert.equal(orderedOfficialRows([])[0].status,'unknown');
+stored.set(configName,'b2','enabled','0');
+assert.equal(orderedOfficialRows(oldRows)[0].enabled,false);
+
+// Add/remove preserves the remaining order; deleted results are not shown.
+draft.remove(configName,'a2');
+draft.add(configName,'official_target','c');
+draft.set(configName,'c','label','丙');
+draft.set(configName,'c','token','pgnfw_fixture_c');
+draft.add(configName,'official_binding','c1');
+draft.set(configName,'c1','target','c');
+draft.set(configName,'c1','wan','wan1');
+draft.set(configName,'c1','slot','3');
+await persist(map);
+assert.deepEqual(ids(stored.sections(configName,'official_binding')),['b2','b1','a1','c1']);
+assert.equal(orderedOfficialRows(oldRows).length,4);
+assert.equal(orderedOfficialRows(oldRows)[3].status,'unknown');
+assert.ok(!source.includes('po0SaveChannel'));
+assert.ok(!source.includes('_network_save'));
+await runAction({po0Saving:true},'official','official-report');
+assert.equal(calls.length,3,'apply and manual report cannot be started together');
+console.log('OpenWrt target/WAN order, cache alignment and unified configuration persistence passed.');
+
+// Exercise the actual table controls, grouping and drop handlers with a small DOM.
+function element(tag, attrs = {}, children = []) {
+ const node = {
+  tag, attrs, children: [], handlers: {}, offsetHeight: 40,
+  get firstChild() {return this.children[0];},
+  getAttribute(key) {return this.attrs[key];},
+  appendChild(child) {this.children.push(child); if(typeof child==='object') child.parentNode=this; return child;},
+  insertBefore(child, before) {const i=this.children.indexOf(before); this.children.splice(i<0?this.children.length:i,0,child); child.parentNode=this;},
+  addEventListener(name, handler) {this.handlers[name]=handler;},
+  getBoundingClientRect() {return {top:0};},
+  classList: {values:new Set(),add(...names){names.forEach(n=>this.values.add(n));},remove(...names){names.forEach(n=>this.values.delete(n));},contains(n){return this.values.has(n);}}
+ };
+ children.forEach(child=>node.appendChild(child));
+ return node;
+}
+const formFixture = {TableSection:{extend: spec=>spec,prototype:{
+ renderRowActions() {return element('td',{},[element('div',{},[element('button',{},['删除'])])]);},
+ renderContents(ids) {
+  const rows=ids.map(id=>element('tr',{'data-sid':id},[element('td'),element('td')]));
+  const root=element('tbody',{},rows);
+  root.querySelectorAll=()=>rows;
+  return root;
+ }
+}}};
+const tableSpec=Function('form','E','orderedBindings','moveReporterRow','renderOfficialStatus','showActionResult','_',
+ 'var lastOfficialResult="";'+source.slice(source.indexOf('var OrderedTableSection'),source.indexOf('function persistReporterConfig'))+';return OrderedTableSection;')(
+ formFixture,element,orderedBindings,moveReporterRow,()=>{},()=>{},globalThis._);
+const local=store(initial);
+let localSaves=0;
+const tableMap={config:configName,data:local,async save(callback){localSaves++; if(callback) callback();}};
+const table=Object.assign(Object.create(tableSpec),{map:tableMap,sectiontype:'official_binding'});
+assert.deepEqual(table.cfgsections(),['a1','a2','b1','b2']);
+let buttons=table.renderRowActions('a1').firstChild.firstChild.children;
+assert.equal(buttons[1].attrs.disabled,true,'first WAN cannot move up');
+assert.equal(buttons[2].attrs.disabled,null,'first WAN can move down within its target');
+await buttons[2].attrs.click();
+assert.deepEqual(table.cfgsections(),['a2','a1','b1','b2']);
+assert.equal(localSaves,1);
+buttons=table.renderRowActions('a1').firstChild.firstChild.children;
+assert.equal(buttons[2].attrs.disabled,true,'last WAN cannot move into next target');
+let rendered=table.renderContents(table.cfgsections(),[]);
+assert.deepEqual(rendered.children.filter(row=>row.attrs.class==='po0-wan-group').map(row=>row.firstChild.firstChild),['甲','乙']);
+const first=rendered.children.find(row=>row.attrs['data-sid']==='a2');
+buttons[0].attrs.dragstart({dataTransfer:{setData(){}}});
+first.handlers.dragover({clientY:1,preventDefault(){}});
+assert.equal(first.classList.contains('po0-drop-before'),true);
+first.handlers.drop({preventDefault(){}});
+await new Promise(resolve=>setImmediate(resolve));
+assert.deepEqual(table.cfgsections(),['a1','a2','b1','b2']);
+assert.equal(localSaves,2);
+table.draggedRow='a1';
+const other=rendered.children.find(row=>row.attrs['data-sid']==='b1');
+other.handlers.drop({preventDefault(){}});
+assert.equal(localSaves,2,'cross-target drop must not save or move');
+tableMap.readonly=true;
+await table.moveRow('a1','a2',true);
+assert.equal(localSaves,2,'read-only table cannot move');
+assert.deepEqual(ids(stored.sections(configName,'official_target')),['b','a','c'],'draft table operations must not persist');
+console.log('OpenWrt table arrows, drag/drop, target grouping and draft-only edits passed.');
