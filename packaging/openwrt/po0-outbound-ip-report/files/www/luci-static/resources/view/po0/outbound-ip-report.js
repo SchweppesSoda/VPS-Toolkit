@@ -46,6 +46,11 @@ var RESULT_CSS = [
 	'.po0-official-help{margin:0 0 12px;line-height:1.65;}',
 	'.po0-order-controls{display:inline-flex;gap:4px;margin-right:8px;}',
 	'.po0-order-controls button{min-width:32px;min-height:32px;}',
+	'.po0-report-page .cbi-section-table-titles th{white-space:nowrap;}',
+	'.po0-report-page td[data-name="enabled"]{box-sizing:border-box;min-width:4rem;width:4rem;}',
+	'.po0-report-page td[data-name="label"],.po0-report-page td[data-name="target"]{min-width:8rem;}',
+	'.po0-report-page td[data-name="wan"]{min-width:6rem;}',
+	'.po0-report-page td[data-name="slot"] .cbi-dropdown,.po0-report-page td[data-name="slot"] select{box-sizing:border-box;width:8rem;min-width:0!important;max-width:100%;}',
 	'.po0-order-handle{cursor:grab;}',
 	'.po0-wan-group th{padding:10px;text-align:left;background:rgba(127,127,127,.1);}',
 	'.po0-drop-before{box-shadow:inset 0 3px #5e72e4;}',
@@ -735,11 +740,10 @@ return view.extend({
    guardTableEdits(targets);
    targets.anonymous = true; targets.addremove = true;
    targets.description = _('拖动或用箭头调整目标顺序，下方 WAN 分组随之排列。每个目标填写一份完整 Token，必须包含 pgnfw_ 前缀；也可粘贴加白链接。');
+   o = targets.option(form.Flag, 'enabled', _('启用')); o.default = '1'; o.rmempty = false; o.width = '4rem';
    o = targets.option(form.Value, 'label', _('名称')); o.rmempty = false;
-   o = targets.option(form.Flag, 'enabled', _('启用')); o.default = '1'; o.rmempty = false;
    o = targets.option(form.Value, 'token', _('Token'));
    o.password = false; o.rmempty = true; o.placeholder = 'pgnfw_xxxxxxxxx';
-   o.description = _('例如链接 /api/firewall/pgnfw_xxxx/add 中，应复制 pgnfw_xxxx，不包含 /add。');
    o.validate = function(section_id, value) {
     var token = normalizeOfficialToken(value);
     if (!token && m.data.get('po0_outbound_ip_report', section_id, 'enabled') === '0') return true;
@@ -749,8 +753,11 @@ return view.extend({
    var bindings = field('official', form.SectionValue, '_official_bindings', OrderedTableSection, 'official_binding', null, _('WAN 与槽位')).subsection;
    guardTableEdits(bindings);
    bindings.anonymous = true; bindings.addremove = true;
-   bindings.description = _('按上方目标顺序分组，同一目标内可拖动或用箭头调整 WAN。不同设备或 WAN 请使用不同固定槽位，避免相互覆盖。');
-   o = bindings.option(form.Flag, 'enabled', _('启用')); o.default = '1'; o.rmempty = false;
+   bindings.description = E('div', {}, [
+    E('p', {}, [ _('按目标分组，同一目标内可拖动或用箭头调整 WAN。') ]),
+    E('p', {}, [ _('槽位 1～5 对应 @0～@4；“自动”可能轮换。不同设备或 WAN 应使用不同固定槽位，更换槽位可能覆盖已有网段。') ])
+   ]);
+   o = bindings.option(form.Flag, 'enabled', _('启用')); o.default = '1'; o.rmempty = false; o.width = '4rem';
    o = bindings.option(form.ListValue, 'target', _('目标')); o.rmempty = false;
    o.renderWidget = function(section_id, option_index, cfgvalue) {
     this.keylist = []; this.vallist = [];
@@ -759,9 +766,8 @@ return view.extend({
     return form.ListValue.prototype.renderWidget.apply(this, arguments);
    };
    o = bindings.option(form.Value, 'wan', _('出口')); o.value('wan1','WAN1'); o.value('wan2','WAN2'); o.rmempty = false;
-   o = bindings.option(form.ListValue, 'slot', _('槽位')); o.value('', _('自动（可能被轮换）'));
-   for (var slot = 1; slot <= 5; slot++) o.value(String(slot - 1), _('固定槽位 %s（@%s）').format(slot, slot - 1));
-   o.description = _('槽位 1～5 对应其它客户端的 @0～@4；“自动”不固定位置。更换槽位可能替换该位置已有的网段。');
+   o = bindings.option(form.ListValue, 'slot', _('槽位')); o.width = '9rem'; o.value('', _('自动'));
+   for (var slot = 1; slot <= 5; slot++) o.value(String(slot - 1), _('%s（@%s）').format(slot, slot - 1));
    actions('official');
 
    o = field('network', form.ListValue, 'probe_mode', '公网 IP 获取方式');
