@@ -31,7 +31,7 @@ PO0 无法直连 GitHub，继续使用 Worker HTTP 镜像。现有更新地址�
 - `po0-outbound-ip-report-macos.sh`
 - `po0-outbound-ip-report.ps1`
 
-OpenWrt 使用 [APK 2026.10.04-r1](https://github.com/SchweppesSoda/VPS-Toolkit/releases/tag/po0-apk-v2026.10.04.1) 的固定版本下载地址。APK 不使用 Latest URL。六端界面统一为“PO0 防火墙”，桌面安装路径、任务身份与 OpenWrt 包名保持兼容。手机模块继续使用 `scripts/po0/nftables/clients/` 下的公开 raw 文件；历史文件名是导入兼容标识，不表示还支持自建上报。
+OpenWrt 使用 [APK 2026.10.15-r1](https://github.com/SchweppesSoda/VPS-Toolkit/releases/tag/po0-apk-v2026.10.15.1) 的固定版本下载地址。APK 不使用 Latest URL。六端界面统一为“PO0 防火墙”，桌面安装路径、任务身份与 OpenWrt 包名保持兼容。手机模块继续使用 `scripts/po0/nftables/clients/` 下的公开 raw 文件；历史文件名是导入兼容标识，不表示还支持自建上报。
 
 手机标准入口为 Egern 的 `PO0-Firewall.yaml` 与 Stash 的 `PO0-Firewall.stoverride`，脚本均为各自目录中的 `po0-firewall.js`。使用方式分别见 [Egern](../nftables/clients/egern/README.md)与 [Stash](../nftables/clients/stash/README.md)。
 
