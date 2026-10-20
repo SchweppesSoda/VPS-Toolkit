@@ -141,6 +141,50 @@ class ProducerTests(unittest.TestCase):
         self.document['inbounds'][0]['settings']['clients'][0]['encryption'] = 'mlkem'
         self.fails()
 
+    def test_plain_public_front_door_keeps_all_direct_clients(self):
+        expected = self.export()
+        self.document['inbounds'].append({
+            'tag': 'front-door', 'listen': '0.0.0.0', 'port': 443, 'protocol': 'tunnel',
+            'sniffing': {'enabled': True, 'destOverride': ['tls'], 'routeOnly': True},
+            'settings': {'address': '127.0.0.1', 'port': 19033, 'network': 'tcp'}})
+        self.write()
+        result = self.export()
+        self.assertEqual(result['links'], expected['links'])
+        self.assertEqual(result['nodeCount'], 6)
+        self.assertEqual(result['expectedGroups'], 1)
+        self.document['inbounds'].reverse()
+        self.write()
+        self.assertEqual(self.export()['links'], expected['links'])
+
+    def test_public_tunnel_must_be_exact_local_tcp_front_door(self):
+        tunnel = {'tag': 'front-door', 'port': 443, 'protocol': 'tunnel',
+                  'settings': {'address': '127.0.0.1', 'port': 19033, 'network': 'tcp'}}
+        variants = [
+            {'settings': {**tunnel['settings'], 'address': 'example.com'}},
+            {'settings': {**tunnel['settings'], 'address': '::1'}},
+            {'settings': {**tunnel['settings'], 'port': 19034}},
+            {'settings': {**tunnel['settings'], 'port': True}},
+            {'settings': {**tunnel['settings'], 'network': 'tcp,udp'}},
+            {'settings': {**tunnel['settings'], 'followRedirect': True}},
+            {'settings': {**tunnel['settings'], 'clients': [{'id': IDS[0]}]}},
+            {'streamSettings': {'security': 'tls'}},
+            {'sniffing': []},
+            {'port': 19033},
+        ]
+        for change in variants:
+            with self.subTest(change=change):
+                self.document = fixture()
+                self.document['inbounds'].append({**tunnel, **change})
+                self.fails()
+        self.document = fixture()
+        self.document['inbounds'].append(tunnel)
+        self.document['inbounds'][0]['settings']['clients'] = []
+        self.fails()
+        self.document = fixture()
+        self.document['inbounds'].append(tunnel)
+        self.document['inbounds'][0]['streamSettings']['network'] = 'ws'
+        self.fails()
+
     def test_empty_invalid_duplicate_and_non_vision_clients_fail(self):
         for clients in [[], [{}], [{'id': 'bad'}], [{'id': IDS[0], 'flow': 'other'}],
                         [{'id': IDS[0]}, {'id': IDS[0]}], [{'id': '00000000-0000-0000-0000-000000000000'}]]:

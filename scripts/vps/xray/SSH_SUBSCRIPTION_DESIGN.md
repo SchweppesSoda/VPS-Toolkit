@@ -1,6 +1,6 @@
 # Xray JSON transient producer contract
 
-Implementation: `xray-subscription-exporter.py` 1.0.0. It is a separate producer
+Implementation: `xray-subscription-exporter.py` 1.0.1. It is a separate producer
 from the SQLite/native-subscription [3x-ui exporter](../3x-ui/SSH_SUBSCRIPTION_DESIGN.md).
 Private configuration uses schema 2 and explicit `selection: all-public-clients`;
 the success envelope remains schema 1, for the existing collector transaction.
@@ -20,7 +20,17 @@ Missing/wildcard `listen` selects a public inbound. Private/reserved/loopback IP
 listeners and Unix sockets are excluded. `api.tag` and `metrics.tag` explicitly
 identify internal management inbounds. Unknown listener formats fail instead
 of being guessed. Every remaining inbound must be supported and have valid
-clients; exporting only a successful subset is prohibited.
+clients; exporting only a successful subset is prohibited. One auxiliary shape
+is recognized before client rendering: a public `tunnel` with only tag/listen/
+port/protocol/settings/sniffing fields and exactly `address`, `port`, `network` settings,
+where the address is numeric loopback, network is TCP, and the destination is
+one already selected wildcard VLESS TCP/RAW REALITY listener of the matching
+address family. It contributes no separate client group or endpoint. All target
+clients and wire settings still undergo the complete normal validation.
+Arbitrary forwards, chained tunnels, extra settings, duplicate ingress ports,
+and forwards without a compatible selected target fail closed. This recognition
+allows server-side sniffing metadata and does not certify forwarding/routing behavior; the subscription uses the original
+client-bearing listener, whose reachability needs runtime verification.
 
 This scope accepts only VLESS with decryption `none`, TCP/RAW without a nontrivial
 header, and REALITY. Legacy `network` and newer `method` must describe TCP/RAW

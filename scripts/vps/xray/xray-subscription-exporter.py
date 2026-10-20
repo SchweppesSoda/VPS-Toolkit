@@ -20,7 +20,7 @@ import time
 import urllib.parse
 import uuid
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 MAX_CONFIG = 2 * 1024 * 1024
 MAX_LINKS = 1024 * 1024
 MAX_ENVELOPE = 2 * MAX_LINKS
@@ -197,6 +197,29 @@ def public_inbound(inbound, management_tags):
     return value.is_global and not value.is_multicast and "%" not in listen
 
 
+def redundant_local_forward(inbound, selected):
+    """Recognize only a plain TCP front door for an already selected listener.
+
+    The client-bearing listener remains the exported endpoint. Do not infer
+    credentials for arbitrary tunnels or silently ignore unsupported proxies.
+    """
+    if inbound.get("protocol") != "tunnel":
+        return False
+    require(set(inbound) <= {"tag", "listen", "port", "protocol", "settings", "sniffing"}, "selection")
+    require(isinstance(inbound.get("sniffing", {}), dict), "selection")
+    settings = inbound.get("settings")
+    require(isinstance(settings, dict) and set(settings) == {"address", "port", "network"}, "selection")
+    require(settings["network"] == "tcp" and isinstance(settings["address"], str) and settings["address"] in {"127.0.0.1", "::1"}, "selection")
+    port = settings["port"]
+    require(type(port) is int and 0 < port <= 65535, "selection")
+    listeners = {"", "::", "0.0.0.0"} if settings["address"] == "127.0.0.1" else {"", "::"}
+    targets = [item for item in selected if item.get("protocol") == "vless"
+               and item.get("port") == port and item.get("listen", "0.0.0.0") in listeners]
+    require(len(targets) == 1, "selection")
+    supported_transport(targets[0].get("streamSettings"))
+    return True
+
+
 def supported_transport(stream):
     require(isinstance(stream, dict), "xray-config")
     aliases = {"tcp": "tcp", "raw": "tcp"}
@@ -310,6 +333,8 @@ def export(config, derive=derive_public_key):
         require(type(inbound.get("port")) is int and 0 < inbound["port"] <= 65535, "selection")
     selected.sort(key=lambda x: (x["port"], x.get("tag", "")))
     require(len({x["port"] for x in selected}) == len(selected), "selection")
+    selected = [item for item in selected if not redundant_local_forward(item, selected)]
+    require(bool(selected), "selection")
     lines = []
     host = config["address"]
     authority = "[" + host + "]" if ":" in host else host

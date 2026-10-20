@@ -34,7 +34,12 @@ and behavior; changing source requires a reviewed collector migration.
 Selection includes omitted/wildcard `listen` and globally routable IP listeners.
 Loopback, private/reserved listeners, Unix sockets, and explicitly tagged Xray
 API/metrics inbounds are excluded. An unsupported public inbound fails the whole
-export. This first implementation only supports VLESS, TCP or its equivalent
+export, except for a plain public `tunnel` front door whose exact settings are
+TCP forwarding to `127.0.0.1` or `::1` on an already selected wildcard VLESS
+TCP/RAW REALITY listener. Such a front door has no client identities and is
+not duplicated in the subscription: clients retain the VLESS listener's port.
+Unmatched, remote, UDP, redirected or wire-configured tunnels still fail closed.
+This implementation only supports VLESS, TCP or its equivalent
 RAW spelling, REALITY, and empty flow or `xtls-rprx-vision`. Nontrivial TCP headers,
 FinalMask, VLESS Encryption and unsupported wire settings fail closed. It does
 not reinterpret `method: xhttp` as default TCP.
