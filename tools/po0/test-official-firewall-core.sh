@@ -124,69 +124,25 @@ esac
 MOCK
 
 cat > "${bin_dir}/jsonfilter" <<'MOCK'
-#!/bin/sh
-set -eu
-
-expr="${2:-}"
-payload="$(cat)"
-printf '%s\n' "${expr}" >> "${PO0_TEST_JSONFILTER_LOG:?}"
-
-indexed_value() {
-	key="$1"
-	index="$2"
-	case "${key}" in
-	ip)
-		printf '%s\n' "${payload}" |
-			tr '{' '\n' |
-			sed -n 's/.*"ip"[[:space:]]*:[[:space:]]*"\([^"\\]*\)".*/\1/p' |
-			sed -n "$((index + 1))p"
-		;;
-	slot)
-		printf '%s\n' "${payload}" |
-			tr '{' '\n' |
-			sed -n 's/.*"slot"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' |
-			sed -n "$((index + 1))p"
-		;;
-	*)
-		return 1
-		;;
-	esac
-}
-
-if [ "${expr}" = '@.enabled' ]; then
-	printf '%s\n' "${payload}" |
-		sed -n 's/.*"enabled"[[:space:]]*:[[:space:]]*\(true\|false\).*/\1/p'
-elif [ "${expr}" = '@.currentIp' ]; then
-	printf '%s\n' "${payload}" |
-		sed -n 's/.*"currentIp"[[:space:]]*:[[:space:]]*"\([^"\\]*\)".*/\1/p'
-elif [ "${expr}" = '@.limit' ]; then
-	printf '%s\n' "${payload}" |
-		sed -n 's/.*"limit"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p'
-elif [ "${expr}" = '@["whitelist"]' ] && [ "${1:-}" = '-t' ]; then
-	case "${PO0_TEST_SCENARIO:-}" in
-	missing-whitelist|nested-whitelist)
-		exit 1
-		;;
-	whitelist-object)
-		printf 'object\n'
-		;;
-	*)
-		printf 'array\n'
-		;;
-	esac
-elif [ "${expr}" = '@.whitelist[*].ip' ]; then
-	printf '%s\n' "${payload}" |
-		tr '{' '\n' |
-		sed -n 's/.*"ip"[[:space:]]*:[[:space:]]*"\([^"\\]*\)".*/\1/p'
-elif printf '%s\n' "${expr}" | grep -Eq '^@\.whitelist\[[0-9]+\]\.ip$'; then
-	index="$(printf '%s\n' "${expr}" | sed -n 's/^@\.whitelist\[\([0-9][0-9]*\)\]\.ip$/\1/p')"
-	indexed_value ip "${index}"
-elif printf '%s\n' "${expr}" | grep -Eq '^@\.whitelist\[[0-9]+\]\.slot$'; then
-	index="$(printf '%s\n' "${expr}" | sed -n 's/^@\.whitelist\[\([0-9][0-9]*\)\]\.slot$/\1/p')"
-	indexed_value slot "${index}"
-else
-	exit 1
-fi
+#!/usr/bin/env node
+const fs = require('fs');
+const [mode, expr] = process.argv.slice(2);
+fs.appendFileSync(process.env.PO0_TEST_JSONFILTER_LOG, expr + '\n');
+try {
+ const body = JSON.parse(fs.readFileSync(0, 'utf8'));
+ let value;
+ if (expr === '@["whitelist"]') value = body.whitelist;
+ else if (expr === '@.whitelist[*]') value = body.whitelist;
+ else if (expr === '@.whitelist[*].ip') value = Array.isArray(body.whitelist) ? body.whitelist.map(row => row?.ip).filter(v => v !== undefined) : undefined;
+ else {
+  const parts = expr.replace(/^@\./, '').replace(/\[(\d+)\]/g, '.$1').split('.');
+  value = parts.reduce((v,k) => v == null ? undefined : v[k], body);
+ }
+ if (value === undefined) process.exit(1);
+ const type = item => item === null ? 'null' : Array.isArray(item) ? 'array' : typeof item === 'number' ? (Number.isInteger(item) ? 'int' : 'double') : typeof item === 'boolean' ? 'boolean' : typeof item;
+ if (mode === '-t') console.log((expr === '@.whitelist[*]' ? value : [value]).map(type).join('\\ '));
+ else for (const item of Array.isArray(value) ? value : [value]) console.log(item === null ? 'null' : typeof item === 'object' ? JSON.stringify(item) : String(item));
+} catch (_) { process.exit(1); }
 MOCK
 
 cat > "${bin_dir}/curl" <<'MOCK'
@@ -237,6 +193,10 @@ missing='{"enabled":true,"currentIp":"203.0.113.0/24","limit":5,"whitelist":[{"i
 scenario="${PO0_TEST_SCENARIO:-healthy}"
 
 case "${scenario}" in
+slot-limits)
+ if [ "$request" = 'GET' ]; then emit "$PO0_TEST_PAYLOAD" 200
+ else emit "${PO0_TEST_POST_PAYLOAD:-$PO0_TEST_PAYLOAD}" 200; fi
+ ;;
 get-fail)
 	if [ "${request}" = 'GET' ]; then
 		emit '{"error":"upstream unavailable"}' 503
@@ -259,7 +219,7 @@ slot-mismatch)
 	fi
 	;;
 bad-limit)
-	emit '{"enabled":true,"currentIp":"203.0.113.0/24","limit":6,"whitelist":[{"ip":"203.0.113.0/24","slot":0}]}' 200
+	emit '{"enabled":true,"currentIp":"203.0.113.0/24","limit":11,"whitelist":[{"ip":"203.0.113.0/24","slot":0}]}' 200
 	;;
 bad-slot)
 	emit '{"enabled":true,"currentIp":"203.0.113.0/24","limit":5,"whitelist":[{"ip":"203.0.113.0/24","slot":5}]}' 200
@@ -584,6 +544,77 @@ if [ "${PO0_TEST_ONLY:-}" = 'helper-sensitive' ]; then
 	exit 0
 fi
 
+
+printf '%s' '{"whitelist":[{},{}]}' | PATH="$bin_dir:$PATH" PO0_TEST_JSONFILTER_LOG="$jsonfilter_log" jsonfilter -t '@.whitelist[*]' > "$stdout_file"
+[ "$(cat "$stdout_file")" = 'object\ object' ] || fail 'jsonfilter mock multi-type separator differs from native output'
+
+# Expanded quota is authoritative; JSON types and relative slot bounds fail closed.
+for capacity in 1 5 6 7 8 9 10; do
+ binding_slot="$((capacity - 1))"
+ export PO0_TEST_PAYLOAD="{\"enabled\":true,\"currentIp\":\"203.0.113.0/24\",\"limit\":$capacity,\"whitelist\":[{\"ip\":\"203.0.113.0/24\",\"slot\":$binding_slot}]}"
+ run_runner slot-limits report binding1
+ assert_rc 0 'expanded slot hit failed'
+ assert_curl_sequence 'GET'
+ assert_stdout_line "entry_limit=$capacity"
+ assert_no_token
+ export PO0_TEST_POST_PAYLOAD="$PO0_TEST_PAYLOAD"
+ export PO0_TEST_PAYLOAD="{\"enabled\":true,\"currentIp\":\"203.0.113.0/24\",\"limit\":$capacity,\"whitelist\":[]}"
+ run_runner slot-limits status binding1
+ assert_rc 0 'expanded read-only missing failed'
+ assert_curl_sequence 'GET'
+ run_runner slot-limits report binding1
+ assert_rc 0 'expanded slot POST failed'
+ assert_curl_sequence 'GET POST'
+ assert_stdout_line 'entry_status=success'
+ assert_no_token
+done
+for capacity in 6 10; do
+ entries=''; index=0
+ while [ "$index" -lt "$capacity" ]; do
+  entries="$entries${entries:+,}{\"ip\":\"192.0.2.$index/24\",\"slot\":$index}"
+  index=$((index+1))
+ done
+ binding_slot=''
+ export PO0_TEST_PAYLOAD="{\"enabled\":true,\"currentIp\":\"203.0.113.0/24\",\"limit\":$capacity,\"whitelist\":[$entries]}"
+ run_runner slot-limits status binding1
+ assert_rc 0 'complete expanded whitelist rejected'
+ assert_stdout_line "entry_used=$capacity"
+ assert_curl_sequence 'GET'
+done
+for case_value in '5|5' '6|9'; do
+ capacity="${case_value%|*}"; binding_slot="${case_value#*|}"
+ export PO0_TEST_PAYLOAD="{\"enabled\":true,\"currentIp\":\"203.0.113.0/24\",\"limit\":$capacity,\"whitelist\":[]}"
+ run_runner slot-limits report binding1
+ assert_rc 1 'fixed slot beyond account quota accepted'
+ assert_curl_sequence 'GET'
+ assert_stdout_has '指定槽位超出账号额度'
+done
+binding_slot=''
+for invalid_limit in '0' '11' '5.5' '"6"' 'null'; do
+ export PO0_TEST_PAYLOAD="{\"enabled\":true,\"currentIp\":\"203.0.113.0/24\",\"limit\":$invalid_limit,\"whitelist\":[]}"
+ run_runner slot-limits report binding1
+ assert_rc 1 'invalid quota accepted'
+ assert_curl_sequence 'GET'
+done
+for invalid_slot in '6' '10' '0.5' '"5"' '"null"' 'true'; do
+ export PO0_TEST_PAYLOAD="{\"enabled\":true,\"currentIp\":\"203.0.113.0/24\",\"limit\":6,\"whitelist\":[{\"ip\":\"203.0.113.0/24\",\"slot\":$invalid_slot}]}"
+ run_runner slot-limits report binding1
+ assert_rc 1 'invalid response slot accepted'
+ assert_curl_sequence 'GET'
+done
+for invalid_payload in \
+ '{"enabled":true,"currentIp":"203.0.113.0/24","whitelist":[]}' \
+ '{"enabled":true,"currentIp":"203.0.113.0/24","limit":1,"whitelist":[{},{}]}' \
+ '{"enabled":true,"currentIp":"203.0.113.0/24","limit":6,"whitelist":[{"ip":"203.0.113.0/24","slot":0},{}]}' \
+ '{"enabled":true,"currentIp":"203.0.113.0/24","limit":6,"whitelist":[{"ip":"203.0.113.0/24","slot":0},null]}'; do
+ export PO0_TEST_PAYLOAD="$invalid_payload"
+ run_runner slot-limits report binding1
+ assert_rc 1 'missing quota or malformed/excessive whitelist accepted'
+ assert_curl_sequence 'GET'
+done
+unset PO0_TEST_PAYLOAD PO0_TEST_POST_PAYLOAD
+binding_slot='0'
+
 # A healthy 200 response is read-only and is rendered as already_present.
 run_runner healthy status binding1
 assert_rc 0 'healthy status failed'
@@ -746,8 +777,8 @@ assert_stdout_empty
 assert_stderr_has 'body exceeded the limit'
 assert_no_token
 
-# The helper accepts only backend slots 0..4. Every valid slot reaches POST.
-for slot in 0 1 2 3 4; do
+# The helper validates slot syntax 0..9; the runner enforces account quota.
+for slot in 0 1 2 3 4 5 6 7 8 9; do
 	binding_slot="${slot}"
 	run_helper healthy target1 add "${slot}"
 	assert_rc 0 "valid slot ${slot} was rejected"
@@ -768,15 +799,15 @@ assert_no_requests
 assert_no_token
 
 # Out-of-range and malformed slots fail before any network request.
-for slot in 5 -1 x; do
+for slot in 10 -1 x; do
 	run_helper healthy target1 add "${slot}"
 	assert_rc 1 "invalid slot ${slot} reached helper"
 	assert_no_requests
 	assert_no_token
 done
 
-# The package runner applies the same slot boundary to configured bindings.
-binding_slot='5'
+# The package runner rejects globally invalid slot syntax before GET.
+binding_slot='10'
 run_runner healthy status binding1
 assert_rc 1 'runner accepted an out-of-range configured slot'
 assert_stdout_line 'entry_status=error'

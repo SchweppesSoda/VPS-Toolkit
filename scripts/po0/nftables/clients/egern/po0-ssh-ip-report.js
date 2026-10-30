@@ -1,4 +1,4 @@
-// PO0 防火墙上报 · 20260929-firewall-ui-v3
+// PO0 防火墙上报 · 20261030-slots-v1
 function retiredAction(ctx) {
   return /自建|ssh-report|设备 ID|本机设备|Device ID|设备标识/i.test(scriptLabel(ctx)) || Boolean(ctx?.request);
 }
@@ -135,12 +135,12 @@ function parseOfficialTokenItem(value) {
   const at = item.indexOf('@');
   if (at >= 0) {
     if (at !== item.lastIndexOf('@')) {
-      throw new Error('Token 配置无效：槽位只能写 @0～@4。');
+      throw new Error('Token 配置无效：槽位只能写 @0～@9。');
     }
     token = item.slice(0, at);
     const slotText = item.slice(at + 1);
-    if (!/^[0-4]$/.test(slotText)) {
-      throw new Error('Token 配置无效：槽位只能写 @0～@4。');
+    if (!/^[0-9]$/.test(slotText)) {
+      throw new Error('Token 配置无效：槽位只能写 @0～@9。');
     }
     slot = Number(slotText);
   }
@@ -222,10 +222,10 @@ function officialNormalizePayload(data) {
     throw new Error('防火墙未返回有效的出口 IPv4。');
   }
   const limit = data.limit;
-  if (!Number.isInteger(limit) || limit < 1 || limit > 5) {
+  if (!Number.isInteger(limit) || limit < 1 || limit > 10) {
     throw new Error('防火墙返回的槽位数量无效。');
   }
-  if (!Array.isArray(data.whitelist) || data.whitelist.length > limit || data.whitelist.length > 5) {
+  if (!Array.isArray(data.whitelist) || data.whitelist.length > limit || data.whitelist.length > 10) {
     throw new Error('防火墙返回的白名单无效。');
   }
 
@@ -239,7 +239,7 @@ function officialNormalizePayload(data) {
 
     let slot = null;
     if (entry.slot !== undefined && entry.slot !== null && entry.slot !== '') {
-      if (!Number.isInteger(entry.slot) || entry.slot < 0 || entry.slot > 4) {
+      if (!Number.isInteger(entry.slot) || entry.slot < 0 || entry.slot >= limit) {
         throw new Error('防火墙返回的槽位无效。');
       }
       if (seenSlots.has(entry.slot)) {
@@ -338,6 +338,7 @@ function officialSafeError(error) {
     '上报间隔必须为 60～86400 秒',
     '旧版定时参数无效，请删除账号中的定时参数，改用“启用定期上报”设置。',
   ].includes(text)) return text;
+  if (text === '指定槽位超出账号额度，请调整固定槽位。') return text;
   if (text === '防火墙网络请求失败。' || text === 'Egern 无法发送网络请求。') return text;
   const http = text.match(/^防火墙请求失败（HTTP (\d{3})）。$/);
   if (http) return `防火墙请求失败（HTTP ${http[1]}）。`;
@@ -347,7 +348,7 @@ function officialSafeError(error) {
     if (text === safe) return safe;
   }
   if (/^防火墙(?:当前未启用|未返回有效的出口 IPv4|返回数据无效|返回的槽位数量无效|返回的白名单无效|返回的白名单 IP 无效|返回的槽位无效|返回了重复槽位|更新后未确认当前出口)。$/.test(text)) return text;
-  if (/^Token (?:配置包含空项或换行|配置无效：槽位只能写 @0～@4|配置无效：请使用 pgnfw_\.\.\.|列表包含重复项|数量超过上限（最多 16 个）)。$/.test(text)) return text;
+  if (/^Token (?:配置包含空项或换行|配置无效：槽位只能写 @0～@9|配置无效：请使用 pgnfw_\.\.\.|列表包含重复项|数量超过上限（最多 16 个）)。$/.test(text)) return text;
   return '防火墙请求失败。';
 }
 
@@ -567,7 +568,7 @@ function officialStatusText(entry) {
 }
 
 function officialDisplaySlot(slot) {
-  return Number.isInteger(slot) && slot >= 0 && slot <= 4 ? slot + 1 : null;
+  return Number.isInteger(slot) && slot >= 0 && slot <= 9 ? slot + 1 : null;
 }
 
 function officialCoveredSlotText(entry) {
@@ -588,6 +589,7 @@ function officialMatchingRow(payload, item) {
 }
 
 function applyOfficialPayload(entry, payload, item, successStatus) {
+  if (item.slot !== null && item.slot >= payload.limit) throw new Error('指定槽位超出账号额度，请调整固定槽位。');
   entry.currentIp = payload.currentIp;
   entry.whitelist = payload.whitelist;
   entry.used = payload.used;
@@ -650,7 +652,7 @@ function widgetSlotLabel(entry) {
 
 function officialOrderedWhitelist(entry) {
   const rows = Array.isArray(entry?.whitelist) ? entry.whitelist : [];
-  return [...rows].sort((left, right) => (officialDisplaySlot(left.slot) || 6) - (officialDisplaySlot(right.slot) || 6));
+  return [...rows].sort((left, right) => (officialDisplaySlot(left.slot) || 11) - (officialDisplaySlot(right.slot) || 11));
 }
 
 function widgetWhitelist(entry, maxRows, size, allSlots = false, showHeading = true) {

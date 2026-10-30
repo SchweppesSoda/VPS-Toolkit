@@ -35,8 +35,8 @@ case "$action" in
 esac
 case "$slot" in
 	'') ;;
-	[0-4]) ;;
-	*) fail 'official slot must be empty or 0..4' ;;
+	[0-9]) ;;
+	*) fail 'official slot must be empty or 0..9' ;;
 esac
 command -v uci >/dev/null 2>&1 || fail 'uci is required'
 command -v curl >/dev/null 2>&1 || fail 'curl is required'

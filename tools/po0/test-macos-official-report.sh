@@ -34,7 +34,7 @@ printf '%s\n' '#!/bin/sh' \
     'while [ "$#" -gt 0 ]; do case "$1" in --output) output_file="$2"; shift 2 ;; --dump-header) header_file="$2"; shift 2 ;; *) shift ;; esac; done' \
     'case "$PO0_TEST_SCENARIO:$request:$url" in' \
     'bad-enabled:GET:*) body='\''{"enabled":false,"currentIp":"203.0.113.10/24","limit":5,"whitelist":[]}'\'' ;;' \
-    'bad-limit:GET:*) body='\''{"enabled":true,"currentIp":"203.0.113.10/24","limit":6,"whitelist":[]}'\'' ;;' \
+    'bad-limit:GET:*) body='\''{"enabled":true,"currentIp":"203.0.113.10/24","limit":11,"whitelist":[]}'\'' ;;' \
     'bad-whitelist:GET:*) body='\''{"enabled":true,"currentIp":"203.0.113.10/24","limit":5,"whitelist":[{"ip":"999.1.1.1/24","slot":9}]}'\'' ;;' \
     'normal:GET:*pgnfw_alpha*) body='\''{"enabled":true,"currentIp":"203.0.113.10/24","limit":5,"whitelist":[{"slot":0,"ip":"203.0.113.10/24"}]}'\'' ;;' \
     'normal:GET:*pgnfw_beta*) body='\''{"enabled":true,"currentIp":"198.51.100.20/24","limit":5,"whitelist":[{"slot":1,"ip":"192.0.2.1/24"}]}'\'' ;;' \
@@ -357,5 +357,7 @@ assert_file_has --config "$src_root/078-official-firewall.sh"
 assert_file_has --noproxy "$src_root/078-official-firewall.sh"
 assert_file_has --tlsv1.2 "$src_root/078-official-firewall.sh"
 if grep -Fq -- ' -k' "$src_root/078-official-firewall.sh"; then fail 'TLS verification was disabled'; fi
+
+bash "${repo_root}/tools/po0/test-official-slot-limits.sh" macos
 
 printf 'PASS: macOS official firewall official-only checks passed.\n'

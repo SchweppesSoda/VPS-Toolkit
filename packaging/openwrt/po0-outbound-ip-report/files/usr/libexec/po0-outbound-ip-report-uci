@@ -266,10 +266,10 @@ while IFS= read -r binding; do
 			;;
 	esac
 	case "$slot" in
-		''|[0-4])
+		''|[0-9])
 			;;
 		*)
-			printf 'Official binding %s has invalid slot; expected empty or 0..4.\n' "$binding" >&2
+			printf 'Official binding %s has invalid slot; expected empty or 0..9.\n' "$binding" >&2
 			official_config_error='1'
 			continue
 			;;
@@ -296,8 +296,8 @@ while IFS= read -r binding; do
 	fi
 	target_count="$(printf '%s' "$official_bindings" | tr ';' '\n' | cut -d '|' -f 1 | grep -Fxc "$target" 2>/dev/null || true)"
 	case "$target_count" in
-		[5-9]|[1-9][0-9]*)
-			printf 'Official target %s cannot have more than 5 enabled bindings.\n' "$target" >&2
+		[1-9][0-9]*)
+			printf 'Official target %s cannot have more than 10 enabled bindings.\n' "$target" >&2
 			official_config_error='1'
 			continue
 			;;

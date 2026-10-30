@@ -53,9 +53,11 @@ case "$command" in
                     'po0_outbound_ip_report.binding1=official_binding' \
                     'po0_outbound_ip_report.binding2=official_binding'
                 ;;
-            too-many)
+            too-many|ten-bindings)
                 i=1
-                while [ "$i" -le 6 ]; do
+                count=11
+                [ "$PO0_TEST_SCENARIO" != ten-bindings ] || count=10
+                while [ "$i" -le "$count" ]; do
                     printf 'po0_outbound_ip_report.binding%s=official_binding\n' "$i"
                     i=$((i + 1))
                 done
@@ -93,7 +95,7 @@ case "$command" in
                     printf 'target1\n'
                 fi
                 ;;
-            po0_outbound_ip_report.binding2.target|po0_outbound_ip_report.binding[3-6].target) printf 'target1\n' ;;
+            po0_outbound_ip_report.binding2.target|po0_outbound_ip_report.binding[3-9].target|po0_outbound_ip_report.binding1[01].target) printf 'target1\n' ;;
             po0_outbound_ip_report.binding1.wan)
                 if [ "$PO0_TEST_SCENARIO" = 'malicious-wan' ]; then
                     printf 'wan;bad\n'
@@ -101,8 +103,8 @@ case "$command" in
                     printf 'wan1\n'
                 fi
                 ;;
-            po0_outbound_ip_report.binding[3-6].wan)
-                index="$(printf '%s\n' "$key" | sed -n 's/.*binding\([3-6]\)\.wan/\1/p')"
+            po0_outbound_ip_report.binding[3-9].wan|po0_outbound_ip_report.binding1[01].wan)
+                index="$(printf '%s\n' "$key" | sed -n 's/.*binding\([0-9][0-9]*\)\.wan/\1/p')"
                 printf 'wan%s\n' "$index"
                 ;;
             po0_outbound_ip_report.binding2.wan)
@@ -112,8 +114,8 @@ case "$command" in
                     printf 'wan2\n'
                 fi
                 ;;
-            po0_outbound_ip_report.binding1.slot) printf '0\n' ;;
-            po0_outbound_ip_report.binding[3-6].slot) printf '\n' ;;
+            po0_outbound_ip_report.binding1.slot) printf '%s\n' "${PO0_TEST_CONFIG_SLOT:-0}" ;;
+            po0_outbound_ip_report.binding[3-9].slot|po0_outbound_ip_report.binding1[01].slot) printf '\n' ;;
             po0_outbound_ip_report.binding2.slot)
                 if [ "$PO0_TEST_SCENARIO" = 'duplicate-slot' ]; then
                     printf '0\n'
@@ -258,13 +260,21 @@ assert_file_has 'official_status=invalid_configuration' "${stderr_log}" 'duplica
 assert_file_not_has 'pgnfw_' "${stdout_log}" 'token leaked on duplicate target/slot'
 assert_file_not_has 'pgnfw_' "${stderr_log}" 'token leaked in duplicate target/slot diagnostic'
 
+for config_slot in 5 9; do
+ export PO0_TEST_CONFIG_SLOT="$config_slot"
+ run_adapter unique
+ assert_eq '0' "$RUN_RC" 'expanded fixed slot configuration rejected'
+done
+unset PO0_TEST_CONFIG_SLOT
+run_adapter ten-bindings
+assert_eq '0' "$RUN_RC" 'ten enabled bindings rejected'
 run_adapter too-many
-assert_eq '1' "$RUN_RC" 'more than five bindings for one target were accepted'
-assert_file_has 'cannot have more than 5 enabled bindings' "$stderr_log" 'max five-binding diagnostic missing'
-assert_file_has 'official_status=invalid_configuration' "$stderr_log" 'max five-binding configuration did not fail closed'
-[[ ! -s "$runner_log" ]] || fail 'max five-binding configuration still invoked official runner'
-assert_file_not_has 'pgnfw_' "$stdout_log" 'token leaked on max five-binding configuration'
-assert_file_not_has 'pgnfw_' "$stderr_log" 'token leaked in max five-binding diagnostic'
+assert_eq '1' "$RUN_RC" 'more than ten bindings for one target were accepted'
+assert_file_has 'cannot have more than 10 enabled bindings' "$stderr_log" 'max ten-binding diagnostic missing'
+assert_file_has 'official_status=invalid_configuration' "$stderr_log" 'max ten-binding configuration did not fail closed'
+[[ ! -s "$runner_log" ]] || fail 'max ten-binding configuration still invoked official runner'
+assert_file_not_has 'pgnfw_' "$stdout_log" 'token leaked on max ten-binding configuration'
+assert_file_not_has 'pgnfw_' "$stderr_log" 'token leaked in max ten-binding diagnostic'
 
 # When both lanes are enabled, official dispatch is completed before Worker
 # dispatch, while each lane remains independently observable.

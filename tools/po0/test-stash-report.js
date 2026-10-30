@@ -440,7 +440,7 @@ async function testStandardEntrypointsAndLegacyRoutes() {
   assert.equal(normalize(fs.readFileSync(path.join(clientDir, 'po0-stash-report.js'), 'utf8')), normalize(source));
   assert.equal(normalize(fs.readFileSync(path.join(clientDir, 'PO0.LAN-Report.stoverride'), 'utf8')), normalize(override));
   assert.match(override, /^name: PO0 防火墙$/m);
-  assert.match(override, /stash\/po0-firewall\.js\?rev=20261004-firewall-v1/);
+  assert.match(override, /stash\/po0-firewall\.js\?rev=20261030-slots-v1/);
   assert.match(override, /^  po0-stash-report-worker-v2:$/m);
   for (const route of ['report', 'official-now', 'report-now', 'official-force']) {
     const token = 'pgnfw_legacy_route_fixture';
@@ -479,7 +479,47 @@ async function testTileRemainsReadOnly() {
   assert.deepEqual(Array.from(store.entries()), before);
 }
 
+
+async function testExpandedOfficialSlots() {
+ const token='pgnfw_stash_expanded_fixture';
+ for(const limit of [1,5,6,7,8,9,10]) {
+  const slot=limit-1, body={enabled:true,currentIp:'8.8.8.8/24',limit,whitelist:[{ip:'8.8.8.8/24',slot}]};
+  const store=new Map();
+  const saved=await execute({store,argument:reportArgument('save-official',{PO0_FIREWALL_TOKENS:token+'@'+slot})});
+  assert.equal(saved.requests.length,0);
+  const hit=await execute({store,argument:reportArgument('force',{PO0_FIREWALL_TOKENS:token+'@0'}),officialGets:[{body}]});
+  assert.deepEqual(hit.requests.map(r=>r.method),['get']);
+  assert.equal(JSON.parse(store.get(STORE_KEY)).official.accounts[0].fixed_slot,slot);
+  const updated=await execute({argument:reportArgument('force',{PO0_FIREWALL_TOKENS:token+'@'+slot}),officialGets:[{body:{...body,whitelist:[]}}],officialPosts:[{body}]});
+  assert.deepEqual(updated.requests.map(r=>r.method),['get','post']);
+  assert(updated.requests[1].request.url.endsWith('?slot='+slot));
+  assert.equal(JSON.parse(updated.store.get(STORE_KEY)).official.accounts[0].status,'ok');
+  const readonly=await execute({argument:reportArgument('status',{PO0_FIREWALL_TOKENS:token+'@'+slot}),officialGets:[{body:{...body,whitelist:[]}}]});
+  assert.deepEqual(readonly.requests.map(r=>r.method),['get']);
+  assert.equal(JSON.parse(readonly.store.get(STORE_KEY)).official.last_attempt_at,0);
+ }
+ for(const [limit,slot] of [[5,5],[6,9]]) {
+  const run=await execute({argument:reportArgument('force',{PO0_FIREWALL_TOKENS:token+'@'+slot}),officialGets:[{body:{enabled:true,currentIp:'8.8.8.8/24',limit,whitelist:[]}}]});
+  assert.deepEqual(run.requests.map(r=>r.method),['get']);
+  assert.match(JSON.parse(run.store.get(STORE_KEY)).official.accounts[0].last_error,/指定槽位超出账号额度/);
+ }
+ for(const limit of [6,10]) {
+  const body={enabled:true,currentIp:'8.8.8.8/24',limit,whitelist:Array.from({length:limit},(_,slot)=>({ip:slot===limit-1?'8.8.8.8/24':'192.0.2.'+slot+'/24',slot}))};
+  const run=await execute({argument:reportArgument('force',{PO0_FIREWALL_TOKENS:token+'@'+(limit-1)}),officialGets:[{body}]});
+  assert.deepEqual(run.requests.map(r=>r.method),['get']);
+  assert.equal(JSON.parse(run.store.get(STORE_KEY)).official.accounts[0].used,limit);
+ }
+ const valid={enabled:true,currentIp:'8.8.8.8/24',limit:6,whitelist:[]};
+ const invalid=[...[0,11,5.5,'6',null,undefined].map(limit=>({...valid,limit})),...[6,10,-1,0.5,'5',true].map(slot=>({...valid,whitelist:[{ip:'8.8.8.8/24',slot}]})),{...valid,limit:1,whitelist:[{ip:'8.8.8.8/24'},{ip:'1.1.1.1/24'}]}];
+ for(const body of invalid) {
+  const run=await execute({argument:reportArgument('force',{PO0_FIREWALL_TOKENS:token}),officialGets:[{body}]});
+  assert.deepEqual(run.requests.map(r=>r.method),['get']);
+  assert.equal(JSON.parse(run.store.get(STORE_KEY)).official.accounts[0].status,'error');
+ }
+}
+
 (async () => {
+  await testExpandedOfficialSlots();
   await testStandardEntrypointsAndLegacyRoutes();
   await testTileRemainsReadOnly();
   await testOfficialNetworkTargets();

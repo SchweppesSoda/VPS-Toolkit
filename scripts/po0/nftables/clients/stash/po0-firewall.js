@@ -233,9 +233,9 @@ function parseFirewallTokens(raw) {
   const seen = [];
   for (const rawItem of items) {
     const item = String(rawItem).trim();
-    const match = item.match(/^(pgnfw_[A-Za-z0-9._~-]{1,240})(?:@([0-4]))?$/);
+    const match = item.match(/^(pgnfw_[A-Za-z0-9._~-]{1,240})(?:@([0-9]))?$/);
     if (!match) {
-      throw new Error("PO0 防火墙 token 配置无效：请使用 pgnfw_...，槽位可写为 @0 到 @4");
+      throw new Error("PO0 防火墙 token 配置无效：请使用 pgnfw_...，槽位可写为 @0 到 @9");
     }
     const token = match[1];
     const fixedSlot = match[2] === undefined ? null : Number(match[2]);
@@ -330,7 +330,7 @@ function responseStatus(result) {
 function normalizeSlot(value) {
   if (value === undefined || value === null) return null;
   if (typeof value === "string" && value.trim() === "") return null;
-  if (typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 4) return value;
+  if (typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 9) return value;
   throw new Error("官方白名单槽位无效");
 }
 
@@ -347,10 +347,10 @@ function parseOfficialResponse(result, phase) {
   }
   if (body.enabled !== true) throw new Error("官方防火墙未启用");
   if (!validIPv4Cidr24(body.currentIp)) throw new Error("官方防火墙当前出口 IPv4 无效");
-  if (!Number.isInteger(body.limit) || body.limit < 1 || body.limit > 5) {
+  if (!Number.isInteger(body.limit) || body.limit < 1 || body.limit > 10) {
     throw new Error("官方防火墙名额无效");
   }
-  if (!Array.isArray(body.whitelist) || body.whitelist.length > body.limit || body.whitelist.length > 5) {
+  if (!Array.isArray(body.whitelist) || body.whitelist.length > body.limit || body.whitelist.length > 10) {
     throw new Error("官方防火墙白名单状态无效");
   }
   const slots = [];
@@ -360,6 +360,7 @@ function parseOfficialResponse(result, phase) {
     }
     const slot = normalizeSlot(entry.slot);
     if (slot !== null) {
+      if (slot >= body.limit) throw new Error("官方白名单槽位超出账号额度");
       if (slots.indexOf(slot) >= 0) throw new Error("官方防火墙白名单槽位重复");
       slots.push(slot);
     }
@@ -512,6 +513,7 @@ async function runOfficialAccount(item, index, tokens, mode, previous, nowSecond
   try {
     // Each account remains GET-first; only independent accounts overlap.
     const status = parseOfficialResponse(await officialRequest(item, "status"), "状态");
+    if (item.fixedSlot !== null && item.fixedSlot >= status.limit) throw new Error("指定槽位超出账号额度，请调整固定槽位");
     if (officialHit(status, item)) {
       return {
         account: officialAccountState(index + 1, item, status, nowSeconds, "ok", false, ""),
@@ -526,6 +528,7 @@ async function runOfficialAccount(item, index, tokens, mode, previous, nowSecond
     }
 
     const response = parseOfficialResponse(await officialRequest(item, "add"), "加白");
+    if (item.fixedSlot !== null && item.fixedSlot >= response.limit) throw new Error("指定槽位超出账号额度，请调整固定槽位");
     if (response.currentIp !== status.currentIp || !officialHit(response, item)) {
       throw new Error("加白后未确认当前出口或固定槽位");
     }

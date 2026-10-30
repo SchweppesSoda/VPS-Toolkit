@@ -1,7 +1,7 @@
 configure_official_interactive() {
     local previous_tokens="${PO0_FIREWALL_TOKENS}"
     print_panel_section "PO0 防火墙参数"
-    printf '官方定时上报可关闭、可修改，默认 600 秒；网络变化单独触发。Token 可带 @0..4 指定槽位。\n'
+    printf '官方定时上报可关闭、可修改，默认 600 秒；网络变化单独触发。Token 可带 @0..9 指定槽位。\n'
     po0_firewall_read_tokens_interactive || { PO0_FIREWALL_TOKENS="${previous_tokens}"; return 1; }
     sync_official_account_names "$previous_tokens"
     save_config_file

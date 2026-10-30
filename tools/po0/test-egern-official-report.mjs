@@ -480,7 +480,7 @@ async function testMalformedAndDuplicateTokensFailClosed() {
     'pgnfw_egern_bad,pgnfw_egern_bad',
     'pgnfw_egern_bad@0,pgnfw_egern_bad@0',
     'pgnfw_egern_bad@0,pgnfw_egern_bad@1',
-    'pgnfw_egern_bad@5',
+    'pgnfw_egern_bad@10',
   ]) {
     const { ctx, calls } = createContext({
       env: { PO0_FIREWALL_TOKENS: value },
@@ -516,7 +516,7 @@ async function testMalformedOfficialPayloadFailsClosedWithoutPost() {
   const token = 'pgnfw_egern_bad_payload_not_real';
   for (const payload of [
     officialPayload({ currentIp: '203.0.113.10/32' }),
-    officialPayload({ limit: 6 }),
+    officialPayload({ limit: 11 }),
     officialPayload({ whitelist: [{ ip: '203.0.113.10/24', slot: 7 }] }),
     { enabled: false, currentIp: '203.0.113.10/24', limit: 5, whitelist: [] },
   ]) {
@@ -826,7 +826,7 @@ function testEgernScriptCopiesStaySynchronized() {
   assert.equal(previousYaml, yamlSource);
   const urls = [...yamlSource.matchAll(/script_url: "([^"]+)"/g)].map(match => match[1]);
   assert.equal(urls.length, 12);
-  assert(urls.every(url => url === 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20260929-firewall-ui-v3'));
+  assert(urls.every(url => url === 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20261030-slots-v1'));
 }
 
 
@@ -1532,7 +1532,55 @@ async function testNotificationsUseAssignedSlotAndHonestLabels() {
   assert.doesNotMatch(visibleText(await runEgernReport(empty.ctx)), /0\/0/);
 }
 
+
+async function testExpandedOfficialSlots() {
+ const token = 'pgnfw_expanded_fixture';
+ for (const limit of [1, 5, 6, 7, 8, 9, 10]) {
+  const slot = limit - 1;
+  const payload = officialPayload({limit, whitelist:[{ip:'203.0.113.0/24',slot}]});
+  const storage = createStorage();
+  const save = createContext({storage,trigger:'保存本机 PO0 官方防火墙配置',env:{PO0_FIREWALL_TOKENS:token+'@'+slot}});
+  await runEgernReport(save.ctx);
+  assert.equal(save.calls.get.length,0);
+  const hit = createContext({storage,env:{PO0_FIREWALL_TOKENS:token+'@0'},httpGet:()=>response(payload)});
+  assert.equal((await runEgernReport(hit.ctx)).ok,true);
+  assert.equal(hit.calls.post.length,0);
+  assert.equal((await stateOf(storage)).official.entries[0].fixedSlot,slot,'saved expanded slot survives sync');
+  const update = createContext({env:{PO0_FIREWALL_TOKENS:token+'@'+slot},httpGet:()=>response(officialPayload({limit})),httpPost:()=>response(payload)});
+  assert.equal((await runEgernReport(update.ctx)).ok,true);
+  assert.equal(update.calls.get.length,1);
+  assert.equal(update.calls.post.length,1);
+  assert(update.calls.post[0].url.endsWith('?slot='+slot));
+  const readonly=createContext({trigger:'查询官方白名单',env:{PO0_FIREWALL_TOKENS:token+'@'+slot},httpGet:()=>response(officialPayload({limit}))});
+  await runEgernReport(readonly.ctx);
+  assert.equal((await officialStateOf(readonly.storage)).entries[0].status,'missing');
+  assert.equal(readonly.calls.post.length,0);
+ }
+ for(const [limit,slot] of [[5,5],[6,9]]) {
+  const run=createContext({env:{PO0_FIREWALL_TOKENS:token+'@'+slot},httpGet:()=>response(officialPayload({limit}))});
+  const result=await runEgernReport(run.ctx);
+  assert.equal(result.ok,false);
+  assert.equal(run.calls.post.length,0);
+  assert.match(visibleText(result),/指定槽位超出账号额度/);
+  assert(!JSON.stringify([run.calls.logs,run.calls.notifications]).includes(token));
+ }
+ const {officialNormalizePayload}=await import('data:text/javascript;base64,'+Buffer.from(source+'\nexport {officialNormalizePayload};').toString('base64'));
+ for(const limit of [0,11,5.5,'6',null,undefined]) assert.throws(()=>officialNormalizePayload({...officialPayload(),limit}));
+ for(const slot of [6,10,-1,0.5,'5',true]) assert.throws(()=>officialNormalizePayload(officialPayload({limit:6,whitelist:[{ip:'203.0.113.0/24',slot}]})));
+ assert.throws(()=>officialNormalizePayload(officialPayload({limit:1,whitelist:[{ip:'203.0.113.0/24'},{ip:'198.51.100.0/24'}]})));
+ for(const limit of [6,10]) assert.equal(officialNormalizePayload(officialPayload({limit,whitelist:Array.from({length:limit},(_,slot)=>({ip:'192.0.2.'+slot+'/24',slot}))})).used,limit);
+ const full=Array.from({length:10},(_,slot)=>({slot,ip:'192.0.2.'+slot+'/24'}));
+ const widget=createContext({trigger:'PO0 防火墙状态',widgetFamily:'systemLarge',httpGet:()=>response(officialPayload({currentIp:'192.0.2.99/24',limit:10,whitelist:full}))});
+ const result=await runEgernReport(widget.ctx);
+ assert.match(visibleText(result),/占用 10\/10/);
+ assert.match(visibleText(result),/另 5 条/);
+ assert(!visibleText(result).includes('未占用'));
+ const query=createContext({trigger:'查询官方白名单',httpGet:()=>response(officialPayload({limit:10,whitelist:[...full].reverse()}))});
+ assert.match(visibleText(await runEgernReport(query.ctx)),/#10 · 192\.0\.2\.9/);
+}
+
 const tests = [
+  testExpandedOfficialSlots,
   testUiTimeUnitsSpacingAndUserNames,
   testNotificationsUseAssignedSlotAndHonestLabels,
   testWhitelistNetworkHighlightAcrossViews,

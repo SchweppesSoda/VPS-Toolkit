@@ -369,7 +369,7 @@ unset PO0_OUTBOUND_IP_REPORT_OFFICIAL_NOW
 # Malformed/ambiguous values fail closed without exposing their contents.
 for bad_tokens in \
     'pgnfw_bad;$(touch /tmp/po0-test-owned)' \
-    "${TOKEN_A}@5" \
+    "${TOKEN_A}@10" \
     "${TOKEN_A}@0,${TOKEN_A}@0" \
     "${TOKEN_A}@0,${TOKEN_A}@1" \
     "${TOKEN_A},${TOKEN_A}@0"; do
@@ -493,5 +493,7 @@ SCENARIO='baseline'
 run_wrapper
 assert_eq '0' "${RUN_RC}" 'SSID skip did not return success'
 [[ ! -s "${order_log}" ]] || fail 'SSID skip did not stop both lanes'
+
+bash "${repo_root}/tools/po0/test-official-slot-limits.sh" linux
 
 printf 'PASS: generic Linux official firewall core mock checks passed.\n'

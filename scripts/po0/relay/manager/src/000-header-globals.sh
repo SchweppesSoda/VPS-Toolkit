@@ -2,11 +2,11 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-nftables-relay-manager"
-SCRIPT_VERSION="2026.10.04+build.1"
-SCRIPT_RELEASE_DATE="2026-10-04"
+SCRIPT_VERSION="2026.10.30+build.1"
+SCRIPT_RELEASE_DATE="2026-10-30"
 # CHANGELOG_BEGIN
-# - 与 PO0 防火墙客户端使用统一脚本发布版本。
-# - 转发、鉴权更新、备份与迁移检查保持现有行为。
+# - 配合官方防火墙客户端支持最多 10 个槽位，同步本次脚本版本。
+# - 保留现有转发管理、更新镜像与配对协议。
 # CHANGELOG_END
 CONF_DIR="${PO0_CONF_DIR:-/etc/nftables.d}"
 MAIN_CONF="${PO0_MAIN_CONF:-/etc/nftables.conf}"

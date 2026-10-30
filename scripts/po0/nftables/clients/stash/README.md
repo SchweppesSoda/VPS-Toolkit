@@ -2,7 +2,7 @@
 
 导入 [PO0-Firewall.stoverride](https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/stash/PO0-Firewall.stoverride)，或使用个人配置内嵌的同类模块。两者只启用一份。
 
-访问 `http://po0-report.invalid/settings` 打开本机管理页。在模块 `/save-official` 的参数中填写 Token、槽位和名称，再点击“保存配置”。多个账号用逗号、分号、空格或换行分隔；槽位参数 `@0`～`@4` 对应界面 #1～#5。已保存的账号和槽位优先于同步参数，清除后同步参数不会自动恢复。
+访问 `http://po0-report.invalid/settings` 打开本机管理页。在模块 `/save-official` 的参数中填写 Token、槽位和名称，再点击“保存配置”。多个账号用逗号、分号、空格或换行分隔；槽位参数 `@0`～`@9` 对应界面 #1～#10。实际可用数量以账号返回额度为准（默认 5 个，最多 10 个），固定槽位超额时会报错且不写入。已保存的账号和槽位优先于同步参数，清除后同步参数不会自动恢复。
 
 定期上报默认每 10 分钟，范围 60～86400 秒。关闭定期上报保留间隔；停用自动上报同时停用定期与出口变化触发，手动操作仍可用。Stash 每分钟轮询直连出口 IPv4，没有公开 SSID 读取 API 和原生网络变化事件。按网络选择账号默认关闭，开启后原目标用于蜂窝，Wi-Fi 使用另填目标，槽位由用户决定。
 

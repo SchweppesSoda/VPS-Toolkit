@@ -79,9 +79,10 @@ json_current_ip() {
 }
 
 json_limit() {
+	[ "$(printf '%s' "$1" | jsonfilter -t '@.limit' 2>/dev/null)" = 'int' ] || return 1
 	value="$(json_value "$1" 'limit')"
 	case "$value" in
-		[1-5]) printf '%s' "$value" ;;
+		[1-9]|10) printf '%s' "$value" ;;
 		*) return 1 ;;
 	esac
 }
@@ -126,6 +127,18 @@ official_response_valid() {
 	whitelist_type="$(printf '%s' "$response" |
 		jsonfilter -t '@["whitelist"]' 2>/dev/null || true)"
 	[ "$whitelist_type" = 'array' ] || return 1
+	# Count each array member, including a malformed trailing row. Query
+	# types by index: jsonfilter joins multiple -t matches with "\ ".
+	entry_count='0'
+	index='0'
+	while [ "$index" -le "$limit_value" ]; do
+		entry_type="$(printf '%s' "$response" | jsonfilter -t "@.whitelist[${index}]" 2>/dev/null || true)"
+		[ -n "$entry_type" ] || break
+		[ "$entry_type" = 'object' ] || return 1
+		entry_count=$((entry_count + 1))
+		index=$((index + 1))
+	done
+	[ "$entry_count" -le "$limit_value" ] || return 1
 	whitelist_values="$(printf '%s' "$response" | jsonfilter -e '@.whitelist[*].ip' 2>/dev/null || true)"
 	ip_count='0'
 	seen_slots=''
@@ -136,10 +149,17 @@ official_response_valid() {
 		whitelist_value="$(printf '%s' "$whitelist_value" | sed 's|\\/|/|g')"
 		valid_ipv4_cidr24 "$whitelist_value" || return 1
 		whitelist_slot="$(json_value "$response" "whitelist[${index}].slot")"
+		whitelist_slot_type="$(printf '%s' "$response" | jsonfilter -t "@.whitelist[${index}].slot" 2>/dev/null || true)"
 		case "$whitelist_slot" in
-			''|null)
+			'')
+				case "$whitelist_slot_type" in ''|null|string) : ;; *) return 1 ;; esac
 				;;
-			[0-4])
+			null)
+				[ "$whitelist_slot_type" = 'null' ] || return 1
+				;;
+			[0-9])
+				[ "$whitelist_slot_type" = 'int' ] || return 1
+				[ "$whitelist_slot" -lt "$limit_value" ] || return 1
 				case ";${seen_slots};" in
 					*";${whitelist_slot};"*) return 1 ;;
 				esac
@@ -159,6 +179,7 @@ official_response_valid() {
 	done <<EOF
 $whitelist_values
 EOF
+	[ "$ip_count" -eq "$entry_count" ] 2>/dev/null || return 1
 	[ "$ip_count" -eq "$aggregate_ip_count" ] 2>/dev/null || return 1
 	[ "$ip_count" -le "$limit_value" ] 2>/dev/null || return 1
 }
@@ -250,7 +271,7 @@ process_binding() {
 	current=''
 	whitelist=''
 	used='0'
-	limit='5'
+	limit='0'
 	status='unknown'
 	message=''
 	checked_at="$(date +%s)"
@@ -276,10 +297,10 @@ process_binding() {
 			;;
 	esac
 	case "$slot" in
-		''|[0-4]) : ;;
+		''|[0-9]) : ;;
 		*)
 			status='error'
-			message='固定槽位必须为空或 0..4。'
+			message='固定槽位必须为空或 0..9。'
 			emit_row
 			FAILURES=$((FAILURES + 1))
 			return 0
@@ -308,6 +329,13 @@ process_binding() {
 	limit="$(json_limit "$response")"
 	used='0'
 	[ -z "$whitelist" ] || used="$(printf '%s' "$whitelist" | awk -F ';' '{print NF}')"
+	if [ -n "$slot" ] && [ "$slot" -ge "$limit" ]; then
+		status='error'
+		message='指定槽位超出账号额度，请调整固定槽位。'
+		FAILURES=$((FAILURES + 1))
+		emit_row
+		return 0
+	fi
 	if is_whitelisted "$response" "$current" "$slot"; then
 		status='already_present'
 		if [ "$ACTION" = 'status' ] || [ "$ACTION" = 'report' ]; then
@@ -338,6 +366,13 @@ process_binding() {
 		limit="$(json_limit "$response")"
 		used='0'
 		[ -z "$whitelist" ] || used="$(printf '%s' "$whitelist" | awk -F ';' '{print NF}')"
+		if [ -n "$slot" ] && [ "$slot" -ge "$limit" ]; then
+			status='error'
+			message='指定槽位超出账号额度，请调整固定槽位。'
+			FAILURES=$((FAILURES + 1))
+			emit_row
+			return 0
+		fi
 		if is_whitelisted "$response" "$current" "$slot"; then
 			status='success'
 			message=''

@@ -48,7 +48,7 @@ function Get-Po0FirewallTokenItems {
             }
             $token = $item.Substring(0, $at)
             $slot = $item.Substring($at + 1)
-            if ($slot -notmatch "^[0-4]$") {
+            if ($slot -notmatch "^[0-9]$") {
                 throw "PO0 防火墙 token 配置无效。"
             }
         }
@@ -117,7 +117,7 @@ function Get-Po0FirewallTokenSummary {
 
 function Read-Po0FirewallTokensInteractive {
     Write-PanelRow "当前官方 Token" $(if ($script:Po0FirewallTokens) { $script:Po0FirewallTokens } else { "未设置" })
-    Write-Host "可用逗号、分号、空格或换行分隔，槽位写 @0..4。空行结束；直接空行保留，单独 - 清空。"
+    Write-Host "可用逗号、分号、空格或换行分隔，槽位写 @0..9。空行结束；直接空行保留，单独 - 清空。"
     $tokenLines = New-Object System.Collections.Generic.List[string]
     while ($true) {
         $tokenLine = Read-Host -Prompt "输入官方 Token（空行结束）"
@@ -380,7 +380,7 @@ function ConvertFrom-Po0FirewallResponse {
         throw "limit"
     }
     $limit = [int]$limitValue
-    if ($limit -lt 1 -or $limit -gt 5) { throw "limit" }
+    if ($limit -lt 1 -or $limit -gt 10) { throw "limit" }
 
     $whitelistProperty = $object.PSObject.Properties["whitelist"]
     if ($null -eq $whitelistProperty -or $null -eq $whitelistProperty.Value) {
@@ -388,7 +388,7 @@ function ConvertFrom-Po0FirewallResponse {
     }
     if ($whitelistProperty.Value -is [string]) { throw "whitelist" }
     $entries = @($whitelistProperty.Value)
-    if ($entries.Count -gt 5 -or $entries.Count -gt $limit) { throw "whitelist" }
+    if ($entries.Count -gt 10 -or $entries.Count -gt $limit) { throw "whitelist" }
     $seenSlots = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::Ordinal)
     $normalized = New-Object System.Collections.Generic.List[object]
     foreach ($entry in $entries) {
@@ -405,7 +405,7 @@ function ConvertFrom-Po0FirewallResponse {
                 if ($slotText -ne "") { throw "slot" }
             } elseif (Test-Po0FirewallJsonInteger -Value $slotProperty.Value) {
                 $slotNumber = [int]$slotProperty.Value
-                if ($slotNumber -lt 0 -or $slotNumber -gt 4) { throw "slot" }
+                if ($slotNumber -lt 0 -or $slotNumber -ge $limit) { throw "slot" }
                 $slotText = [string]$slotNumber
             } else {
                 throw "slot"
@@ -445,7 +445,7 @@ function Test-Po0FirewallEntryMatches {
 function Format-Po0FirewallSlotLabel {
     param([string]$Slot)
     $number = 0
-    if ($Slot -and [int]::TryParse($Slot, [ref]$number) -and $number -ge 0 -and $number -le 4) {
+    if ($Slot -and [int]::TryParse($Slot, [ref]$number) -and $number -ge 0 -and $number -le 9) {
         return [string]($number + 1)
     }
     return [string]$Slot
@@ -491,6 +491,7 @@ function Invoke-Po0FirewallItem {
         $statusResponse = Invoke-Po0OfficialHttpRequest -Method GET -Token ([string]$Item.Token)
         $status = ConvertFrom-Po0FirewallResponse -Body ([string]$statusResponse.Body)
         $accountState = New-Po0FirewallAccountState -Index $Index -FixedSlot ([string]$Item.Slot) -CurrentIp $status.CurrentIp -Limit $status.Limit -Entries $status.Entries -Status "ok"
+        if ($Item.Slot -ne "" -and [int]$Item.Slot -ge $status.Limit) { throw "fixed-slot-limit" }
         $hit = Test-Po0FirewallEntryMatches -Response $status -Ip $status.CurrentIp -FixedSlot ([string]$Item.Slot)
         if ($hit) {
             return [pscustomobject]@{
@@ -511,6 +512,7 @@ function Invoke-Po0FirewallItem {
 
         $postResponse = Invoke-Po0OfficialHttpRequest -Method POST -Token ([string]$Item.Token) -Slot ([string]$Item.Slot)
         $post = ConvertFrom-Po0FirewallResponse -Body ([string]$postResponse.Body)
+        if ($Item.Slot -ne "" -and [int]$Item.Slot -ge $post.Limit) { throw "fixed-slot-limit" }
         if (-not (Test-Po0FirewallEntryMatches -Response $post -Ip $post.CurrentIp -FixedSlot ([string]$Item.Slot))) {
             throw "confirmation"
         }
@@ -522,11 +524,12 @@ function Invoke-Po0FirewallItem {
             Message = "$marker 已更新：$($post.CurrentIp)（名额 $($post.Limit)，已用 $($post.Entries.Count)）。"
         }
     } catch {
+        if ($_.Exception.Message -eq "fixed-slot-limit") { $accountState.Status = "failed" }
         return [pscustomobject]@{
             Succeeded = $false
             Added = $false
             State = $accountState
-            Message = "$marker 只读检查或加白失败。"
+            Message = $(if ($_.Exception.Message -eq "fixed-slot-limit") { "$marker 指定槽位超出账号额度，请调整固定槽位。" } else { "$marker 只读检查或加白失败。" })
         }
     }
 }
