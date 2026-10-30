@@ -826,7 +826,7 @@ function testEgernScriptCopiesStaySynchronized() {
   assert.equal(previousYaml, yamlSource);
   const urls = [...yamlSource.matchAll(/script_url: "([^"]+)"/g)].map(match => match[1]);
   assert.equal(urls.length, 12);
-  assert(urls.every(url => url === 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20261030-widget-redesign-v5'));
+  assert(urls.every(url => url === 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20261030-widget-redesign-v6'));
 }
 
 
@@ -1728,7 +1728,7 @@ async function testWidgetRootsKeepOpaqueBackground() {
   roots.push(await runEgernReport(createContext({ trigger: 'PO0 防火墙 · 清除配置' }).ctx));
   for (const root of roots) {
     assert.equal(root.type, 'widget');
-    assert.deepEqual(root.backgroundColor, { light: '#FFFFFF', dark: '#1C1C1E' }, 'white in light mode, deep gray in dark mode');
+    assert.deepEqual(root.backgroundColor, { light: '#FFFFFF', dark: '#2E2E31' }, 'white in light mode, a gray distinct from black in dark mode');
     assert(opaque(root.backgroundColor));
     assert.equal(root.backgroundGradient, undefined, 'solid background without a gradient');
     assert(!JSON.stringify(root).includes('rgba('), 'no translucent colors anywhere on the widget');

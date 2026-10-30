@@ -1,4 +1,4 @@
-// PO0 防火墙上报 · 20261030-widget-redesign-v5
+// PO0 防火墙上报 · 20261030-widget-redesign-v6
 function retiredAction(ctx) {
   return /自建|ssh-report|设备 ID|本机设备|Device ID|设备标识/i.test(scriptLabel(ctx)) || Boolean(ctx?.request);
 }
@@ -476,17 +476,18 @@ function formatDurationSeconds(seconds) {
   return parts.join(' ') || '0 秒';
 }
 
-// Solid colors per appearance: white in light mode, deep gray in dark mode. Green marks only
+// Solid colors per appearance: white in light mode, a mid-dark gray that stays distinct from
+// black wallpapers in dark mode. Green marks only
 // the current /24 network; other states stay neutral so the covered slot stands out.
 const WIDGET_COLORS = {
-  background: { light: '#FFFFFF', dark: '#1C1C1E' },
-  card: { light: '#F2F2F7', dark: '#2C2C2E' },
+  background: { light: '#FFFFFF', dark: '#2E2E31' },
+  card: { light: '#F2F2F7', dark: '#3C3C3F' },
   text: { light: '#1C1C1E', dark: '#F5F5F7' },
-  secondary: { light: '#6E6E73', dark: '#98989F' },
-  tertiary: { light: '#AEAEB2', dark: '#636366' },
-  slot: { light: '#E5E5EA', dark: '#3A3A3C' },
-  slotOnCard: { light: '#DCDCE1', dark: '#48484A' },
-  slotLine: { light: '#C7C7CC', dark: '#48484A' },
+  secondary: { light: '#6E6E73', dark: '#A1A1A8' },
+  tertiary: { light: '#AEAEB2', dark: '#78787E' },
+  slot: { light: '#E5E5EA', dark: '#444448' },
+  slotOnCard: { light: '#DCDCE1', dark: '#525256' },
+  slotLine: { light: '#C7C7CC', dark: '#58585D' },
   green: { light: '#248A3D', dark: '#30D158' },
   greenFill: { light: '#34C759', dark: '#30D158' },
   onGreen: { light: '#FFFFFF', dark: '#062B12' },
@@ -496,10 +497,10 @@ const WIDGET_COLORS = {
 
 // Opaque tints, so nothing on the widget depends on translucency.
 const WIDGET_TONES = {
-  ok: { color: WIDGET_COLORS.green, tint: { light: '#DDF5E3', dark: '#20402A' }, icon: 'checkmark.circle.fill', shield: 'checkmark.shield.fill' },
-  warn: { color: WIDGET_COLORS.orange, tint: { light: '#FFEED6', dark: '#49361A' }, icon: 'exclamationmark.circle.fill', shield: 'exclamationmark.shield.fill' },
-  error: { color: WIDGET_COLORS.red, tint: { light: '#FFE8E7', dark: '#3C2222' }, icon: 'xmark.circle.fill', shield: 'xmark.shield.fill' },
-  idle: { color: WIDGET_COLORS.secondary, tint: { light: '#EEEEF0', dark: '#323236' }, icon: 'circle.dashed', shield: 'shield' },
+  ok: { color: WIDGET_COLORS.green, tint: { light: '#DDF5E3', dark: '#2E4F39' }, icon: 'checkmark.circle.fill', shield: 'checkmark.shield.fill' },
+  warn: { color: WIDGET_COLORS.orange, tint: { light: '#FFEED6', dark: '#584529' }, icon: 'exclamationmark.circle.fill', shield: 'exclamationmark.shield.fill' },
+  error: { color: WIDGET_COLORS.red, tint: { light: '#FFE8E7', dark: '#4B3132' }, icon: 'xmark.circle.fill', shield: 'xmark.shield.fill' },
+  idle: { color: WIDGET_COLORS.secondary, tint: { light: '#EEEEF0', dark: '#404044' }, icon: 'circle.dashed', shield: 'shield' },
 };
 
 function textNode(text, size = 'caption1', weight = 'regular', color = WIDGET_COLORS.text) {
