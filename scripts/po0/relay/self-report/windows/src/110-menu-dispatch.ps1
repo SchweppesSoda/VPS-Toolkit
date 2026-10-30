@@ -65,7 +65,7 @@ function Invoke-ChannelSettingsMenu {
     param([ValidateSet('worker','official')][string]$Channel)
     $Channel = 'official'
     $title = '官方防火墙'
-    $maximum = if ($Channel -eq 'official') { 12 } else { 11 }
+    $maximum = 11
     while ($true) {
         Write-Title "$title · 设置"
         Write-PanelRow '配置状态' $(if (Test-ChannelConfigured $Channel) { '已配置' } else { '未配置' })
@@ -82,13 +82,12 @@ function Invoke-ChannelSettingsMenu {
         Write-MenuItem 3 '启用 / 停用自动上报'
         Write-MenuItem 4 '定期上报设置（开关与间隔）'
         Write-MenuItem 5 '查看本机配置'
-        Write-MenuItem 6 '查看最近结果'
-        Write-MenuItem 7 '立即上报'
-        Write-MenuItem 8 '强制上报（绕过本机跳过条件）'
-        Write-MenuItem 9 '安装 / 更新本通道自动任务'
-        Write-MenuItem 10 '删除本通道自动任务'
-        Write-MenuItem 11 '清除本通道配置'
-        if ($Channel -eq 'official') { Write-MenuItem 12 '查询官方白名单' }
+        Write-MenuItem 6 '立即上报'
+        Write-MenuItem 7 '强制上报（绕过本机跳过条件）'
+        Write-MenuItem 8 '安装 / 更新本通道自动任务'
+        Write-MenuItem 9 '删除本通道自动任务'
+        Write-MenuItem 10 '清除本通道配置'
+        if ($Channel -eq 'official') { Write-MenuItem 11 '查询官方白名单' }
         Write-MenuItem 0 '返回主菜单'
         $choice = Read-Host "请选择 [0-$maximum]"
         if ($null -eq $choice -or $choice -eq '0') { return }
@@ -99,13 +98,12 @@ function Invoke-ChannelSettingsMenu {
                 '3' { Toggle-ChannelAutoInteractive $Channel }
                 '4' { Set-ChannelPeriodicInteractive $Channel }
                 '5' { Show-ChannelConfig $Channel }
-                '6' { Show-RecentReportResults }
-                '7' { Invoke-ChannelInteractive $Channel }
-                '8' { Invoke-ChannelForceInteractive $Channel }
-                '9' { Install-ScheduledReporterInteractive -Channel $Channel }
-                '10' { if (Read-YesNoDefault '删除本通道自动任务（保留配置）' $false) { Remove-ScheduledReporter -Channel $Channel; Save-ClientConfig } }
-                '11' { Clear-OfficialConfigInteractive; Update-ChannelScheduleIfInstalled $Channel }
-                '12' { if ($Channel -eq 'official') { Show-OfficialStatusInteractive } else { throw '无效选择。' } }
+                '6' { Invoke-ChannelInteractive $Channel }
+                '7' { Invoke-ChannelForceInteractive $Channel }
+                '8' { Install-ScheduledReporterInteractive -Channel $Channel }
+                '9' { if (Read-YesNoDefault '删除本通道自动任务（保留配置）' $false) { Remove-ScheduledReporter -Channel $Channel; Save-ClientConfig } }
+                '10' { Clear-OfficialConfigInteractive; Update-ChannelScheduleIfInstalled $Channel }
+                '11' { if ($Channel -eq 'official') { Show-OfficialStatusInteractive } else { throw '无效选择。' } }
                 default { throw "无效选择：请输入 0-$maximum。" }
             }
         } catch { Write-Po0UiText $_.Exception.Message -Color Red }

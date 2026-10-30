@@ -142,8 +142,8 @@ force_channel_interactive() {
 }
 
 channel_settings_menu() {
-    local channel=official choice title='官方防火墙' max_choice=12
-    if [[ "$channel" == official ]]; then title='官方防火墙'; max_choice=12; fi
+    local channel=official choice title='官方防火墙' max_choice=11
+    if [[ "$channel" == official ]]; then title='官方防火墙'; max_choice=11; fi
     while true; do
         menu_clear_screen
         print_title "$title · 设置"
@@ -161,13 +161,12 @@ channel_settings_menu() {
         print_menu_item 3 '启用 / 停用自动上报'
         print_menu_item 4 '定期上报设置（开关与间隔）'
         print_menu_item 5 '查看本机配置'
-        print_menu_item 6 '查看最近结果'
-        print_menu_item 7 '立即上报'
-        print_menu_item 8 '强制上报（绕过本机跳过条件）'
-        print_menu_item 9 '安装 / 更新本通道自动任务'
-        print_menu_item 10 '删除本通道自动任务'
-        print_menu_item 11 '清除本通道配置'
-        [[ "$channel" != official ]] || print_menu_item 12 '查询官方白名单'
+        print_menu_item 6 '立即上报'
+        print_menu_item 7 '强制上报（绕过本机跳过条件）'
+        print_menu_item 8 '安装 / 更新本通道自动任务'
+        print_menu_item 9 '删除本通道自动任务'
+        print_menu_item 10 '清除本通道配置'
+        [[ "$channel" != official ]] || print_menu_item 11 '查询官方白名单'
         print_menu_item 0 '返回主菜单'
         choice="$(read_prompt "请选择 [0-$max_choice]: ")" || return 0
         case "$(trim "$choice")" in
@@ -176,13 +175,12 @@ channel_settings_menu() {
             3) toggle_channel_auto_interactive "$channel" && update_channel_schedule_if_installed "$channel" ;;
             4) configure_channel_periodic_interactive "$channel" ;;
             5) show_channel_config "$channel" ;;
-            6) show_recent_report_results ;;
-            7) run_channel_interactive "$channel" ;;
-            8) force_channel_interactive "$channel" ;;
-            9) install_cron_interactive "$channel" ;;
-            10) if prompt_yes_no '删除本通道自动任务（保留配置）' n; then remove_cron "$channel"; fi ;;
-            11) clear_official_tokens_interactive && update_channel_schedule_if_installed official ;;
-            12) if [[ "$channel" == official ]]; then show_channel_status official; else printf '无效选择。\n'; fi ;;
+            6) run_channel_interactive "$channel" ;;
+            7) force_channel_interactive "$channel" ;;
+            8) install_cron_interactive "$channel" ;;
+            9) if prompt_yes_no '删除本通道自动任务（保留配置）' n; then remove_cron "$channel"; fi ;;
+            10) clear_official_tokens_interactive && update_channel_schedule_if_installed official ;;
+            11) if [[ "$channel" == official ]]; then show_channel_status official; else printf '无效选择。\n'; fi ;;
             0) return 0 ;;
             *) printf '无效选择：请输入 0-%s。\n' "$max_choice" ;;
         esac

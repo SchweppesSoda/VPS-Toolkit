@@ -120,6 +120,19 @@ for platform in linux macos; do
         grep -Fq '保存配置（编辑参数）' "$test_dir/menu-$platform"
         grep -Fq '清除本通道配置' "$test_dir/menu-$platform"
         grep -Fq '维护与诊断' "$test_dir/menu-$platform"
+        ! grep -Fq '查看最近结果' "$test_dir/menu-$platform"
+        settings_actions=''
+        run_channel_interactive() { settings_actions="$settings_actions report"; }
+        force_channel_interactive() { settings_actions="$settings_actions force"; }
+        show_channel_status() { settings_actions="$settings_actions query"; }
+        printf '6\n7\n11\n0\n' > "$test_dir/settings-input"
+        exec 9< "$test_dir/settings-input"
+        channel_settings_menu official > "$test_dir/settings-menu-$platform"
+        exec 9<&-
+        [[ "$settings_actions" == ' report force query' ]]
+        grep -Fq '[11]  查询官方白名单' "$test_dir/settings-menu-$platform"
+        ! grep -Fq '查看最近结果' "$test_dir/settings-menu-$platform"
+
         printf 'PASS: %s local settings visibility, multiline save, invalid input retention and clear\n' "$platform"
     )
 done

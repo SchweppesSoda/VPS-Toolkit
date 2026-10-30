@@ -156,8 +156,16 @@ try {
     function Write-MenuItem { param([string]$Number,[string]$Label) $script:MenuItems.Add([pscustomobject]@{Number=$Number;Label=$Label}) }
     function Update-ChannelScheduleIfInstalled { throw 'FAIL: toggle menu must not refresh task registration' }
     Invoke-ChannelSettingsMenu official
-    Assert-Test ($script:MenuPrompts.Count -eq 2 -and $script:MenuPrompts[0] -eq '请选择 [0-12]') 'channel menu input range'
-    Assert-Test ($script:MenuItems[12].Number -eq '0' -and $script:MenuItems[12].Label -eq '返回主菜单') 'channel menu return is displayed as zero'
+    Assert-Test ($script:MenuPrompts.Count -eq 2 -and $script:MenuPrompts[0] -eq '请选择 [0-11]') 'channel menu input range'
+    Assert-Test ($script:MenuItems[11].Number -eq '0' -and $script:MenuItems[11].Label -eq '返回主菜单') 'channel menu return is displayed as zero'
+    Assert-Test (@($script:MenuItems | Where-Object { $_.Label -eq '查看最近结果' }).Count -eq 0) 'settings has no duplicate recent-results entry'
+    $script:SettingsActions=[Collections.Generic.List[string]]::new()
+    function Invoke-ChannelInteractive { param($Channel) $script:SettingsActions.Add('report') }
+    function Invoke-ChannelForceInteractive { param($Channel) $script:SettingsActions.Add('force') }
+    function Show-OfficialStatusInteractive { $script:SettingsActions.Add('query') }
+    foreach ($inputValue in @('6','7','11','0')) { $script:MenuInputs.Enqueue($inputValue) }
+    Invoke-ChannelSettingsMenu official
+    Assert-Test (($script:SettingsActions -join ',') -eq 'report,force,query') 'renumbered settings actions route correctly'
     $script:RecentViews=0; $script:RecentLogs=0; $script:RecentPauses=0
     function Show-Po0FirewallCached { param([switch]$Summary) if (-not $Summary) { $script:RecentViews++ } }
     function Show-SelfReportLogTail { param($Path) Assert-Test ($Path -eq (Get-ChannelLogPath official)) 'recent log selects official channel'; $script:RecentLogs++ }
