@@ -1,4 +1,4 @@
-// PO0 防火墙上报 · 20261030-widget-redesign-v3
+// PO0 防火墙上报 · 20261030-widget-redesign-v4
 function retiredAction(ctx) {
   return /自建|ssh-report|设备 ID|本机设备|Device ID|设备标识/i.test(scriptLabel(ctx)) || Boolean(ctx?.request);
 }
@@ -476,31 +476,29 @@ function formatDurationSeconds(seconds) {
   return parts.join(' ') || '0 秒';
 }
 
-// Egern resolves {light, dark} colors with the system appearance. Green is reserved for
-// the current /24 network; other states stay neutral so the covered slot stands out.
+// One fixed dark palette: an adaptive root background rendered transparent on device, and
+// content colors must match the fixed background. Green marks only the current /24 network.
 const WIDGET_COLORS = {
-  background: { light: '#FFFFFF', dark: '#1C1C1E' },
-  backgroundTop: { light: '#FFFFFF', dark: '#242426' },
-  backgroundBottom: { light: '#F6F6F9', dark: '#1C1C1E' },
-  card: { light: '#F2F2F7', dark: '#2C2C2E' },
-  text: { light: '#1C1C1E', dark: '#F5F5F7' },
-  secondary: { light: '#6E6E73', dark: '#98989F' },
-  tertiary: { light: '#AEAEB2', dark: '#636366' },
-  slot: { light: '#E5E5EA', dark: '#3A3A3C' },
-  slotOnCard: { light: '#DCDCE1', dark: '#48484A' },
-  slotLine: { light: '#C7C7CC', dark: '#48484A' },
-  green: { light: '#248A3D', dark: '#30D158' },
-  greenFill: { light: '#34C759', dark: '#30D158' },
-  onGreen: { light: '#FFFFFF', dark: '#062B12' },
-  orange: { light: '#C93400', dark: '#FF9F0A' },
-  red: { light: '#D70015', dark: '#FF453A' },
+  background: '#1C1C1E',
+  card: '#2C2C2E',
+  text: '#F5F5F7',
+  secondary: '#98989F',
+  tertiary: '#636366',
+  slot: '#3A3A3C',
+  slotOnCard: '#48484A',
+  slotLine: '#48484A',
+  green: '#30D158',
+  greenFill: '#30D158',
+  onGreen: '#062B12',
+  orange: '#FF9F0A',
+  red: '#FF453A',
 };
 
 const WIDGET_TONES = {
-  ok: { color: WIDGET_COLORS.green, tint: { light: 'rgba(52, 199, 89, 0.16)', dark: 'rgba(48, 209, 88, 0.2)' }, icon: 'checkmark.circle.fill', shield: 'checkmark.shield.fill' },
-  warn: { color: WIDGET_COLORS.orange, tint: { light: 'rgba(255, 149, 0, 0.16)', dark: 'rgba(255, 159, 10, 0.2)' }, icon: 'exclamationmark.circle.fill', shield: 'exclamationmark.shield.fill' },
-  error: { color: WIDGET_COLORS.red, tint: { light: 'rgba(255, 59, 48, 0.1)', dark: 'rgba(255, 69, 58, 0.14)' }, icon: 'xmark.circle.fill', shield: 'xmark.shield.fill' },
-  idle: { color: WIDGET_COLORS.secondary, tint: { light: 'rgba(120, 120, 128, 0.12)', dark: 'rgba(120, 120, 128, 0.24)' }, icon: 'circle.dashed', shield: 'shield' },
+  ok: { color: WIDGET_COLORS.green, tint: '#20402A', icon: 'checkmark.circle.fill', shield: 'checkmark.shield.fill' },
+  warn: { color: WIDGET_COLORS.orange, tint: '#49361A', icon: 'exclamationmark.circle.fill', shield: 'exclamationmark.shield.fill' },
+  error: { color: WIDGET_COLORS.red, tint: '#3C2222', icon: 'xmark.circle.fill', shield: 'xmark.shield.fill' },
+  idle: { color: WIDGET_COLORS.secondary, tint: '#323236', icon: 'circle.dashed', shield: 'shield' },
 };
 
 function textNode(text, size = 'caption1', weight = 'regular', color = WIDGET_COLORS.text) {
@@ -528,13 +526,9 @@ function spacerNode(length) {
   return Number.isFinite(length) ? { type: 'spacer', length } : { type: 'spacer' };
 }
 
-// The root background must stay opaque so the widget fills its tile like its neighbours.
-// The gradient form rendered full-bleed on device; the plain color is the fallback.
+// A plain fixed color keeps the root opaque so the widget fills its tile like its neighbours.
 function widgetRootBackground() {
-  return {
-    backgroundColor: WIDGET_COLORS.background,
-    backgroundGradient: { type: 'linear', colors: [WIDGET_COLORS.backgroundTop, WIDGET_COLORS.backgroundBottom], startPoint: { x: 0, y: 0 }, endPoint: { x: 0, y: 1 } },
-  };
+  return { backgroundColor: WIDGET_COLORS.background };
 }
 
 function widgetFamily(ctx) {
