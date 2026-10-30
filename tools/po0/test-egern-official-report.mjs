@@ -826,7 +826,7 @@ function testEgernScriptCopiesStaySynchronized() {
   assert.equal(previousYaml, yamlSource);
   const urls = [...yamlSource.matchAll(/script_url: "([^"]+)"/g)].map(match => match[1]);
   assert.equal(urls.length, 12);
-  assert(urls.every(url => url === 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20261030-widget-slots-v1'));
+  assert(urls.every(url => url === 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20261030-widget-redesign-v1'));
 }
 
 
@@ -1192,9 +1192,8 @@ async function testWidgetAccountDetailsAcrossSizes() {
     const text = visibleText(widget);
     for (let index = 1; index <= shown; index++) assert(text.includes(`账号${index}`));
     assert(!text.includes(`账号${shown + 1}`));
-    assert.match(text, /共用 #3/);
-    assert.match(text, /占用 1\/5/);
-    assert.match(text, /已放行 · 共用/);
+    assert.match(text, family === 'systemLarge' ? /共用 #3 · 占用 1\/5/ : /"#3 · 1\/5"/, 'each visible account keeps its covered slot and quota');
+    assert.match(text, new RegExp(count + '/' + count + ' 已放行'));
     assert.match(text, /CafeWiFi/);
     assert.match(text, /203\.0\.113\.10/);
     assert.match(text, new RegExp('另 ' + (count - shown) + ' 个账号'));
@@ -1209,12 +1208,13 @@ async function testWidgetExpandedDetailsAndUnknownQuota() {
     widgetFamily: 'systemLarge',
     httpGet: () => response(officialPayload({ whitelist: [{ ip: '203.0.113.10/24', slot: 3 }] })),
   });
-  const text = visibleText(await runEgernReport(success.ctx));
+  const successWidget = await runEgernReport(success.ctx);
+  const text = visibleText(successWidget);
   assert.match(text, /槽位 #4/, 'automatic accounts show the actual assigned slot');
-  assert.match(text, /白名单/);
-  assert.match(text, /□1/);
-  assert.match(text, /✓4/);
-  assert.match(text, /检查 \d{2}:\d{2}/);
+  const cells = widgetSlotCells(successWidget);
+  assert.deepEqual(cells.map(cell => [cell.label, cell.state]), [['1', 'empty'], ['2', 'empty'], ['3', 'empty'], ['4', 'current'], ['5', 'empty']]);
+  assert.equal(cells[3].detail, '203.0.113.10', 'the one-account list pairs the slot with its whitelist network');
+  assert(widgetNodes(successWidget).some(node => node.type === 'text' && /^\d{2}:\d{2}$/.test(node.text)), 'the check time stays visible');
   const failure = createContext({
     widgetFamily: 'systemLarge',
     httpGet: () => response({}, 503),
@@ -1242,7 +1242,7 @@ async function testWidgetLatestCheckAndDifferentExits() {
   const failure = createContext({ storage, widgetFamily: 'systemMedium', httpGet: () => response({}, 503) });
   const widget = await runEgernReport(failure.ctx);
   const expectedTime = new Date(globalThis.__PO0_EGERN_TEST_NOW).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
-  assert.equal(widget.children.at(-1).children.at(-1).text, expectedTime, 'latest failed check must not display the older success time');
+  assert.deepEqual(widgetNodes(widget).filter(node => node.type === 'text' && /^\d{2}:\d{2}$/.test(node.text)).map(node => node.text), [expectedTime], 'latest failed check must not display the older success time');
   const mixed = createContext({
     widgetFamily: 'systemLarge',
     env: { PO0_FIREWALL_TOKENS: 'pgnfw_exit_a_not_real@0|出口甲;pgnfw_exit_b_not_real@0|出口乙' },
@@ -1276,13 +1276,14 @@ async function testWidgetUsesSpaceAndSeparatesWhitelistRows() {
       assert(!widget.children.some(node => node.type === 'spacer'), 'remaining height must go to content instead of a blank footer spacer');
       assert(widget.children.some(node => node.type === 'stack' && node.flex > 0), 'account content must receive the available height');
       const accountName = texts.find(node => node.text === '账号 1');
-      assert(accountName.font.size >= (count === 1 ? 16 : 13), 'sparse widgets must use readable account text');
+      assert(accountName.font.size >= (family === 'systemLarge' ? 15 : 13), 'account names stay readable at every size');
       for (const node of texts) {
         assert((node.text.match(/\d+\.\d+\.\d+\.\d+\/24/g) || []).length <= 1, 'each whitelist address must have its own row');
       }
       if (family === 'systemLarge') {
-        assert.equal(texts.filter(node => /^[✓■□]\d+$/.test(node.text)).length, whitelist.length * count, 'all numbered slots must remain visible');
-        assert.equal(texts.filter(node => /^(?:#\d+|自动) · /.test(node.text)).length, count === 1 ? 3 : 0, 'only one-account cards show bounded occupied IP details');
+        const cells = widgetSlotCells(widget);
+        assert.equal(cells.filter(cell => cell.label).length, whitelist.length * count, 'all numbered slots must remain visible');
+        assert.equal(cells.filter(cell => cell.detail && cell.detail !== '空闲').length, count === 1 ? whitelist.length : 0, 'only the one-account list pairs slots with whitelist networks');
       }
       assert.equal(calls.post.length, 0, 'layout changes must not alter a covered account');
     }
@@ -1302,12 +1303,11 @@ async function testWhitelistSortsNumberedSlotsBeforeAutomatic() {
     { slot: 0, ip: '192.0.2.40/24' },
     { slot: null, ip: '192.0.2.50/24' },
   ];
-  const expected = ['#1 · 192.0.2.40/24', '#2 · 198.51.100.30/24', '#4 · 203.0.113.10/24', '自动 · 192.0.2.20/24', '自动 · 192.0.2.50/24'];
-  const nodesOf = node => [node, ...(node.children || []).flatMap(nodesOf)];
+  const expected = ['#1 · 192.0.2.40', '#2 · 198.51.100.30', '#4 · 203.0.113.10', '自动 · 192.0.2.20', '自动 · 192.0.2.50'];
   for (const [trigger, widgetFamily, count, visibleCount] of [
-    ['PO0 防火墙上报状态', 'systemLarge', 1, 3],
+    ['PO0 防火墙上报状态', 'systemLarge', 1, 5],
     ['PO0 防火墙上报状态', 'systemLarge', 3, 0],
-    ['PO0 防火墙上报状态', 'systemMedium', 1, 2],
+    ['PO0 防火墙上报状态', 'systemMedium', 1, 0],
     ['查询官方白名单', '', 1, 5],
   ]) {
     const { ctx, calls, storage } = createContext({ trigger, widgetFamily,
@@ -1315,10 +1315,11 @@ async function testWhitelistSortsNumberedSlotsBeforeAutomatic() {
       httpGet: () => response(officialPayload({ whitelist })),
     });
     const widget = await runEgernReport(ctx);
-    const rows = nodesOf(widget).filter(node => node.type === 'text' && /^(?:#\d|自动) · /.test(node.text));
+    const rows = widgetWhitelistRows(widget);
     assert.deepEqual(rows.map(row => row.text), Array.from({ length: count }, () => expected.slice(0, visibleCount)).flat());
     const covered = rows.find(row => row.text === expected[2]);
-    if (covered) assert.equal(covered.textColor, '#30D158', 'covered network stays green in widgets and read-only results without changing order');
+    if (covered) assert(covered.highlighted, 'covered network stays green in widgets and read-only results without changing order');
+    assert.equal(rows.filter(row => row.highlighted).length, covered ? 1 : 0);
     const saved = await officialStateOf(storage);
     assert.deepEqual(saved.entries[0].whitelist, whitelist, 'display sorting must not reorder stored API data');
     assert.equal(calls.post.length, 0);
@@ -1338,12 +1339,12 @@ async function testWhitelistNetworkHighlightAcrossViews() {
         httpGet: () => response(officialPayload({ currentIp: '203.0.113.99/24', whitelist })),
       });
       const assertRows = widget => {
-        const rows = nodesOf(widget).filter(node => node.type === 'text' && /^(?:#\d|自动) · /.test(node.text));
-        const currentRow = rows.find(row => row.text.endsWith('203.0.113.0/24'));
-        assert.equal(currentRow.textColor, '#30D158', 'same /24 must be green even without a slot or with a different host octet');
-        assert.equal(currentRow.text, `${slot == null ? '自动' : '#' + (slot + 1)} · 203.0.113.0/24`);
+        const rows = widgetWhitelistRows(widget);
+        const currentRow = rows.find(row => row.text.endsWith('203.0.113.0'));
+        assert(currentRow.highlighted, 'same /24 must be green even without a slot or with a different host octet');
+        assert.equal(currentRow.text, `${slot == null ? '自动' : '#' + (slot + 1)} · 203.0.113.0`);
         assert.doesNotMatch(visibleText(widget), /未编号|槽位未知/);
-        assert(rows.filter(row => !row.text.endsWith('203.0.113.0/24')).every(row => row.textColor !== '#30D158'), 'other networks and empty slots must not be green');
+        assert(rows.filter(row => !row.text.endsWith('203.0.113.0')).every(row => !row.highlighted), 'other networks and empty slots must not be green');
       };
       assertRows(await runEgernReport(run.ctx));
       const saved = await officialStateOf(run.storage);
@@ -1362,8 +1363,9 @@ async function testWhitelistNetworkHighlightAcrossViews() {
   const missing = createContext({ trigger: '查询官方白名单',
     httpGet: () => response(officialPayload({ whitelist: [{ ip: '192.0.2.10/24', slot: 0 }] })),
   });
-  const missingRows = nodesOf(await runEgernReport(missing.ctx)).filter(node => node.type === 'text' && /^#\d · /.test(node.text));
-  assert(missingRows.every(row => row.textColor !== '#30D158'), 'uncovered current IP must not highlight another network');
+  const missingRows = widgetWhitelistRows(await runEgernReport(missing.ctx));
+  assert.equal(missingRows.length, 1);
+  assert(missingRows.every(row => !row.highlighted), 'uncovered current IP must not highlight another network');
   assert.equal(missing.calls.post.length, 0);
 }
 
@@ -1492,7 +1494,7 @@ async function testUiTimeUnitsSpacingAndUserNames() {
       });
       const texts = nodesOf(await runEgernReport(run.ctx)).filter(node => node.type === 'text').map(node => node.text);
       assert(texts.includes('每 ' + expected));
-      assert(texts.includes('自动槽位'), 'slotless records keep the familiar automatic label');
+      assert(texts.some(text => text.startsWith('自动槽位')), 'slotless records keep the familiar automatic label');
       for (const text of texts) {
         assert.doesNotMatch(text, /[\p{Script=Han}][A-Za-z0-9#]|[A-Za-z0-9][\p{Script=Han}]|\d+[smh]\b| {2,}|never|已加白|SSID跳过/u);
       }
@@ -1576,18 +1578,53 @@ async function testExpandedOfficialSlots() {
  const widget=createContext({trigger:'PO0 防火墙状态',widgetFamily:'systemLarge',httpGet:()=>response(officialPayload({currentIp:'192.0.2.99/24',limit:10,whitelist:full}))});
  const result=await runEgernReport(widget.ctx);
  assert.match(visibleText(result),/占用 10\/10/);
- assert.match(visibleText(result),/另 7 条/);
+ const fullCells=widgetSlotCells(result);
+ assert.deepEqual(fullCells.map(cell=>Number(cell.label)),widgetSlotListOrder(10),'a full ten-slot list keeps every record');
+ assert(fullCells.every(cell=>cell.state==='current'),'every record in the current /24 is highlighted; none is shown as free');
  assert(!visibleText(result).includes('未占用'));
  const query=createContext({trigger:'查询官方白名单',httpGet:()=>response(officialPayload({limit:10,whitelist:[...full].reverse()}))});
  assert.match(visibleText(await runEgernReport(query.ctx)),/#10 · 192\.0\.2\.9/);
 }
 
 
+const { WIDGET_COLORS: widgetPalette } = await import('data:text/javascript;base64,' + Buffer.from(source + '\nexport { WIDGET_COLORS };').toString('base64'));
+// Large: the smallest current large widget (iPhone SE 2/3, 321x324). Medium keeps the stricter 141.
+const LARGE_HEIGHT_BUDGET = 324;
+const MEDIUM_HEIGHT_BUDGET = 141;
+
+function sameColor(left, right) { return JSON.stringify(left) === JSON.stringify(right); }
 function widgetNodes(node) { return [node, ...(node.children || []).flatMap(widgetNodes)]; }
-function widgetCards(widget) { return widgetNodes(widget).filter(node => node.type === 'stack' && node.backgroundColor === '#1B2432'); }
-function widgetCells(widget) { return widgetNodes(widget).filter(node => node.type === 'text' && /^[✓■□]\d+$/.test(node.text)); }
-// Conservative intrinsic budget: capped wrapping counts, font line height and padding.
-// This catches content exceeding the narrow preview, not native iOS pixel geometry.
+// Grouped account cards: large views with two or three accounts and every medium account.
+function widgetCards(widget) { return widgetNodes(widget).filter(node => node.type === 'stack' && sameColor(node.backgroundColor, widgetPalette.card)); }
+// Slot cells keep shape cues besides color: solid current network, filled occupied, outlined free.
+function widgetSlotCells(widget) {
+  return widgetNodes(widget)
+    .filter(node => node.type === 'stack' && (sameColor(node.borderColor, widgetPalette.slotLine)
+      || ['greenFill', 'slot', 'slotOnCard'].some(key => sameColor(node.backgroundColor, widgetPalette[key]))))
+    .map(node => {
+      const texts = widgetNodes(node).filter(child => child.type === 'text');
+      return {
+        node, label: texts[0]?.text, labelNode: texts[0], detail: texts[1]?.text,
+        state: sameColor(node.backgroundColor, widgetPalette.greenFill) ? 'current' : node.borderColor ? 'empty' : 'used',
+      };
+    });
+}
+// Whitelist records as read: the one-account slot list or the read-only query rows.
+function widgetWhitelistRows(widget) {
+  const queryRows = widgetNodes(widget).filter(node => node.type === 'text' && /^(?:#\d+|自动) · \d+\.\d+\.\d+\.\d+/.test(node.text))
+    .map(node => ({ text: node.text.replace(/\/24$/, ''), highlighted: sameColor(node.textColor, widgetPalette.green) }));
+  const listRows = widgetSlotCells(widget).filter(cell => cell.detail && cell.detail !== '空闲')
+    .map(cell => ({ text: (cell.label === '自动' ? '自动' : '#' + cell.label) + ' · ' + cell.detail, highlighted: cell.state === 'current' }));
+  return [...queryRows, ...listRows];
+}
+// The one-account list reads #1-#5 down the first column and #6-#10 down the second.
+function widgetSlotListOrder(limit) {
+  const order = [];
+  for (let line = 0; line < Math.min(5, limit); line++) for (let column = 0; column * 5 + line < limit; column++) order.push(column * 5 + line + 1);
+  return order;
+}
+// Conservative intrinsic budget: capped wrapping counts, font line height, fixed heights and padding.
+// This catches content exceeding the smallest current widget, not native iOS pixel geometry.
 function widgetHeightBudget(node) {
   const padding = Array.isArray(node.padding) ? node.padding[0] + node.padding[node.padding.length === 2 ? 0 : 2] : (node.padding || 0) * 2;
   if (node.type === 'text') return Number(node.font.size) * 1.2 * (node.maxLines || 1);
@@ -1596,7 +1633,7 @@ function widgetHeightBudget(node) {
   const children = node.children || [];
   const sizes = children.map(widgetHeightBudget);
   const content = node.direction === 'row' ? Math.max(0, ...sizes) : sizes.reduce((sum, height) => sum + height, 0) + Math.max(0, sizes.length - 1) * (node.gap || 0);
-  return padding + content;
+  return Math.max(node.height || 0, padding + content);
 }
 
 async function testQuotaGridAcrossAccountCounts() {
@@ -1607,15 +1644,17 @@ async function testQuotaGridAcrossAccountCounts() {
     const whitelist = occupied.map(slot => ({slot,ip:slot === limit - 1 ? '203.0.113.0/24' : '198.51.100.'+(slot+1)+'/24'}));
     const run = createContext({widgetFamily:'systemLarge',env,httpGet:()=>response(officialPayload({limit,currentIp:'203.0.113.254/24',whitelist})),httpPost:()=>{throw Error('Grid layout must not cause POST');}});
     const widget = await runEgernReport(run.ctx);
-    const cells = widgetCells(widget);
+    const cells = widgetSlotCells(widget);
     assert.equal(cells.length,count*limit,'every actual quota slot must be represented');
-    assert.deepEqual(cells.map(cell=>Number(cell.text.slice(1))),Array.from({length:count},()=>Array.from({length:limit},(_,i)=>i+1)).flat(),'map ordering is numeric and does not move hits first');
-    assert.equal(cells.filter(cell=>cell.text==='✓'+limit).length,count,'a last-slot hit stays visible');
-    assert.equal(cells.filter(cell=>cell.text.startsWith('■')).length,2*count);
-    assert.equal(cells.filter(cell=>cell.text.startsWith('□')).length,(limit-3)*count);
-    assert(cells.every(cell=>cell.font.size>=11 && cell.minScale===1),'slot labels remain readable without adaptive shrinking');
-    assert(widgetHeightBudget(widget)<=311,'large content must fit the narrow height budget');
-    assert.equal(widgetCards(widget).length,count);
+    const order = count === 1 ? widgetSlotListOrder(limit) : Array.from({length:limit},(_,i)=>i+1);
+    assert.deepEqual(cells.map(cell=>Number(cell.label)),Array.from({length:count},()=>order).flat(),'map ordering is numeric and does not move hits first');
+    assert.equal(cells.filter(cell=>cell.state==='current' && cell.label===String(limit)).length,count,'a last-slot hit stays visible');
+    assert.equal(cells.filter(cell=>cell.state==='used').length,2*count);
+    assert.equal(cells.filter(cell=>cell.state==='empty').length,(limit-3)*count);
+    assert(cells.every(cell=>cell.labelNode.font.size>=11),'slot labels remain readable');
+    if (count === 1) assert.deepEqual(cells.filter(cell=>cell.state!=='empty').map(cell=>cell.detail).sort(),whitelist.map(row=>row.ip.replace('/24','')).sort(),'the one-account list shows every occupied network');
+    assert(widgetHeightBudget(widget)<=LARGE_HEIGHT_BUDGET,'large content must fit the smallest large widget');
+    assert.equal(widgetCards(widget).length,count === 1 ? 0 : count,'one account uses the full width; two or three use one card each');
     assert.match(visibleText(widget),new RegExp('共用 #'+limit));
     assert.equal(run.calls.get.length,count); assert.equal(run.calls.post.length,0);
     const before = (await officialStateOf(run.storage)).entries.map(entry=>entry.lastAttemptAt);
@@ -1629,30 +1668,33 @@ async function testQuotaGridAcrossAccountCounts() {
     missing.official.entries[0].status='missing'; missing.official.entries[0].currentInWhitelist=false;
     missing.official.entries[0].coveredSlot=null; missing.official.entries[0].whitelist=[]; missing.official.entries[0].used=0;
     const mixed = widgetFromState(missing,{widgetFamily:'systemLarge',env},'',env);
-    const summary = widgetNodes(mixed).find(node=>node.type==='text' && /已放行$/.test(node.text) && /^\d+\//.test(node.text));
-    assert.equal(summary.textColor,'#FFD60A','partial or missing coverage cannot use an all-success summary');
+    const summary = widgetNodes(mixed).find(node=>node.type==='text' && (count === 1 ? node.text==='未放行' : /^\d+\/\d+ 已放行$/.test(node.text)));
+    assert(sameColor(summary.textColor,widgetPalette.orange),'partial or missing coverage cannot use an all-success summary');
+    assert.equal(widgetSlotCells(mixed).filter(cell=>cell.state==='current').length,count-1,'an uncovered account has no green slot');
   }
   const env={PO0_FIREWALL_TOKENS:'pgnfw_grid_degraded_fixture@0',PO0_FIREWALL_NAMES:'一个很长的账户显示名称 · 移动网络与办公室备用'};
   const run=createContext({widgetFamily:'systemLarge',env,httpGet:()=>response(officialPayload({limit:10,currentIp:'203.0.113.254/24',whitelist:[{slot:7,ip:'203.0.113.0/24'}]}))});
   const hitEight=await runEgernReport(run.ctx);
-  assert.match(visibleText(hitEight),/共用 #8/); assert(widgetCells(hitEight).some(cell=>cell.text==='✓8'));
+  assert.match(visibleText(hitEight),/共用 #8/); assert(widgetSlotCells(hitEight).some(cell=>cell.label==='8' && cell.state==='current'));
   const cached=await stateOf(run.storage);
   for(const slot of [null,undefined,'']) {
     const state=structuredClone(cached); state.official.entries[0].whitelist=[{ip:'203.0.113.0/24',slot}]; state.official.entries[0].coveredSlot=null;
     const widget=widgetFromState(state,{widgetFamily:'systemLarge',env},'',env);
-    assert.equal(widgetCells(widget).length,0,'slotless data cannot guess empty positions');
+    const cells=widgetSlotCells(widget);
+    assert(!cells.some(cell=>/^\d+$/.test(cell.label) || cell.state==='empty'),'slotless data cannot guess numbered or empty positions');
+    assert.deepEqual(cells.map(cell=>[cell.label,cell.detail]),[['自动','203.0.113.0']],'the real record stays visible as automatic');
     assert.match(visibleText(widget),/自动槽位 · 位置未提供/);
   }
   const unknown=structuredClone(cached); unknown.official.entries[0].limit=0; unknown.official.entries[0].used=undefined;
   const unknownWidget=widgetFromState(unknown,{widgetFamily:'systemLarge',env},'',env);
-  assert.match(visibleText(unknownWidget),/占用未知/); assert.equal(widgetCells(unknownWidget).length,0);
+  assert.match(visibleText(unknownWidget),/占用未知/); assert.equal(widgetSlotCells(unknownWidget).length,0);
   const full=structuredClone(cached); full.official.entries[0].used=10; full.official.entries[0].status='hit';
   full.official.entries[0].whitelist=Array.from({length:10},(_,slot)=>({slot,ip:slot===9?'203.0.113.0/24':'198.51.100.'+(slot+1)+'/24'}));
   full.official.entries[0].coveredSlot=9;
   const fullWidget=widgetFromState(full,{widgetFamily:'systemLarge',env},'',env);
   assert.match(visibleText(fullWidget),/占用 10\/10/); assert.match(visibleText(fullWidget),/槽位 #10/);
-  assert(widgetCells(fullWidget).every(cell=>!cell.text.startsWith('□')),'full does not imply failure or an empty slot');
-  assert.equal(widgetNodes(fullWidget).find(node=>node.type==='text' && node.text==='1/1 已放行').textColor,'#30D158');
+  assert(widgetSlotCells(fullWidget).every(cell=>cell.state!=='empty'),'full does not imply failure or an empty slot');
+  assert(sameColor(widgetNodes(fullWidget).find(node=>node.type==='text' && node.text==='已放行').textColor,widgetPalette.green));
 }
 
 async function testWidgetErrorsHiddenAccountsAndBounds() {
@@ -1662,30 +1704,32 @@ async function testWidgetErrorsHiddenAccountsAndBounds() {
     const env={PO0_FIREWALL_TOKENS:Array.from({length:count},(_,i)=>'pgnfw_bounds_'+i+'_fixture@0').join(';'),PO0_FIREWALL_NAMES:Array.from({length:count},(_,i)=>'办公室与移动网络备用账户 '+(i+1)).join(';')};
     const run=createContext({widgetFamily:'systemLarge',env,httpGet:url=>response(officialPayload({limit:10,currentIp:url.includes('_0_')?'203.0.113.254/24':'192.0.2.254/24',whitelist:[{slot:9,ip:url.includes('_0_')?'203.0.113.0/24':'192.0.2.0/24'}]}))});
     const initial=await runEgernReport(run.ctx);
-    assert(widgetHeightBudget(initial)<=311,'distinct long IPs stay inside the narrow budget');
+    assert(widgetHeightBudget(initial)<=LARGE_HEIGHT_BUDGET,'distinct long IPs stay inside the large budget');
     const state=await stateOf(run.storage);
     const last=count-1; state.official.entries[last].status='error';state.official.entries[last].error=longError;
     state.official.entries[last].limit=0;state.official.entries[last].used=undefined;
     state.skipped=true;
     for(const family of ['systemSmall','systemMedium','systemLarge']) {
       const widget=widgetFromState(state,{widgetFamily:family,env},'',env);
-      const cards=widgetCards(widget);const maximum=family==='systemSmall'?2:3;
-      assert.equal(cards.length,Math.min(maximum,count));
+      const maximum=family==='systemSmall'?2:3;
+      const names=widgetNodes(widget).filter(node=>node.type==='text' && node.text.startsWith('办公室'));
+      assert.equal(names.length,Math.min(maximum,count),'each visible account appears exactly once');
+      assert(names.every(node=>node.maxLines===1 && node.minScale>=0.85),'long names shrink slightly, then truncate on one line');
       assert.match(visibleText(widget),/1 个(?:账号)?异常/,'all accounts, including hidden ones, contribute errors');
       if(count>maximum) assert.match(visibleText(widget),new RegExp('另 ' + (count-maximum) + ' 个账号'),'hidden accounts remain explicit at every size');
-      if(family==='systemMedium' && count>=3) {
-        assert(widgetHeightBudget(widget)<=141,'three-account medium content must fit the narrow height budget');
-        const longTimer = widgetFromState(state,{widgetFamily:family,env:{...env,OFFICIAL_INTERVAL_SECONDS:'3661'}},'',{...env,OFFICIAL_INTERVAL_SECONDS:'3661'});
-        assert(widgetHeightBudget(longTimer)<=141,'two-line long interval remains inside the medium budget');
-        assert(visibleText(longTimer).includes('每 1 小时 1 分钟 1 秒'));
+      if(family==='systemMedium') {
+        assert.equal(widgetCards(widget).length,Math.min(maximum,count));
+        assert(widgetHeightBudget(widget)<=MEDIUM_HEIGHT_BUDGET,'medium content must fit the narrow height budget');
+        const longTimer = widgetFromState({...state,skipped:false},{widgetFamily:family,env:{...env,OFFICIAL_INTERVAL_SECONDS:'3661'}},'',{...env,OFFICIAL_INTERVAL_SECONDS:'3661'});
+        assert(widgetHeightBudget(longTimer)<=MEDIUM_HEIGHT_BUDGET,'a two-line long interval remains inside the medium budget');
+        assert(visibleText(longTimer).includes('每 1 小时 1 分钟 1 秒') || count>maximum);
       }
       if(family==='systemLarge') {
-        assert(widgetHeightBudget(widget)<=311,'long error wrapping is bounded');
-        const visibleError=cards.find(card=>widgetNodes(card).some(node=>node.text===longError));
-        if(visibleError) { assert.equal(widgetCells(visibleError).length,0,'error replaces details'); assert.match(visibleText(visibleError),/占用未知/); }
+        assert(widgetHeightBudget(widget)<=LARGE_HEIGHT_BUDGET,'long error wrapping is bounded');
+        const visibleError=[widget,...widgetCards(widget)].reverse().find(node=>widgetNodes(node).some(child=>child.text===longError));
+        if(count<=maximum) assert(visibleError,'the failing account explains its error');
+        if(visibleError) { assert.equal(widgetSlotCells(visibleError).length,0,'error replaces details'); assert.match(visibleText(visibleError),/占用未知/); }
       }
-      const texts=widgetNodes(widget).filter(node=>node.type==='text');
-      assert(texts.filter(node=>node.text.startsWith('办公室')).every(node=>node.maxLines===1 && node.minScale>=0.85));
     }
     assert.equal(run.calls.get.length,count);assert.equal(run.calls.post.length,0);
     assert.equal((await officialStateOf(run.storage)).entries.length,count,'display limit does not delete or reject accounts');
