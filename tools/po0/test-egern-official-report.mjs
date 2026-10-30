@@ -826,7 +826,7 @@ function testEgernScriptCopiesStaySynchronized() {
   assert.equal(previousYaml, yamlSource);
   const urls = [...yamlSource.matchAll(/script_url: "([^"]+)"/g)].map(match => match[1]);
   assert.equal(urls.length, 12);
-  assert(urls.every(url => url === 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20261030-slots-v1'));
+  assert(urls.every(url => url === 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20261030-widget-slots-v1'));
 }
 
 
@@ -1181,7 +1181,7 @@ async function testRetirementMigrationAndWidget() {
 }
 
 async function testWidgetAccountDetailsAcrossSizes() {
-  for (const [family, count, shown] of [['systemSmall', 3, 2], ['systemMedium', 4, 3], ['systemLarge', 7, 6]]) {
+  for (const [family, count, shown] of [['systemSmall', 3, 2], ['systemMedium', 4, 3], ['systemLarge', 7, 3]]) {
     const tokens = Array.from({ length: count }, (_, index) => `pgnfw_widget_detail_${index}_not_real@0|账号${index + 1}`);
     const { ctx, calls } = createContext({
       widgetFamily: family, ssid: 'CafeWiFi',
@@ -1197,7 +1197,7 @@ async function testWidgetAccountDetailsAcrossSizes() {
     assert.match(text, /已放行 · 共用/);
     assert.match(text, /CafeWiFi/);
     assert.match(text, /203\.0\.113\.10/);
-    assert.match(text, /另 1 个账号/);
+    assert.match(text, new RegExp('另 ' + (count - shown) + ' 个账号'));
     assert.doesNotMatch(text, /pgnfw_|自建|Worker|SSH|TTL/);
     assert.equal(calls.get.length, count);
     assert.equal(calls.post.length, 0, 'layout must preserve GET-first shared coverage');
@@ -1212,8 +1212,8 @@ async function testWidgetExpandedDetailsAndUnknownQuota() {
   const text = visibleText(await runEgernReport(success.ctx));
   assert.match(text, /槽位 #4/, 'automatic accounts show the actual assigned slot');
   assert.match(text, /白名单/);
-  assert.match(text, /未占用/);
-  assert.match(text, /当前网段/);
+  assert.match(text, /□1/);
+  assert.match(text, /✓4/);
   assert.match(text, /检查 \d{2}:\d{2}/);
   const failure = createContext({
     widgetFamily: 'systemLarge',
@@ -1281,7 +1281,8 @@ async function testWidgetUsesSpaceAndSeparatesWhitelistRows() {
         assert((node.text.match(/\d+\.\d+\.\d+\.\d+\/24/g) || []).length <= 1, 'each whitelist address must have its own row');
       }
       if (family === 'systemLarge') {
-        for (const row of whitelist) assert.equal(texts.filter(node => node.text === `#${row.slot + 1} · ${row.ip}`).length, count, 'every slot must be visible for both expanded accounts');
+        assert.equal(texts.filter(node => /^[✓■□]\d+$/.test(node.text)).length, whitelist.length * count, 'all numbered slots must remain visible');
+        assert.equal(texts.filter(node => /^(?:#\d+|自动) · /.test(node.text)).length, count === 1 ? 3 : 0, 'only one-account cards show bounded occupied IP details');
       }
       assert.equal(calls.post.length, 0, 'layout changes must not alter a covered account');
     }
@@ -1304,8 +1305,8 @@ async function testWhitelistSortsNumberedSlotsBeforeAutomatic() {
   const expected = ['#1 · 192.0.2.40/24', '#2 · 198.51.100.30/24', '#4 · 203.0.113.10/24', '自动 · 192.0.2.20/24', '自动 · 192.0.2.50/24'];
   const nodesOf = node => [node, ...(node.children || []).flatMap(nodesOf)];
   for (const [trigger, widgetFamily, count, visibleCount] of [
-    ['PO0 防火墙上报状态', 'systemLarge', 1, 5],
-    ['PO0 防火墙上报状态', 'systemLarge', 3, 2],
+    ['PO0 防火墙上报状态', 'systemLarge', 1, 3],
+    ['PO0 防火墙上报状态', 'systemLarge', 3, 0],
     ['PO0 防火墙上报状态', 'systemMedium', 1, 2],
     ['查询官方白名单', '', 1, 5],
   ]) {
@@ -1352,7 +1353,9 @@ async function testWhitelistNetworkHighlightAcrossViews() {
       assert.equal(Boolean(saved.entries[0].lastAttemptAt), trigger.includes('上报状态'), 'read-only query must not advance report due time');
       run.ctx.name = run.ctx.trigger = '查看官方防火墙最近结果';
       run.ctx.widgetFamily = 'systemLarge';
-      assertRows(await runEgernReport(run.ctx));
+      const recent = await runEgernReport(run.ctx);
+      assertRows(recent);
+      assert.match(visibleText(recent), /显示上次结果 · 本次未检查/, 'recent-result display must identify cached data');
       assert.equal(run.calls.get.length, 1, 'cached results must render without another request');
     }
   }
@@ -1573,13 +1576,125 @@ async function testExpandedOfficialSlots() {
  const widget=createContext({trigger:'PO0 防火墙状态',widgetFamily:'systemLarge',httpGet:()=>response(officialPayload({currentIp:'192.0.2.99/24',limit:10,whitelist:full}))});
  const result=await runEgernReport(widget.ctx);
  assert.match(visibleText(result),/占用 10\/10/);
- assert.match(visibleText(result),/另 5 条/);
+ assert.match(visibleText(result),/另 7 条/);
  assert(!visibleText(result).includes('未占用'));
  const query=createContext({trigger:'查询官方白名单',httpGet:()=>response(officialPayload({limit:10,whitelist:[...full].reverse()}))});
  assert.match(visibleText(await runEgernReport(query.ctx)),/#10 · 192\.0\.2\.9/);
 }
 
+
+function widgetNodes(node) { return [node, ...(node.children || []).flatMap(widgetNodes)]; }
+function widgetCards(widget) { return widgetNodes(widget).filter(node => node.type === 'stack' && node.backgroundColor === '#1B2432'); }
+function widgetCells(widget) { return widgetNodes(widget).filter(node => node.type === 'text' && /^[✓■□]\d+$/.test(node.text)); }
+// Conservative intrinsic budget: capped wrapping counts, font line height and padding.
+// This catches content exceeding the narrow preview, not native iOS pixel geometry.
+function widgetHeightBudget(node) {
+  const padding = Array.isArray(node.padding) ? node.padding[0] + node.padding[node.padding.length === 2 ? 0 : 2] : (node.padding || 0) * 2;
+  if (node.type === 'text') return Number(node.font.size) * 1.2 * (node.maxLines || 1);
+  if (node.type === 'image') return node.height || 0;
+  if (node.type === 'spacer') return node.length || 0;
+  const children = node.children || [];
+  const sizes = children.map(widgetHeightBudget);
+  const content = node.direction === 'row' ? Math.max(0, ...sizes) : sizes.reduce((sum, height) => sum + height, 0) + Math.max(0, sizes.length - 1) * (node.gap || 0);
+  return padding + content;
+}
+
+async function testQuotaGridAcrossAccountCounts() {
+  const {widgetFromState} = await import('data:text/javascript;base64,' + Buffer.from(source + '\nexport {widgetFromState};').toString('base64'));
+  for (const count of [1, 2, 3]) for (const limit of [5, 6, 7, 10]) {
+    const env = {PO0_FIREWALL_TOKENS: Array.from({length:count},(_,i)=>'pgnfw_grid_'+i+'_fixture@0').join(';')};
+    const occupied = [0, limit - 2, limit - 1];
+    const whitelist = occupied.map(slot => ({slot,ip:slot === limit - 1 ? '203.0.113.0/24' : '198.51.100.'+(slot+1)+'/24'}));
+    const run = createContext({widgetFamily:'systemLarge',env,httpGet:()=>response(officialPayload({limit,currentIp:'203.0.113.254/24',whitelist})),httpPost:()=>{throw Error('Grid layout must not cause POST');}});
+    const widget = await runEgernReport(run.ctx);
+    const cells = widgetCells(widget);
+    assert.equal(cells.length,count*limit,'every actual quota slot must be represented');
+    assert.deepEqual(cells.map(cell=>Number(cell.text.slice(1))),Array.from({length:count},()=>Array.from({length:limit},(_,i)=>i+1)).flat(),'map ordering is numeric and does not move hits first');
+    assert.equal(cells.filter(cell=>cell.text==='✓'+limit).length,count,'a last-slot hit stays visible');
+    assert.equal(cells.filter(cell=>cell.text.startsWith('■')).length,2*count);
+    assert.equal(cells.filter(cell=>cell.text.startsWith('□')).length,(limit-3)*count);
+    assert(cells.every(cell=>cell.font.size>=11 && cell.minScale===1),'slot labels remain readable without adaptive shrinking');
+    assert(widgetHeightBudget(widget)<=311,'large content must fit the narrow height budget');
+    assert.equal(widgetCards(widget).length,count);
+    assert.match(visibleText(widget),new RegExp('共用 #'+limit));
+    assert.equal(run.calls.get.length,count); assert.equal(run.calls.post.length,0);
+    const before = (await officialStateOf(run.storage)).entries.map(entry=>entry.lastAttemptAt);
+    const readonly = createContext({storage:run.storage,trigger:'查询官方白名单',env,httpGet:()=>response(officialPayload({limit,currentIp:'203.0.113.254/24',whitelist})),httpPost:()=>{throw Error('Read-only query cannot POST');}});
+    const query = await runEgernReport(readonly.ctx);
+    assert.equal(widgetNodes(query).filter(node=>node.type==='text' && /^(?:#\d+|自动) · /.test(node.text)).length,count*whitelist.length,'full read-only query keeps all occupied records');
+    assert.deepEqual((await officialStateOf(run.storage)).entries.map(entry=>entry.lastAttemptAt),before);
+    assert.equal(readonly.calls.post.length,0);
+    const cached = await stateOf(run.storage);
+    const missing = structuredClone(cached);
+    missing.official.entries[0].status='missing'; missing.official.entries[0].currentInWhitelist=false;
+    missing.official.entries[0].coveredSlot=null; missing.official.entries[0].whitelist=[]; missing.official.entries[0].used=0;
+    const mixed = widgetFromState(missing,{widgetFamily:'systemLarge',env},'',env);
+    const summary = widgetNodes(mixed).find(node=>node.type==='text' && /已放行$/.test(node.text) && /^\d+\//.test(node.text));
+    assert.equal(summary.textColor,'#FFD60A','partial or missing coverage cannot use an all-success summary');
+  }
+  const env={PO0_FIREWALL_TOKENS:'pgnfw_grid_degraded_fixture@0',PO0_FIREWALL_NAMES:'一个很长的账户显示名称 · 移动网络与办公室备用'};
+  const run=createContext({widgetFamily:'systemLarge',env,httpGet:()=>response(officialPayload({limit:10,currentIp:'203.0.113.254/24',whitelist:[{slot:7,ip:'203.0.113.0/24'}]}))});
+  const hitEight=await runEgernReport(run.ctx);
+  assert.match(visibleText(hitEight),/共用 #8/); assert(widgetCells(hitEight).some(cell=>cell.text==='✓8'));
+  const cached=await stateOf(run.storage);
+  for(const slot of [null,undefined,'']) {
+    const state=structuredClone(cached); state.official.entries[0].whitelist=[{ip:'203.0.113.0/24',slot}]; state.official.entries[0].coveredSlot=null;
+    const widget=widgetFromState(state,{widgetFamily:'systemLarge',env},'',env);
+    assert.equal(widgetCells(widget).length,0,'slotless data cannot guess empty positions');
+    assert.match(visibleText(widget),/自动槽位 · 位置未提供/);
+  }
+  const unknown=structuredClone(cached); unknown.official.entries[0].limit=0; unknown.official.entries[0].used=undefined;
+  const unknownWidget=widgetFromState(unknown,{widgetFamily:'systemLarge',env},'',env);
+  assert.match(visibleText(unknownWidget),/占用未知/); assert.equal(widgetCells(unknownWidget).length,0);
+  const full=structuredClone(cached); full.official.entries[0].used=10; full.official.entries[0].status='hit';
+  full.official.entries[0].whitelist=Array.from({length:10},(_,slot)=>({slot,ip:slot===9?'203.0.113.0/24':'198.51.100.'+(slot+1)+'/24'}));
+  full.official.entries[0].coveredSlot=9;
+  const fullWidget=widgetFromState(full,{widgetFamily:'systemLarge',env},'',env);
+  assert.match(visibleText(fullWidget),/占用 10\/10/); assert.match(visibleText(fullWidget),/槽位 #10/);
+  assert(widgetCells(fullWidget).every(cell=>!cell.text.startsWith('□')),'full does not imply failure or an empty slot');
+  assert.equal(widgetNodes(fullWidget).find(node=>node.type==='text' && node.text==='1/1 已放行').textColor,'#30D158');
+}
+
+async function testWidgetErrorsHiddenAccountsAndBounds() {
+  const {widgetFromState} = await import('data:text/javascript;base64,' + Buffer.from(source + '\nexport {widgetFromState};').toString('base64'));
+  const longError='服务暂时不可用，请稍后重试。'.repeat(20);
+  for(const count of [1,2,3,4]) {
+    const env={PO0_FIREWALL_TOKENS:Array.from({length:count},(_,i)=>'pgnfw_bounds_'+i+'_fixture@0').join(';'),PO0_FIREWALL_NAMES:Array.from({length:count},(_,i)=>'办公室与移动网络备用账户 '+(i+1)).join(';')};
+    const run=createContext({widgetFamily:'systemLarge',env,httpGet:url=>response(officialPayload({limit:10,currentIp:url.includes('_0_')?'203.0.113.254/24':'192.0.2.254/24',whitelist:[{slot:9,ip:url.includes('_0_')?'203.0.113.0/24':'192.0.2.0/24'}]}))});
+    const initial=await runEgernReport(run.ctx);
+    assert(widgetHeightBudget(initial)<=311,'distinct long IPs stay inside the narrow budget');
+    const state=await stateOf(run.storage);
+    const last=count-1; state.official.entries[last].status='error';state.official.entries[last].error=longError;
+    state.official.entries[last].limit=0;state.official.entries[last].used=undefined;
+    state.skipped=true;
+    for(const family of ['systemSmall','systemMedium','systemLarge']) {
+      const widget=widgetFromState(state,{widgetFamily:family,env},'',env);
+      const cards=widgetCards(widget);const maximum=family==='systemSmall'?2:3;
+      assert.equal(cards.length,Math.min(maximum,count));
+      assert.match(visibleText(widget),/1 个(?:账号)?异常/,'all accounts, including hidden ones, contribute errors');
+      if(count>maximum) assert.match(visibleText(widget),new RegExp('另 ' + (count-maximum) + ' 个账号'),'hidden accounts remain explicit at every size');
+      if(family==='systemMedium' && count>=3) {
+        assert(widgetHeightBudget(widget)<=141,'three-account medium content must fit the narrow height budget');
+        const longTimer = widgetFromState(state,{widgetFamily:family,env:{...env,OFFICIAL_INTERVAL_SECONDS:'3661'}},'',{...env,OFFICIAL_INTERVAL_SECONDS:'3661'});
+        assert(widgetHeightBudget(longTimer)<=141,'two-line long interval remains inside the medium budget');
+        assert(visibleText(longTimer).includes('每 1 小时 1 分钟 1 秒'));
+      }
+      if(family==='systemLarge') {
+        assert(widgetHeightBudget(widget)<=311,'long error wrapping is bounded');
+        const visibleError=cards.find(card=>widgetNodes(card).some(node=>node.text===longError));
+        if(visibleError) { assert.equal(widgetCells(visibleError).length,0,'error replaces details'); assert.match(visibleText(visibleError),/占用未知/); }
+      }
+      const texts=widgetNodes(widget).filter(node=>node.type==='text');
+      assert(texts.filter(node=>node.text.startsWith('办公室')).every(node=>node.maxLines===1 && node.minScale>=0.85));
+    }
+    assert.equal(run.calls.get.length,count);assert.equal(run.calls.post.length,0);
+    assert.equal((await officialStateOf(run.storage)).entries.length,count,'display limit does not delete or reject accounts');
+  }
+}
+
 const tests = [
+  testQuotaGridAcrossAccountCounts,
+  testWidgetErrorsHiddenAccountsAndBounds,
   testExpandedOfficialSlots,
   testUiTimeUnitsSpacingAndUserNames,
   testNotificationsUseAssignedSlotAndHonestLabels,
