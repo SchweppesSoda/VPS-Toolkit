@@ -826,7 +826,7 @@ function testEgernScriptCopiesStaySynchronized() {
   assert.equal(previousYaml, yamlSource);
   const urls = [...yamlSource.matchAll(/script_url: "([^"]+)"/g)].map(match => match[1]);
   assert.equal(urls.length, 12);
-  assert(urls.every(url => url === 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20261030-widget-redesign-v2'));
+  assert(urls.every(url => url === 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20261030-widget-redesign-v3'));
 }
 
 
@@ -1715,6 +1715,24 @@ async function testQuotaGridAcrossAccountCounts() {
   assert(sameColor(widgetNodes(fullWidget).find(node=>node.type==='text' && node.text==='已放行').textColor,widgetPalette.green));
 }
 
+async function testWidgetRootsKeepOpaqueBackground() {
+  const opaque = color => [color?.light, color?.dark].every(value => /^#[0-9A-F]{6}$/i.test(value || ''));
+  const roots = [];
+  for (const widgetFamily of ['systemSmall', 'systemMedium', 'systemLarge']) {
+    for (const env of [{}, { PO0_FIREWALL_TOKENS: '' }]) {
+      roots.push(await runEgernReport(createContext({ widgetFamily, env, httpGet: () => response(officialPayload({ whitelist: [{ ip: '203.0.113.0/24', slot: 0 }] })) }).ctx));
+    }
+    roots.push(await runEgernReport(createContext({ widgetFamily, httpGet: () => response({}, 503) }).ctx));
+  }
+  roots.push(await runEgernReport(createContext({ trigger: '查询官方白名单', httpGet: () => response(officialPayload()) }).ctx));
+  roots.push(await runEgernReport(createContext({ trigger: 'PO0 防火墙 · 清除配置' }).ctx));
+  for (const root of roots) {
+    assert.equal(root.type, 'widget');
+    assert(opaque(root.backgroundColor), 'every widget root keeps an opaque adaptive background color');
+    assert(root.backgroundGradient?.colors?.length >= 2 && root.backgroundGradient.colors.every(opaque), 'the full-bleed gradient is opaque in both appearances');
+  }
+}
+
 async function testWidgetMixedNumberingListsRealRecords() {
   const lists = [
     [{ip:'124.221.169.0/24',slot:0},{ip:'203.0.113.0/24'},{ip:'115.192.8.0/24'}],
@@ -1781,6 +1799,7 @@ async function testWidgetErrorsHiddenAccountsAndBounds() {
 const tests = [
   testQuotaGridAcrossAccountCounts,
   testWidgetMixedNumberingListsRealRecords,
+  testWidgetRootsKeepOpaqueBackground,
   testWidgetErrorsHiddenAccountsAndBounds,
   testExpandedOfficialSlots,
   testUiTimeUnitsSpacingAndUserNames,

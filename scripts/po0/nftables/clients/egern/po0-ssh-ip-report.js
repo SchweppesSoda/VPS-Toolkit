@@ -1,4 +1,4 @@
-// PO0 防火墙上报 · 20261030-widget-redesign-v2
+// PO0 防火墙上报 · 20261030-widget-redesign-v3
 function retiredAction(ctx) {
   return /自建|ssh-report|设备 ID|本机设备|Device ID|设备标识/i.test(scriptLabel(ctx)) || Boolean(ctx?.request);
 }
@@ -480,6 +480,8 @@ function formatDurationSeconds(seconds) {
 // the current /24 network; other states stay neutral so the covered slot stands out.
 const WIDGET_COLORS = {
   background: { light: '#FFFFFF', dark: '#1C1C1E' },
+  backgroundTop: { light: '#FFFFFF', dark: '#242426' },
+  backgroundBottom: { light: '#F6F6F9', dark: '#1C1C1E' },
   card: { light: '#F2F2F7', dark: '#2C2C2E' },
   text: { light: '#1C1C1E', dark: '#F5F5F7' },
   secondary: { light: '#6E6E73', dark: '#98989F' },
@@ -526,6 +528,15 @@ function spacerNode(length) {
   return Number.isFinite(length) ? { type: 'spacer', length } : { type: 'spacer' };
 }
 
+// The root background must stay opaque so the widget fills its tile like its neighbours.
+// The gradient form rendered full-bleed on device; the plain color is the fallback.
+function widgetRootBackground() {
+  return {
+    backgroundColor: WIDGET_COLORS.background,
+    backgroundGradient: { type: 'linear', colors: [WIDGET_COLORS.backgroundTop, WIDGET_COLORS.backgroundBottom], startPoint: { x: 0, y: 0 }, endPoint: { x: 0, y: 1 } },
+  };
+}
+
 function widgetFamily(ctx) {
   const family = String(ctx?.widgetFamily || '').toLowerCase();
   if (family.includes('small') || family.includes('accessory')) return 'small';
@@ -564,7 +575,7 @@ function widgetPanel(title, content, ok, ctx) {
   const tone = WIDGET_TONES[ok ? 'ok' : 'error'];
   return {
     type: 'widget', padding: metrics.padding, gap: metrics.widgetGap,
-    backgroundColor: WIDGET_COLORS.background,
+    ...widgetRootBackground(),
     children: [
       widgetLine([iconNode(ok ? 'checkmark.shield.fill' : 'exclamationmark.triangle.fill', tone.color, 15), widgetText(title, metrics.titleSize, WIDGET_COLORS.text, 'semibold')], 6),
       ...lines.slice(0, maxLines).map(line => widgetLine([{ ...widgetText(line, metrics.bodySize, WIDGET_COLORS.secondary), maxLines: 2 }])),
@@ -917,7 +928,7 @@ function officialReadOnlyWidget(state, ctx, env) {
   }
   if (!entries.length) children.push(widgetLine([{ ...widgetText(state?.error || '尚无检查结果。', 12, WIDGET_COLORS.secondary), maxLines: 2 }]));
   // Leading alignment: long lists overflow at the bottom instead of hiding the title.
-  return { type: 'widget', padding: metrics.padding, gap: 7, backgroundColor: WIDGET_COLORS.background, children: [...children, spacerNode()] };
+  return { type: 'widget', padding: metrics.padding, gap: 7, ...widgetRootBackground(), children: [...children, spacerNode()] };
 }
 
 function widgetFromState(state, ctx, deviceId = '', env = ctx?.env || {}) {
@@ -992,7 +1003,7 @@ function widgetFromState(state, ctx, deviceId = '', env = ctx?.env || {}) {
   }
   return {
     type: 'widget', padding: widgetMetrics(ctx).padding, gap: family === 'large' ? 10 : family === 'medium' ? 8 : 5,
-    backgroundColor: WIDGET_COLORS.background,
+    ...widgetRootBackground(),
     ...widgetRefreshSchedule(env, auto, entries), children,
   };
 }
