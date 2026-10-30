@@ -112,6 +112,7 @@ report_run_lock_acquire() {
 }
 
 report_once() {
+    PO0_UI_RENDERED=0
     local lock_rc official_rc=0
     [[ "${REPORT_MODE:-official}" != worker ]] || { printf '自建上报已退役。\n'; return 0; }
     if [[ "${SCHEDULED_RUN:-0}" == 1 ]]; then

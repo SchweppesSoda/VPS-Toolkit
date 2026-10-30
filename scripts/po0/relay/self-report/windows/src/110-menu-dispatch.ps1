@@ -3,13 +3,14 @@
 }
 
 function Show-ClientOverview {
-    Write-Title 'PO0 防火墙'
-    Write-PanelRow '客户端版本' $ScriptVersion
-    Write-PanelRow '上报间隔' (Get-ChannelIntervalLabel official)
-    Show-Po0FirewallCached -Summary
+    Write-Title 'PO0 防火墙' $ScriptVersion
     Write-PanelRow '自动上报' (Get-ChannelAutoLabel official)
-    Write-PanelRow '自动任务' (Get-ScheduledReporterSummary official)
+    Write-PanelRow '检查间隔' ((Format-Po0Duration (Get-ChannelIntervalSeconds official)) + $(if ($script:OfficialTimerEnabled) { '' } else { '（定期已关闭）' }))
+    $task = (Get-ScheduledReporterSummary official) -replace '；周期 .*$', ''
+    $task = $task -replace '^Ready$', '就绪' -replace '^Running$', '运行中' -replace '^Queued$', '等待执行' -replace '^Unknown$', '状态未知'
+    Write-PanelRow '自动任务' $task
     Show-OfficialTargetNames
+    Show-Po0FirewallCached -Summary
 }
 
 function Set-ChannelNamesInteractive {

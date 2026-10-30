@@ -604,7 +604,7 @@ function Invoke-Po0FirewallReport {
         } else {
             $failure++
         }
-        Write-Host $itemResult.Message
+        if (-not $itemResult.Succeeded -or -not (Test-Po0RichOutput)) { Write-Host $itemResult.Message }
     }
     $result.SuccessCount = $success
     $result.FailureCount = $failure

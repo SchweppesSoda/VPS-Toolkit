@@ -26,7 +26,7 @@ function Get-OfficialAccountName {
 function Show-OfficialTargetNames {
     try { $count = @(Get-Po0FirewallTokenItems).Count } catch { return }
     for ($index = 1; $index -le $count; $index++) {
-        Write-PanelRow "官方目标 $index" (Get-OfficialAccountName $index)
+        Write-PanelRow "账号 $index" (Get-OfficialAccountName $index)
     }
 }
 

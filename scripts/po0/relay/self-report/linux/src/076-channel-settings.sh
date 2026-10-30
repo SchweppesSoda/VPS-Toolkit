@@ -46,7 +46,7 @@ print_official_target_names() {
     local count=0 index=1
     if declare -F official_tokens_count >/dev/null; then count="$(official_tokens_count)"; else count="$(po0_firewall_token_count)"; fi
     while (( index <= count )); do
-        print_panel_row "官方目标 $index" "$(official_account_name "$index")"
+        print_panel_row "账号 $index" "$(official_account_name "$index")"
         index=$((index + 1))
     done
 }
@@ -91,7 +91,7 @@ run_channel_interactive() {
             printf '本通道日志路径无效。\n' >&2
             rc=1
         else
-            (umask 077; exec 3>&1; (setup_colors; PO0_DISPLAY_FD=3 run_once_interactive) 2>&1 | tee -a "$result_log"; exit "${PIPESTATUS[0]}")
+            (umask 077; exec 3>&1 4>>"$result_log"; (setup_colors; PO0_DISPLAY_FD=3 PO0_DISPLAY_LOG_FD=4 run_once_interactive) 2>&1 | tee -a "$result_log"; exit "${PIPESTATUS[0]}")
             rc=$?
         fi
     fi
@@ -246,13 +246,12 @@ client_maintenance_menu() {
 }
 
 show_client_overview() {
-    print_title 'PO0 防火墙'
-    print_panel_row '客户端版本' "$SCRIPT_VERSION"
-    print_panel_row '上报间隔' "$(channel_interval_label official)"
-    po0_display_cached summary
+    print_title 'PO0 防火墙' "$SCRIPT_VERSION"
     print_panel_row '自动上报' "$(channel_auto_label official)"
+    print_panel_row '检查间隔' "$(po0_duration "$(( $(schedule_channel_minutes official) * 60 ))")$(schedule_timer_enabled official || printf '（定期已关闭）')"
     print_panel_row '自动任务' "$(cron_status_summary official)"
     print_official_target_names
+    po0_display_cached summary
 }
 
 # Preserve labels by account identity when tokens are reordered or slots change.

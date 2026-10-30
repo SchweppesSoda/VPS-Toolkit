@@ -45,11 +45,11 @@ $ErrorActionPreference = "Stop"
 $ReleaseDownloadBaseUrl = $(if ($env:PO0_RELEASE_DOWNLOAD_BASE_URL) { $env:PO0_RELEASE_DOWNLOAD_BASE_URL } else { "https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download" })
 $DownloadUrl = $(if ($env:PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL) { $env:PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL } elseif ($env:PO0_SELF_REPORT_PS_DOWNLOAD_URL) { $env:PO0_SELF_REPORT_PS_DOWNLOAD_URL } else { "$ReleaseDownloadBaseUrl/po0-outbound-ip-report.ps1" })
 $ScriptName = "po0-outbound-ip-report"
-$ScriptVersion = "2026.10.30+build.2"
+$ScriptVersion = "2026.10.30+build.3"
 $ScriptReleaseDate = "2026-10-30"
 # CHANGELOG_BEGIN
-# - 三端终端按账号显示完整槽位、IP、放行状态及检查时间。
-# - 改善菜单和最近结果，支持窄窗口、无颜色及纯文本日志。
+# - 重排终端菜单和账号结果，中文列对齐，状态颜色更清晰。
+# - 缺失编号只列真实记录，移除重复完成提示，保留全部 IP 与容量。
 # CHANGELOG_END
 $PanelValueColumn = 24
 $MenuRightColumn = 46

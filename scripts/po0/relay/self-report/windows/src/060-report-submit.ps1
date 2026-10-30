@@ -9,7 +9,7 @@ function Invoke-SelfReportCore {
         }
         $statusResult = Invoke-Po0FirewallReport -Mode "status"
         Show-Po0FirewallLive $statusResult '只读查询'
-        if ($statusResult.Message) { Write-Host $statusResult.Message }
+        if ($statusResult.Message -and -not $script:Po0UiRendered) { Write-Host $statusResult.Message }
         if (-not $statusResult.Succeeded) {
             throw $statusResult.Message
         }
@@ -120,11 +120,13 @@ function Invoke-SelfReportCore {
 function Invoke-SelfReport {
     param([switch]$PromptForForceOnSkip)
 
+    $script:Po0UiRendered = $false
     $runMutex = $null
     try {
         $runMutex = Enter-Po0SelfReportMutex
         Invoke-SelfReportCore -PromptForForceOnSkip:$PromptForForceOnSkip
     } finally {
         Exit-Po0SelfReportMutex -Mutex $runMutex
+        $script:Po0UiRendered = $false
     }
 }

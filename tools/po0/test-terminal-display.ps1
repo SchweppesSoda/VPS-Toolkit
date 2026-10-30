@@ -22,7 +22,7 @@ foreach ($quota in @(5,7,10)) {
     $text = Capture { Show-Po0FirewallTable $state '只读查询' }
     1..$quota | ForEach-Object { Assert-Contains $text "#$_" }
     Assert-Contains $text '203.0.113.25/24'
-    Assert-Contains $text '当前命中'
+    Assert-Contains $text '当前出口'
     Assert-Contains $text "占用 2/$quota"
     Assert-Absent $text ([string][char]27)
     Assert-Absent $text 'pgnfw_'
@@ -32,7 +32,7 @@ $failed = New-Po0FirewallAccountState -Index 3 -FixedSlot '9'
 $state.Accounts = @($account, $unknown, $failed)
 function Get-Po0DisplayWidth { return 35 }
 $text = Capture { Show-Po0FirewallTable $state '上报结果' -Failed }
-foreach ($value in @('失败账号','槽位未知','未知（有未编号记录）','占用未知','    203.0.113.25/24','未放行','操作失败')) { Assert-Contains $text $value }
+foreach ($value in @('失败账号','未编号','本次未取得白名单','      203.0.113.25/24','未放行','操作失败')) { Assert-Contains $text $value }
 $entries = @(0..9 | ForEach-Object { [pscustomobject]@{Ip="203.0.113.$($_+1)/24";Slot=[string]$_} })
 $account = New-Po0FirewallAccountState -Index 1 -CurrentIp '203.0.113.10/24' -Limit 10 -Entries $entries -Status ok
 $state.Accounts = @($account)
@@ -40,25 +40,25 @@ $state.LastCheckedAt = 0
 $text = Capture { Show-Po0FirewallTable $state }
 Assert-Contains $text '已放行'
 Assert-Contains $text '剩余 0 个'
-Assert-Contains $text '检查时间 未知'
+Assert-Contains $text '尚无记录'
 $unknown.CurrentIp = '192.0.2.2/24'
 $state.Accounts = @($unknown)
 $text = Capture { Show-Po0FirewallTable $state }
 Assert-Absent $text '空闲'
-Assert-Contains $text '当前命中'
+Assert-Contains $text '当前出口'
 $script:FixtureState = $state
 function Get-Po0FirewallState { return $script:FixtureState }
 $text = Capture { Show-Po0FirewallCached }
-Assert-Contains $text '上次结果（本地缓存）'
+Assert-Contains $text '上次结果 / 本地记录'
 $script:Po0FirewallTokens = 'pgnfw_fixture_b,pgnfw_fixture_a'
 $text = Capture { Show-Po0FirewallCached }
-Assert-Contains $text '缓存未匹配'
+Assert-Contains $text '账号配置已更新'
 $script:Po0FirewallTokens = 'pgnfw_fixture_a@9,pgnfw_fixture_b'
 $text = Capture { Show-Po0FirewallCached }
-Assert-Contains $text '缓存未匹配'
+Assert-Contains $text '账号配置已更新'
 $script:FixtureState = [pscustomobject]@{Accounts=@($account);LastOfficialAttempt=123}
 $text = Capture { Show-Po0FirewallCached }
-Assert-Contains $text '缓存未匹配'
+Assert-Contains $text '暂无新版记录'
 $savedColor = [Environment]::GetEnvironmentVariable('NO_COLOR')
 try {
     $env:NO_COLOR='1'
@@ -71,3 +71,32 @@ $result = [pscustomobject]@{Accounts=@($account);Succeeded=$true}
 $text = Capture { Show-Po0FirewallLive $result '后台' }
 if ($text.Trim()) { throw 'background rendered table' }
 Write-Host 'PASS: Windows terminal full-slot rendering, cache identity and output modes.'
+
+# The real-world response shape has numbered and unnumbered records together.
+# Do not multiply it into a table of phantom positions; retain every IP exactly once per account.
+function Get-Po0DisplayWidth { return 80 }
+$mixed = New-Po0FirewallAccountState -Index 1 -CurrentIp '203.0.113.25/24' -Limit 7 -Status ok -Entries @(
+    [pscustomobject]@{Slot='0';Ip='192.0.2.18/24'},[pscustomobject]@{Slot='';Ip='203.0.113.25/24'},[pscustomobject]@{Slot='';Ip='198.51.100.42/24'})
+$state.Accounts=@($mixed)
+$text=Capture { Show-Po0FirewallTable $state }
+foreach($value in @('#1','未编号','192.0.2.18/24','203.0.113.25/24','198.51.100.42/24','占用 3/7','剩余 4 个')) { Assert-Contains $text $value }
+foreach($value in @('#2','#7','空闲','未知（','失败 0','更新 0')) { Assert-Absent $text $value }
+if (($text.Split(@('说明：'),[StringSplitOptions]::None)).Count -ne 2) { throw 'unknown-slot explanation repeated' }
+if ((Get-Po0CellWidth '槽位') -ne 4 -or (Get-Po0CellWidth (Format-Po0Cell '未编号' 8)) -ne 8) { throw 'CJK alignment broken' }
+if ((Format-Po0Duration 1800) -ne '30 分钟') { throw 'duration formatting broken' }
+# Verify the actual interactive report path removes duplicate successes, retains errors,
+# and still records its completion in the plain-text log.
+. ([scriptblock]::Create([IO.File]::ReadAllText((Join-Path $src '010-platform-paths-logging-notification.ps1'), [Text.Encoding]::UTF8)))
+function Test-Po0RichOutput { return $true }
+function Write-SelfReportLogLine { param($Level,$Message) $script:LogMessages += $Message }
+$script:LogMessages=@()
+$script:Po0FirewallScheduledRun=$false
+$script:Po0UiRendered=$false
+$result=[pscustomobject]@{Accounts=@($mixed);Succeeded=$true}
+$text=Capture { Show-Po0FirewallLive $result '上报结果'; Write-SelfReportCompleted '检查完成。' }
+Assert-Absent $text '已完成：'
+if ($script:LogMessages.Count -ne 1) { throw 'completion log was lost' }
+$script:Po0UiRendered=$false
+$text=Capture { Write-SelfReportCompleted '本轮跳过。' }
+Assert-Contains $text '本轮跳过'
+Write-Host 'PASS: sparse responses, CJK alignment, readable intervals and single completion.'

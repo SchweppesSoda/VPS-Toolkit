@@ -851,13 +851,13 @@ official_report_token() {
     }; then
         OFFICIAL_ITEM_STATUS="hit"
         if [[ "${mode}" == "status" ]]; then
-            printf '%s 已在白名单：%s（名额 %s）。\n' "${marker}" "${current_ip}" "${limit}" >&2
+            "${PO0_DETAIL_PRINTER:-printf}" '%s 已在白名单：%s（名额 %s）。\n' "${marker}" "${current_ip}" "${limit}" >&2
         fi
         return 0
     fi
     [[ "${mode}" == "status" ]] && {
         OFFICIAL_ITEM_STATUS="missing"
-        printf '%s 当前未命中白名单：%s（名额 %s）。\n' "${marker}" "${current_ip}" "${limit}" >&2
+        "${PO0_DETAIL_PRINTER:-printf}" '%s 当前未命中白名单：%s（名额 %s）。\n' "${marker}" "${current_ip}" "${limit}" >&2
         # A valid GET with a missing current IP is a normal read-only result;
         # only transport, protocol, or configuration errors fail status.
         return 0
@@ -893,7 +893,7 @@ official_report_token() {
     slot_text=""
     [[ -n "${slot}" ]] && slot_text="，槽位 ${slot_label}"
     OFFICIAL_RESULT_NEEDS_NOTIFY="1"
-    printf '%s 已更新：%s（名额 %s%s）。\n' "${marker}" "${response_ip}" "${limit}" "${slot_text}" >&2
+    "${PO0_DETAIL_PRINTER:-printf}" '%s 已更新：%s（名额 %s%s）。\n' "${marker}" "${response_ip}" "${limit}" "${slot_text}" >&2
     return 0
 }
 
@@ -1032,7 +1032,7 @@ official_status_once_core() {
         OFFICIAL_RESULT_MESSAGE="官方防火墙只读检查完成，但本地状态保存失败。"
         OFFICIAL_RESULT_STATUS="failed"
     fi
-    printf '%s\n' "${OFFICIAL_RESULT_MESSAGE}"
+    if [[ "$OFFICIAL_RESULT_STATUS" == success ]]; then "${PO0_DETAIL_PRINTER:-printf}" '%s\n' "$OFFICIAL_RESULT_MESSAGE"; else printf '%s\n' "$OFFICIAL_RESULT_MESSAGE"; fi
     [[ "${OFFICIAL_RESULT_STATUS}" == "success" ]]
 }
 
@@ -1156,16 +1156,18 @@ official_status_once() {
 
 # Keep presentation outside protocol decisions and preserve the original return code.
 official_report_once() {
-    local rc=0
+    local rc=0 PO0_DETAIL_PRINTER=printf PO0_UI_LIVE=0
+    if declare -F po0_display_is_live >/dev/null && po0_display_is_live; then PO0_DETAIL_PRINTER=po0_display_detail; PO0_UI_LIVE=1; fi
     official_report_once_core || rc=$?
-    if declare -F po0_display_live >/dev/null; then
+    if [[ "$OFFICIAL_RESULT_STATUS" != skipped ]] && declare -F po0_display_live >/dev/null; then
         po0_display_live '上报结果' "$OFFICIAL_STATE_RECORDS" "$(official_now)" "$rc"
     fi
     return "$rc"
 }
 
 official_status_once_inner() {
-    local rc=0
+    local rc=0 PO0_DETAIL_PRINTER=printf PO0_UI_LIVE=0
+    if declare -F po0_display_is_live >/dev/null && po0_display_is_live; then PO0_DETAIL_PRINTER=po0_display_detail; PO0_UI_LIVE=1; fi
     official_status_once_core || rc=$?
     if declare -F po0_display_live >/dev/null; then
         po0_display_live '只读查询' "$OFFICIAL_STATE_RECORDS" "$(official_now)" "$rc"

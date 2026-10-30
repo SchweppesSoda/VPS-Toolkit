@@ -1,59 +1,29 @@
-﻿function Set-OutputColumn {
-    param([int]$Column)
-    if ([Console]::IsOutputRedirected -or (Test-Path Env:NO_COLOR) -or $env:TERM -eq 'dumb') {
-        Write-Host "    " -NoNewline
-        return
+﻿$script:Po0UiRendered = $false
+
+function Get-Po0CellWidth {
+    param([string]$Text)
+    $width = 0
+    for ($i = 0; $i -lt $Text.Length; $i++) {
+        $code = [char]::ConvertToUtf32($Text, $i)
+        if ($code -gt 65535) { $i++ }
+        $category = [Globalization.CharUnicodeInfo]::GetUnicodeCategory([char]::ConvertFromUtf32($code), 0)
+        if ($category -in @([Globalization.UnicodeCategory]::NonSpacingMark, [Globalization.UnicodeCategory]::Format)) { continue }
+        if (($code -ge 0x1100 -and $code -le 0x115f) -or ($code -ge 0x2e80 -and $code -le 0xa4cf) -or ($code -ge 0xac00 -and $code -le 0xd7a3) -or ($code -ge 0xf900 -and $code -le 0xfaff) -or ($code -ge 0xfe10 -and $code -le 0xfe6f) -or ($code -ge 0xff01 -and $code -le 0xff60) -or ($code -ge 0xffe0 -and $code -le 0xffe6) -or $code -ge 0x1f300) { $width += 2 } else { $width++ }
     }
-    try {
-        $target = [Math]::Max(0, $Column - 1)
-        if ([Console]::CursorLeft -gt $target) {
-            Write-Host ""
-        }
-        [Console]::CursorLeft = $target
-    } catch {
-        Write-Host "    " -NoNewline
-    }
+    return $width
 }
 
-function Write-Title {
-    param([string]$Title)
-    Write-Host ""
-    Write-Host "============================================================"
-    Write-Host $Title
-    Write-Host "============================================================"
+function Format-Po0Cell {
+    param([string]$Text, [int]$Width)
+    return $Text + (' ' * [Math]::Max(0, $Width - (Get-Po0CellWidth $Text)))
 }
 
-function Write-MenuItem {
-    param([string]$Number, [string]$Label)
-    Write-Po0UiText ("  {0,2}) {1}" -f $Number, $Label) -Color Cyan
-}
-
-
-function Write-PanelDivider {
-    Write-Po0UiText "------------------------------------------------------------" -Color DarkYellow
-}
-
-function Write-PanelSection {
-    param([string]$Title)
-    Write-PanelDivider
-    Write-Po0UiText $Title -Color Yellow
-}
-
-function Write-PanelRow {
-    param([string]$Label, [string]$Value)
-    Write-Po0UiText "  $Label" -NoNewline -Color DarkYellow
-    Set-OutputColumn $PanelValueColumn
-    Write-Po0UiText ": $Value" -Color DarkYellow
-}
-
-function Write-PanelNote {
-    param([string]$Value)
-    Write-Host "    $Value"
-}
-
-# Presentation only: use the response/cache already obtained by the reporter.
 function Test-Po0UiColor {
-    return (-not [Console]::IsOutputRedirected -and -not (Test-Path Env:NO_COLOR) -and $env:TERM -ne 'dumb')
+    return (-not $script:Po0FirewallScheduledRun -and -not [Console]::IsOutputRedirected -and -not (Test-Path Env:NO_COLOR) -and $env:TERM -ne 'dumb')
+}
+
+function Test-Po0RichOutput {
+    return (-not $script:Po0FirewallScheduledRun -and -not [Console]::IsOutputRedirected)
 }
 
 function Write-Po0UiText {
@@ -62,9 +32,70 @@ function Write-Po0UiText {
     else { Write-Host $Text -NoNewline:$NoNewline }
 }
 
+function Get-Po0DisplayWidth {
+    try { if ([Console]::WindowWidth -gt 0) { return [Console]::WindowWidth } } catch {}
+    return 80
+}
+
+function Write-PanelDivider {
+    $width = [Math]::Max(12, [Math]::Min(72, (Get-Po0DisplayWidth) - 4))
+    $line = if ([Console]::IsOutputRedirected -or $env:TERM -eq 'dumb') { '-' } else { '─' }
+    Write-Po0UiText ('  ' + ($line * $width)) DarkGray
+}
+
+function Write-Po0Heading {
+    param([string]$Name, [string]$Status = '', [string]$StatusColor = 'Gray')
+    $width = [Math]::Min(72, (Get-Po0DisplayWidth) - 4)
+    $left = '  ' + ($Name -replace '[\x00-\x1f\x7f]', ' ')
+    $gap = $width - (Get-Po0CellWidth $Name) - (Get-Po0CellWidth $Status)
+    if ($Status -and $gap -ge 3) {
+        Write-Po0UiText ($left + (' ' * $gap)) Cyan -NoNewline
+        Write-Po0UiText $Status $StatusColor
+    } else {
+        Write-Po0UiText $left Cyan
+        if ($Status) { Write-Po0UiText ('  ' + $Status) $StatusColor }
+    }
+}
+
+function Write-Title {
+    param([string]$Title, [string]$Hint = '')
+    Write-Po0UiText ''
+    Write-Po0Heading $Title $Hint DarkGray
+    Write-PanelDivider
+}
+
+function Write-MenuItem {
+    param([string]$Number, [string]$Label)
+    Write-Po0UiText ("    [{0}]  " -f $Number) $(if ($Number -eq '0') { 'DarkGray' } else { 'Cyan' }) -NoNewline
+    Write-Po0UiText $Label
+}
+
+function Write-PanelSection {
+    param([string]$Title)
+    Write-Po0UiText "`n  $Title" DarkGray
+}
+
+function Write-PanelRow {
+    param([string]$Label, [string]$Value)
+    Write-Po0UiText ('  ' + (Format-Po0Cell $Label ([Math]::Max(12, (Get-Po0CellWidth $Label) + 2)))) DarkGray -NoNewline
+    Write-Po0UiText $Value
+}
+
+function Set-OutputColumn { param([int]$Column) Write-Po0UiText '  ' -NoNewline }
+function Write-PanelNote { param([string]$Value) Write-Po0UiText "  $Value" DarkGray }
+
+function Format-Po0Duration {
+    param([int]$Seconds)
+    $parts = @()
+    if ($Seconds -ge 3600) { $parts += ('{0} 小时' -f [math]::Floor($Seconds / 3600)); $Seconds %= 3600 }
+    if ($Seconds -ge 60) { $parts += ('{0} 分钟' -f [math]::Floor($Seconds / 60)); $Seconds %= 60 }
+    if ($Seconds -gt 0 -or $parts.Count -eq 0) { $parts += "$Seconds 秒" }
+    return $parts -join ' '
+}
+
 function Get-Po0DisplayConfigurationId {
-    try { $normalized = ConvertTo-Po0FirewallNormalizedTokens -Items @(Get-Po0FirewallTokenItems) } catch { return "" }
-    $hash = [System.Security.Cryptography.SHA256]::Create()
+    try { $normalized = ConvertTo-Po0FirewallNormalizedTokens -Items @(Get-Po0FirewallTokenItems) } catch { return '' }
+    $hash = [Security.Cryptography.SHA256]::Create()
     try { return ([BitConverter]::ToString($hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($normalized)))).Replace('-', '').ToLowerInvariant() }
     finally { $hash.Dispose() }
 }
@@ -81,7 +112,7 @@ function Format-Po0DisplayTime {
     if ([long]::TryParse([string]$Stamp, [ref]$number) -and $number -gt 0) {
         try { return [DateTimeOffset]::FromUnixTimeSeconds($number).LocalDateTime.ToString('yyyy-MM-dd HH:mm:ss') } catch {}
     }
-    return '未知'
+    return '尚无记录'
 }
 
 function Get-Po0DisplayOutcome {
@@ -96,28 +127,22 @@ function Get-Po0DisplayOutcome {
     return 'missing'
 }
 
-function Get-Po0DisplayWidth {
-    try { if ([Console]::WindowWidth -gt 0) { return [Console]::WindowWidth } } catch {}
-    return 80
-}
-
 function Write-Po0SlotRow {
-    param([string]$Slot, [string]$Ip, [string]$Label, [string]$Color, [int]$Width)
-    if ($Width -lt 60) {
-        Write-Po0UiText "  $Slot  $Label" $Color
-        Write-Po0UiText "    $Ip"
+    param([string]$Slot, [string]$Ip, [string]$Label, [string]$Color = '', [int]$Width = 80)
+    if ($Width -lt 52) {
+        Write-Po0UiText "    $Slot  $Label" $Color
+        Write-Po0UiText "      $Ip"
     } else {
-        Write-Po0UiText ('  {0,-8} {1,-21} {2}' -f $Slot, $Ip, $Label) $Color
+        Write-Po0UiText ('    ' + (Format-Po0Cell $Slot 8) + (Format-Po0Cell $Ip 23) + $Label) $Color
     }
 }
 
 function Show-Po0FirewallTable {
-    param($State, [string]$Title = '上次结果（本地缓存）', [switch]$Failed)
+    param($State, [string]$Title = '最近结果', [switch]$Failed)
     $accounts = @($State.Accounts)
     $width = Get-Po0DisplayWidth
-    $hitSymbol = '[OK]'
-    if (-not [Console]::IsOutputRedirected -and [Console]::OutputEncoding.CodePage -eq 65001 -and $env:TERM -ne 'dumb') { $hitSymbol = '✓' }
-    $allowed = 0; $updated = 0; $missing = 0; $errors = 0
+    $mark = if (-not [Console]::IsOutputRedirected -and $env:TERM -ne 'dumb') { '●' } else { '*' }
+    $allowed = 0; $updated = 0; $missing = 0; $errors = 0; $hasUnknown = $false
     foreach ($account in $accounts) {
         switch (Get-Po0DisplayOutcome $account) {
             hit { $allowed++ }
@@ -126,80 +151,82 @@ function Show-Po0FirewallTable {
             default { $errors++ }
         }
     }
-    Write-Po0UiText "`nPO0 防火墙 · $Title" Cyan
-    Write-Po0UiText "$allowed 个账号已放行 · 更新 $updated 个 · 未放行 $missing 个 · 失败 $errors 个"
-    if ($Failed) { Write-Po0UiText '本次操作未完整完成，请查看错误提示。' Red }
-    if ($accounts.Count -eq 0) { Write-Po0UiText '尚无可展示的账号结果。' }
+    Write-Title "PO0 防火墙 / $Title"
+    $summary = "$allowed/$($accounts.Count) 个账号已放行"
+    if ($updated) { $summary += "  ·  已更新 $updated 个" }
+    elseif ($allowed -gt 0 -and $errors -eq 0 -and $missing -eq 0) { $summary += '  ·  无需更新' }
+    if ($missing) { $summary += "  ·  $missing 个未放行" }
+    if ($errors) { $summary += "  ·  $errors 个失败" }
+    Write-Po0UiText "  $summary" $(if ($errors -or $Failed) { 'Yellow' } elseif ($missing) { 'Yellow' } else { 'Green' })
+    $ips = @($accounts | ForEach-Object CurrentIp | Where-Object { $_ } | Select-Object -Unique)
+    $commonIp = if ($ips.Count -eq 1) { [string]$ips[0] } else { '' }
+    if (@($accounts | Where-Object { -not $_.CurrentIp }).Count) { $commonIp = '' }
+    if ($commonIp) { Write-PanelRow '当前出口' $commonIp }
+    if ($Failed -and $errors -eq 0) { Write-PanelNote '操作尚未完整完成，请查看错误提示。' }
+    if (-not $accounts.Count) { Write-PanelNote '尚无可展示的账号结果。' }
     foreach ($account in $accounts) {
         $outcome = Get-Po0DisplayOutcome $account
-        $name = (Get-OfficialAccountName $account.Index) -replace '[\x00-\x1f\x7f]', ' '
-        Write-Po0UiText "`n-- $name --" Cyan
-        switch ($outcome) {
-            hit { Write-Po0UiText "$hitSymbol 已放行" Green }
-            added { Write-Po0UiText "$hitSymbol 已放行 · 本次更新" Green }
-            missing { Write-Po0UiText '未放行' Yellow }
-            default { Write-Po0UiText '操作失败' Red }
-        }
-        $current = if ($account.CurrentIp) { [string]$account.CurrentIp } else { '未知' }
-        Write-Po0UiText "当前出口 $current"
-        $configured = if ($account.FixedSlot -ne '') { '固定槽位 #{0}' -f (1 + [int]$account.FixedSlot) } else { '自动分配' }
-        $matches = @($account.Whitelist | Where-Object { $_.Ip -eq $account.CurrentIp } | ForEach-Object {
-            if ($_.Slot -ne '') { '#{0}' -f (1 + [int]$_.Slot) } else { '槽位未知' }
-        })
-        $matched = if ($matches.Count) { $matches -join '、' } else { '无' }
-        Write-Po0UiText "$configured · 实际命中 $matched"
+        $badge = switch ($outcome) { hit { '已放行' }; added { '已放行 · 已更新' }; missing { '未放行' }; default { '操作失败' } }
+        $color = switch ($outcome) { hit { 'Green' }; added { 'Green' }; missing { 'Yellow' }; default { 'Red' } }
+        Write-Po0UiText ''
+        Write-Po0Heading (Get-OfficialAccountName $account.Index) $badge $color
+        $configured = if ($account.FixedSlot -ne '') { '固定 #{0}' -f (1 + [int]$account.FixedSlot) } else { '自动分配' }
+        if (-not $commonIp -and $account.CurrentIp) { Write-PanelRow '当前出口' $account.CurrentIp }
         if ($account.Limit -lt 1 -or $account.Limit -gt 10 -or $account.Used -gt $account.Limit) {
-            Write-Po0UiText '占用未知 · 尚无完整槽位数据'
+            Write-PanelNote "$configured · 本次未取得白名单，请稍后重试。"
             continue
         }
-        Write-Po0UiText ('占用 {0}/{1} · 剩余 {2} 个' -f $account.Used, $account.Limit, ($account.Limit - $account.Used))
-        if ($account.FixedSlot -ne '' -and [int]$account.FixedSlot -ge $account.Limit) { Write-Po0UiText '指定槽位超出账号额度，请调整固定槽位。' Red }
-        if ($outcome -eq 'error') { Write-Po0UiText '以下为本次已取得的数据；操作未完成。' }
-        Write-Po0UiText "`n  槽位     IP / 网段             状态"
+        Write-PanelNote ('占用 {0}/{1}  ·  剩余 {2} 个  ·  {3}' -f $account.Used, $account.Limit, ($account.Limit - $account.Used), $configured)
+        if ($account.FixedSlot -ne '' -and [int]$account.FixedSlot -ge $account.Limit) { Write-Po0UiText '  指定槽位超出账号额度，请调整固定槽位。' Red }
+        if ($outcome -eq 'error') { Write-PanelNote '以下为本次已取得的数据，操作未完成。' }
+        Write-Po0UiText ''
+        if ($width -ge 52) { Write-Po0SlotRow '槽位' 'IP / 网段' '状态' DarkGray $width }
         $unassigned = @($account.Whitelist | Where-Object { $_.Slot -eq '' })
-        for ($slot = 0; $slot -lt $account.Limit; $slot++) {
-            $entries = @($account.Whitelist | Where-Object { $_.Slot -ne '' -and [int]$_.Slot -eq $slot })
-            $ip = '-'; $label = '空闲'; $color = ''
-            if ($entries.Count) {
-                $ip = [string]$entries[0].Ip; $label = '已占用'
-                if ($ip -eq $account.CurrentIp) {
-                    $label = '当前出口匹配'
-                    if ($outcome -ne 'error' -and ($account.FixedSlot -eq '' -or [int]$account.FixedSlot -eq $slot)) {
-                        $label = "$hitSymbol 当前命中"; $color = 'Green'
-                    }
-                }
-            } elseif ($unassigned.Count) { $label = '未知（有未编号记录）' }
-            Write-Po0SlotRow "#$($slot + 1)" $ip $label $color $width
-        }
-        foreach ($entry in $unassigned) {
-            $label = '已占用'; $color = ''
-            if ($entry.Ip -eq $account.CurrentIp -and $outcome -ne 'error' -and $account.FixedSlot -eq '') {
-                $label = "$hitSymbol 当前命中"; $color = 'Green'
+        $rows = @()
+        if ($unassigned.Count) {
+            $hasUnknown = $true
+            $rows = @($account.Whitelist | Where-Object { $_.Slot -ne '' } | Sort-Object { [int]$_.Slot }) + $unassigned
+        } else {
+            for ($slot = 0; $slot -lt $account.Limit; $slot++) {
+                $entries = @($account.Whitelist | Where-Object { $_.Slot -ne '' -and [int]$_.Slot -eq $slot })
+                if ($entries.Count) { $rows += $entries[0] } else { $rows += [pscustomobject]@{Slot=[string]$slot;Ip=''} }
             }
-            Write-Po0SlotRow '槽位未知' $entry.Ip $label $color $width
+        }
+        foreach ($entry in $rows) {
+            $slotLabel = if ($entry.Slot -eq '') { '未编号' } else { '#{0}' -f (1 + [int]$entry.Slot) }
+            $ip = if ($entry.Ip) { [string]$entry.Ip } else { '-' }
+            $label = if ($entry.Ip) { '已记录' } else { '空闲' }; $rowColor = if ($entry.Ip) { '' } else { 'DarkGray' }
+            if ($entry.Ip -and $entry.Ip -eq $account.CurrentIp) {
+                $label = '出口匹配'
+                if ($outcome -ne 'error' -and ($account.FixedSlot -eq '' -or $entry.Slot -eq $account.FixedSlot)) { $label = "$mark 当前出口"; $rowColor = 'Green' }
+            }
+            Write-Po0SlotRow $slotLabel $ip $label $rowColor $width
         }
     }
-    Write-Po0UiText ("`n检查时间 {0}" -f (Format-Po0DisplayTime (Get-Po0DisplayProperty $State LastCheckedAt)))
+    Write-Po0UiText ''
+    if ($hasUnknown) { Write-PanelNote '说明：部分记录未返回槽位编号，已列出全部 IP。' }
+    Write-PanelRow '检查时间' (Format-Po0DisplayTime (Get-Po0DisplayProperty $State LastCheckedAt))
+    Write-Po0UiText ''
 }
 
 function Show-Po0FirewallCached {
     param([switch]$Summary)
     $state = Get-Po0FirewallState
-    if (-not $state) { Write-Po0UiText '上次检查：尚无本地结果。'; return }
     $identity = Get-Po0DisplayProperty $state ConfigurationId
-    if (-not $identity -or $identity -ne (Get-Po0DisplayConfigurationId)) {
-        Write-Po0UiText '上次检查：缓存未匹配当前账号配置，请重新查询。'
-        return
-    }
+    $note = ''
+    if (-not $state -or -not $identity) { $note = '暂无新版记录，检查后显示' }
+    elseif ($identity -ne (Get-Po0DisplayConfigurationId)) { $note = '账号配置已更新，等待下次检查' }
+    if ($note) { Write-PanelRow '最近检查' $note; return }
     if ($Summary) {
         $allowed = @($state.Accounts | Where-Object { (Get-Po0DisplayOutcome $_) -in @('hit','added') }).Count
-        Write-Po0UiText ('上次检查：{0} · 已放行 {1}/{2} · 详情见“最近结果”' -f (Format-Po0DisplayTime (Get-Po0DisplayProperty $state LastCheckedAt)), $allowed, @($state.Accounts).Count)
-    } else { Show-Po0FirewallTable $state }
+        Write-PanelRow '最近检查' ('{0} · {1}/{2} 已放行' -f (Format-Po0DisplayTime (Get-Po0DisplayProperty $state LastCheckedAt)), $allowed, @($state.Accounts).Count)
+    } else { Show-Po0FirewallTable $state '上次结果 / 本地记录' }
 }
 
 function Show-Po0FirewallLive {
     param($Result, [string]$Title)
-    if ($script:Po0FirewallScheduledRun -or [Console]::IsOutputRedirected) { return }
+    if (-not (Test-Po0RichOutput)) { return }
     $state = [pscustomobject]@{ Accounts = @($Result.Accounts); LastCheckedAt = Get-Po0FirewallNow }
     Show-Po0FirewallTable $state $Title -Failed:(-not $Result.Succeeded)
+    $script:Po0UiRendered = $true
 }

@@ -124,7 +124,7 @@ function Write-SelfReportLogLine {
 
 function Write-SelfReportCompleted {
     param([string]$Message)
-    Write-Po0UiText "PO0 防火墙 已完成：$Message" -Color Green
+    if (-not $script:Po0UiRendered) { Write-Po0UiText "PO0 防火墙 已完成：$Message" -Color Green }
     Write-SelfReportLogLine "OK" "PO0 防火墙 已完成：$Message"
 }
 

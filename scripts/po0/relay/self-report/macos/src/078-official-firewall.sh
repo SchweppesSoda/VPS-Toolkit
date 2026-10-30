@@ -980,12 +980,12 @@ po0_firewall_process_item() {
     if po0_firewall_json_ip_entry "${status_json}" "${current_ip}" &&
         { [[ -z "${slot}" ]] || po0_firewall_json_ip_slot_entry "${status_json}" "${current_ip}" "${slot}"; }; then
         PO0_FIREWALL_ITEM_STATUS="hit"
-        printf '%s 已在白名单：%s（名额 %s，已用 %s）。\n' "${marker}" "${current_ip}" "${limit}" "$(po0_firewall_json_whitelist_count "${status_json}")"
+        "${PO0_DETAIL_PRINTER:-printf}" '%s 已在白名单：%s（名额 %s，已用 %s）。\n' "${marker}" "${current_ip}" "${limit}" "$(po0_firewall_json_whitelist_count "${status_json}")"
         return 0
     fi
     if [[ "${mode}" == "status" ]]; then
         PO0_FIREWALL_ITEM_STATUS="missing"
-        printf '%s 当前未命中白名单：%s（名额 %s，仅读不加白）。\n' "${marker}" "${current_ip}" "${limit}"
+        "${PO0_DETAIL_PRINTER:-printf}" '%s 当前未命中白名单：%s（名额 %s，仅读不加白）。\n' "${marker}" "${current_ip}" "${limit}"
         return 0
     fi
     response="$(po0_firewall_direct_request "${token}" add "${slot}")" || {
@@ -1024,7 +1024,7 @@ po0_firewall_process_item() {
     PO0_FIREWALL_ITEM_USED="$(po0_firewall_json_whitelist_count "${response}")" || return 1
     PO0_FIREWALL_ITEM_WHITELIST="$(po0_firewall_json_whitelist_state "${response}")" || return 1
     PO0_FIREWALL_ADDED_COUNT=$((PO0_FIREWALL_ADDED_COUNT + 1))
-    printf '%s 已更新：%s（名额 %s，已用 %s）。\n' "${marker}" "${response_ip}" "${response_limit}" "$(po0_firewall_json_whitelist_count "${response}")"
+    "${PO0_DETAIL_PRINTER:-printf}" '%s 已更新：%s（名额 %s，已用 %s）。\n' "${marker}" "${response_ip}" "${response_limit}" "$(po0_firewall_json_whitelist_count "${response}")"
     return 0
 }
 po0_firewall_state_append_item() {
@@ -1068,7 +1068,7 @@ po0_firewall_run_core() {
         fi
         po0_firewall_state_append_item "${ordinal}"
     done
-    printf '官方防火墙通道：成功 %s，失败 %s。\n' "${PO0_FIREWALL_SUCCESS_COUNT}" "${PO0_FIREWALL_FAILURE_COUNT}"
+    "${PO0_DETAIL_PRINTER:-printf}" '官方防火墙通道：成功 %s，失败 %s。\n' "${PO0_FIREWALL_SUCCESS_COUNT}" "${PO0_FIREWALL_FAILURE_COUNT}"
     local update_attempt="1" mark_success="0" state_rc=0
     [[ "${mode}" == "status" ]] && update_attempt="0"
     [[ "${mode}" != "status" && "${PO0_FIREWALL_FAILURE_COUNT}" == "0" ]] && mark_success="1"
@@ -1077,7 +1077,8 @@ po0_firewall_run_core() {
 }
 
 po0_firewall_run() {
-    local mode="${1:-report}" rc=0 title='上报结果'
+    local mode="${1:-report}" rc=0 title='上报结果' PO0_DETAIL_PRINTER=printf PO0_UI_LIVE=0
+    if declare -F po0_display_is_live >/dev/null && po0_display_is_live; then PO0_DETAIL_PRINTER=po0_display_detail; PO0_UI_LIVE=1; fi
     po0_firewall_run_core "$mode" || rc=$?
     [[ "$mode" != status ]] || title='只读查询'
     if declare -F po0_display_live >/dev/null; then
