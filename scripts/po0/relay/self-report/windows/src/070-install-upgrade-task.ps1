@@ -404,7 +404,7 @@ function Move-DefaultLegacyFileToCanonical {
         }
         return $true
     } catch {
-        if (-not $Quiet) { Write-Host "迁移/删除旧${Label}失败：$LegacyPath：$($_.Exception.Message)" -ForegroundColor Yellow }
+        if (-not $Quiet) { Write-Po0UiText "迁移/删除旧${Label}失败：$LegacyPath：$($_.Exception.Message)" -Color Yellow }
         return $false
     }
 }
@@ -432,7 +432,7 @@ function Merge-DefaultLegacyLogToCanonical {
         if (-not $Quiet) { Write-Host "已迁移旧日志：$legacyPath -> $canonicalPath" }
         return $true
     } catch {
-        if (-not $Quiet) { Write-Host "迁移/删除旧日志失败：$legacyPath：$($_.Exception.Message)" -ForegroundColor Yellow }
+        if (-not $Quiet) { Write-Po0UiText "迁移/删除旧日志失败：$legacyPath：$($_.Exception.Message)" -Color Yellow }
         return $false
     }
 }
@@ -451,7 +451,7 @@ function Remove-DefaultLegacyPath {
         if (-not $Quiet) { Write-Host "已删除旧${Label}：$Path" }
         return $true
     } catch {
-        if (-not $Quiet) { Write-Host "删除旧${Label}失败：$Path：$($_.Exception.Message)" -ForegroundColor Yellow }
+        if (-not $Quiet) { Write-Po0UiText "删除旧${Label}失败：$Path：$($_.Exception.Message)" -Color Yellow }
         return $false
     }
 }
@@ -481,7 +481,7 @@ function Cleanup-LegacySelfReportArtifacts {
         }
         if (-not (Remove-DefaultLegacyPath -Label "本机脚本" -Path (Get-LegacyScriptPath) -CanonicalPath (Get-DefaultScriptPath) -Quiet:$Quiet)) { $ok = $false }
     } elseif (-not $Quiet) {
-        Write-Host "旧计划任务仍存在，暂不删除旧脚本/启动器，避免破坏仍在使用的任务。" -ForegroundColor Yellow
+        Write-Po0UiText "旧计划任务仍存在，暂不删除旧脚本/启动器，避免破坏仍在使用的任务。" -Color Yellow
     }
     return $ok
 }
@@ -522,7 +522,7 @@ function Invoke-LegacyPathSelfHeal {
         $refreshResult = Update-ScheduledReporterLauncherForExistingTask
         Write-ScheduledReporterRefreshResult -Result $refreshResult -ScriptPath $dest
     } catch {
-        Write-Host "刷新计划任务启动文件失败：$($_.Exception.Message)" -ForegroundColor Yellow
+        Write-Po0UiText "刷新计划任务启动文件失败：$($_.Exception.Message)" -Color Yellow
     }
     Cleanup-LegacySelfReportArtifacts | Out-Null
 
@@ -606,7 +606,7 @@ function Upgrade-SelfFromDownload {
             $refreshResult = Update-ScheduledReporterLauncherForExistingTask
             Write-ScheduledReporterRefreshResult -Result $refreshResult -ScriptPath $dest
         } catch {
-            Write-Host "刷新计划任务启动文件失败：$($_.Exception.Message)" -ForegroundColor Yellow
+            Write-Po0UiText "刷新计划任务启动文件失败：$($_.Exception.Message)" -Color Yellow
         }
         Cleanup-LegacySelfReportArtifacts | Out-Null
         if ($ReopenMenu) {

@@ -1,6 +1,7 @@
 scripts/po0/relay/self-report/macos/src/000-runtime-header.sh
 scripts/po0/relay/self-report/macos/src/010-core-string-path-config.sh
 scripts/po0/relay/self-report/macos/src/020-ui-rendering.sh
+scripts/po0/relay/self-report/macos/src/025-official-display.sh
 scripts/po0/relay/self-report/macos/src/030-version-and-script-metadata.sh
 scripts/po0/relay/self-report/macos/src/040-prompt-and-input-helpers.sh
 scripts/po0/relay/self-report/macos/src/050-config-device-defaults.sh

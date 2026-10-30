@@ -4,11 +4,11 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_OUTBOUND_IP_REPORT_DOWNLOAD_URL:-${PO0_SELF_REPORT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report.sh}}"
 SCRIPT_NAME="po0-outbound-ip-report"
-SCRIPT_VERSION="2026.10.30+build.1"
+SCRIPT_VERSION="2026.10.30+build.2"
 SCRIPT_RELEASE_DATE="2026-10-30"
 # CHANGELOG_BEGIN
-# - 支持官方扩容账号最多 10 个槽位，按账号返回额度查询与上报。
-# - 固定槽位支持 @0..9，超出账号额度时明确报错且不写入。
+# - 三端终端按账号显示完整槽位、IP、放行状态及检查时间。
+# - 改善菜单和最近结果，支持窄窗口、无颜色及纯文本日志。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24

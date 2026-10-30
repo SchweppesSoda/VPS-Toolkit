@@ -98,7 +98,7 @@ function Read-WifiSsidPolicySetting {
 function Write-SelfReportSkippedForWifiSsid {
     param($State)
     $message = "已跳过：当前 Wi-Fi SSID `"$($State.MatchedSsid)`" 命中跳过规则；未探测公网 IP，未上报。"
-    Write-Host "PO0 防火墙 $message" -ForegroundColor Yellow
+    Write-Po0UiText "PO0 防火墙 $message" -Color Yellow
     Write-SelfReportLogLine "SKIP" "PO0 防火墙 $message"
 }
 

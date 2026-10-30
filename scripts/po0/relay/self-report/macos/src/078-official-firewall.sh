@@ -294,6 +294,9 @@ po0_firewall_state_write() {
         printf 'last_attempt_at=%s\n' "$last_attempt"
         printf 'last_success_at=%s\n' "$last_success"
         printf 'last_checked_at=%s\n' "$now"
+        if declare -F po0_display_config_id >/dev/null; then
+            printf 'display_config_id=%s\n' "$(po0_display_config_id)"
+        fi
         printf 'last_status=%s\n' "$status"
         printf 'success_count=%s\n' "$success"
         printf 'failure_count=%s\n' "$failure"
@@ -1035,7 +1038,7 @@ $record"
     fi
 }
 
-po0_firewall_run() {
+po0_firewall_run_core() {
     local mode="${1:-report}" raw item ordinal=0
     PO0_FIREWALL_SUCCESS_COUNT="0"
     PO0_FIREWALL_FAILURE_COUNT="0"
@@ -1061,6 +1064,7 @@ po0_firewall_run() {
             PO0_FIREWALL_SUCCESS_COUNT=$((PO0_FIREWALL_SUCCESS_COUNT + 1))
         else
             PO0_FIREWALL_FAILURE_COUNT=$((PO0_FIREWALL_FAILURE_COUNT + 1))
+            PO0_FIREWALL_ITEM_STATUS="error"
         fi
         po0_firewall_state_append_item "${ordinal}"
     done
@@ -1070,4 +1074,14 @@ po0_firewall_run() {
     [[ "${mode}" != "status" && "${PO0_FIREWALL_FAILURE_COUNT}" == "0" ]] && mark_success="1"
     po0_firewall_state_write "${mode}" "${PO0_FIREWALL_STATE_RECORDS}" "${update_attempt}" "${mark_success}" || state_rc=1
     [[ "${PO0_FIREWALL_FAILURE_COUNT}" == "0" && "${state_rc}" == "0" ]]
+}
+
+po0_firewall_run() {
+    local mode="${1:-report}" rc=0 title='上报结果'
+    po0_firewall_run_core "$mode" || rc=$?
+    [[ "$mode" != status ]] || title='只读查询'
+    if declare -F po0_display_live >/dev/null; then
+        po0_display_live "$title" "$PO0_FIREWALL_STATE_RECORDS" "$(po0_firewall_now)" "$rc"
+    fi
+    return "$rc"
 }

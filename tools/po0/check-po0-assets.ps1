@@ -10,9 +10,9 @@ if (-not $OutputDir) {
 }
 
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.10.30+build.1" }
+$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.10.30+build.2" }
 $ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-10-30" }
-$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.10.30.1" }
+$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.10.30.2" }
 
 function ConvertTo-RepoRelativePath {
     param([string]$Path)
@@ -847,6 +847,7 @@ function Test-PowerShellSyntax {
     }
 }
 
+Invoke-BashToolScript "tools/po0/test-terminal-display.sh"
 Invoke-BashToolScript "tools/po0/test-macos-ssid-diagnostic.sh"
 Invoke-BashToolScript "tools/po0/test-macos-official-report.sh"
 Invoke-BashToolScript "tools/po0/test-self-report-refresh-policy.sh"
@@ -903,4 +904,7 @@ $python = if ($env:PO0_TEST_PYTHON) { $env:PO0_TEST_PYTHON } elseif (Get-Command
 if ($LASTEXITCODE -ne 0) { throw 'Update mirror compatibility failed.' }
 & $python (Join-Path $RepoRoot 'tools/po0/test-retirement-state.py') | Out-Host
 if ($LASTEXITCODE -ne 0) { throw 'Retirement state regression failed.' }
+
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot "tools/po0/test-terminal-display.ps1") | Out-Host
+if ($LASTEXITCODE -ne 0) { throw "Terminal display tests failed." }
 Write-Host "PO0 asset checks passed."

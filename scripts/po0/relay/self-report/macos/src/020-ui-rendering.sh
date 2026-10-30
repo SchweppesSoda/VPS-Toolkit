@@ -7,7 +7,7 @@ setup_colors() {
     C_RED=""
     C_CYAN=""
     C_PANEL=""
-    if [[ -t 1 && -n "${TERM:-}" && "${TERM}" != "dumb" ]]; then
+    if [[ -t 1 && -z "${NO_COLOR+x}" && -n "${TERM:-}" && "${TERM}" != "dumb" ]]; then
         C_RESET=$'\033[0m'
         C_BOLD=$'\033[1m'
         C_DIM=$'\033[2m'
@@ -22,7 +22,7 @@ setup_colors() {
 setup_colors
 
 print_menu_divider() {
-    printf '%b%s%b\n' "${C_CYAN}" "------------------------" "${C_RESET}"
+    printf '%b%s%b\n' "${C_CYAN}" "------------------------------------------------------------" "${C_RESET}"
 }
 
 print_menu_footer() {
@@ -45,7 +45,7 @@ print_menu_item() {
 
 
 print_panel_divider() {
-    printf '%b%s%b\n' "${C_PANEL}" "------------------------" "${C_RESET}"
+    printf '%b%s%b\n' "${C_PANEL}" "------------------------------------------------------------" "${C_RESET}"
 }
 
 print_panel_section() {
@@ -54,7 +54,7 @@ print_panel_section() {
 }
 
 print_panel_value_column() {
-    if [[ -t 1 ]]; then
+    if [[ -t 1 && -z "${NO_COLOR+x}" && "${TERM:-dumb}" != dumb ]]; then
         printf '\033[%sG' "${PANEL_VALUE_COLUMN}"
     else
         printf '    '

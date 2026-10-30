@@ -77,11 +77,13 @@ menu_loop() {
     while true; do
         menu_clear_screen
         show_client_overview
+        print_panel_section '操作与设置'
         print_menu_item 1 '官方防火墙设置'
         print_menu_item 2 '网络探测 / SSID 跳过'
         print_menu_item 3 '立即上报'
         print_menu_item 4 '自动上报管理'
         print_menu_item 5 '查看本机配置'
+        print_panel_section '维护'
         print_menu_item 6 '维护与诊断'
         print_menu_item 7 '迁移旧版自建配置与任务'
         print_menu_item 0 '退出'

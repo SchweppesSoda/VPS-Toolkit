@@ -197,7 +197,9 @@ function Write-Po0TextAtomic {
 function Write-Po0FirewallState {
     param(
         [object[]]$Accounts,
-        [Int64]$LastOfficialAttempt
+        [Int64]$LastOfficialAttempt,
+        [Int64]$LastCheckedAt = 0,
+        [string]$ConfigurationId = ""
     )
     $safeAccounts = @()
     foreach ($account in @($Accounts)) {
@@ -214,6 +216,8 @@ function Write-Po0FirewallState {
     }
     $payload = [ordered]@{
         LastOfficialAttempt = [Int64]$LastOfficialAttempt
+        LastCheckedAt = $LastCheckedAt
+        ConfigurationId = $ConfigurationId
         Accounts = @($safeAccounts)
     }
     $json = $payload | ConvertTo-Json -Depth 6
@@ -360,6 +364,8 @@ function Get-Po0FirewallJsonObject {
 function Test-Po0FirewallJsonInteger {
     param($Value)
     if ($null -eq $Value -or $Value -is [bool]) { return $false }
+    # Windows PowerShell 5.1 parses fractional JSON numbers as Decimal.
+    if ($Value -is [decimal]) { return ($Value -eq [decimal]::Truncate($Value)) }
     return ($Value -is [byte] -or $Value -is [sbyte] -or $Value -is [int16] -or $Value -is [uint16] -or $Value -is [int32] -or $Value -is [uint32] -or $Value -is [int64] -or $Value -is [uint64] -or $Value -is [decimal])
 }
 function ConvertFrom-Po0FirewallResponse {
@@ -524,7 +530,7 @@ function Invoke-Po0FirewallItem {
             Message = "$marker 已更新：$($post.CurrentIp)（名额 $($post.Limit)，已用 $($post.Entries.Count)）。"
         }
     } catch {
-        if ($_.Exception.Message -eq "fixed-slot-limit") { $accountState.Status = "failed" }
+        $accountState.Status = "failed"
         return [pscustomobject]@{
             Succeeded = $false
             Added = $false
@@ -607,7 +613,7 @@ function Invoke-Po0FirewallReport {
     $result.Accounts = @($states.ToArray())
     if ($Mode -eq "report") {
         try {
-            Write-Po0FirewallState -Accounts $result.Accounts -LastOfficialAttempt (Get-Po0FirewallNow)
+            Write-Po0FirewallState -Accounts $result.Accounts -LastOfficialAttempt (Get-Po0FirewallNow) -LastCheckedAt (Get-Po0FirewallNow) -ConfigurationId (Get-Po0DisplayConfigurationId)
         } catch {
             $result.Succeeded = $false
             $result.ExitCode = 1
@@ -619,7 +625,7 @@ function Invoke-Po0FirewallReport {
     if ($Mode -eq "status") {
         try {
             $lastAttempt = Get-Po0FirewallLastAttempt
-            Write-Po0FirewallState -Accounts $result.Accounts -LastOfficialAttempt $lastAttempt
+            Write-Po0FirewallState -Accounts $result.Accounts -LastOfficialAttempt $lastAttempt -LastCheckedAt (Get-Po0FirewallNow) -ConfigurationId (Get-Po0DisplayConfigurationId)
         } catch {
             $result.Succeeded = $false
             $result.ExitCode = 1

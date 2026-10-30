@@ -521,6 +521,9 @@ try {
     Assert-False (@($script:MockMethods) -contains "POST") "Status must never POST."
     $statusState = Get-Po0FirewallState
     Assert-Equal 500 $statusState.LastOfficialAttempt "Status must preserve official due timestamp."
+    Assert-Equal 600 $statusState.LastCheckedAt "Status must save its separate check time."
+    Assert-Equal (Get-Po0DisplayConfigurationId) $statusState.ConfigurationId "Status must bind display to current account order."
+    Assert-Equal 'missing' (Get-Po0DisplayOutcome $statusState.Accounts[0]) 'Successful query must not imply allowed.'
     Assert-True (@($statusState.Accounts).Count -gt 0) "Status must save sanitized Accounts."
     $statusText = Get-Content -LiteralPath (Get-Po0FirewallStatePath) -Raw -Encoding UTF8
     Assert-False ($statusText.Contains($tokenMarker)) "Token must not enter state."

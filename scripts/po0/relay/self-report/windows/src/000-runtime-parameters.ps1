@@ -45,11 +45,11 @@ $ErrorActionPreference = "Stop"
 $ReleaseDownloadBaseUrl = $(if ($env:PO0_RELEASE_DOWNLOAD_BASE_URL) { $env:PO0_RELEASE_DOWNLOAD_BASE_URL } else { "https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download" })
 $DownloadUrl = $(if ($env:PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL) { $env:PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL } elseif ($env:PO0_SELF_REPORT_PS_DOWNLOAD_URL) { $env:PO0_SELF_REPORT_PS_DOWNLOAD_URL } else { "$ReleaseDownloadBaseUrl/po0-outbound-ip-report.ps1" })
 $ScriptName = "po0-outbound-ip-report"
-$ScriptVersion = "2026.10.30+build.1"
+$ScriptVersion = "2026.10.30+build.2"
 $ScriptReleaseDate = "2026-10-30"
 # CHANGELOG_BEGIN
-# - 支持官方扩容账号最多 10 个槽位，按账号返回额度查询与上报。
-# - 固定槽位支持 @0..9，超出账号额度时明确报错且不写入。
+# - 三端终端按账号显示完整槽位、IP、放行状态及检查时间。
+# - 改善菜单和最近结果，支持窄窗口、无颜色及纯文本日志。
 # CHANGELOG_END
 $PanelValueColumn = 24
 $MenuRightColumn = 46

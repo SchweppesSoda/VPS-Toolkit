@@ -91,7 +91,7 @@ run_channel_interactive() {
             printf '本通道日志路径无效。\n' >&2
             rc=1
         else
-            (umask 077; run_once_interactive 2>&1 | tee -a "$result_log"; exit "${PIPESTATUS[0]}")
+            (umask 077; exec 3>&1; (setup_colors; PO0_DISPLAY_FD=3 run_once_interactive) 2>&1 | tee -a "$result_log"; exit "${PIPESTATUS[0]}")
             rc=$?
         fi
     fi
@@ -171,7 +171,7 @@ channel_settings_menu() {
             3) toggle_channel_auto_interactive "$channel" && update_channel_schedule_if_installed "$channel" ;;
             4) configure_channel_periodic_interactive "$channel" ;;
             5) show_channel_config "$channel" ;;
-            6) show_recent_self_report_log "$(schedule_channel_log_path "$channel")" ;;
+            6) po0_display_cached; show_recent_self_report_log "$(schedule_channel_log_path "$channel")" ;;
             7) run_channel_interactive "$channel" ;;
             8) force_channel_interactive "$channel" ;;
             9) install_cron_interactive "$channel" ;;
@@ -247,6 +247,9 @@ client_maintenance_menu() {
 
 show_client_overview() {
     print_title 'PO0 防火墙'
+    print_panel_row '客户端版本' "$SCRIPT_VERSION"
+    print_panel_row '上报间隔' "$(channel_interval_label official)"
+    po0_display_cached summary
     print_panel_row '自动上报' "$(channel_auto_label official)"
     print_panel_row '自动任务' "$(cron_status_summary official)"
     print_official_target_names

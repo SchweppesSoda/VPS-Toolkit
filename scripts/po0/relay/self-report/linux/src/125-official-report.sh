@@ -200,6 +200,9 @@ official_write_state_v2() {
         printf 'last_attempt_at=%s\n' "${last_attempt}"
         [[ "${last_success}" =~ ^[1-9][0-9]*$ ]] && printf 'last_success_at=%s\n' "${last_success}"
         printf 'last_checked_at=%s\n' "${now}"
+        if [[ -n "${OFFICIAL_STATE_RECORDS:-}" ]] && declare -F po0_display_config_id >/dev/null; then
+            printf 'display_config_id=%s\n' "$(po0_display_config_id)"
+        fi
         printf 'last_status=%s\n' "${status}"
         printf 'success_count=%s\n' "${success}"
         printf 'failure_count=%s\n' "${failure}"
@@ -968,7 +971,7 @@ official_status_state_flush() {
     official_write_state_v2 "$status" "$OFFICIAL_STATE_RECORDS" 0 0
 }
 
-official_status_once_inner() {
+official_status_once_core() {
     local raw item token slot ordinal=0 success=0 failure=0
     OFFICIAL_STATE_RECORDS=""
     OFFICIAL_ADDED_COUNT="0"
@@ -1008,6 +1011,7 @@ official_status_once_inner() {
             OFFICIAL_RESULT_SUCCESS_COUNT="$success"
         else
             failure=$((failure + 1))
+            OFFICIAL_ITEM_STATUS="error"
             OFFICIAL_RESULT_FAILURE_COUNT="$failure"
         fi
         official_state_append_item "$ordinal"
@@ -1032,7 +1036,7 @@ official_status_once_inner() {
     [[ "${OFFICIAL_RESULT_STATUS}" == "success" ]]
 }
 
-official_report_once() {
+official_report_once_core() {
     local raw item token slot ordinal=0 success=0 failure=0
     OFFICIAL_STATE_RECORDS=""
     OFFICIAL_ADDED_COUNT="0"
@@ -1079,6 +1083,7 @@ official_report_once() {
             OFFICIAL_RESULT_SUCCESS_COUNT="$success"
         else
             failure=$((failure + 1))
+            OFFICIAL_ITEM_STATUS="error"
             OFFICIAL_RESULT_FAILURE_COUNT="$failure"
         fi
         official_state_append_item "$ordinal"
@@ -1147,4 +1152,23 @@ official_status_once() {
     result="$?"
     report_run_lock_release >/dev/null 2>&1 || true
     return "$result"
+}
+
+# Keep presentation outside protocol decisions and preserve the original return code.
+official_report_once() {
+    local rc=0
+    official_report_once_core || rc=$?
+    if declare -F po0_display_live >/dev/null; then
+        po0_display_live '上报结果' "$OFFICIAL_STATE_RECORDS" "$(official_now)" "$rc"
+    fi
+    return "$rc"
+}
+
+official_status_once_inner() {
+    local rc=0
+    official_status_once_core || rc=$?
+    if declare -F po0_display_live >/dev/null; then
+        po0_display_live '只读查询' "$OFFICIAL_STATE_RECORDS" "$(official_now)" "$rc"
+    fi
+    return "$rc"
 }

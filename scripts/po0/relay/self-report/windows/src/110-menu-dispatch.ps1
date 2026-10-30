@@ -4,6 +4,9 @@
 
 function Show-ClientOverview {
     Write-Title 'PO0 防火墙'
+    Write-PanelRow '客户端版本' $ScriptVersion
+    Write-PanelRow '上报间隔' (Get-ChannelIntervalLabel official)
+    Show-Po0FirewallCached -Summary
     Write-PanelRow '自动上报' (Get-ChannelAutoLabel official)
     Write-PanelRow '自动任务' (Get-ScheduledReporterSummary official)
     Show-OfficialTargetNames
@@ -89,7 +92,7 @@ function Invoke-ChannelSettingsMenu {
                 '3' { Toggle-ChannelAutoInteractive $Channel }
                 '4' { Set-ChannelPeriodicInteractive $Channel }
                 '5' { Show-ChannelConfig $Channel }
-                '6' { Show-SelfReportLogTail -Path (Get-ChannelLogPath $Channel) }
+                '6' { Show-Po0FirewallCached; Show-SelfReportLogTail -Path (Get-ChannelLogPath $Channel) }
                 '7' { Invoke-ChannelInteractive $Channel }
                 '8' { Invoke-ChannelForceInteractive $Channel }
                 '9' { Install-ScheduledReporterInteractive -Channel $Channel }
@@ -98,7 +101,7 @@ function Invoke-ChannelSettingsMenu {
                 '12' { if ($Channel -eq 'official') { Show-OfficialStatusInteractive } else { throw '无效选择。' } }
                 default { throw "无效选择：请输入 0-$maximum。" }
             }
-        } catch { Write-Host $_.Exception.Message -ForegroundColor Red }
+        } catch { Write-Po0UiText $_.Exception.Message -Color Red }
         Pause-Menu
     }
 }
@@ -167,11 +170,13 @@ function Invoke-InteractiveMenu {
     $script:ClientMenuUninstalled = $false
     while ($true) {
         Show-ClientOverview
+        Write-PanelSection '操作与设置'
         Write-MenuItem '1' '官方防火墙设置'
         Write-MenuItem '2' '网络探测 / SSID 跳过'
         Write-MenuItem '3' '立即上报'
         Write-MenuItem '4' '自动上报管理'
         Write-MenuItem '5' '查看本机配置'
+        Write-PanelSection '维护'
         Write-MenuItem '6' '维护与诊断'
         Write-MenuItem '7' '迁移旧版自建配置与任务'
         Write-MenuItem '0' '退出'

@@ -236,7 +236,7 @@ function Remove-SelfReportPathIfExists {
         Write-Host "已删除${Label}：$Path"
         return $true
     } catch {
-        Write-Host "删除${Label}失败：$Path；$($_.Exception.Message)" -ForegroundColor Red
+        Write-Po0UiText "删除${Label}失败：$Path；$($_.Exception.Message)" -Color Red
         return $false
     }
 }
