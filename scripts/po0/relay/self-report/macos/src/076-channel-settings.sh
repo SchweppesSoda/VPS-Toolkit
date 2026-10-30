@@ -102,6 +102,11 @@ run_channel_interactive() {
     return "$rc"
 }
 
+show_recent_report_results() {
+    po0_display_cached
+    show_recent_self_report_log "$(schedule_channel_log_path official)"
+}
+
 show_channel_status() {
     if declare -F official_status_interactive >/dev/null; then official_status_interactive; else official_status_once; fi
 }
@@ -171,7 +176,7 @@ channel_settings_menu() {
             3) toggle_channel_auto_interactive "$channel" && update_channel_schedule_if_installed "$channel" ;;
             4) configure_channel_periodic_interactive "$channel" ;;
             5) show_channel_config "$channel" ;;
-            6) po0_display_cached; show_recent_self_report_log "$(schedule_channel_log_path "$channel")" ;;
+            6) show_recent_report_results ;;
             7) run_channel_interactive "$channel" ;;
             8) force_channel_interactive "$channel" ;;
             9) install_cron_interactive "$channel" ;;

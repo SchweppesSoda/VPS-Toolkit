@@ -4,11 +4,11 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_OUTBOUND_IP_REPORT_MACOS_DOWNLOAD_URL:-${PO0_SELF_REPORT_MACOS_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report-macos.sh}}"
 SCRIPT_NAME="po0-outbound-ip-report"
-SCRIPT_VERSION="2026.10.30+build.3"
+SCRIPT_VERSION="2026.10.30+build.4"
 SCRIPT_RELEASE_DATE="2026-10-30"
 # CHANGELOG_BEGIN
-# - 重排终端菜单和账号结果，中文列对齐，状态颜色更清晰。
-# - 缺失编号只列真实记录，移除重复完成提示，保留全部 IP 与容量。
+# - 主菜单在立即上报后新增 4「最近上报结果」，查看上次槽位表、时间和近期日志。
+# - 后续菜单编号顺延，查看结果只读本地记录，不触发上报。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24

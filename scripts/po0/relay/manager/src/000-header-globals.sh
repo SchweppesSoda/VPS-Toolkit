@@ -2,7 +2,7 @@
 set -uo pipefail
 
 SCRIPT_NAME="po0-nftables-relay-manager"
-SCRIPT_VERSION="2026.10.30+build.3"
+SCRIPT_VERSION="2026.10.30+build.4"
 SCRIPT_RELEASE_DATE="2026-10-30"
 # CHANGELOG_BEGIN
 # - 同步五脚本发布版本；本脚本运行行为不变。

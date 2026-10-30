@@ -81,22 +81,24 @@ menu_loop() {
         print_menu_item 1 '官方防火墙设置'
         print_menu_item 2 '网络探测 / SSID 跳过'
         print_menu_item 3 '立即上报'
-        print_menu_item 4 '自动上报管理'
-        print_menu_item 5 '查看本机配置'
+        print_menu_item 4 '最近上报结果'
+        print_menu_item 5 '自动上报管理'
+        print_menu_item 6 '查看本机配置'
         print_panel_section '维护'
-        print_menu_item 6 '维护与诊断'
-        print_menu_item 7 '迁移旧版自建配置与任务'
+        print_menu_item 7 '维护与诊断'
+        print_menu_item 8 '迁移旧版自建配置与任务'
         print_menu_item 0 '退出'
         print_menu_footer
-        choice="$(read_prompt '请选择 [0-7]: ')" || return 0
+        choice="$(read_prompt '请选择 [0-8]: ')" || return 0
         case "$(trim "$choice")" in
             1) channel_settings_menu official ;;
             2) configure_common_interactive; pause_before_return ;;
             3) run_channel_interactive official; pause_before_return ;;
-            4) automatic_reporting_menu ;;
-            5) show_current_config; pause_before_return ;;
-            6) client_maintenance_menu; [[ "${CLIENT_MENU_UNINSTALLED:-0}" != 1 ]] || return 0 ;;
-            7) migrate_retired_state; pause_before_return ;;
+            4) show_recent_report_results; pause_before_return ;;
+            5) automatic_reporting_menu ;;
+            6) show_current_config; pause_before_return ;;
+            7) client_maintenance_menu; [[ "${CLIENT_MENU_UNINSTALLED:-0}" != 1 ]] || return 0 ;;
+            8) migrate_retired_state; pause_before_return ;;
             0) return 0 ;;
             *) printf '无效选择。\n'; pause_before_return ;;
         esac
