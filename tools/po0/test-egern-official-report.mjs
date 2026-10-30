@@ -826,7 +826,7 @@ function testEgernScriptCopiesStaySynchronized() {
   assert.equal(previousYaml, yamlSource);
   const urls = [...yamlSource.matchAll(/script_url: "([^"]+)"/g)].map(match => match[1]);
   assert.equal(urls.length, 12);
-  assert(urls.every(url => url === 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20261030-widget-redesign-v1'));
+  assert(urls.every(url => url === 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20261030-widget-redesign-v2'));
 }
 
 
@@ -1282,8 +1282,8 @@ async function testWidgetUsesSpaceAndSeparatesWhitelistRows() {
       }
       if (family === 'systemLarge') {
         const cells = widgetSlotCells(widget);
-        assert.equal(cells.filter(cell => cell.label).length, whitelist.length * count, 'all numbered slots must remain visible');
-        assert.equal(cells.filter(cell => cell.detail && cell.detail !== '空闲').length, count === 1 ? whitelist.length : 0, 'only the one-account list pairs slots with whitelist networks');
+        assert.equal(cells.length + widgetHiddenRecords(widget), whitelist.length * count, 'every record is shown or counted');
+        assert(cells.every(cell => cell.detail && cell.detail !== '空闲'), 'occupied slots show their whitelist networks');
       }
       assert.equal(calls.post.length, 0, 'layout changes must not alter a covered account');
     }
@@ -1304,11 +1304,11 @@ async function testWhitelistSortsNumberedSlotsBeforeAutomatic() {
     { slot: null, ip: '192.0.2.50/24' },
   ];
   const expected = ['#1 · 192.0.2.40', '#2 · 198.51.100.30', '#4 · 203.0.113.10', '自动 · 192.0.2.20', '自动 · 192.0.2.50'];
-  for (const [trigger, widgetFamily, count, visibleCount] of [
-    ['PO0 防火墙上报状态', 'systemLarge', 1, 5],
-    ['PO0 防火墙上报状态', 'systemLarge', 3, 0],
-    ['PO0 防火墙上报状态', 'systemMedium', 1, 0],
-    ['查询官方白名单', '', 1, 5],
+  for (const [trigger, widgetFamily, count, visible] of [
+    ['PO0 防火墙上报状态', 'systemLarge', 1, expected],
+    ['PO0 防火墙上报状态', 'systemLarge', 3, [expected[2]]],
+    ['PO0 防火墙上报状态', 'systemMedium', 1, [expected[0], expected[2]]],
+    ['查询官方白名单', '', 1, expected],
   ]) {
     const { ctx, calls, storage } = createContext({ trigger, widgetFamily,
       env: { PO0_FIREWALL_TOKENS: Array.from({ length: count }, (_, index) => `pgnfw_sort_${index}_not_real@0`).join(';') },
@@ -1316,10 +1316,10 @@ async function testWhitelistSortsNumberedSlotsBeforeAutomatic() {
     });
     const widget = await runEgernReport(ctx);
     const rows = widgetWhitelistRows(widget);
-    assert.deepEqual(rows.map(row => row.text), Array.from({ length: count }, () => expected.slice(0, visibleCount)).flat());
+    assert.deepEqual(rows.map(row => row.text), Array.from({ length: count }, () => visible).flat(), 'numbered records first, automatic last; the current record is never cut');
     const covered = rows.find(row => row.text === expected[2]);
     if (covered) assert(covered.highlighted, 'covered network stays green in widgets and read-only results without changing order');
-    assert.equal(rows.filter(row => row.highlighted).length, covered ? 1 : 0);
+    assert.equal(rows.filter(row => row.highlighted).length, covered ? count : 0);
     const saved = await officialStateOf(storage);
     assert.deepEqual(saved.entries[0].whitelist, whitelist, 'display sorting must not reorder stored API data');
     assert.equal(calls.post.length, 0);
@@ -1494,7 +1494,7 @@ async function testUiTimeUnitsSpacingAndUserNames() {
       });
       const texts = nodesOf(await runEgernReport(run.ctx)).filter(node => node.type === 'text').map(node => node.text);
       assert(texts.includes('每 ' + expected));
-      assert(texts.some(text => text.startsWith('自动槽位')), 'slotless records keep the familiar automatic label');
+      if (family !== 'systemSmall') assert(texts.includes('自动'), 'unnumbered records keep the familiar automatic label');
       for (const text of texts) {
         assert.doesNotMatch(text, /[\p{Script=Han}][A-Za-z0-9#]|[A-Za-z0-9][\p{Script=Han}]|\d+[smh]\b| {2,}|never|已加白|SSID跳过/u);
       }
@@ -1602,20 +1602,33 @@ function widgetSlotCells(widget) {
     .filter(node => node.type === 'stack' && (sameColor(node.borderColor, widgetPalette.slotLine)
       || ['greenFill', 'slot', 'slotOnCard'].some(key => sameColor(node.backgroundColor, widgetPalette[key]))))
     .map(node => {
-      const texts = widgetNodes(node).filter(child => child.type === 'text');
+      const box = widgetNodes(node).find(child => child !== node && child.type === 'stack' && child.width);
+      const labelNode = box && widgetNodes(box).find(child => child.type === 'text');
+      const detailNode = widgetNodes(node).find(child => child.type === 'text' && child !== labelNode);
       return {
-        node, label: texts[0]?.text, labelNode: texts[0], detail: texts[1]?.text,
+        node, label: box ? labelNode?.text || '' : undefined, labelNode, detail: detailNode?.text,
         state: sameColor(node.backgroundColor, widgetPalette.greenFill) ? 'current' : node.borderColor ? 'empty' : 'used',
       };
     });
 }
+function widgetHiddenRecords(widget) {
+  return widgetNodes(widget).filter(node => node.type === 'text' && /^另 \d+ 条$/.test(node.text)).reduce((sum, node) => sum + Number(node.text.match(/\d+/)[0]), 0);
+}
 // Whitelist records as read: the one-account slot list or the read-only query rows.
 function widgetWhitelistRows(widget) {
-  const queryRows = widgetNodes(widget).filter(node => node.type === 'text' && /^(?:#\d+|自动) · \d+\.\d+\.\d+\.\d+/.test(node.text))
-    .map(node => ({ text: node.text.replace(/\/24$/, ''), highlighted: sameColor(node.textColor, widgetPalette.green) }));
-  const listRows = widgetSlotCells(widget).filter(cell => cell.detail && cell.detail !== '空闲')
-    .map(cell => ({ text: (cell.label === '自动' ? '自动' : '#' + cell.label) + ' · ' + cell.detail, highlighted: cell.state === 'current' }));
-  return [...queryRows, ...listRows];
+  const rows = [];
+  for (const node of widgetNodes(widget)) {
+    if (node.type === 'text' && /^(?:#\d+|自动) · \d+\.\d+\.\d+\.\d+/.test(node.text)) {
+      rows.push({ text: node.text.replace(/\/24$/, ''), highlighted: sameColor(node.textColor, widgetPalette.green) });
+      continue;
+    }
+    const [box, address] = node.type === 'stack' && node.direction === 'row' ? node.children || [] : [];
+    if (!(box?.type === 'stack' && box.width && address?.type === 'text' && /^\d+\.\d+\.\d+\.\d+$/.test(address.text))) continue;
+    const label = widgetNodes(box).find(child => child.type === 'text')?.text;
+    rows.push({ text: (/^\d+$/.test(label) ? '#' + label : label) + ' · ' + address.text,
+      highlighted: sameColor(address.textColor, widgetPalette.green) || sameColor(address.textColor, widgetPalette.onGreen) });
+  }
+  return rows;
 }
 // The one-account list reads #1-#5 down the first column and #6-#10 down the second.
 function widgetSlotListOrder(limit) {
@@ -1645,14 +1658,18 @@ async function testQuotaGridAcrossAccountCounts() {
     const run = createContext({widgetFamily:'systemLarge',env,httpGet:()=>response(officialPayload({limit,currentIp:'203.0.113.254/24',whitelist})),httpPost:()=>{throw Error('Grid layout must not cause POST');}});
     const widget = await runEgernReport(run.ctx);
     const cells = widgetSlotCells(widget);
-    assert.equal(cells.length,count*limit,'every actual quota slot must be represented');
-    const order = count === 1 ? widgetSlotListOrder(limit) : Array.from({length:limit},(_,i)=>i+1);
-    assert.deepEqual(cells.map(cell=>Number(cell.label)),Array.from({length:count},()=>order).flat(),'map ordering is numeric and does not move hits first');
     assert.equal(cells.filter(cell=>cell.state==='current' && cell.label===String(limit)).length,count,'a last-slot hit stays visible');
-    assert.equal(cells.filter(cell=>cell.state==='used').length,2*count);
-    assert.equal(cells.filter(cell=>cell.state==='empty').length,(limit-3)*count);
-    assert(cells.every(cell=>cell.labelNode.font.size>=11),'slot labels remain readable');
-    if (count === 1) assert.deepEqual(cells.filter(cell=>cell.state!=='empty').map(cell=>cell.detail).sort(),whitelist.map(row=>row.ip.replace('/24','')).sort(),'the one-account list shows every occupied network');
+    assert(cells.every(cell=>cell.labelNode.font.size>=10),'slot labels remain readable');
+    if (count === 1) {
+      assert.deepEqual(cells.map(cell=>Number(cell.label)),widgetSlotListOrder(limit),'map ordering is numeric and does not move hits first');
+      assert.equal(cells.filter(cell=>cell.state==='used').length,2);
+      assert.equal(cells.filter(cell=>cell.state==='empty').length,limit-3);
+      assert.deepEqual(cells.filter(cell=>cell.state!=='empty').map(cell=>cell.detail).sort(),whitelist.map(row=>row.ip.replace('/24','')).sort(),'the one-account list shows every occupied network');
+    } else {
+      assert(cells.every(cell=>cell.state!=='empty'),'multi-account cards list records, not free positions');
+      assert.equal(cells.length+widgetHiddenRecords(widget),count*whitelist.length,'every record is shown or counted');
+      if (count === 2) assert.deepEqual(cells.map(cell=>Number(cell.label)),[1,limit-1,limit,1,limit-1,limit],'two accounts list every record in slot order');
+    }
     assert(widgetHeightBudget(widget)<=LARGE_HEIGHT_BUDGET,'large content must fit the smallest large widget');
     assert.equal(widgetCards(widget).length,count === 1 ? 0 : count,'one account uses the full width; two or three use one card each');
     assert.match(visibleText(widget),new RegExp('共用 #'+limit));
@@ -1681,13 +1698,14 @@ async function testQuotaGridAcrossAccountCounts() {
     const state=structuredClone(cached); state.official.entries[0].whitelist=[{ip:'203.0.113.0/24',slot}]; state.official.entries[0].coveredSlot=null;
     const widget=widgetFromState(state,{widgetFamily:'systemLarge',env},'',env);
     const cells=widgetSlotCells(widget);
-    assert(!cells.some(cell=>/^\d+$/.test(cell.label) || cell.state==='empty'),'slotless data cannot guess numbered or empty positions');
-    assert.deepEqual(cells.map(cell=>[cell.label,cell.detail]),[['自动','203.0.113.0']],'the real record stays visible as automatic');
-    assert.match(visibleText(widget),/自动槽位 · 位置未提供/);
+    assert(!cells.some(cell=>/^\d+$/.test(cell.label)),'unnumbered data cannot invent numbered positions');
+    assert.deepEqual(cells.filter(cell=>cell.state!=='empty').map(cell=>[cell.label,cell.detail]),[['自动','203.0.113.0']],'the real record stays visible as automatic');
+    assert.equal(cells.filter(cell=>cell.state==='empty' && cell.label==='').length,9,'remaining quota is shown without positions');
+    assert.doesNotMatch(visibleText(widget),/位置未提供/);
   }
   const unknown=structuredClone(cached); unknown.official.entries[0].limit=0; unknown.official.entries[0].used=undefined;
   const unknownWidget=widgetFromState(unknown,{widgetFamily:'systemLarge',env},'',env);
-  assert.match(visibleText(unknownWidget),/占用未知/); assert.equal(widgetSlotCells(unknownWidget).length,0);
+  assert.match(visibleText(unknownWidget),/占用未知/); assert(widgetSlotCells(unknownWidget).every(cell=>cell.state!=='empty'),'unknown quota shows records but no free cells');
   const full=structuredClone(cached); full.official.entries[0].used=10; full.official.entries[0].status='hit';
   full.official.entries[0].whitelist=Array.from({length:10},(_,slot)=>({slot,ip:slot===9?'203.0.113.0/24':'198.51.100.'+(slot+1)+'/24'}));
   full.official.entries[0].coveredSlot=9;
@@ -1695,6 +1713,30 @@ async function testQuotaGridAcrossAccountCounts() {
   assert.match(visibleText(fullWidget),/占用 10\/10/); assert.match(visibleText(fullWidget),/槽位 #10/);
   assert(widgetSlotCells(fullWidget).every(cell=>cell.state!=='empty'),'full does not imply failure or an empty slot');
   assert(sameColor(widgetNodes(fullWidget).find(node=>node.type==='text' && node.text==='已放行').textColor,widgetPalette.green));
+}
+
+async function testWidgetMixedNumberingListsRealRecords() {
+  const lists = [
+    [{ip:'124.221.169.0/24',slot:0},{ip:'203.0.113.0/24'},{ip:'115.192.8.0/24'}],
+    [{ip:'124.221.169.0/24',slot:0},{ip:'218.108.36.0/24',slot:1},{ip:'39.170.12.0/24',slot:2},{ip:'122.224.5.0/24'},{ip:'203.0.113.0/24'},{ip:'39.182.40.0/24'}],
+  ];
+  const expected = [
+    ['#1 · 124.221.169.0','自动 · 203.0.113.0','自动 · 115.192.8.0'],
+    ['#1 · 124.221.169.0','#2 · 218.108.36.0','#3 · 39.170.12.0','自动 · 122.224.5.0','自动 · 203.0.113.0','自动 · 39.182.40.0'],
+  ];
+  for (const [family,count,visible] of [['systemLarge',1,[expected[0]]],['systemLarge',2,expected],['systemMedium',1,[expected[0]]]]) {
+    const env={PO0_FIREWALL_TOKENS:Array.from({length:count},(_,i)=>'pgnfw_mixed_'+i+'_fixture').join(';')};
+    const run=createContext({widgetFamily:family,env,httpGet:url=>response(officialPayload({limit:7,currentIp:'203.0.113.25/24',whitelist:lists[url.includes('_1_')?1:0]}))});
+    const widget=await runEgernReport(run.ctx);
+    const rows=widgetWhitelistRows(widget);
+    assert.deepEqual(rows.map(row=>row.text),visible.flat(),'mixed numbering still lists every whitelisted network');
+    assert.deepEqual(rows.filter(row=>row.highlighted).map(row=>row.text),Array.from({length:count},()=>'自动 · 203.0.113.0'),'the automatic current record is green');
+    assert.doesNotMatch(visibleText(widget),/位置未提供|自动槽位/);
+    assert.match(visibleText(widget),/占用 3\/7/);
+    if (family==='systemLarge' && count===1) assert.equal(widgetSlotCells(widget).filter(cell=>cell.state==='empty' && cell.label==='').length,4,'free quota stays visible without numbers');
+    assert(widgetHeightBudget(widget)<=(family==='systemLarge'?LARGE_HEIGHT_BUDGET:MEDIUM_HEIGHT_BUDGET));
+    assert.equal(run.calls.post.length,0);
+  }
 }
 
 async function testWidgetErrorsHiddenAccountsAndBounds() {
@@ -1738,6 +1780,7 @@ async function testWidgetErrorsHiddenAccountsAndBounds() {
 
 const tests = [
   testQuotaGridAcrossAccountCounts,
+  testWidgetMixedNumberingListsRealRecords,
   testWidgetErrorsHiddenAccountsAndBounds,
   testExpandedOfficialSlots,
   testUiTimeUnitsSpacingAndUserNames,

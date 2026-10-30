@@ -1,4 +1,4 @@
-// PO0 防火墙上报 · 20261030-widget-redesign-v1
+// PO0 防火墙上报 · 20261030-widget-redesign-v2
 function retiredAction(ctx) {
   return /自建|ssh-report|设备 ID|本机设备|Device ID|设备标识/i.test(scriptLabel(ctx)) || Boolean(ctx?.request);
 }
@@ -659,16 +659,21 @@ function widgetSlotLabel(entry) {
   const fixed = officialDisplaySlot(entry.fixedSlot);
   const covered = officialDisplaySlot(entry.coveredSlot);
   if (covered) return (entry.status === 'shared' ? '共用 #' : '槽位 #') + covered;
-  if (entry.currentInWhitelist) return '自动槽位';
-  return fixed ? '指定槽位 #' + fixed : '自动槽位';
+  // Automatically assigned records have no number; the record list labels them 自动.
+  if (entry.currentInWhitelist) return '';
+  return fixed ? '指定槽位 #' + fixed : '';
 }
 
-function widgetShortSlotLabel(entry) {
+function widgetSlotMeta(entry) {
+  return [widgetSlotLabel(entry), widgetQuotaText(entry)].filter(Boolean).join(' · ');
+}
+
+function widgetCompactMeta(entry) {
   const covered = officialDisplaySlot(entry.coveredSlot);
   const fixed = officialDisplaySlot(entry.fixedSlot);
-  if (covered) return '#' + covered;
-  if (entry.currentInWhitelist) return '自动槽位';
-  return fixed ? '指定 #' + fixed : '自动槽位';
+  if (covered) return '#' + covered + ' · ' + widgetQuotaText(entry, true);
+  if (fixed && !entry.currentInWhitelist) return '指定 #' + fixed + ' · ' + widgetQuotaText(entry, true);
+  return widgetQuotaText(entry);
 }
 
 function widgetQuotaText(entry, short = false) {
@@ -689,20 +694,24 @@ function officialOrderedWhitelist(entry) {
   return [...rows].sort((left, right) => (officialDisplaySlot(left.slot) || 11) - (officialDisplaySlot(right.slot) || 11));
 }
 
+// The API numbers fixed slots but leaves automatically assigned records unnumbered. Records are
+// always listed; free cells carry numbers only when every record has a known position.
 function widgetSlotModel(entry) {
-  const rows = Array.isArray(entry.whitelist) ? officialOrderedWhitelist(entry) : null;
-  const validLimit = Number.isInteger(entry.limit) && entry.limit >= 1 && entry.limit <= 10;
-  if (!validLimit) return { kind: 'unknown', cells: [] };
-  const placed = rows && entry.used === rows.length
-    && rows.every(row => officialDisplaySlot(row.slot) && row.slot < entry.limit && officialCidr24(row.ip))
+  const rows = Array.isArray(entry.whitelist) ? officialOrderedWhitelist(entry) : [];
+  const records = rows.map(row => ({
+    label: officialDisplaySlot(row.slot) ? String(officialDisplaySlot(row.slot)) : '自动',
+    row, state: officialSameNetwork(row.ip, entry.currentIp) ? 'current' : 'used',
+  }));
+  if (!(Number.isInteger(entry.limit) && entry.limit >= 1 && entry.limit <= 10)) return { kind: 'unknown', records, cells: [] };
+  const placed = entry.used === rows.length
+    && rows.every(row => officialDisplaySlot(row.slot) && row.slot < entry.limit)
     && new Set(rows.map(row => row.slot)).size === rows.length;
-  const stateOf = row => !row ? 'empty' : officialSameNetwork(row.ip, entry.currentIp) ? 'current' : 'used';
-  // Without complete numbered rows the free positions are unknown, so only real records are listed.
-  if (!placed) return { kind: 'unplaced', cells: (rows || []).map(row => ({ label: officialDisplaySlot(row.slot) ? String(officialDisplaySlot(row.slot)) : '自动', row, state: stateOf(row) })) };
-  return { kind: 'placed', cells: Array.from({ length: entry.limit }, (_, slot) => {
-    const row = rows.find(item => item.slot === slot);
-    return { label: String(slot + 1), row, state: stateOf(row) };
-  }) };
+  if (placed) {
+    return { kind: 'placed', records, cells: Array.from({ length: entry.limit }, (_, slot) =>
+      records.find(record => record.row.slot === slot) || { label: String(slot + 1), row: null, state: 'empty' }) };
+  }
+  const free = Math.max(0, entry.limit - Math.max(rows.length, Number.isInteger(entry.used) ? entry.used : 0));
+  return { kind: 'mixed', records, cells: [...records, ...Array.from({ length: free }, () => ({ label: '', row: null, state: 'empty' }))] };
 }
 
 function widgetSlotStyle(cell, onCard = false) {
@@ -711,38 +720,24 @@ function widgetSlotStyle(cell, onCard = false) {
   return { borderWidth: 1, borderColor: WIDGET_COLORS.slotLine };
 }
 
-// Numbered tile: solid green = current network, filled = occupied, outline = free.
-function widgetSlotTile(cell, options) {
-  const color = cell.state === 'current' ? WIDGET_COLORS.onGreen : cell.state === 'used' ? WIDGET_COLORS.text : WIDGET_COLORS.tertiary;
-  const label = options.size ? [{ ...widgetText(cell.label, options.size, color, cell.state === 'current' ? 'bold' : 'semibold'), minScale: 1 }] : [];
-  return {
-    type: 'stack', direction: 'column', alignItems: 'center', flex: 1, borderRadius: options.radius, ...widgetSlotStyle(cell, options.onCard),
-    ...(options.height ? { height: options.height, children: label } : { padding: [options.pad ?? 3, 0, options.pad ?? 3, 0], children: [spacerNode(), ...label, spacerNode()] }),
-  };
+// Unnumbered capacity bar: solid green = current network, filled = occupied, outline = free.
+function widgetSlotMeter(cells, height, onCard = false) {
+  const bars = cells.map(cell => ({ type: 'stack', flex: 1, height, borderRadius: 2, ...widgetSlotStyle(cell, onCard), children: [] }));
+  // Fillers keep the ten-slot scale aligned between accounts; they are not extra slots.
+  while (bars.length < 10) bars.push({ type: 'stack', flex: 1, height, children: [] });
+  return widgetRow(bars, 2);
 }
 
-function widgetSlotStrip(cells, options, columns = 10) {
-  const tiles = cells.map(cell => widgetSlotTile(cell, options));
-  // Unnumbered fillers keep columns aligned between accounts; they are not extra slots.
-  while (tiles.length < columns) tiles.push(options.height ? { type: 'stack', flex: 1, height: options.height, children: [] } : { type: 'stack', direction: 'column', flex: 1, children: [spacerNode()] });
-  return { ...widgetRow(tiles, options.gap), ...(options.height ? {} : { flex: 1 }) };
-}
-
-function widgetSlotGrid(cells, options, columns) {
-  const lines = [];
-  for (let index = 0; index < cells.length; index += columns) lines.push(widgetSlotStrip(cells.slice(index, index + columns), options, columns));
-  return widgetColumn(lines, options.gap, options.height ? {} : { flex: 1 });
-}
-
-// One-account list: slot number, whitelist network and state in one row, #1-#5 then #6-#10.
-function widgetSlotChip(cell, size) {
+// Whitelist record: slot number (or 自动), network and state in one chip.
+function widgetSlotChip(cell, size, compact = false) {
   const current = cell.state === 'current';
   const used = cell.state === 'used';
   const color = current ? WIDGET_COLORS.onGreen : used ? WIDGET_COLORS.text : WIDGET_COLORS.tertiary;
   return {
-    type: 'stack', direction: 'column', flex: 1, padding: [4, 9, 4, 4], borderRadius: 9, ...widgetSlotStyle(cell),
+    type: 'stack', direction: 'column', flex: 1, padding: compact ? [2, 8, 2, 3] : [4, 9, 4, 4], borderRadius: compact ? 7 : 9,
+    ...widgetSlotStyle(cell, compact),
     children: [spacerNode(), widgetRow([
-      widgetColumn([{ ...widgetText(cell.label, size - 2, current ? WIDGET_COLORS.onGreen : used ? WIDGET_COLORS.secondary : WIDGET_COLORS.tertiary, 'semibold'), minScale: 0.8 }], 0, { width: 22, alignItems: 'center' }),
+      widgetColumn(cell.label ? [{ ...widgetText(cell.label, size - 2, current ? WIDGET_COLORS.onGreen : used ? WIDGET_COLORS.secondary : WIDGET_COLORS.tertiary, 'semibold'), minScale: 0.8 }] : [], 0, { width: 24, alignItems: 'center' }),
       { ...widgetText(cell.row ? widgetDisplayIp(cell.row.ip) : '空闲', size, color, current ? 'semibold' : used ? 'medium' : 'regular'), minScale: 0.75 },
       spacerNode(),
       ...(current ? [iconNode('checkmark', WIDGET_COLORS.onGreen, size - 3)] : []),
@@ -750,19 +745,71 @@ function widgetSlotChip(cell, size) {
   };
 }
 
+function widgetBlankCell() {
+  return { type: 'stack', direction: 'column', flex: 1, children: [spacerNode()] };
+}
+
+// One account: every slot as a chip, #1-#5 down the first column and #6-#10 down the second.
 function widgetSlotList(cells, size) {
   const perColumn = 5;
   const columns = Math.ceil(cells.length / perColumn);
   const lines = [];
   for (let line = 0; line < Math.min(perColumn, cells.length); line++) {
     const chips = Array.from({ length: columns }, (_, column) => cells[column * perColumn + line]);
-    lines.push({ ...widgetRow(chips.map(cell => cell ? widgetSlotChip(cell, size) : { type: 'stack', direction: 'column', flex: 1, children: [spacerNode()] }), 6), flex: 1 });
+    lines.push({ ...widgetRow(chips.map(cell => cell ? widgetSlotChip(cell, size) : widgetBlankCell()), 6), flex: 1 });
   }
   return widgetColumn(lines, 6, { flex: 1 });
 }
 
-function widgetSlotFallback(model, size) {
-  return widgetLine([widgetText(model.kind === 'unknown' ? '槽位数量未知' : '自动槽位 · 位置未提供', size, WIDGET_COLORS.secondary)]);
+// Keep record order; when space runs out, the current network replaces the last visible record.
+function widgetVisibleRecords(records, capacity) {
+  if (records.length <= capacity) return { shown: records, more: 0 };
+  let shown = records.slice(0, Math.max(1, capacity - 1));
+  const current = records.find(record => record.state === 'current');
+  if (current && !shown.includes(current)) shown = [...shown.slice(0, -1), current];
+  return { shown, more: records.length - shown.length };
+}
+
+function widgetRecordGrid(model, rows, size) {
+  const { shown, more } = widgetVisibleRecords(model.records, rows * 2);
+  const items = shown.map(record => widgetSlotChip(record, size, true));
+  if (more) items.push({ type: 'stack', direction: 'column', flex: 1, padding: [2, 8, 2, 8], children: [spacerNode(), widgetLine([widgetText('另 ' + more + ' 条', size - 1, WIDGET_COLORS.secondary)]), spacerNode()] });
+  const lines = [];
+  for (let index = 0; index < items.length; index += 2) {
+    lines.push({ ...widgetRow([items[index], items[index + 1] || widgetBlankCell()], 6), flex: 1 });
+  }
+  return widgetColumn(lines, 4, { flex: 1 });
+}
+
+function widgetRecordLines(model, maximum) {
+  const { shown, more } = widgetVisibleRecords(model.records, maximum);
+  return widgetColumn([
+    ...shown.map(record => {
+      const current = record.state === 'current';
+      const color = current ? WIDGET_COLORS.green : WIDGET_COLORS.text;
+      return widgetLine([
+        widgetColumn([widgetText(record.label, 10, current ? WIDGET_COLORS.green : WIDGET_COLORS.secondary, 'semibold')], 0, { width: 22, alignItems: 'center' }),
+        { ...widgetText(widgetDisplayIp(record.row.ip), 12, color, current ? 'semibold' : 'regular'), minScale: 0.8 },
+        ...(current ? [iconNode('checkmark', WIDGET_COLORS.green, 9)] : []),
+      ], 3);
+    }),
+    ...(more ? [widgetLine([widgetColumn([], 0, { width: 22 }), widgetText('另 ' + more + ' 条', 11, WIDGET_COLORS.secondary)], 3)] : []),
+  ], 2);
+}
+
+// Large views with two or three accounts share a fixed number of record rows.
+function widgetRecordRows(entries, total) {
+  const need = entries.map(entry => entry.status === 'error' ? 1 : Math.max(1, Math.ceil(widgetSlotModel(entry).records.length / 2)));
+  const rows = need.map(() => 1);
+  let left = total - rows.length;
+  while (left > 0 && rows.some((row, index) => row < need[index])) {
+    for (let index = 0; index < rows.length && left > 0; index++) if (rows[index] < need[index]) { rows[index]++; left--; }
+  }
+  return rows;
+}
+
+function widgetNoRecords(entry, size) {
+  return widgetLine([widgetText(entry.limit > 0 ? '暂无白名单记录' : '尚未取得白名单', size, WIDGET_COLORS.secondary)]);
 }
 
 function widgetErrorText(entry, size, maxLines) {
@@ -778,67 +825,55 @@ function widgetLargeSingle(entry) {
   const model = widgetSlotModel(entry);
   const title = widgetRow([
     { ...widgetText(entry.name || '账号', 17, WIDGET_COLORS.text, 'semibold'), flex: 1, minScale: 0.85 },
-    widgetText(widgetSlotLabel(entry) + ' · ' + widgetQuotaText(entry), 13, WIDGET_COLORS.secondary, 'medium'),
+    widgetText(widgetSlotMeta(entry), 13, WIDGET_COLORS.secondary, 'medium'),
   ], 8);
   let body;
   if (entry.status === 'error') {
     body = widgetColumn([spacerNode(), widgetLine([iconNode('xmark.circle.fill', WIDGET_COLORS.red, 16), widgetText('检查失败', 15, WIDGET_COLORS.red, 'semibold')], 6),
       widgetLine([{ ...widgetText(entry.error || '请求失败，请刷新重试', 13, WIDGET_COLORS.secondary), maxLines: 4 }]), spacerNode()],
     6, { flex: 1, padding: 14, borderRadius: 12, backgroundColor: WIDGET_TONES.error.tint });
-  } else if (model.kind === 'unknown' || !model.cells.length) {
-    body = widgetColumn([widgetLine([widgetText(model.kind === 'unknown' ? '槽位数量未知' : entry.limit > 0 ? '暂无白名单记录' : '尚未取得白名单', 13, WIDGET_COLORS.secondary)]), spacerNode()], 0, { flex: 1 });
+  } else if (model.kind === 'unknown') {
+    body = widgetColumn([model.records.length ? widgetSlotList(model.records, 13) : widgetLine([widgetText('槽位数量未知', 13, WIDGET_COLORS.secondary)]), spacerNode()], 0, { flex: 1 });
   } else {
-    body = widgetColumn([...(model.kind === 'unplaced' ? [widgetSlotFallback(model, 12)] : []), widgetSlotList(model.cells, model.cells.length > 5 ? 13 : 14)], 6, { flex: 1 });
+    body = widgetSlotList(model.cells, model.cells.length > 5 ? 13 : 14);
   }
   return widgetColumn([title, body], 8, { flex: 1 });
 }
 
-// Two or three accounts share one card shape: a status line, then the slot grid filling the card.
-function widgetLargeCard(entry, count, view) {
+function widgetLargeCard(entry, view, rows) {
   const result = widgetEntryResult(entry);
   const model = widgetSlotModel(entry);
-  const compact = count === 3;
-  const meta = [widgetSlotLabel(entry), widgetQuotaText(entry)];
+  const meta = [widgetSlotMeta(entry)];
   if (view.differentIps && entry.currentIp) meta.push(widgetDisplayIp(entry.currentIp));
   const attempt = widgetAttemptText(entry);
   if (attempt !== '检查 ' + view.timestamp) meta.push(attempt);
   const failed = entry.status === 'error';
-  const detail = failed ? widgetErrorText(entry, 12, compact ? 1 : 2)
-    : model.kind === 'placed' ? widgetSlotGrid(model.cells, compact ? { size: 12, radius: 6, gap: 3, pad: 2, onCard: true } : { size: 13, radius: 7, gap: 4, onCard: true }, compact ? 10 : 5)
-      : widgetSlotFallback(model, 12);
+  const listed = !failed && model.records.length > 0;
   return widgetColumn([
     widgetRow([
       iconNode(WIDGET_TONES[result.tone].icon, result.color, 14),
       { ...widgetText(entry.name || '账号', 15, WIDGET_COLORS.text, 'semibold'), flex: 1, minScale: 0.85 },
       widgetText((result.tone === 'ok' ? '' : result.text + ' · ') + meta.join(' · '), 12, result.tone === 'ok' ? WIDGET_COLORS.secondary : result.color),
     ], 6),
-    ...(model.kind === 'placed' && !failed ? [] : [spacerNode()]),
-    detail,
-  ], compact ? 6 : 7, { flex: 1, padding: compact ? [8, 10, 8, 10] : [9, 10, 10, 10], backgroundColor: WIDGET_COLORS.card, borderRadius: 12 });
+    failed ? widgetErrorText(entry, 12, rows > 1 ? 2 : 1) : listed ? widgetRecordGrid(model, rows, 12) : widgetNoRecords(entry, 12),
+    ...(listed ? [] : [spacerNode()]),
+  ], 6, { flex: rows, padding: [8, 10, 9, 10], backgroundColor: WIDGET_COLORS.card, borderRadius: 12 });
 }
 
 function widgetMediumCard(entry, count) {
   const result = widgetEntryResult(entry);
   const model = widgetSlotModel(entry);
-  if (count === 1) {
-    const failed = entry.status === 'error';
-    const detail = failed ? widgetErrorText(entry, 11, 3)
-      : model.kind === 'placed' ? widgetSlotGrid(model.cells, { size: 11, radius: 5, gap: 3, pad: 2, onCard: true }, 5) : widgetSlotFallback(model, 11);
-    return widgetColumn([
-      widgetRow([
-        iconNode(WIDGET_TONES[result.tone].icon, result.color, 12),
-        { ...widgetText(entry.name || '账号', 13, WIDGET_COLORS.text, 'semibold'), flex: 1, minScale: 0.85 },
-        widgetText(failed ? '检查失败' : widgetShortSlotLabel(entry) + ' · ' + widgetQuotaText(entry, true), 11, failed ? WIDGET_COLORS.red : WIDGET_COLORS.secondary, 'medium'),
-      ], 5),
-      ...(model.kind === 'placed' && !failed ? [] : [spacerNode()]), detail,
-    ], 6, { flex: 1, padding: [8, 9, 9, 9], backgroundColor: WIDGET_COLORS.card, borderRadius: 12 });
-  }
+  const failed = entry.status === 'error';
   const line = widgetRow([
     iconNode(WIDGET_TONES[result.tone].icon, result.color, 12),
     { ...widgetText(entry.name || '账号', 13, WIDGET_COLORS.text, 'semibold'), flex: 1, minScale: 0.85 },
-    widgetText(entry.status === 'error' ? '检查失败' : widgetShortSlotLabel(entry) + ' · ' + widgetQuotaText(entry, true), 11, entry.status === 'error' ? WIDGET_COLORS.red : WIDGET_COLORS.secondary, 'medium'),
+    widgetText(failed ? '检查失败' : widgetCompactMeta(entry), 11, failed ? WIDGET_COLORS.red : WIDGET_COLORS.secondary, 'medium'),
   ], 5);
-  const meter = count === 2 && model.kind === 'placed' ? [widgetSlotStrip(model.cells, { height: 6, radius: 2, gap: 2, onCard: true })] : [];
+  if (count === 1) {
+    const detail = failed ? widgetErrorText(entry, 11, 3) : model.records.length ? widgetRecordLines(model, 3) : widgetNoRecords(entry, 11);
+    return widgetColumn([widgetColumn([line, detail], 5), spacerNode()], 0, { flex: 1, padding: [8, 9, 9, 9], backgroundColor: WIDGET_COLORS.card, borderRadius: 12 });
+  }
+  const meter = count === 2 && model.cells.length ? [widgetSlotMeter(model.cells, 6, true)] : [];
   return widgetColumn([spacerNode(), widgetColumn([line, ...meter], 5), spacerNode()], 0, { flex: 1, padding: [5, 9, 5, 9], backgroundColor: WIDGET_COLORS.card, borderRadius: 10 });
 }
 
@@ -848,9 +883,9 @@ function widgetSmallAccount(entry, count) {
   const line = widgetRow([
     ...(count > 1 ? [iconNode(WIDGET_TONES[result.tone].icon, result.color, 11)] : []),
     { ...widgetText(entry.name || '账号', 13, WIDGET_COLORS.text, 'semibold'), flex: 1, minScale: 0.85 },
-    widgetText(entry.status === 'error' ? '检查失败' : widgetShortSlotLabel(entry) + ' · ' + widgetQuotaText(entry, true), 11, entry.status === 'error' ? WIDGET_COLORS.red : WIDGET_COLORS.secondary, 'medium'),
+    widgetText(entry.status === 'error' ? '检查失败' : widgetCompactMeta(entry), 11, entry.status === 'error' ? WIDGET_COLORS.red : WIDGET_COLORS.secondary, 'medium'),
   ], 4);
-  const meter = count === 1 && model.kind === 'placed' ? [widgetSlotStrip(model.cells, { height: 7, radius: 2, gap: 2 })] : [];
+  const meter = count === 1 && model.cells.length ? [widgetSlotMeter(model.cells, 7)] : [];
   return widgetColumn([line, ...meter], 5);
 }
 
@@ -941,6 +976,7 @@ function widgetFromState(state, ctx, deviceId = '', env = ctx?.env || {}) {
     ];
   } else {
     const single = shown.length === 1;
+    const recordRows = widgetRecordRows(shown, shown.length === 2 ? 5 : 3);
     children = [
       widgetColumn([
         widgetRow([iconNode(tone.shield, tone.color, 16), widgetText('PO0 防火墙', 15, WIDGET_COLORS.text, 'semibold'), spacerNode(), widgetPill(summary, summaryTone)], 6),
@@ -950,7 +986,7 @@ function widgetFromState(state, ctx, deviceId = '', env = ctx?.env || {}) {
       ], 4),
       !shown.length ? widgetEmptyAccounts(family)
         : single ? widgetLargeSingle(shown[0])
-          : widgetColumn(shown.map(entry => widgetLargeCard(entry, shown.length, { differentIps, timestamp })), 8, { flex: 1 }),
+          : widgetColumn(shown.map((entry, index) => widgetLargeCard(entry, { differentIps, timestamp }, recordRows[index])), 8, { flex: 1 }),
       footerRow,
     ];
   }
