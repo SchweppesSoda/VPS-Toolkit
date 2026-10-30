@@ -326,7 +326,7 @@ check_macos_wifi_ssid_diagnostic() {
     }
     grep -Fq 'Wi-Fi SSID 权限诊断' "${asset}" && grep -Fq 'client_maintenance_menu()' "${asset}" &&
         grep -Fq 'max_choice=4' "${asset}" && grep -Fq '请选择 [0-$max_choice]' "${asset}" &&
-        grep -Eq '6\) client_maintenance_menu;' "${asset}" &&
+        grep -Eq '7\) client_maintenance_menu;' "${asset}" &&
         grep -Eq '3\).*then show_wifi_ssid_permission_help_interactive;' "${asset}" &&
         grep -Eq '4\).*then remove_macos_location_permission_helper_app_interactive;' "${asset}" || {
         printf 'macOS asset lacks Wi-Fi SSID diagnostic menu/range/case wiring.\n' >&2

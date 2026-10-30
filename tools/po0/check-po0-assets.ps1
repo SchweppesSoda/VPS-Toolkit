@@ -372,7 +372,7 @@ function Test-MacOsWifiSsidDiagnostic {
     if ($raw -notmatch 'request_macos_location_permission\(\)' -or $raw -notmatch 'ensure_macos_location_permission_helper_app\(\)' -or $raw -notmatch 'macos_location_helper_wifi_ssid\(\)') {
         throw "macOS asset lacks Location Services authorization request helper."
     }
-    if ($raw -notmatch 'client_maintenance_menu\(\)' -or $raw -notmatch 'max_choice=4' -or $raw -notmatch '请选择 \[0-\$max_choice\]' -or $raw -notmatch '6\) client_maintenance_menu;' -or $raw -notmatch '3\).*then show_wifi_ssid_permission_help_interactive;' -or $raw -notmatch '4\).*then remove_macos_location_permission_helper_app_interactive;') {
+    if ($raw -notmatch 'client_maintenance_menu\(\)' -or $raw -notmatch 'max_choice=4' -or $raw -notmatch '请选择 \[0-\$max_choice\]' -or $raw -notmatch '7\) client_maintenance_menu;' -or $raw -notmatch '3\).*then show_wifi_ssid_permission_help_interactive;' -or $raw -notmatch '4\).*then remove_macos_location_permission_helper_app_interactive;') {
         throw "macOS asset lacks Wi-Fi SSID diagnostic menu/range/case wiring."
     }
     if ($raw -notmatch 'remove_macos_location_permission_helper_app\(\)' -or $raw -notmatch 'remove_macos_location_permission_helper_app_interactive\(\)') {
