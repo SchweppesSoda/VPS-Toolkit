@@ -826,7 +826,7 @@ function testEgernScriptCopiesStaySynchronized() {
   assert.equal(previousYaml, yamlSource);
   const urls = [...yamlSource.matchAll(/script_url: "([^"]+)"/g)].map(match => match[1]);
   assert.equal(urls.length, 12);
-  assert(urls.every(url => url === 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20261030-widget-redesign-v4'));
+  assert(urls.every(url => url === 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20261030-widget-redesign-v5'));
 }
 
 
@@ -1716,7 +1716,7 @@ async function testQuotaGridAcrossAccountCounts() {
 }
 
 async function testWidgetRootsKeepOpaqueBackground() {
-  const opaque = color => /^#[0-9A-F]{6}$/i.test(typeof color === 'string' ? color : '');
+  const opaque = color => [color?.light, color?.dark].every(value => /^#[0-9A-F]{6}$/i.test(value || ''));
   const roots = [];
   for (const widgetFamily of ['systemSmall', 'systemMedium', 'systemLarge']) {
     for (const env of [{}, { PO0_FIREWALL_TOKENS: '' }]) {
@@ -1728,9 +1728,10 @@ async function testWidgetRootsKeepOpaqueBackground() {
   roots.push(await runEgernReport(createContext({ trigger: 'PO0 防火墙 · 清除配置' }).ctx));
   for (const root of roots) {
     assert.equal(root.type, 'widget');
-    assert(opaque(root.backgroundColor), 'every widget root keeps one fixed opaque background color');
-    assert.equal(root.backgroundGradient, undefined, 'no gradient over the fixed background');
-    assert(!JSON.stringify(root).includes('"light"'), 'content colors are fixed to match the fixed background');
+    assert.deepEqual(root.backgroundColor, { light: '#FFFFFF', dark: '#1C1C1E' }, 'white in light mode, deep gray in dark mode');
+    assert(opaque(root.backgroundColor));
+    assert.equal(root.backgroundGradient, undefined, 'solid background without a gradient');
+    assert(!JSON.stringify(root).includes('rgba('), 'no translucent colors anywhere on the widget');
   }
 }
 
