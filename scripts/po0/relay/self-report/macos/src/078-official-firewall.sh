@@ -1,7 +1,7 @@
 # Official PO0 firewall reporting for the macOS self-report client.
 #
 # PO0_FIREWALL_TOKENS is intentionally the only setting exposed here. Each
-# comma-separated item is pgnfw_<token>, optionally followed by @0..@4.
+# comma-separated item is pgnfw_<token>, optionally followed by @0..@9.
 # Tokens are supplied to curl through its config stdin, never as argv.
 #
 # Behavior reference: https://github.com/kelenetwork/po0fw (MIT).
@@ -38,7 +38,7 @@ po0_firewall_parse_item() {
     raw="$(trim "${raw}")"
     [[ -n "${raw}" ]] || return 1
     case "${raw}" in
-        *@[0-4])
+        *@[0-9])
             slot="${raw##*@}"
             token="${raw%@*}"
             ;;
@@ -80,7 +80,7 @@ po0_firewall_validate_tokens() {
             return 1
         }
         po0_firewall_parse_item "${item}" || {
-            printf 'PO0 防火墙 token 配置无效：请使用 pgnfw_...，槽位可写为 @0 到 @4。\n' >&2
+            printf 'PO0 防火墙 token 配置无效：请使用 pgnfw_...，槽位可写为 @0 到 @9。\n' >&2
             return 1
         }
         key="${PO0_FIREWALL_ITEM_TOKEN}"
@@ -150,7 +150,7 @@ po0_firewall_read_tokens_interactive() {
     local input normalized previous_tokens="${PO0_FIREWALL_TOKENS:-}"
     print_panel_row "当前官方 Token" "${PO0_FIREWALL_TOKENS:-未设置}"
     printf '可用逗号、分号、空格或换行分隔。空行结束；直接空行保留，单独 - 清空。\n'
-    input="$(po0_firewall_read_secret_prompt "输入官方 Token（可写 @0..4，空行结束）: ")" || return 1
+    input="$(po0_firewall_read_secret_prompt "输入官方 Token（可写 @0..9，空行结束）: ")" || return 1
     input="$(trim "${input}")"
     [[ -n "${input}" ]] || return 0
     if [[ "${input}" == "-" ]]; then
@@ -294,6 +294,9 @@ po0_firewall_state_write() {
         printf 'last_attempt_at=%s\n' "$last_attempt"
         printf 'last_success_at=%s\n' "$last_success"
         printf 'last_checked_at=%s\n' "$now"
+        if declare -F po0_display_config_id >/dev/null; then
+            printf 'display_config_id=%s\n' "$(po0_display_config_id)"
+        fi
         printf 'last_status=%s\n' "$status"
         printf 'success_count=%s\n' "$success"
         printf 'failure_count=%s\n' "$failure"
@@ -340,8 +343,8 @@ po0_firewall_state_summary() {
                 [[ -z "$extra" && "$ordinal" =~ ^[1-9][0-9]*$ && "$ordinal" -le 16 ]] || continue
                 case "$item_status" in hit|missing|added|error) ;; *) continue ;; esac
                 [[ -z "$current" ]] || po0_firewall_json_safe_ip "$current" || continue
-                [[ "$used" =~ ^[0-9]+$ && "$limit" =~ ^[1-5]$ && "$used" -le "$limit" ]] || continue
-                [[ -z "$slot" || "$slot" =~ ^[0-4]$ ]] || continue
+                [[ "$used" =~ ^[0-9]+$ && "$limit" =~ ^([1-9]|10)$ && "$used" -le "$limit" ]] || continue
+                [[ -z "$slot" || "$slot" =~ ^[0-9]$ ]] || continue
                 list="$whitelist"
                 friendly_whitelist=""
                 while [[ -n "$list" ]]; do
@@ -356,7 +359,7 @@ po0_firewall_state_summary() {
                     ip="${pair%@*}"
                     pair_slot="${pair##*@}"
                     po0_firewall_json_safe_ip "$ip" || break
-                    [[ -z "$pair_slot" || "$pair_slot" =~ ^[0-4]$ ]] || break
+                    [[ -z "$pair_slot" || "$pair_slot" =~ ^[0-9]$ ]] || break
                     pair_label="自动"
                     [[ -n "$pair_slot" ]] && pair_label="$((10#$pair_slot + 1))"
                     [[ -n "$friendly_whitelist" ]] && friendly_whitelist="$friendly_whitelist，"
@@ -551,7 +554,8 @@ po0_firewall_direct_request() (
 # This small recursive-descent parser is deliberately written for POSIX awk,
 # which is present on stock macOS.  It rejects duplicate keys, unknown schema
 # keys, malformed JSON, trailing data, and every slot type except null, the
-# empty string, or a JSON integer 0..4.  It also refuses \u escapes: the
+# empty string, or a JSON integer 0..9 below the account limit.
+# It also refuses \u escapes: the
 # protocol has no Unicode fields and rejecting them prevents escaped key names
 # from bypassing duplicate/field checks on older awk implementations.
 po0_firewall_json_parse() {
@@ -687,7 +691,7 @@ function parse_array(depth, context,    count, c) {
         if (substr(src, pos, 1) == "]") fail()
     }
     if (context == "whitelist") {
-        if (count > 5) fail()
+        if (count > 10) fail()
         root_whitelist_count = count
     }
 }
@@ -717,7 +721,7 @@ function parse_object(depth, context,    scope, key, c, value_type, value, has_i
                 if (value_type != "string") fail()
                 root_current_ip = value
             } else if (key == "limit") {
-                if (value_type != "number" || value !~ /^[1-5]$/) fail()
+                if (value_type != "number" || value !~ /^[0-9]+$/ || value + 0 < 1 || value + 0 > 10) fail()
                 root_limit = value + 0
             } else if (key == "whitelist") {
                 if (value_type != "array") fail()
@@ -734,7 +738,7 @@ function parse_object(depth, context,    scope, key, c, value_type, value, has_i
                 has_slot = 1
                 if (value_type == "null") slot = ""
                 else if (value_type == "string" && value == "") slot = ""
-                else if (value_type == "number" && value ~ /^[0-4]$/) slot = value
+                else if (value_type == "number" && value ~ /^[0-9]$/) slot = value
                 else fail()
             } else {
                 fail()
@@ -773,6 +777,8 @@ BEGIN {
     ws()
     if (pos <= src_len) fail()
     if (!root_enabled || !root_whitelist || root_current_ip == "" || root_limit == 0) fail()
+    if (root_whitelist_count > root_limit) fail()
+    for (i = 1; i <= entry_count; i++) if (entry_slot[i] != "" && entry_slot[i] + 0 >= root_limit) fail()
     print "enabled=true"
     print "current_ip=" root_current_ip
     print "limit=" root_limit
@@ -812,7 +818,7 @@ po0_firewall_json_enabled() {
 
 po0_firewall_json_validate_whitelist() {
     local parsed="${1:-}" limit="${2:-}" record payload ip slot count=0
-    [[ "${limit}" =~ ^[1-5]$ ]] || return 1
+    [[ "${limit}" =~ ^([1-9]|10)$ ]] || return 1
     parsed="$(po0_firewall_json_parse "${parsed}")" || return 1
     while IFS= read -r record || [[ -n "${record}" ]]; do
         case "${record}" in
@@ -822,12 +828,12 @@ po0_firewall_json_validate_whitelist() {
                 slot="${payload#*|}"
                 [[ "${payload}" == *"|"* && -n "${ip}" ]] || return 1
                 po0_firewall_json_safe_ip "${ip}" || return 1
-                [[ -z "${slot}" || "${slot}" =~ ^[0-4]$ ]] || return 1
+                [[ -z "${slot}" || "${slot}" =~ ^[0-9]$ ]] || return 1
                 count=$((count + 1))
                 ;;
         esac
     done <<< "${parsed}"
-    [[ "${count}" =~ ^[0-9]+$ && "${count}" -le "${limit}" && "${count}" -le 5 ]]
+    [[ "${count}" =~ ^[0-9]+$ && "${count}" -le "${limit}" && "${count}" -le 10 ]]
 }
 
 po0_firewall_json_ip_entry() {
@@ -955,7 +961,7 @@ po0_firewall_process_item() {
         return 1
     }
     limit="$(po0_firewall_json_limit "${status_json}")"
-    [[ "${limit}" =~ ^[1-5]$ ]] || {
+    [[ "${limit}" =~ ^([1-9]|10)$ ]] || {
         printf '%s 返回的名额无效。\n' "${marker}" >&2
         return 1
     }
@@ -963,6 +969,10 @@ po0_firewall_process_item() {
         printf '%s 白名单状态无效。\n' "${marker}" >&2
         return 1
     }
+    if [[ -n "${slot}" ]] && (( 10#${slot} >= limit )); then
+        printf '%s 指定槽位超出账号额度（%s），未执行加白。\n' "${marker}" "${limit}" >&2
+        return 1
+    fi
     PO0_FIREWALL_ITEM_CURRENT_IP="${current_ip}"
     PO0_FIREWALL_ITEM_LIMIT="${limit}"
     PO0_FIREWALL_ITEM_USED="$(po0_firewall_json_whitelist_count "${status_json}")" || return 1
@@ -970,12 +980,12 @@ po0_firewall_process_item() {
     if po0_firewall_json_ip_entry "${status_json}" "${current_ip}" &&
         { [[ -z "${slot}" ]] || po0_firewall_json_ip_slot_entry "${status_json}" "${current_ip}" "${slot}"; }; then
         PO0_FIREWALL_ITEM_STATUS="hit"
-        printf '%s 已在白名单：%s（名额 %s，已用 %s）。\n' "${marker}" "${current_ip}" "${limit}" "$(po0_firewall_json_whitelist_count "${status_json}")"
+        "${PO0_DETAIL_PRINTER:-printf}" '%s 已在白名单：%s（名额 %s，已用 %s）。\n' "${marker}" "${current_ip}" "${limit}" "$(po0_firewall_json_whitelist_count "${status_json}")"
         return 0
     fi
     if [[ "${mode}" == "status" ]]; then
         PO0_FIREWALL_ITEM_STATUS="missing"
-        printf '%s 当前未命中白名单：%s（名额 %s，仅读不加白）。\n' "${marker}" "${current_ip}" "${limit}"
+        "${PO0_DETAIL_PRINTER:-printf}" '%s 当前未命中白名单：%s（名额 %s，仅读不加白）。\n' "${marker}" "${current_ip}" "${limit}"
         return 0
     fi
     response="$(po0_firewall_direct_request "${token}" add "${slot}")" || {
@@ -992,7 +1002,7 @@ po0_firewall_process_item() {
         return 1
     }
     response_limit="$(po0_firewall_json_limit "${response}")"
-    [[ "${response_limit}" =~ ^[1-5]$ ]] || {
+    [[ "${response_limit}" =~ ^([1-9]|10)$ ]] || {
         printf '%s 加白响应名额无效。\n' "${marker}" >&2
         return 1
     }
@@ -1014,7 +1024,7 @@ po0_firewall_process_item() {
     PO0_FIREWALL_ITEM_USED="$(po0_firewall_json_whitelist_count "${response}")" || return 1
     PO0_FIREWALL_ITEM_WHITELIST="$(po0_firewall_json_whitelist_state "${response}")" || return 1
     PO0_FIREWALL_ADDED_COUNT=$((PO0_FIREWALL_ADDED_COUNT + 1))
-    printf '%s 已更新：%s（名额 %s，已用 %s）。\n' "${marker}" "${response_ip}" "${response_limit}" "$(po0_firewall_json_whitelist_count "${response}")"
+    "${PO0_DETAIL_PRINTER:-printf}" '%s 已更新：%s（名额 %s，已用 %s）。\n' "${marker}" "${response_ip}" "${response_limit}" "$(po0_firewall_json_whitelist_count "${response}")"
     return 0
 }
 po0_firewall_state_append_item() {
@@ -1028,7 +1038,7 @@ $record"
     fi
 }
 
-po0_firewall_run() {
+po0_firewall_run_core() {
     local mode="${1:-report}" raw item ordinal=0
     PO0_FIREWALL_SUCCESS_COUNT="0"
     PO0_FIREWALL_FAILURE_COUNT="0"
@@ -1054,13 +1064,25 @@ po0_firewall_run() {
             PO0_FIREWALL_SUCCESS_COUNT=$((PO0_FIREWALL_SUCCESS_COUNT + 1))
         else
             PO0_FIREWALL_FAILURE_COUNT=$((PO0_FIREWALL_FAILURE_COUNT + 1))
+            PO0_FIREWALL_ITEM_STATUS="error"
         fi
         po0_firewall_state_append_item "${ordinal}"
     done
-    printf '官方防火墙通道：成功 %s，失败 %s。\n' "${PO0_FIREWALL_SUCCESS_COUNT}" "${PO0_FIREWALL_FAILURE_COUNT}"
+    "${PO0_DETAIL_PRINTER:-printf}" '官方防火墙通道：成功 %s，失败 %s。\n' "${PO0_FIREWALL_SUCCESS_COUNT}" "${PO0_FIREWALL_FAILURE_COUNT}"
     local update_attempt="1" mark_success="0" state_rc=0
     [[ "${mode}" == "status" ]] && update_attempt="0"
     [[ "${mode}" != "status" && "${PO0_FIREWALL_FAILURE_COUNT}" == "0" ]] && mark_success="1"
     po0_firewall_state_write "${mode}" "${PO0_FIREWALL_STATE_RECORDS}" "${update_attempt}" "${mark_success}" || state_rc=1
     [[ "${PO0_FIREWALL_FAILURE_COUNT}" == "0" && "${state_rc}" == "0" ]]
+}
+
+po0_firewall_run() {
+    local mode="${1:-report}" rc=0 title='上报结果' PO0_DETAIL_PRINTER=printf PO0_UI_LIVE=0
+    if declare -F po0_display_is_live >/dev/null && po0_display_is_live; then PO0_DETAIL_PRINTER=po0_display_detail; PO0_UI_LIVE=1; fi
+    po0_firewall_run_core "$mode" || rc=$?
+    [[ "$mode" != status ]] || title='只读查询'
+    if declare -F po0_display_live >/dev/null; then
+        po0_display_live "$title" "$PO0_FIREWALL_STATE_RECORDS" "$(po0_firewall_now)" "$rc"
+    fi
+    return "$rc"
 }

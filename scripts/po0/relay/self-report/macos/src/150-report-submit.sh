@@ -69,6 +69,7 @@ report_once_inner() {
 }
 
 report_once() {
+    PO0_UI_RENDERED=0
     local lock_rc result
     po0_firewall_report_lock_acquire
     lock_rc="$?"

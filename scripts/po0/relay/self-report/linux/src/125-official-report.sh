@@ -4,7 +4,7 @@
 #
 #   PO0_FIREWALL_TOKENS='pgnfw_xxx@0,pgnfw_yyy@1'
 #
-# The comma-separated entries are official tokens.  The optional @0..@4
+# The comma-separated entries are official tokens.  The optional @0..@9
 # suffix pins the current IP to a fixed whitelist slot.  Tokens are read from
 # the protected settings file/environment, never from a command-line option.
 # OpenWrt multi-WAN uses its package-owned target/binding runner instead; this
@@ -200,6 +200,9 @@ official_write_state_v2() {
         printf 'last_attempt_at=%s\n' "${last_attempt}"
         [[ "${last_success}" =~ ^[1-9][0-9]*$ ]] && printf 'last_success_at=%s\n' "${last_success}"
         printf 'last_checked_at=%s\n' "${now}"
+        if [[ -n "${OFFICIAL_STATE_RECORDS:-}" ]] && declare -F po0_display_config_id >/dev/null; then
+            printf 'display_config_id=%s\n' "$(po0_display_config_id)"
+        fi
         printf 'last_status=%s\n' "${status}"
         printf 'success_count=%s\n' "${success}"
         printf 'failure_count=%s\n' "${failure}"
@@ -254,7 +257,7 @@ official_validate_token() {
 }
 
 official_validate_slot() {
-    [[ -z "${1:-}" || "${1}" =~ ^[0-4]$ ]]
+    [[ -z "${1:-}" || "${1}" =~ ^[0-9]$ ]]
 }
 
 official_parse_token_item() {
@@ -299,7 +302,7 @@ official_validate_tokens() {
         item="$(trim "${item}")"
         [[ -n "${item}" ]] || continue
         official_parse_token_item "${item}" || {
-            printf '官方防火墙 token 配置无效（格式应为 token 或 token@0..4）。\n' >&2
+            printf '官方防火墙 token 配置无效（格式应为 token 或 token@0..9）。\n' >&2
             return 1
         }
         key="${OFFICIAL_PARSED_TOKEN}"
@@ -453,7 +456,7 @@ official_json_compact() {
 # written for POSIX awk, which is available on the supported Linux targets.
 # It rejects duplicate keys, unknown schema keys, malformed JSON, trailing
 # data, and every slot type except null, the empty string, or a JSON integer
-# 0..4.  It also refuses \u escapes: this protocol has no Unicode fields and
+# 0..9, below the account limit. It also refuses \u escapes: this protocol has no Unicode fields and
 # rejecting them prevents escaped key names from bypassing field checks.
 official_json_parse() {
     local json="${1:-}"
@@ -588,7 +591,7 @@ function parse_array(depth, context,    count, c) {
         if (substr(src, pos, 1) == "]") fail()
     }
     if (context == "whitelist") {
-        if (count > 5) fail()
+        if (count > 10) fail()
         root_whitelist_count = count
     }
 }
@@ -618,7 +621,7 @@ function parse_object(depth, context,    scope, key, c, value_type, value, has_i
                 if (value_type != "string") fail()
                 root_current_ip = value
             } else if (key == "limit") {
-                if (value_type != "number" || value !~ /^[1-5]$/) fail()
+                if (value_type != "number" || value !~ /^[0-9]+$/ || value + 0 < 1 || value + 0 > 10) fail()
                 root_limit = value + 0
             } else if (key == "whitelist") {
                 if (value_type != "array") fail()
@@ -635,7 +638,7 @@ function parse_object(depth, context,    scope, key, c, value_type, value, has_i
                 has_slot = 1
                 if (value_type == "null") slot = ""
                 else if (value_type == "string" && value == "") slot = ""
-                else if (value_type == "number" && value ~ /^[0-4]$/) slot = value
+                else if (value_type == "number" && value ~ /^[0-9]$/) slot = value
                 else fail()
             } else {
                 fail()
@@ -674,6 +677,8 @@ BEGIN {
     ws()
     if (pos <= src_len) fail()
     if (!root_enabled || !root_whitelist || root_current_ip == "" || root_limit == 0) fail()
+    if (root_whitelist_count > root_limit) fail()
+    for (i = 1; i <= entry_count; i++) if (entry_slot[i] != "" && entry_slot[i] + 0 >= root_limit) fail()
     print "enabled=true"
     print "current_ip=" root_current_ip
     print "limit=" root_limit
@@ -796,7 +801,7 @@ official_response_valid() {
     limit="$(official_json_limit "${response}")" || return 1
     count="$(official_json_whitelist_count "${response}")" || return 1
     [[ "${count}" =~ ^[0-9]+$ ]] || return 1
-    (( count <= limit && count <= 5 ))
+    (( count <= limit && count <= 10 ))
 }
 
 official_transport_available() {
@@ -833,6 +838,10 @@ official_report_token() {
         return 1
     }
     limit="$(official_json_limit "${status_json}")" || return 1
+    if [[ -n "${slot}" ]] && (( 10#${slot} >= limit )); then
+        printf '%s 指定槽位超出账号额度（%s），未执行加白。\n' "${marker}" "${limit}" >&2
+        return 1
+    fi
     OFFICIAL_ITEM_CURRENT_IP="$current_ip"
     OFFICIAL_ITEM_LIMIT="$limit"
     OFFICIAL_ITEM_USED="$(official_json_whitelist_count "$status_json")" || return 1
@@ -842,13 +851,13 @@ official_report_token() {
     }; then
         OFFICIAL_ITEM_STATUS="hit"
         if [[ "${mode}" == "status" ]]; then
-            printf '%s 已在白名单：%s（名额 %s）。\n' "${marker}" "${current_ip}" "${limit}" >&2
+            "${PO0_DETAIL_PRINTER:-printf}" '%s 已在白名单：%s（名额 %s）。\n' "${marker}" "${current_ip}" "${limit}" >&2
         fi
         return 0
     fi
     [[ "${mode}" == "status" ]] && {
         OFFICIAL_ITEM_STATUS="missing"
-        printf '%s 当前未命中白名单：%s（名额 %s）。\n' "${marker}" "${current_ip}" "${limit}" >&2
+        "${PO0_DETAIL_PRINTER:-printf}" '%s 当前未命中白名单：%s（名额 %s）。\n' "${marker}" "${current_ip}" "${limit}" >&2
         # A valid GET with a missing current IP is a normal read-only result;
         # only transport, protocol, or configuration errors fail status.
         return 0
@@ -884,7 +893,7 @@ official_report_token() {
     slot_text=""
     [[ -n "${slot}" ]] && slot_text="，槽位 ${slot_label}"
     OFFICIAL_RESULT_NEEDS_NOTIFY="1"
-    printf '%s 已更新：%s（名额 %s%s）。\n' "${marker}" "${response_ip}" "${limit}" "${slot_text}" >&2
+    "${PO0_DETAIL_PRINTER:-printf}" '%s 已更新：%s（名额 %s%s）。\n' "${marker}" "${response_ip}" "${limit}" "${slot_text}" >&2
     return 0
 }
 
@@ -920,8 +929,8 @@ official_state_summary() {
                 [[ -z "$extra" && "$ordinal" =~ ^[1-9][0-9]*$ && "$ordinal" -le 16 ]] || continue
                 case "$item_status" in hit|missing|added|error) ;; *) continue ;; esac
                 [[ -z "$current" ]] || official_json_safe_ip "$current" || continue
-                [[ "$used" =~ ^[0-9]+$ && "$limit" =~ ^[1-5]$ && "$used" -le "$limit" ]] || continue
-                [[ -z "$slot" || "$slot" =~ ^[0-4]$ ]] || continue
+                [[ "$used" =~ ^[0-9]+$ && "$limit" =~ ^([1-9]|10)$ && "$used" -le "$limit" ]] || continue
+                [[ -z "$slot" || "$slot" =~ ^[0-9]$ ]] || continue
                 list="$whitelist"
                 friendly=""
                 while [[ -n "$list" ]]; do
@@ -936,7 +945,7 @@ official_state_summary() {
                     ip="${pair%@*}"
                     pair_slot="${pair##*@}"
                     official_json_safe_ip "$ip" || break
-                    [[ -z "$pair_slot" || "$pair_slot" =~ ^[0-4]$ ]] || break
+                    [[ -z "$pair_slot" || "$pair_slot" =~ ^[0-9]$ ]] || break
                     pair_label="自动"
                     [[ -n "$pair_slot" ]] && pair_label="$((10#$pair_slot + 1))"
                     [[ -n "$friendly" ]] && friendly="$friendly，"
@@ -962,7 +971,7 @@ official_status_state_flush() {
     official_write_state_v2 "$status" "$OFFICIAL_STATE_RECORDS" 0 0
 }
 
-official_status_once_inner() {
+official_status_once_core() {
     local raw item token slot ordinal=0 success=0 failure=0
     OFFICIAL_STATE_RECORDS=""
     OFFICIAL_ADDED_COUNT="0"
@@ -1002,6 +1011,7 @@ official_status_once_inner() {
             OFFICIAL_RESULT_SUCCESS_COUNT="$success"
         else
             failure=$((failure + 1))
+            OFFICIAL_ITEM_STATUS="error"
             OFFICIAL_RESULT_FAILURE_COUNT="$failure"
         fi
         official_state_append_item "$ordinal"
@@ -1022,11 +1032,11 @@ official_status_once_inner() {
         OFFICIAL_RESULT_MESSAGE="官方防火墙只读检查完成，但本地状态保存失败。"
         OFFICIAL_RESULT_STATUS="failed"
     fi
-    printf '%s\n' "${OFFICIAL_RESULT_MESSAGE}"
+    if [[ "$OFFICIAL_RESULT_STATUS" == success ]]; then "${PO0_DETAIL_PRINTER:-printf}" '%s\n' "$OFFICIAL_RESULT_MESSAGE"; else printf '%s\n' "$OFFICIAL_RESULT_MESSAGE"; fi
     [[ "${OFFICIAL_RESULT_STATUS}" == "success" ]]
 }
 
-official_report_once() {
+official_report_once_core() {
     local raw item token slot ordinal=0 success=0 failure=0
     OFFICIAL_STATE_RECORDS=""
     OFFICIAL_ADDED_COUNT="0"
@@ -1073,6 +1083,7 @@ official_report_once() {
             OFFICIAL_RESULT_SUCCESS_COUNT="$success"
         else
             failure=$((failure + 1))
+            OFFICIAL_ITEM_STATUS="error"
             OFFICIAL_RESULT_FAILURE_COUNT="$failure"
         fi
         official_state_append_item "$ordinal"
@@ -1141,4 +1152,25 @@ official_status_once() {
     result="$?"
     report_run_lock_release >/dev/null 2>&1 || true
     return "$result"
+}
+
+# Keep presentation outside protocol decisions and preserve the original return code.
+official_report_once() {
+    local rc=0 PO0_DETAIL_PRINTER=printf PO0_UI_LIVE=0
+    if declare -F po0_display_is_live >/dev/null && po0_display_is_live; then PO0_DETAIL_PRINTER=po0_display_detail; PO0_UI_LIVE=1; fi
+    official_report_once_core || rc=$?
+    if [[ "$OFFICIAL_RESULT_STATUS" != skipped ]] && declare -F po0_display_live >/dev/null; then
+        po0_display_live '上报结果' "$OFFICIAL_STATE_RECORDS" "$(official_now)" "$rc"
+    fi
+    return "$rc"
+}
+
+official_status_once_inner() {
+    local rc=0 PO0_DETAIL_PRINTER=printf PO0_UI_LIVE=0
+    if declare -F po0_display_is_live >/dev/null && po0_display_is_live; then PO0_DETAIL_PRINTER=po0_display_detail; PO0_UI_LIVE=1; fi
+    official_status_once_core || rc=$?
+    if declare -F po0_display_live >/dev/null; then
+        po0_display_live '只读查询' "$OFFICIAL_STATE_RECORDS" "$(official_now)" "$rc"
+    fi
+    return "$rc"
 }

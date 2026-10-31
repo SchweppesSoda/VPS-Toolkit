@@ -8,7 +8,8 @@ function Invoke-SelfReportCore {
             throw "-OfficialStatus 不能与 -OfficialOnly / -WorkerOnly 同时使用。"
         }
         $statusResult = Invoke-Po0FirewallReport -Mode "status"
-        if ($statusResult.Message) { Write-Host $statusResult.Message }
+        Show-Po0FirewallLive $statusResult '只读查询'
+        if ($statusResult.Message -and -not $script:Po0UiRendered) { Write-Host $statusResult.Message }
         if (-not $statusResult.Succeeded) {
             throw $statusResult.Message
         }
@@ -72,6 +73,7 @@ function Invoke-SelfReportCore {
         $officialDue = (-not $script:Po0FirewallScheduledRun) -or $forceThisRun -or (Test-Po0FirewallDue)
         if ($officialDue) {
             $officialResult = Invoke-Po0FirewallReport -Mode "report"
+            Show-Po0FirewallLive $officialResult '上报结果'
             if ($officialResult.Succeeded) {
                 $successCount++
             } else {
@@ -118,11 +120,13 @@ function Invoke-SelfReportCore {
 function Invoke-SelfReport {
     param([switch]$PromptForForceOnSkip)
 
+    $script:Po0UiRendered = $false
     $runMutex = $null
     try {
         $runMutex = Enter-Po0SelfReportMutex
         Invoke-SelfReportCore -PromptForForceOnSkip:$PromptForForceOnSkip
     } finally {
         Exit-Po0SelfReportMutex -Mutex $runMutex
+        $script:Po0UiRendered = $false
     }
 }

@@ -4,11 +4,11 @@ set -uo pipefail
 PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download}"
 DOWNLOAD_URL="${PO0_OUTBOUND_IP_REPORT_MACOS_DOWNLOAD_URL:-${PO0_SELF_REPORT_MACOS_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-outbound-ip-report-macos.sh}}"
 SCRIPT_NAME="po0-outbound-ip-report"
-SCRIPT_VERSION="2026.10.04+build.1"
-SCRIPT_RELEASE_DATE="2026-10-04"
+SCRIPT_VERSION="2026.10.30+build.5"
+SCRIPT_RELEASE_DATE="2026-10-30"
 # CHANGELOG_BEGIN
-# - 界面、通知和输出统一为 PO0 防火墙，保留现有账号、槽位和任务。
-# - 官方请求、定期与网络触发、停用及升级行为保持兼容。
+# - 删除设置页重复的最近结果入口，统一从主菜单 4 查看。
+# - 设置页编号连续调整为 1–11，保留查看后的返回暂停。
 # CHANGELOG_END
 MENU_RIGHT_COLUMN=46
 PANEL_VALUE_COLUMN=24

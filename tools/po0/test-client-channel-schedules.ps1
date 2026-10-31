@@ -156,10 +156,27 @@ try {
     function Write-MenuItem { param([string]$Number,[string]$Label) $script:MenuItems.Add([pscustomobject]@{Number=$Number;Label=$Label}) }
     function Update-ChannelScheduleIfInstalled { throw 'FAIL: toggle menu must not refresh task registration' }
     Invoke-ChannelSettingsMenu official
-    Assert-Test ($script:MenuPrompts.Count -eq 2 -and $script:MenuPrompts[0] -eq '请选择 [0-12]') 'channel menu input range'
-    Assert-Test ($script:MenuItems[12].Number -eq '0' -and $script:MenuItems[12].Label -eq '返回主菜单') 'channel menu return is displayed as zero'
-    $script:MenuInputs.Enqueue('0')
+    Assert-Test ($script:MenuPrompts.Count -eq 2 -and $script:MenuPrompts[0] -eq '请选择 [0-11]') 'channel menu input range'
+    Assert-Test ($script:MenuItems[11].Number -eq '0' -and $script:MenuItems[11].Label -eq '返回主菜单') 'channel menu return is displayed as zero'
+    Assert-Test (@($script:MenuItems | Where-Object { $_.Label -eq '查看最近结果' }).Count -eq 0) 'settings has no duplicate recent-results entry'
+    $script:SettingsActions=[Collections.Generic.List[string]]::new()
+    function Invoke-ChannelInteractive { param($Channel) $script:SettingsActions.Add('report') }
+    function Invoke-ChannelForceInteractive { param($Channel) $script:SettingsActions.Add('force') }
+    function Show-OfficialStatusInteractive { $script:SettingsActions.Add('query') }
+    foreach ($inputValue in @('6','7','11','0')) { $script:MenuInputs.Enqueue($inputValue) }
+    Invoke-ChannelSettingsMenu official
+    Assert-Test (($script:SettingsActions -join ',') -eq 'report,force,query') 'renumbered settings actions route correctly'
+    $script:RecentViews=0; $script:RecentLogs=0; $script:RecentPauses=0
+    function Show-Po0FirewallCached { param([switch]$Summary) if (-not $Summary) { $script:RecentViews++ } }
+    function Show-SelfReportLogTail { param($Path) Assert-Test ($Path -eq (Get-ChannelLogPath official)) 'recent log selects official channel'; $script:RecentLogs++ }
+    function Pause-Menu { $script:RecentPauses++ }
+    function Invoke-Po0OfficialHttpRequest { throw 'recent results must not request HTTP' }
+    $script:MenuInputs.Enqueue('4'); $script:MenuInputs.Enqueue('0')
     Invoke-InteractiveMenu
+    Assert-Test ($script:RecentViews -eq 1 -and $script:RecentLogs -eq 1 -and $script:RecentPauses -eq 1) 'main recent-results entry shows cache and logs, then pauses'
+    Assert-Test ($script:MenuPrompts[-1] -eq '请选择 [0-8]') 'main menu input range'
+    Assert-Test (@($script:MenuItems | Where-Object { $_.Number -eq '4' -and $_.Label -eq '最近上报结果' }).Count -gt 0) 'recent-results entry is visible next to report'
+
     Assert-Test ($script:MenuInputs.Count -eq 0) 'main menu exits on zero'
     Write-Host 'PASS: Windows independent timers, network watchers, pause/remove/migration, rollback and menus'
 } finally {

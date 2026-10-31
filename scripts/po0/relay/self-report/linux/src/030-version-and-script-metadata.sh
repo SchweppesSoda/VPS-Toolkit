@@ -1,4 +1,8 @@
 self_report_completed() {
+    if [[ "${PO0_UI_RENDERED:-0}" == 1 ]]; then
+        if [[ "${PO0_DISPLAY_LOG_FD:-}" == 4 ]]; then printf 'PO0 防火墙 已完成：%s\n' "$1" >&4; fi
+        return 0
+    fi
     printf '%bPO0 防火墙 已完成：%s%b\n' "${C_GREEN}" "$1" "${C_RESET}"
 }
 

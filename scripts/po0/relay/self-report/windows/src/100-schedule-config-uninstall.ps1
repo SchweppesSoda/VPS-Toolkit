@@ -67,7 +67,7 @@ function Set-CommonConfigInteractive {
 
 function Set-OfficialConfigInteractive {
     Write-PanelSection "PO0 防火墙参数"
-    Write-Host "官方定时上报可关闭、可修改，默认 600 秒；网络变化单独触发。Token 可带 @0..4 指定槽位；逗号、分号、空格或换行均可分隔。"
+    Write-Host "官方定时上报可关闭、可修改，默认 600 秒；网络变化单独触发。Token 可带 @0..9 指定槽位；逗号、分号、空格或换行均可分隔。"
     $previousTokens = $script:Po0FirewallTokens
     Read-Po0FirewallTokensInteractive
     Sync-OfficialAccountNames $previousTokens
@@ -236,7 +236,7 @@ function Remove-SelfReportPathIfExists {
         Write-Host "已删除${Label}：$Path"
         return $true
     } catch {
-        Write-Host "删除${Label}失败：$Path；$($_.Exception.Message)" -ForegroundColor Red
+        Write-Po0UiText "删除${Label}失败：$Path；$($_.Exception.Message)" -Color Red
         return $false
     }
 }

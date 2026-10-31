@@ -282,3 +282,20 @@ await table.moveRow('a1','a2',true);
 assert.equal(localSaves,2,'read-only table cannot move');
 assert.deepEqual(ids(stored.sections(configName,'official_target')),['b','a','c'],'draft table operations must not persist');
 console.log('OpenWrt table arrows, drag/drop, target grouping and draft-only edits passed.');
+
+// Both result formats retain expanded quotas, counts and fixed-slot labels.
+for(const limit of [5,6,10]) {
+ const ips=Array.from({length:limit},(_,i)=>'192.0.2.'+i+'/24');
+ const row={target:'expanded',wan:'wan1',slot:String(limit-1),limit,used:limit,whitelist:ips};
+ const json=parseOfficialStatus(JSON.stringify({entries:[row]})).rows[0];
+ const text=parseOfficialStatus('entry_target=expanded\nentry_wan=wan1\nentry_slot='+row.slot+'\nentry_limit='+limit+'\nentry_used='+limit+'\nentry_whitelist='+ips.join(';')+'\n').rows[0];
+ for(const result of [json,text]) {
+  assert.equal(result.limit,limit);
+  assert.equal(result.used,limit);
+  assert.equal(result.whitelist.length,limit);
+ }
+}
+assert.equal(parseOfficialStatus('entry_target=unknown\n').rows[0].limit,0);
+assert.equal(normalizeToken('https://124.221.69.228/api/firewall/pgnfw_example/add?slot=9'),'pgnfw_example');
+assert.match(source,/slot <= 10/);
+console.log('OpenWrt expanded quota JSON/text results and ten slot choices passed.');

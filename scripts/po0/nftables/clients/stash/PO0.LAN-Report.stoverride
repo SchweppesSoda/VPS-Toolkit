@@ -29,7 +29,7 @@ proxy-groups:
 
 script-providers:
   po0-stash-report-worker-v2:
-    url: https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/stash/po0-firewall.js?rev=20261004-firewall-v1
+    url: https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/stash/po0-firewall.js?rev=20261030-slots-v1
     interval: 86400
   po0-stash-status-tile-v2:
     interval: 86400

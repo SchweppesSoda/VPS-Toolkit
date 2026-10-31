@@ -100,17 +100,39 @@ for platform in linux macos; do
             [[ "$(self_report_log_event_summary "$brand 已完成：已跳过：Wi-Fi")" == '跳过：Wi-Fi' ]]
         done
         # Read each menu through the actual dispatcher without installing or reporting.
-        printf '1\n0\n6\n0\n0\n' > "$test_dir/menu-input"
+        recent_views=0 recent_logs=0 recent_pauses=0
+        po0_display_cached() { [[ "${1:-}" == summary ]] || recent_views=$((recent_views+1)); }
+        show_recent_self_report_log() { [[ "$1" == "$(schedule_channel_log_path official)" ]]; recent_logs=$((recent_logs+1)); }
+        pause_before_return() { recent_pauses=$((recent_pauses+1)); }
+        official_direct_request() { exit 99; }
+        po0_firewall_direct_request() { exit 99; }
+        printf '1\n0\n7\n0\n4\n0\n' > "$test_dir/menu-input"
+
         exec 9< "$test_dir/menu-input"
         read_prompt() { local line; IFS= read -r line <&9 || return 1; printf '%s' "$line"; }
         menu_clear_screen() { :; }
         cron_status_summary() { printf '未安装'; }
         menu_loop > "$test_dir/menu-$platform"
         exec 9<&-
+        [[ "$recent_views" == 1 && "$recent_logs" == 1 && "$recent_pauses" == 1 ]]
+        grep -Fq '[4]  最近上报结果' "$test_dir/menu-$platform"
         grep -Fq 'PO0 防火墙' "$test_dir/menu-$platform"
         grep -Fq '保存配置（编辑参数）' "$test_dir/menu-$platform"
         grep -Fq '清除本通道配置' "$test_dir/menu-$platform"
         grep -Fq '维护与诊断' "$test_dir/menu-$platform"
+        ! grep -Fq '查看最近结果' "$test_dir/menu-$platform"
+        settings_actions=''
+        run_channel_interactive() { settings_actions="$settings_actions report"; }
+        force_channel_interactive() { settings_actions="$settings_actions force"; }
+        show_channel_status() { settings_actions="$settings_actions query"; }
+        printf '6\n7\n11\n0\n' > "$test_dir/settings-input"
+        exec 9< "$test_dir/settings-input"
+        channel_settings_menu official > "$test_dir/settings-menu-$platform"
+        exec 9<&-
+        [[ "$settings_actions" == ' report force query' ]]
+        grep -Fq '[11]  查询官方白名单' "$test_dir/settings-menu-$platform"
+        ! grep -Fq '查看最近结果' "$test_dir/settings-menu-$platform"
+
         printf 'PASS: %s local settings visibility, multiline save, invalid input retention and clear\n' "$platform"
     )
 done

@@ -46,7 +46,7 @@ print_official_target_names() {
     local count=0 index=1
     if declare -F official_tokens_count >/dev/null; then count="$(official_tokens_count)"; else count="$(po0_firewall_token_count)"; fi
     while (( index <= count )); do
-        print_panel_row "官方目标 $index" "$(official_account_name "$index")"
+        print_panel_row "账号 $index" "$(official_account_name "$index")"
         index=$((index + 1))
     done
 }
@@ -91,7 +91,7 @@ run_channel_interactive() {
             printf '本通道日志路径无效。\n' >&2
             rc=1
         else
-            (umask 077; run_once_interactive 2>&1 | tee -a "$result_log"; exit "${PIPESTATUS[0]}")
+            (umask 077; exec 3>&1 4>>"$result_log"; (setup_colors; PO0_DISPLAY_FD=3 PO0_DISPLAY_LOG_FD=4 run_once_interactive) 2>&1 | tee -a "$result_log"; exit "${PIPESTATUS[0]}")
             rc=$?
         fi
     fi
@@ -100,6 +100,11 @@ run_channel_interactive() {
     WORKER_ONLY="$old_worker"
     SCHEDULED_RUN="$old_scheduled"
     return "$rc"
+}
+
+show_recent_report_results() {
+    po0_display_cached
+    show_recent_self_report_log "$(schedule_channel_log_path official)"
 }
 
 show_channel_status() {
@@ -137,8 +142,8 @@ force_channel_interactive() {
 }
 
 channel_settings_menu() {
-    local channel=official choice title='官方防火墙' max_choice=12
-    if [[ "$channel" == official ]]; then title='官方防火墙'; max_choice=12; fi
+    local channel=official choice title='官方防火墙' max_choice=11
+    if [[ "$channel" == official ]]; then title='官方防火墙'; max_choice=11; fi
     while true; do
         menu_clear_screen
         print_title "$title · 设置"
@@ -156,13 +161,12 @@ channel_settings_menu() {
         print_menu_item 3 '启用 / 停用自动上报'
         print_menu_item 4 '定期上报设置（开关与间隔）'
         print_menu_item 5 '查看本机配置'
-        print_menu_item 6 '查看最近结果'
-        print_menu_item 7 '立即上报'
-        print_menu_item 8 '强制上报（绕过本机跳过条件）'
-        print_menu_item 9 '安装 / 更新本通道自动任务'
-        print_menu_item 10 '删除本通道自动任务'
-        print_menu_item 11 '清除本通道配置'
-        [[ "$channel" != official ]] || print_menu_item 12 '查询官方白名单'
+        print_menu_item 6 '立即上报'
+        print_menu_item 7 '强制上报（绕过本机跳过条件）'
+        print_menu_item 8 '安装 / 更新本通道自动任务'
+        print_menu_item 9 '删除本通道自动任务'
+        print_menu_item 10 '清除本通道配置'
+        [[ "$channel" != official ]] || print_menu_item 11 '查询官方白名单'
         print_menu_item 0 '返回主菜单'
         choice="$(read_prompt "请选择 [0-$max_choice]: ")" || return 0
         case "$(trim "$choice")" in
@@ -171,13 +175,12 @@ channel_settings_menu() {
             3) toggle_channel_auto_interactive "$channel" && update_channel_schedule_if_installed "$channel" ;;
             4) configure_channel_periodic_interactive "$channel" ;;
             5) show_channel_config "$channel" ;;
-            6) show_recent_self_report_log "$(schedule_channel_log_path "$channel")" ;;
-            7) run_channel_interactive "$channel" ;;
-            8) force_channel_interactive "$channel" ;;
-            9) install_cron_interactive "$channel" ;;
-            10) if prompt_yes_no '删除本通道自动任务（保留配置）' n; then remove_cron "$channel"; fi ;;
-            11) clear_official_tokens_interactive && update_channel_schedule_if_installed official ;;
-            12) if [[ "$channel" == official ]]; then show_channel_status official; else printf '无效选择。\n'; fi ;;
+            6) run_channel_interactive "$channel" ;;
+            7) force_channel_interactive "$channel" ;;
+            8) install_cron_interactive "$channel" ;;
+            9) if prompt_yes_no '删除本通道自动任务（保留配置）' n; then remove_cron "$channel"; fi ;;
+            10) clear_official_tokens_interactive && update_channel_schedule_if_installed official ;;
+            11) if [[ "$channel" == official ]]; then show_channel_status official; else printf '无效选择。\n'; fi ;;
             0) return 0 ;;
             *) printf '无效选择：请输入 0-%s。\n' "$max_choice" ;;
         esac
@@ -246,10 +249,12 @@ client_maintenance_menu() {
 }
 
 show_client_overview() {
-    print_title 'PO0 防火墙'
+    print_title 'PO0 防火墙' "$SCRIPT_VERSION"
     print_panel_row '自动上报' "$(channel_auto_label official)"
+    print_panel_row '检查间隔' "$(po0_duration "$(( $(schedule_channel_minutes official) * 60 ))")$(schedule_timer_enabled official || printf '（定期已关闭）')"
     print_panel_row '自动任务' "$(cron_status_summary official)"
     print_official_target_names
+    po0_display_cached summary
 }
 
 # Preserve labels by account identity when tokens are reordered or slots change.

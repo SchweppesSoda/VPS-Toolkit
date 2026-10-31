@@ -5,11 +5,10 @@ PO0_RELEASE_DOWNLOAD_BASE_URL="${PO0_RELEASE_DOWNLOAD_BASE_URL:-https://github.c
 DOWNLOAD_URL="${PO0_LAN_CLIENT_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/po0-lan-client.sh}"
 MANAGER_DOWNLOAD_URL="${PO0_MANAGER_DOWNLOAD_URL:-${PO0_RELEASE_DOWNLOAD_BASE_URL}/nftables-relay-manager.sh}"
 SCRIPT_NAME="po0-lan-worker-client"
-SCRIPT_VERSION="2026.10.04+build.1"
-SCRIPT_RELEASE_DATE="2026-10-04"
+SCRIPT_VERSION="2026.10.30+build.5"
+SCRIPT_RELEASE_DATE="2026-10-30"
 # CHANGELOG_BEGIN
-# - 与 PO0 防火墙客户端使用统一脚本发布版本。
-# - 更新镜像、配对、备份与迁移保持现有行为。
+# - 同步五脚本发布版本；本脚本运行行为不变。
 # CHANGELOG_END
 RESOURCE_TOKEN="${PO0_RESOURCE_TOKEN:-}"
 PO0_FIREWALL_TOKENS="${PO0_FIREWALL_TOKENS:-}"
@@ -31,8 +30,7 @@ C_RED=""
 C_CYAN=""
 C_PANEL=""
 # CHANGELOG_BEGIN
-# - 精简为 PO0 更新服务；保留现有 HTTP 地址、服务和更新密钥。
-# - 移除自建上报与资源队列；提供旧配置备份和官方客户端迁移入口。
+# - 同步五脚本发布版本；本脚本运行行为不变。
 # CHANGELOG_END
 # Compatibility marker for old self-updaters: --resource-task-upload is retired.
 UPDATE_KEYS_FILE=""

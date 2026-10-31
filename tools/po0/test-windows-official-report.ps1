@@ -189,6 +189,13 @@ function Mock-OfficialRequest {
     [void]$script:MockMethods.Add($Method)
     [void]$script:MockRequestTokens.Add($Token)
     [void]$script:RunOrder.Add("official")
+    if ($script:MockScenario -eq "slot-limits") {
+        $entries = @()
+        if ($Method -eq "POST" -or $script:SlotTestHit) {
+            $entries = @((New-MockEntry -Ip "198.51.100.7/24" -Slot $script:SlotTestSlot))
+        }
+        return [pscustomobject]@{ StatusCode = 200; Body = (New-MockBody -Limit $script:SlotTestLimit -Entries $entries) }
+    }
     if ($script:MockScenario -eq "get-failure") {
         throw "mock get failure"
     }
@@ -425,7 +432,7 @@ try {
         "$tokenA@0,$tokenA@0"
         "$tokenA@0,$tokenA@1"
         "$tokenA,$tokenA@0"
-        "$tokenA@5"
+        "$tokenA@10"
         "$tokenA@0@1"
     )) {
         Assert-Throws { Get-Po0FirewallTokenItems -Value $badTokenValue } ("Malformed token list accepted: {0}" -f $badTokenValue)
@@ -514,6 +521,9 @@ try {
     Assert-False (@($script:MockMethods) -contains "POST") "Status must never POST."
     $statusState = Get-Po0FirewallState
     Assert-Equal 500 $statusState.LastOfficialAttempt "Status must preserve official due timestamp."
+    Assert-Equal 600 $statusState.LastCheckedAt "Status must save its separate check time."
+    Assert-Equal (Get-Po0DisplayConfigurationId) $statusState.ConfigurationId "Status must bind display to current account order."
+    Assert-Equal 'missing' (Get-Po0DisplayOutcome $statusState.Accounts[0]) 'Successful query must not imply allowed.'
     Assert-True (@($statusState.Accounts).Count -gt 0) "Status must save sanitized Accounts."
     $statusText = Get-Content -LiteralPath (Get-Po0FirewallStatePath) -Raw -Encoding UTF8
     Assert-False ($statusText.Contains($tokenMarker)) "Token must not enter state."
@@ -584,6 +594,51 @@ try {
         Assert-Equal '网络失败' $row.Message 'Current and historical failure brands must share log summaries.'
     }
     Assert-Equal 'Outbound IP Report' $script:TaskName 'Display branding must preserve the scheduled task identity.'
+
+    foreach ($limit in @(1,5,6,7,8,9,10)) {
+        $script:SlotTestLimit = $limit
+        $script:SlotTestSlot = $limit - 1
+        $script:SlotTestHit = $true
+        $savedToken = "$tokenA@$($script:SlotTestSlot)"
+        Assert-Equal $savedToken (ConvertTo-Po0FirewallNormalizedTokens -Items @(Get-Po0FirewallTokenItems -Value $savedToken)) 'Expanded fixed slot must survive normalization.'
+        Set-TestMode -Scenario 'slot-limits' -Tokens $savedToken
+        $result = Invoke-Po0FirewallReport -Mode 'report'
+        Assert-True $result.Succeeded 'Expanded slot GET hit failed.'
+        Assert-Equal 'GET' ($script:MockMethods -join ' ') 'Expanded hit must not POST.'
+        Assert-Equal $limit $result.Accounts[0].Limit 'Account quota must be preserved.'
+        $script:SlotTestHit = $false
+        Set-TestMode -Scenario 'slot-limits' -Tokens $savedToken
+        $result = Invoke-Po0FirewallReport -Mode 'status'
+        Assert-True $result.Succeeded 'Expanded read-only missing failed.'
+        Assert-Equal 'GET' ($script:MockMethods -join ' ') 'Read-only must not POST.'
+        Set-TestMode -Scenario 'slot-limits' -Tokens $savedToken
+        $result = Invoke-Po0FirewallReport -Mode 'report'
+        Assert-True $result.Succeeded 'Expanded fixed slot POST confirmation failed.'
+        Assert-Equal 'GET POST' ($script:MockMethods -join ' ') 'Expanded report must remain GET first.'
+    }
+    foreach ($pair in @(@(5,5),@(6,9))) {
+        $script:SlotTestLimit = $pair[0]
+        $script:SlotTestSlot = $pair[1]
+        $script:SlotTestHit = $false
+        Set-TestMode -Scenario 'slot-limits' -Tokens "$tokenA@$($pair[1])"
+        $result = Invoke-Po0FirewallItem -Item @(Get-Po0FirewallTokenItems -Value $script:Po0FirewallTokens)[0] -Index 1 -Mode 'report'
+        Assert-False $result.Succeeded 'Fixed slot beyond account quota was accepted.'
+        Assert-Equal 'GET' ($script:MockMethods -join ' ') 'Out-of-quota slot must not POST.'
+        Assert-True $result.Message.Contains('指定槽位超出账号额度') 'Quota error must be explicit.'
+        Assert-Equal 'failed' $result.State.Status 'Out-of-quota configuration cannot cache a successful state.'
+    }
+    foreach ($limit in @(6,10)) {
+        $entries = @(for ($slot = 0; $slot -lt $limit; $slot++) { New-MockEntry -Ip "192.0.2.$slot/24" -Slot $slot })
+        $parsed = ConvertFrom-Po0FirewallResponse -Body (New-MockBody -Limit $limit -Entries $entries)
+        Assert-Equal $limit @($parsed.Entries).Count 'Complete expanded whitelist was rejected.'
+    }
+    foreach ($invalidLimit in @(0,11,5.5,'6',$null)) {
+        Assert-Throws { ConvertFrom-Po0FirewallResponse -Body (New-MockBody -Limit $invalidLimit) } 'Invalid quota was accepted.'
+    }
+    foreach ($invalidSlot in @(6,10,-1,0.5,'5',$true)) {
+        Assert-Throws { ConvertFrom-Po0FirewallResponse -Body (New-MockBody -Limit 6 -Entries @((New-MockEntry -Ip '198.51.100.7/24' -Slot $invalidSlot))) } 'Invalid response slot was accepted.'
+    }
+    Assert-Throws { ConvertFrom-Po0FirewallResponse -Body (New-MockBody -Limit 1 -Entries @((New-MockEntry -Ip '198.51.100.7/24'),(New-MockEntry -Ip '203.0.113.0/24'))) } 'Whitelist over account quota was accepted.'
     Write-Host "Windows official firewall mock tests passed."
 } catch {
     Write-Host $_.ScriptStackTrace

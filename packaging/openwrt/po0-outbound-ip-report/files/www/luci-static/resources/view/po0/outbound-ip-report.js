@@ -169,8 +169,8 @@ function officialRowFromObject(item, defaultLimit) {
 	whitelist = whitelist.map(safeOfficialIp).filter(function(ip) { return ip; });
 	if (isNaN(used) || used < 0)
 		used = whitelist.length;
-	if (isNaN(limit) || limit < 1 || limit > 5)
-		limit = defaultLimit || 5;
+	if (isNaN(limit) || limit < 1 || limit > 10)
+		limit = defaultLimit || 0;
 	return {
 		binding: safeOfficialText(item && (item.binding || item.binding_id), ''),
 		target: safeOfficialText(item && (item.target || item.target_id || item.targetId), _('未命名目标')),
@@ -180,7 +180,7 @@ function officialRowFromObject(item, defaultLimit) {
 		enabled: item && (item.enabled === false || String(item.enabled) === '0') ? false : true,
 		currentIp: safeOfficialIp(item && (item.current_ip || item.currentIp || item.ip)) || _('未读到'),
 		whitelist: whitelist,
-		used: Math.min(5, used),
+		used: Math.min(limit || 10, used),
 		limit: limit,
 		status: String(status == null ? 'unknown' : status).toLowerCase(),
 		message: redactOfficialText(item && (item.message || item.error || item.detail || '')),
@@ -193,7 +193,7 @@ function parseOfficialStatus(raw) {
 	var payload = null;
 	var rows = [];
 	var message = '';
-	var limit = 5;
+	var limit = 0;
 	try {
 		payload = text ? JSON.parse(text) : null;
 	} catch (e) {
@@ -201,8 +201,8 @@ function parseOfficialStatus(raw) {
 	}
 	if (payload) {
 		limit = parseInt(payload.limit, 10);
-		if (isNaN(limit) || limit < 1 || limit > 5)
-			limit = 5;
+		if (isNaN(limit) || limit < 1 || limit > 10)
+			limit = 0;
 		rows = payload.bindings || payload.results || payload.items || payload.entries || [];
 		if (!Array.isArray(rows) && (payload.target || payload.wan || payload.currentIp || payload.current_ip))
 			rows = [ payload ];
@@ -216,7 +216,7 @@ function parseOfficialStatus(raw) {
 		var current = {};
 		var flush = function() {
 			if (Object.keys(current).length)
-				rows.push(officialRowFromObject(current, 5));
+				rows.push(officialRowFromObject(current, 0));
 			current = {};
 		};
 		text.split(/\r?\n/).forEach(function(line) {
@@ -248,7 +248,7 @@ function officialSlotLabel(value) {
 	var numericSlot;
 	if (!slot)
 		return _('自动');
-	if (/^[0-4]$/.test(slot)) {
+	if (/^[0-9]$/.test(slot)) {
 		numericSlot = parseInt(slot, 10) + 1;
 		return _('槽位 %s（@%s）').format(numericSlot, slot);
 	}
@@ -298,7 +298,7 @@ function renderOfficialStatus(raw) {
 			E('td', {}, [ row.wan ]),
 			E('td', {}, [ officialSlotLabel(row.slot) ]),
 			E('td', {}, [ row.currentIp ]),
-			E('td', {}, [ row.whitelist.length ? row.whitelist.join('、') : _('空'), ' · ', String(row.used), '/', String(row.limit) ]),
+			E('td', {}, [ row.limit ? (row.whitelist.length ? row.whitelist.join('、') : _('空')) + ' · ' + String(row.used) + '/' + String(row.limit) : _('占用未知') ]),
 			E('td', {}, statusParts)
 		]));
 	});
@@ -311,7 +311,7 @@ var OfficialStatusSection = form.NamedSection.extend({
 		return Promise.resolve(E('div', { 'class': 'cbi-section po0-official-status-section' }, [
 			E('h3', {}, [ _('状态') ]),
 			E('p', { 'class': 'po0-official-help' }, [
-				_('按已保存的目标和 WAN 顺序显示最近结果。每个目标最多 5 个槽位；保存只调整配置和显示顺序，不查询或上报。')
+				_('按已保存的目标和 WAN 顺序显示最近结果。每个目标按账号额度提供 5～10 个槽位；保存只调整配置和显示顺序，不查询或上报。')
 			]),
 			E('div', { 'id': 'po0-official-status', 'class': 'po0-official-status', 'aria-live': 'polite' }, [
 				E('p', { 'class': 'po0-muted' }, [ _('尚未读取官方状态。') ])
@@ -636,7 +636,7 @@ function refreshChannelResult(channel) {
 
 function normalizeOfficialToken(value) {
 	var text = String(value == null ? '' : value).trim();
-	var match = text.match(/^https:\/\/124\.221\.69\.228\/api\/firewall\/(pgnfw_[A-Za-z0-9._~-]{1,240})(?:\/add)?(?:\?slot=[0-4])?$/);
+	var match = text.match(/^https:\/\/124\.221\.69\.228\/api\/firewall\/(pgnfw_[A-Za-z0-9._~-]{1,240})(?:\/add)?(?:\?slot=[0-9])?$/);
 	return match ? match[1] : text;
 }
 
@@ -755,7 +755,7 @@ return view.extend({
    bindings.anonymous = true; bindings.addremove = true;
    bindings.description = E('div', {}, [
     E('p', {}, [ _('按目标分组，同一目标内可拖动或用箭头调整 WAN。') ]),
-    E('p', {}, [ _('槽位 1～5 对应 @0～@4；“自动”可能轮换。不同设备或 WAN 应使用不同固定槽位，更换槽位可能覆盖已有网段。') ])
+    E('p', {}, [ _('槽位 1～10 对应 @0～@9，实际可用数量以账号额度为准；“自动”可能轮换。不同设备或 WAN 应使用不同固定槽位，更换槽位可能覆盖已有网段。') ])
    ]);
    o = bindings.option(form.Flag, 'enabled', _('启用')); o.default = '1'; o.rmempty = false; o.width = '4rem';
    o = bindings.option(form.ListValue, 'target', _('目标')); o.rmempty = false;
@@ -767,7 +767,7 @@ return view.extend({
    };
    o = bindings.option(form.Value, 'wan', _('出口')); o.value('wan1','WAN1'); o.value('wan2','WAN2'); o.rmempty = false;
    o = bindings.option(form.ListValue, 'slot', _('槽位')); o.width = '9rem'; o.value('', _('自动'));
-   for (var slot = 1; slot <= 5; slot++) o.value(String(slot - 1), _('%s（@%s）').format(slot, slot - 1));
+   for (var slot = 1; slot <= 10; slot++) o.value(String(slot - 1), _('%s（@%s）').format(slot, slot - 1));
    actions('official');
 
    o = field('network', form.ListValue, 'probe_mode', '公网 IP 获取方式');

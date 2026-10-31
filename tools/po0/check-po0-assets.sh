@@ -5,9 +5,9 @@ command -v rg >/dev/null 2>&1 || { printf 'ripgrep (rg) is required for PO0 refe
 
 repo_root="$(cd "$(git rev-parse --show-toplevel)" && pwd -P)"
 asset_dir="${1:-${repo_root}/.tmp/po0-check-assets-bash}"
-expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.10.04+build.1}"
-expected_po0_release_date="${PO0_EXPECTED_RELEASE_DATE:-2026-10-04}"
-expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.10.04.1}"
+expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.10.30+build.5}"
+expected_po0_release_date="${PO0_EXPECTED_RELEASE_DATE:-2026-10-30}"
+expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.10.30.5}"
 
 manifest_entries() {
     local manifest="$1"
@@ -326,7 +326,7 @@ check_macos_wifi_ssid_diagnostic() {
     }
     grep -Fq 'Wi-Fi SSID 权限诊断' "${asset}" && grep -Fq 'client_maintenance_menu()' "${asset}" &&
         grep -Fq 'max_choice=4' "${asset}" && grep -Fq '请选择 [0-$max_choice]' "${asset}" &&
-        grep -Eq '6\) client_maintenance_menu;' "${asset}" &&
+        grep -Eq '7\) client_maintenance_menu;' "${asset}" &&
         grep -Eq '3\).*then show_wifi_ssid_permission_help_interactive;' "${asset}" &&
         grep -Eq '4\).*then remove_macos_location_permission_helper_app_interactive;' "${asset}" || {
         printf 'macOS asset lacks Wi-Fi SSID diagnostic menu/range/case wiring.\n' >&2
@@ -646,6 +646,7 @@ check_manifest_coverage "self-report-linux" "tools/po0/manifests/self-report-lin
 check_manifest_coverage "self-report-macos" "tools/po0/manifests/self-report-macos.txt" "scripts/po0/relay/self-report/macos/src"
 check_manifest_coverage "self-report-windows" "tools/po0/manifests/self-report-windows.txt" "scripts/po0/relay/self-report/windows/src" "*.ps1"
 
+bash "${repo_root}/tools/po0/test-terminal-display.sh"
 bash "${repo_root}/tools/po0/test-macos-ssid-diagnostic.sh"
 bash "${repo_root}/tools/po0/test-macos-official-report.sh"
 bash "${repo_root}/tools/po0/test-self-report-refresh-policy.sh"
@@ -653,8 +654,10 @@ bash "${repo_root}/tools/po0/test-linux-official-http.sh"
 bash "${repo_root}/tools/po0/test-linux-official-report.sh"
 if command -v pwsh >/dev/null 2>&1; then
     pwsh -NoProfile -ExecutionPolicy Bypass -File "$(pwsh_literal_path "${repo_root}/tools/po0/test-windows-official-report.ps1")"
+    pwsh -NoProfile -ExecutionPolicy Bypass -File "$(pwsh_literal_path "${repo_root}/tools/po0/test-terminal-display.ps1")"
 elif command -v powershell.exe >/dev/null 2>&1; then
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(pwsh_literal_path "${repo_root}/tools/po0/test-windows-official-report.ps1")"
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(pwsh_literal_path "${repo_root}/tools/po0/test-terminal-display.ps1")"
 else
     printf 'PowerShell not found; skipping Windows official report mock test.\n' >&2
 fi

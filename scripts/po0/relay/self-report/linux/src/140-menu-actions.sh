@@ -21,7 +21,7 @@ configure_official_interactive() {
     local token_input previous_tokens="${PO0_FIREWALL_TOKENS:-}"
     print_panel_section "PO0 防火墙参数"
     print_panel_row "当前官方 Token" "${PO0_FIREWALL_TOKENS:-未设置}"
-    printf '官方定时上报可关闭、可修改，默认 600 秒；网络变化单独触发。可用逗号、分号、空格或换行分隔，槽位写 @0..4。空行结束；直接空行保留，单独 - 清空。\n'
+    printf '官方定时上报可关闭、可修改，默认 600 秒；网络变化单独触发。可用逗号、分号、空格或换行分隔，槽位写 @0..9。空行结束；直接空行保留，单独 - 清空。\n'
     token_input="$(official_read_secret_prompt '输入官方 Token（空行结束）: ')" || return 1
     token_input="$(trim "${token_input}")"
     case "${token_input}" in
@@ -107,24 +107,28 @@ menu_loop() {
     while true; do
         menu_clear_screen
         show_client_overview
+        print_panel_section '操作与设置'
         print_menu_item 1 '官方防火墙设置'
         print_menu_item 2 '网络探测 / SSID 跳过'
         print_menu_item 3 '立即上报'
-        print_menu_item 4 '自动上报管理'
-        print_menu_item 5 '查看本机配置'
-        print_menu_item 6 '维护与诊断'
-        print_menu_item 7 '迁移旧版自建配置与任务'
+        print_menu_item 4 '最近上报结果'
+        print_menu_item 5 '自动上报管理'
+        print_menu_item 6 '查看本机配置'
+        print_panel_section '维护'
+        print_menu_item 7 '维护与诊断'
+        print_menu_item 8 '迁移旧版自建配置与任务'
         print_menu_item 0 '退出'
         print_menu_footer
-        choice="$(read_prompt '请选择 [0-7]: ')" || return 0
+        choice="$(read_prompt '请选择 [0-8]: ')" || return 0
         case "$(trim "$choice")" in
             1) channel_settings_menu official ;;
             2) configure_common_interactive; pause_before_return ;;
             3) run_channel_interactive official; pause_before_return ;;
-            4) automatic_reporting_menu ;;
-            5) show_current_config; pause_before_return ;;
-            6) client_maintenance_menu; [[ "${CLIENT_MENU_UNINSTALLED:-0}" != 1 ]] || return 0 ;;
-            7) migrate_retired_state; pause_before_return ;;
+            4) show_recent_report_results; pause_before_return ;;
+            5) automatic_reporting_menu ;;
+            6) show_current_config; pause_before_return ;;
+            7) client_maintenance_menu; [[ "${CLIENT_MENU_UNINSTALLED:-0}" != 1 ]] || return 0 ;;
+            8) migrate_retired_state; pause_before_return ;;
             0) return 0 ;;
             *) printf '无效选择。\n'; pause_before_return ;;
         esac
