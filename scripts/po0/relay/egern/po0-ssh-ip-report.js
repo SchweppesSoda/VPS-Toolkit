@@ -476,31 +476,33 @@ function formatDurationSeconds(seconds) {
   return parts.join(' ') || '0 秒';
 }
 
-// Solid colors per appearance: white in light mode, a mid-dark gray that stays distinct from
-// black wallpapers in dark mode. Green marks only
-// the current /24 network; other states stay neutral so the covered slot stands out.
+// Mist palette, opaque per appearance: a cool blue-gray background whose dark variant stays
+// distinct from black wallpapers. Blue is only the exit IP accent; green marks only the current
+// /24 network and allowed states, orange and red the problems, everything else stays neutral.
 const WIDGET_COLORS = {
-  background: { light: '#FFFFFF', dark: '#2E2E31' },
-  card: { light: '#F2F2F7', dark: '#3C3C3F' },
-  text: { light: '#1C1C1E', dark: '#F5F5F7' },
-  secondary: { light: '#6E6E73', dark: '#A1A1A8' },
-  tertiary: { light: '#AEAEB2', dark: '#78787E' },
-  slot: { light: '#E5E5EA', dark: '#444448' },
-  slotOnCard: { light: '#DCDCE1', dark: '#525256' },
-  slotLine: { light: '#C7C7CC', dark: '#58585D' },
-  green: { light: '#248A3D', dark: '#30D158' },
-  greenFill: { light: '#34C759', dark: '#30D158' },
-  onGreen: { light: '#FFFFFF', dark: '#062B12' },
-  orange: { light: '#C93400', dark: '#FF9F0A' },
-  red: { light: '#D70015', dark: '#FF453A' },
+  background: { light: '#F4F7FB', dark: '#262C37' },
+  card: { light: '#E6ECF4', dark: '#323A48' },
+  text: { light: '#131A26', dark: '#EDF1F8' },
+  // The exit IP, the one large figure; a theme accent, never a status color.
+  accent: { light: '#1D4FB5', dark: '#8DB6FF' },
+  secondary: { light: '#58637A', dark: '#A2ACC0' },
+  tertiary: { light: '#A2ABBC', dark: '#6C7588' },
+  slot: { light: '#DDE4EF', dark: '#3A4352' },
+  slotOnCard: { light: '#D2DAE8', dark: '#444E5F' },
+  slotLine: { light: '#BCC6D8', dark: '#556075' },
+  green: { light: '#14874D', dark: '#4ADE80' },
+  greenFill: { light: '#D3EFE0', dark: '#2C5545' },
+  onGreen: { light: '#0E6438', dark: '#BDF3D3' },
+  orange: { light: '#B85A06', dark: '#FFB347' },
+  red: { light: '#C93542', dark: '#FF6B70' },
 };
 
 // Opaque tints, so nothing on the widget depends on translucency.
 const WIDGET_TONES = {
-  ok: { color: WIDGET_COLORS.green, tint: { light: '#DDF5E3', dark: '#2E4F39' }, icon: 'checkmark.circle.fill', shield: 'checkmark.shield.fill' },
-  warn: { color: WIDGET_COLORS.orange, tint: { light: '#FFEED6', dark: '#584529' }, icon: 'exclamationmark.circle.fill', shield: 'exclamationmark.shield.fill' },
-  error: { color: WIDGET_COLORS.red, tint: { light: '#FFE8E7', dark: '#4B3132' }, icon: 'xmark.circle.fill', shield: 'xmark.shield.fill' },
-  idle: { color: WIDGET_COLORS.secondary, tint: { light: '#EEEEF0', dark: '#404044' }, icon: 'circle.dashed', shield: 'shield' },
+  ok: { color: WIDGET_COLORS.green, tint: { light: '#DBF0E5', dark: '#2E4B45' }, icon: 'checkmark.circle.fill', shield: 'checkmark.shield.fill' },
+  warn: { color: WIDGET_COLORS.orange, tint: { light: '#F8ECDB', dark: '#4C4538' }, icon: 'exclamationmark.circle.fill', shield: 'exclamationmark.shield.fill' },
+  error: { color: WIDGET_COLORS.red, tint: { light: '#F7E2E5', dark: '#4C3940' }, icon: 'xmark.circle.fill', shield: 'xmark.shield.fill' },
+  idle: { color: WIDGET_COLORS.secondary, tint: { light: '#E9EEF5', dark: '#384050' }, icon: 'circle.dashed', shield: 'shield' },
 };
 
 function textNode(text, size = 'caption1', weight = 'regular', color = WIDGET_COLORS.text) {
@@ -729,7 +731,9 @@ function widgetSlotStyle(cell, onCard = false) {
 
 // Unnumbered capacity bar: solid green = current network, filled = occupied, outline = free.
 function widgetSlotMeter(cells, height, onCard = false) {
-  const bars = cells.map(cell => ({ type: 'stack', flex: 1, height, borderRadius: 2, ...widgetSlotStyle(cell, onCard), children: [] }));
+  // Thin bars need the strong green; the soft chip fill would not read at this size.
+  const bars = cells.map(cell => ({ type: 'stack', flex: 1, height, borderRadius: 2,
+    ...(cell.state === 'current' ? { backgroundColor: WIDGET_COLORS.green } : widgetSlotStyle(cell, onCard)), children: [] }));
   // Fillers keep the ten-slot scale aligned between accounts; they are not extra slots.
   while (bars.length < 10) bars.push({ type: 'stack', flex: 1, height, children: [] });
   return widgetRow(bars, 2);
@@ -824,8 +828,19 @@ function widgetErrorText(entry, size, maxLines) {
 }
 
 function widgetPill(text, tone, size = 12) {
-  return { type: 'stack', direction: 'row', padding: [3, 8, 3, 8], borderRadius: 10, backgroundColor: WIDGET_TONES[tone].tint,
-    children: [widgetText(text, size, WIDGET_TONES[tone].color, 'semibold')] };
+  const dot = Math.round(size * 0.5);
+  return { type: 'stack', direction: 'row', alignItems: 'center', gap: 5, padding: [3, 9, 3, 8], borderRadius: 10, backgroundColor: WIDGET_TONES[tone].tint,
+    children: [{ type: 'stack', width: dot, height: dot, borderRadius: dot / 2, backgroundColor: WIDGET_TONES[tone].color, children: [] },
+      widgetText(text, size, WIDGET_TONES[tone].color, 'semibold')] };
+}
+
+// Account state beside a name: a quiet dot when allowed, a symbol only when something needs attention.
+function widgetStatusMark(tone, size) {
+  if (tone !== 'ok') return iconNode(WIDGET_TONES[tone].icon, WIDGET_TONES[tone].color, size);
+  const dot = Math.round(size * 0.5);
+  return { type: 'stack', direction: 'row', width: size, height: size, children: [
+    spacerNode(), { type: 'stack', width: dot, height: dot, borderRadius: dot / 2, backgroundColor: WIDGET_TONES.ok.color, children: [] }, spacerNode(),
+  ] };
 }
 
 function widgetLargeSingle(entry) {
@@ -859,7 +874,7 @@ function widgetLargeCard(entry, view, rows) {
   const listed = !failed && model.records.length > 0;
   return widgetColumn([
     widgetRow([
-      iconNode(WIDGET_TONES[result.tone].icon, result.color, 14),
+      widgetStatusMark(result.tone, 14),
       { ...widgetText(entry.name || '账号', 15, WIDGET_COLORS.text, 'semibold'), flex: 1, minScale: 0.85 },
       widgetText((result.tone === 'ok' ? '' : result.text + ' · ') + meta.join(' · '), 12, result.tone === 'ok' ? WIDGET_COLORS.secondary : result.color),
     ], 6),
@@ -873,7 +888,7 @@ function widgetMediumCard(entry, count) {
   const model = widgetSlotModel(entry);
   const failed = entry.status === 'error';
   const line = widgetRow([
-    iconNode(WIDGET_TONES[result.tone].icon, result.color, 12),
+    widgetStatusMark(result.tone, 12),
     { ...widgetText(entry.name || '账号', 13, WIDGET_COLORS.text, 'semibold'), flex: 1, minScale: 0.85 },
     widgetText(failed ? '检查失败' : widgetCompactMeta(entry), 11, failed ? WIDGET_COLORS.red : WIDGET_COLORS.secondary, 'medium'),
   ], 5);
@@ -889,7 +904,7 @@ function widgetSmallAccount(entry, count) {
   const result = widgetEntryResult(entry);
   const model = widgetSlotModel(entry);
   const line = widgetRow([
-    ...(count > 1 ? [iconNode(WIDGET_TONES[result.tone].icon, result.color, 11)] : []),
+    ...(count > 1 ? [widgetStatusMark(result.tone, 11)] : []),
     { ...widgetText(entry.name || '账号', 13, WIDGET_COLORS.text, 'semibold'), flex: 1, minScale: 0.85 },
     widgetText(entry.status === 'error' ? '检查失败' : widgetCompactMeta(entry), 11, entry.status === 'error' ? WIDGET_COLORS.red : WIDGET_COLORS.secondary, 'medium'),
   ], 4);
@@ -970,7 +985,7 @@ function widgetFromState(state, ctx, deviceId = '', env = ctx?.env || {}) {
   ], 6);
   const tone = WIDGET_TONES[summaryTone];
   const networkLine = (size, gap = 4) => widgetLine([iconNode(network.icon || 'network', WIDGET_COLORS.secondary, size), { ...widgetText(networkText, size, WIDGET_COLORS.secondary), minScale: 0.85 }], gap);
-  const ipText = size => ({ ...widgetText(ip, size, WIDGET_COLORS.text, 'semibold'), minScale: 0.6 });
+  const ipText = size => ({ ...widgetText(ip, size, WIDGET_COLORS.accent, 'semibold'), minScale: 0.6 });
   const differentIps = new Set(shown.map(entry => entry.currentIp).filter(Boolean)).size > 1;
   let children;
   if (!shown.length) {

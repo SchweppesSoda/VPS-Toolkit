@@ -826,7 +826,7 @@ function testEgernScriptCopiesStaySynchronized() {
   assert.equal(previousYaml, yamlSource);
   const urls = [...yamlSource.matchAll(/script_url: "([^"]+)"/g)].map(match => match[1]);
   assert.equal(urls.length, 12);
-  assert(urls.every(url => url === 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20261031-widget-polish-v1'));
+  assert(urls.every(url => url === 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20261031-mist-theme-v1'));
 }
 
 
@@ -1728,7 +1728,7 @@ async function testWidgetRootsKeepOpaqueBackground() {
   roots.push(await runEgernReport(createContext({ trigger: 'PO0 防火墙 · 清除配置' }).ctx));
   for (const root of roots) {
     assert.equal(root.type, 'widget');
-    assert.deepEqual(root.backgroundColor, { light: '#FFFFFF', dark: '#2E2E31' }, 'white in light mode, a gray distinct from black in dark mode');
+    assert.deepEqual(root.backgroundColor, { light: '#F4F7FB', dark: '#262C37' }, 'mist blue-gray per appearance, distinct from black wallpapers in dark mode');
     assert(opaque(root.backgroundColor));
     assert.equal(root.backgroundGradient, undefined, 'solid background without a gradient');
     assert(!JSON.stringify(root).includes('rgba('), 'no translucent colors anywhere on the widget');
@@ -1813,7 +1813,25 @@ async function testUnconfiguredWidgetsCenterTheSetupStep() {
   }
 }
 
+async function testMistPaletteRoles() {
+  const colorOf = (widget, pattern) => widgetNodes(widget).find(node => node.type === 'text' && pattern.test(node.text))?.textColor;
+  const env = { PO0_FIREWALL_TOKENS: 'pgnfw_mist_a_fixture@0|手机;pgnfw_mist_b_fixture@1|办公室;pgnfw_mist_c_fixture|家里' };
+  const run = createContext({ widgetFamily: 'systemMedium', env,
+    httpGet: url => url.includes('mist_c') ? response({}, 503) : response(officialPayload({ whitelist: [{ ip: '203.0.113.0/24', slot: 0 }] })) });
+  const widget = await runEgernReport(run.ctx);
+  assert(sameColor(colorOf(widget, /^203.0.113.10$/), widgetPalette.accent), 'the exit IP uses the theme accent');
+  assert(![widgetPalette.green, widgetPalette.orange, widgetPalette.red].some(color => sameColor(color, widgetPalette.accent)), 'the accent never reads as a status');
+  assert(!sameColor(widgetPalette.greenFill, widgetPalette.green), 'the current chip fill stays softer than the status green');
+  const symbols = widgetNodes(widget).filter(node => node.type === 'image').map(node => node.src);
+  assert(!symbols.includes('sf-symbol:checkmark.circle.fill'), 'allowed accounts use a quiet dot, not a repeated check symbol');
+  assert(symbols.includes('sf-symbol:xmark.circle.fill'), 'a failed account keeps its symbol');
+  const dots = widgetNodes(widget).filter(node => node.type === 'stack' && node.borderRadius && node.width === node.height && sameColor(node.backgroundColor, widgetPalette.green));
+  assert.equal(dots.length, 2, 'each allowed account shows one green dot');
+  assert.equal(run.calls.post.length, 0);
+}
+
 const tests = [
+  testMistPaletteRoles,
   testUnconfiguredWidgetsCenterTheSetupStep,
   testQuotaGridAcrossAccountCounts,
   testWidgetMixedNumberingListsRealRecords,
