@@ -11,8 +11,15 @@ $ErrorActionPreference = 'Stop'
 function Assert-Contains([string]$Text, [string]$Value) { if (-not $Text.Contains($Value)) { throw "Missing: $Value" } }
 function Assert-Absent([string]$Text, [string]$Value) { if ($Text.Contains($Value)) { throw "Unexpected: $Value" } }
 function Capture([scriptblock]$Action) { return (& $Action 6>&1 | Out-String -Width 300) }
+# pwsh 7.5+ keeps an empty variable after SetEnvironmentVariable(name, $null); remove it instead.
+function Set-FixtureNoColor($Value) { if ($null -eq $Value) { Remove-Item Env:NO_COLOR -ErrorAction SilentlyContinue } else { $env:NO_COLOR = $Value } }
 function Invoke-Po0OfficialHttpRequest { throw 'renderer attempted HTTP' }
 function Get-Po0DisplayWidth { return 100 }
+# Captured information records carry Write-Host colors out of band, but inline bold SGR would
+# enter the captured text whenever this test runs on a real VT console. Plain-text captures pin
+# bold off; the palette regression at the end drives the real helper explicitly.
+$script:RealUiBold = ${function:Test-Po0UiBold}
+function Test-Po0UiBold { return $false }
 $script:Po0FirewallTokens = 'pgnfw_fixture_a,pgnfw_fixture_b'
 $script:Po0FirewallNames = '很长的中文账号名称以及 Office Wi-Fi;第二账号;失败账号'
 foreach ($quota in @(5,7,10)) {
@@ -60,12 +67,17 @@ $script:FixtureState = [pscustomobject]@{Accounts=@($account);LastOfficialAttemp
 $text = Capture { Show-Po0FirewallCached }
 Assert-Contains $text '暂无新版记录'
 $savedColor = [Environment]::GetEnvironmentVariable('NO_COLOR')
+${function:Test-Po0UiBold} = $script:RealUiBold
 try {
     $env:NO_COLOR='1'
     if (Test-Po0UiColor) { throw 'NO_COLOR ignored' }
+    if (Test-Po0UiBold) { throw 'NO_COLOR ignored for bold' }
     $text = Capture { Write-MenuItem 0 '退出'; Show-Po0FirewallTable $state }
     Assert-Absent $text ([string][char]27)
-} finally { [Environment]::SetEnvironmentVariable('NO_COLOR', $savedColor) }
+} finally {
+    Set-FixtureNoColor $savedColor
+    function script:Test-Po0UiBold { return $false }
+}
 $script:Po0FirewallScheduledRun=$true
 $result = [pscustomobject]@{Accounts=@($account);Succeeded=$true}
 $text = Capture { Show-Po0FirewallLive $result '后台' }
@@ -100,3 +112,113 @@ $script:Po0UiRendered=$false
 $text=Capture { Write-SelfReportCompleted '本轮跳过。' }
 Assert-Contains $text '本轮跳过'
 Write-Host 'PASS: sparse responses, CJK alignment, readable intervals and single completion.'
+
+# Forced-color palette: record Write-Host colors directly instead of relying on a console.
+# Hierarchy uses bold; informative text keeps the default foreground; DarkGray is divider-only.
+$esc = [string][char]27
+$script:HostWrites = New-Object System.Collections.Generic.List[object]
+function Write-Host {
+    param([Parameter(Position = 0)]$Object = '', $ForegroundColor = $null, [switch]$NoNewline)
+    $script:HostWrites.Add([pscustomobject]@{ Text = [string]$Object; Color = [string]$ForegroundColor })
+}
+function Test-Po0UiColor { return (-not (Test-Path Env:NO_COLOR)) }
+function Get-HostWrite([string]$Needle) {
+    $match = @($script:HostWrites | Where-Object { $_.Text.Trim() -eq $Needle })
+    if (-not $match.Count) { $match = @($script:HostWrites | Where-Object { $_.Text.Contains($Needle) }) }
+    if (-not $match.Count) { throw "No write: $Needle" }
+    return $match[0]
+}
+function Assert-WriteColor([string]$Needle, [string]$Color) {
+    $actual = (Get-HostWrite $Needle).Color
+    if ($actual -ne $Color) { throw "Color for ${Needle}: expected '$Color', got '$actual'" }
+}
+function Assert-ReadablePalette {
+    foreach ($write in $script:HostWrites) {
+        if ($write.Color -eq 'DarkGray' -and $write.Text.Trim() -notmatch '^[─-]+$') { throw "DarkGray text: $($write.Text)" }
+        if ($write.Color -in @('White', 'Gray')) { throw "Forced $($write.Color): $($write.Text)" }
+    }
+}
+# The caller's NO_COLOR is process-local here; clear it so forced-color assertions are real.
+$savedColor = [Environment]::GetEnvironmentVariable('NO_COLOR')
+Set-FixtureNoColor $null
+function Test-Po0UiBold { return (Test-Po0UiColor) }
+$script:HostWrites.Clear()
+Write-Title 'PO0 防火墙' 'v9.9.9'
+Write-PanelSection '分组标题'
+Write-PanelRow '行标签' '普通值'
+Write-PanelNote '说明文字'
+Write-MenuItem 1 '菜单项'
+Write-MenuItem 0 '返回'
+Assert-ReadablePalette
+Assert-WriteColor 'PO0 防火墙' 'Cyan'
+Assert-WriteColor 'v9.9.9' ''
+if ((Get-HostWrite '分组标题').Text -ne "$esc[1m  分组标题$esc[0m") { throw 'section title is not bold' }
+Assert-WriteColor '分组标题' ''
+Assert-WriteColor '行标签' ''
+Assert-WriteColor '普通值' ''
+Assert-WriteColor '说明文字' ''
+Assert-WriteColor '[1]' 'Cyan'
+Assert-WriteColor '[0]' ''
+if (@($script:HostWrites | Where-Object { $_.Color -eq 'DarkGray' }).Count -ne 1) { throw 'divider lost its decoration' }
+# Without VT support the section title falls back to the default foreground, never a color.
+$script:HostWrites.Clear()
+function Test-Po0UiBold { return $false }
+Write-PanelSection '分组标题'
+if ((Get-HostWrite '分组标题').Text -ne '  分组标题') { throw 'section fallback emitted control codes' }
+Assert-WriteColor '分组标题' ''
+$cases = @(
+    @('运行中', '', 'Green'), @('已启用（每 10 分钟）', '', 'Green'), @('已安装 · 就绪', '', 'Green'),
+    @('已暂停', '', 'Yellow'), @('未配置', '', 'Yellow'), @('已放行 · 等待下次检查', '', 'Yellow'),
+    @('上报失败', '', 'Red'), @('已启用，但最近一次失败', '', 'Red'), @('每 600 秒', '', ''),
+    @('已启用', 'warn', 'Yellow'), @('失败', 'ok', 'Green'), @('已启用', 'plain', ''), @('未配置', 'bogus', 'Yellow'))
+foreach ($case in $cases) {
+    $script:HostWrites.Clear()
+    if ($case[1]) { Write-PanelStatusRow '状态' $case[0] $case[1] } else { Write-PanelStatusRow -Label '状态' -Value $case[0] }
+    if ($script:HostWrites[0].Text -ne (Format-Po0PanelLabel '状态')) { throw "status row layout changed: $($case[0])" }
+    if ($script:HostWrites[1].Text -ne $case[0] -or $script:HostWrites[1].Color -ne $case[2]) { throw "status tone: $($case[0])/$($case[1])" }
+}
+function Get-Po0DisplayWidth { return 100 }
+function Test-Po0UiBold { return (Test-Po0UiColor) }
+$hit = New-Po0FirewallAccountState -Index 1 -CurrentIp '203.0.113.25/24' -Limit 7 -Status ok -Entries @(
+    [pscustomobject]@{Ip='192.0.2.18/24';Slot='0'}, [pscustomobject]@{Ip='203.0.113.25/24';Slot='6'})
+$miss = New-Po0FirewallAccountState -Index 2 -CurrentIp '198.51.100.25/24' -Limit 7 -Status ok -Entries @([pscustomobject]@{Ip='192.0.2.2/24';Slot='1'})
+$fail = New-Po0FirewallAccountState -Index 3 -FixedSlot '9'
+$palette = [pscustomobject]@{Accounts=@($hit, $miss, $fail); LastCheckedAt=1793341928; ConfigurationId=''}
+$script:HostWrites.Clear()
+Show-Po0FirewallTable $palette '上报结果' -Failed
+Assert-ReadablePalette
+$header = Get-HostWrite '槽位'
+if (-not $header.Text.StartsWith("$esc[1m") -or $header.Color) { throw 'slot header is not bold default text' }
+Assert-WriteColor '空闲' ''
+Assert-WriteColor '已放行' 'Green'
+Assert-WriteColor '未放行' 'Yellow'
+Assert-WriteColor '操作失败' 'Red'
+Assert-WriteColor '第二账号' 'Cyan'
+Assert-WriteColor '检查时间' ''
+Assert-WriteColor '占用 2/7' ''
+$script:Po0FirewallTokens = 'pgnfw_fixture_a,pgnfw_fixture_b'
+$script:FixtureState = [pscustomobject]@{Accounts=@($hit); LastCheckedAt=1793341928; ConfigurationId=(Get-Po0DisplayConfigurationId)}
+$script:HostWrites.Clear(); Show-Po0FirewallCached -Summary
+Assert-WriteColor '1/1 已放行' 'Green'
+$script:FixtureState.Accounts = @($hit, $miss)
+$script:HostWrites.Clear(); Show-Po0FirewallCached -Summary
+Assert-WriteColor '1/2 已放行' 'Yellow'
+$script:Po0FirewallTokens = 'pgnfw_fixture_b'
+$script:HostWrites.Clear(); Show-Po0FirewallCached -Summary
+Assert-WriteColor '账号配置已更新，等待下次检查' 'Yellow'
+$script:FixtureState = [pscustomobject]@{Accounts=@($hit)}
+$script:HostWrites.Clear(); Show-Po0FirewallCached -Summary
+Assert-WriteColor '暂无新版记录，检查后显示' 'Yellow'
+# The real bold helper must also honor NO_COLOR through the color gate.
+${function:Test-Po0UiBold} = $script:RealUiBold
+try {
+    $env:NO_COLOR = '1'
+    $script:HostWrites.Clear()
+    Write-Title 'PO0 防火墙' 'v9.9.9'; Write-PanelSection '分组标题'; Write-PanelStatusRow '状态' '上报失败'; Write-MenuItem 1 '菜单项'
+    Show-Po0FirewallTable $palette '上报结果' -Failed
+    foreach ($write in $script:HostWrites) {
+        if ($write.Color -or $write.Text.Contains($esc)) { throw "NO_COLOR output styled: $($write.Text)" }
+    }
+} finally { Set-FixtureNoColor $savedColor }
+Remove-Item function:Write-Host
+Write-Host 'PASS: readable palette, status tones and NO_COLOR plain text.'

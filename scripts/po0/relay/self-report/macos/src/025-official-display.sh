@@ -78,7 +78,7 @@ po0_display_account() {
     if [[ -n "$fixed" ]] && (( 10#$fixed >= limit )); then printf '  %b指定槽位超出账号额度，请调整固定槽位。%b\n' "$C_RED" "$C_RESET"; fi
     [[ "$outcome" != error ]] || print_panel_note '以下为本次已取得的数据，操作未完成。'
     printf '\n'
-    if (( PO0_UI_WIDTH >= 52 )); then po0_display_slot_row '槽位' 'IP / 网段' '状态' "$C_DIM"; fi
+    if (( PO0_UI_WIDTH >= 52 )); then po0_display_slot_row '槽位' 'IP / 网段' '状态' "$C_BOLD"; fi
     n=0
     while (( n < limit )); do
         ip='-' label='空闲' color="$C_DIM"
@@ -113,7 +113,7 @@ po0_display_render() {
     local ordinal outcome current list used limit fixed extra allowed=0 updated=0 failed=0 missing=0 total=0 summary color
     local PO0_UI_WIDTH PO0_UI_HIT='*' PO0_UI_UNKNOWN=0 PO0_UI_COMMON_IP='' first_ip=1
     # Local colors prevent rich output on fd 3 from contaminating subsequent log output.
-    local C_RESET C_BOLD C_DIM C_GREEN C_YELLOW C_RED C_CYAN C_PANEL
+    local C_RESET C_BOLD C_DIM C_GREEN C_YELLOW C_RED C_CYAN C_PANEL C_TITLE C_SECTION C_KEY
     setup_colors
     PO0_UI_WIDTH="$(po0_terminal_width)"
     if [[ -t 1 && "${TERM:-dumb}" != dumb ]]; then
@@ -151,21 +151,22 @@ po0_display_cached() {
     local mode="${1:-full}" state config_id cached_id records checked
     state="$(po0_display_state_path)"
     cached_id=''; [[ ! -r "$state" ]] || cached_id="$(sed -n 's/^display_config_id=//p' "$state" | head -n 1)"
-    if [[ -z "$cached_id" ]]; then print_panel_row '最近检查' '暂无新版记录，检查后显示'; return 0; fi
+    if [[ -z "$cached_id" ]]; then print_panel_status_row '最近检查' '暂无新版记录，检查后显示' warn; return 0; fi
     config_id="$(po0_display_config_id)"
     if [[ -z "$config_id" || "$config_id" != "$cached_id" ]]; then
-        print_panel_row '最近检查' '账号配置已更新，等待下次检查'; return 0
+        print_panel_status_row '最近检查' '账号配置已更新，等待下次检查' warn; return 0
     fi
     checked="$(sed -n 's/^last_checked_at=//p' "$state" | head -n 1)"
     records="$(sed -n 's/^item=//p' "$state")"
     if [[ "$mode" == summary ]]; then
-        local total=0 allowed=0 record status
+        local total=0 allowed=0 record status tone
         while IFS= read -r record; do
             [[ -n "$record" ]] || continue
             total=$((total + 1)); status="${record#*|}"; status="${status%%|*}"
             case "$status" in hit|added) allowed=$((allowed + 1)) ;; esac
         done <<< "$records"
-        print_panel_row '最近检查' "$(po0_display_time "$checked") · $allowed/$total 已放行"
+        tone=warn; (( total == 0 || allowed != total )) || tone=ok
+        print_panel_status_row '最近检查' "$(po0_display_time "$checked") · $allowed/$total 已放行" "$tone"
     else
         po0_display_render '上次结果 / 本地记录' "$records" "$checked"
     fi

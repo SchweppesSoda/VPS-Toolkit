@@ -26,8 +26,18 @@ function Test-Po0RichOutput {
     return (-not $script:Po0FirewallScheduledRun -and -not [Console]::IsOutputRedirected)
 }
 
+# Palette must stay readable on PS 5.1 blue, Windows Terminal dark and light schemes.
+# Hierarchy uses bold and spacing; DarkGray is reserved for divider lines, and White or
+# Gray are never forced because they vanish on light backgrounds. Write-Host has no bold,
+# so bold uses an inline SGR only when colors are on and the host renders VT sequences.
+function Test-Po0UiBold {
+    if (-not (Test-Po0UiColor)) { return $false }
+    try { return [bool]$Host.UI.SupportsVirtualTerminal } catch { return $false }
+}
+
 function Write-Po0UiText {
-    param([string]$Text, [string]$Color = '', [switch]$NoNewline)
+    param([string]$Text, [string]$Color = '', [switch]$NoNewline, [switch]$Bold)
+    if ($Bold -and $Text -and (Test-Po0UiBold)) { $Text = '{0}[1m{1}{0}[0m' -f [char]27, $Text }
     if ($Color -and (Test-Po0UiColor)) { Write-Host $Text -ForegroundColor $Color -NoNewline:$NoNewline }
     else { Write-Host $Text -NoNewline:$NoNewline }
 }
@@ -44,7 +54,7 @@ function Write-PanelDivider {
 }
 
 function Write-Po0Heading {
-    param([string]$Name, [string]$Status = '', [string]$StatusColor = 'Gray')
+    param([string]$Name, [string]$Status = '', [string]$StatusColor = '')
     $width = [Math]::Min(72, (Get-Po0DisplayWidth) - 4)
     $left = '  ' + ($Name -replace '[\x00-\x1f\x7f]', ' ')
     $gap = $width - (Get-Po0CellWidth $Name) - (Get-Po0CellWidth $Status)
@@ -60,29 +70,64 @@ function Write-Po0Heading {
 function Write-Title {
     param([string]$Title, [string]$Hint = '')
     Write-Po0UiText ''
-    Write-Po0Heading $Title $Hint DarkGray
+    Write-Po0Heading $Title $Hint
     Write-PanelDivider
 }
 
 function Write-MenuItem {
     param([string]$Number, [string]$Label)
-    Write-Po0UiText ("    [{0}]  " -f $Number) $(if ($Number -eq '0') { 'DarkGray' } else { 'Cyan' }) -NoNewline
+    Write-Po0UiText ("    [{0}]  " -f $Number) $(if ($Number -eq '0') { '' } else { 'Cyan' }) -NoNewline
     Write-Po0UiText $Label
 }
 
 function Write-PanelSection {
     param([string]$Title)
-    Write-Po0UiText "`n  $Title" DarkGray
+    Write-Po0UiText ''
+    Write-Po0UiText "  $Title" -Bold
+}
+
+function Format-Po0PanelLabel {
+    param([string]$Label)
+    return '  ' + (Format-Po0Cell $Label ([Math]::Max(12, (Get-Po0CellWidth $Label) + 2)))
 }
 
 function Write-PanelRow {
     param([string]$Label, [string]$Value)
-    Write-Po0UiText ('  ' + (Format-Po0Cell $Label ([Math]::Max(12, (Get-Po0CellWidth $Label) + 2)))) DarkGray -NoNewline
+    Write-Po0UiText (Format-Po0PanelLabel $Label) -NoNewline
     Write-Po0UiText $Value
 }
 
+# Keyword tone for status values; priority error > warn > ok > plain.
+function Get-Po0StatusTone {
+    param([string]$Value)
+    if (-not $Value) { return 'plain' }
+    $tones = [ordered]@{
+        error = @('异常', '失败', '无法', '错误', '无效')
+        warn = @('已停用', '已暂停', '未安装', '未配置', '暂不使用', '已关闭', '待迁移', '不一致', '等待', '未放行', '暂无', '状态未知')
+        ok = @('已启用', '运行中', '已配置', '已放行', '就绪', '已安装')
+    }
+    foreach ($tone in $tones.Keys) {
+        foreach ($word in $tones[$tone]) { if ($Value.Contains($word)) { return $tone } }
+    }
+    return 'plain'
+}
+
+function Get-Po0ToneColor {
+    param([string]$Tone)
+    switch ($Tone) { 'ok' { return 'Green' } 'warn' { return 'Yellow' } 'error' { return 'Red' } }
+    return ''
+}
+
+# Write-PanelRow layout with a semantic value color; -Tone ok|warn|error|plain overrides keywords.
+function Write-PanelStatusRow {
+    param([string]$Label, [string]$Value, [string]$Tone = '')
+    if ($Tone -notin @('ok', 'warn', 'error', 'plain')) { $Tone = Get-Po0StatusTone $Value }
+    Write-Po0UiText (Format-Po0PanelLabel $Label) -NoNewline
+    Write-Po0UiText $Value (Get-Po0ToneColor $Tone)
+}
+
 function Set-OutputColumn { param([int]$Column) Write-Po0UiText '  ' -NoNewline }
-function Write-PanelNote { param([string]$Value) Write-Po0UiText "  $Value" DarkGray }
+function Write-PanelNote { param([string]$Value) Write-Po0UiText "  $Value" }
 
 function Format-Po0Duration {
     param([int]$Seconds)
@@ -128,12 +173,12 @@ function Get-Po0DisplayOutcome {
 }
 
 function Write-Po0SlotRow {
-    param([string]$Slot, [string]$Ip, [string]$Label, [string]$Color = '', [int]$Width = 80)
+    param([string]$Slot, [string]$Ip, [string]$Label, [string]$Color = '', [int]$Width = 80, [switch]$Bold)
     if ($Width -lt 52) {
-        Write-Po0UiText "    $Slot  $Label" $Color
+        Write-Po0UiText "    $Slot  $Label" $Color -Bold:$Bold
         Write-Po0UiText "      $Ip"
     } else {
-        Write-Po0UiText ('    ' + (Format-Po0Cell $Slot 8) + (Format-Po0Cell $Ip 23) + $Label) $Color
+        Write-Po0UiText ('    ' + (Format-Po0Cell $Slot 8) + (Format-Po0Cell $Ip 23) + $Label) $Color -Bold:$Bold
     }
 }
 
@@ -180,7 +225,7 @@ function Show-Po0FirewallTable {
         if ($account.FixedSlot -ne '' -and [int]$account.FixedSlot -ge $account.Limit) { Write-Po0UiText '  指定槽位超出账号额度，请调整固定槽位。' Red }
         if ($outcome -eq 'error') { Write-PanelNote '以下为本次已取得的数据，操作未完成。' }
         Write-Po0UiText ''
-        if ($width -ge 52) { Write-Po0SlotRow '槽位' 'IP / 网段' '状态' DarkGray $width }
+        if ($width -ge 52) { Write-Po0SlotRow '槽位' 'IP / 网段' '状态' '' $width -Bold }
         $unassigned = @($account.Whitelist | Where-Object { $_.Slot -eq '' })
         $rows = @()
         if ($unassigned.Count) {
@@ -195,7 +240,7 @@ function Show-Po0FirewallTable {
         foreach ($entry in $rows) {
             $slotLabel = if ($entry.Slot -eq '') { '未编号' } else { '#{0}' -f (1 + [int]$entry.Slot) }
             $ip = if ($entry.Ip) { [string]$entry.Ip } else { '-' }
-            $label = if ($entry.Ip) { '已记录' } else { '空闲' }; $rowColor = if ($entry.Ip) { '' } else { 'DarkGray' }
+            $label = if ($entry.Ip) { '已记录' } else { '空闲' }; $rowColor = ''
             if ($entry.Ip -and $entry.Ip -eq $account.CurrentIp) {
                 $label = '出口匹配'
                 if ($outcome -ne 'error' -and ($account.FixedSlot -eq '' -or $entry.Slot -eq $account.FixedSlot)) { $label = "$mark 当前出口"; $rowColor = 'Green' }
@@ -216,10 +261,12 @@ function Show-Po0FirewallCached {
     $note = ''
     if (-not $state -or -not $identity) { $note = '暂无新版记录，检查后显示' }
     elseif ($identity -ne (Get-Po0DisplayConfigurationId)) { $note = '账号配置已更新，等待下次检查' }
-    if ($note) { Write-PanelRow '最近检查' $note; return }
+    if ($note) { Write-PanelStatusRow '最近检查' $note warn; return }
     if ($Summary) {
         $allowed = @($state.Accounts | Where-Object { (Get-Po0DisplayOutcome $_) -in @('hit','added') }).Count
-        Write-PanelRow '最近检查' ('{0} · {1}/{2} 已放行' -f (Format-Po0DisplayTime (Get-Po0DisplayProperty $state LastCheckedAt)), $allowed, @($state.Accounts).Count)
+        $total = @($state.Accounts).Count
+        $tone = if ($total -gt 0 -and $allowed -eq $total) { 'ok' } else { 'warn' }
+        Write-PanelStatusRow '最近检查' ('{0} · {1}/{2} 已放行' -f (Format-Po0DisplayTime (Get-Po0DisplayProperty $state LastCheckedAt)), $allowed, $total) $tone
     } else { Show-Po0FirewallTable $state '上次结果 / 本地记录' }
 }
 

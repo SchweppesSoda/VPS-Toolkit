@@ -1,9 +1,18 @@
+# Palette must stay readable on dark and light themes: hierarchy comes from bold and
+# spacing, never from grey text. Bright black (90) vanishes on Solarized Dark and similar
+# schemes, so it is not used. Faint (C_DIM) is limited to dividers and empty slots;
+# terminals without faint support render it as normal text.
+po0_color_enabled() {
+    [[ "${SCHEDULED_RUN:-0}" != 1 && -t 1 && -z "${NO_COLOR+x}" && "${TERM:-dumb}" != dumb ]]
+}
 setup_colors() {
     C_RESET='' C_BOLD='' C_DIM='' C_GREEN='' C_YELLOW='' C_RED='' C_CYAN='' C_PANEL=''
-    if [[ "${SCHEDULED_RUN:-0}" != 1 && -t 1 && -z "${NO_COLOR+x}" && "${TERM:-dumb}" != dumb ]]; then
-        C_RESET=$'\033[0m' C_BOLD=$'\033[1m' C_DIM=$'\033[90m'
+    C_TITLE='' C_SECTION='' C_KEY=''
+    if po0_color_enabled; then
+        C_RESET=$'\033[0m' C_BOLD=$'\033[1m' C_DIM=$'\033[2m'
         C_GREEN=$'\033[32m' C_YELLOW=$'\033[33m' C_RED=$'\033[31m' C_CYAN=$'\033[36m'
-        C_PANEL="$C_DIM"
+        C_TITLE=$'\033[1;36m' C_SECTION=$'\033[1m' C_KEY=$'\033[36m'
+        # Labels, notes and version text use the default foreground; C_PANEL stays empty.
     fi
 }
 setup_colors
@@ -49,14 +58,15 @@ print_panel_divider() {
 print_menu_divider() { print_panel_divider; }
 print_menu_footer() { printf '\n'; }
 po0_heading() {
-    local name="$1" status="${2:-}" color="${3:-$C_DIM}" width gap
+    local name="$1" status="${2:-}" color="${3:-}" width gap end=''
     width="$(po0_terminal_width)"; width=$((width-4)); (( width <= 72 )) || width=72
     gap=$((width - $(po0_cell_width "$name") - $(po0_cell_width "$status")))
+    [[ -z "$color" ]] || end="$C_RESET"
     if [[ -n "$status" ]] && (( gap >= 3 )); then
-        printf '  %b%s%*s%b%b%s%b\n' "$C_CYAN" "$name" "$gap" '' "$C_RESET" "$color" "$status" "$C_RESET"
+        printf '  %b%s%b%*s%b%s%b\n' "$C_TITLE" "$name" "$C_RESET" "$gap" '' "$color" "$status" "$end"
     else
-        printf '  %b%s%b\n' "$C_CYAN" "$name" "$C_RESET"
-        [[ -z "$status" ]] || printf '  %b%s%b\n' "$color" "$status" "$C_RESET"
+        printf '  %b%s%b\n' "$C_TITLE" "$name" "$C_RESET"
+        [[ -z "$status" ]] || printf '  %b%s%b\n' "$color" "$status" "$end"
     fi
     return 0
 }
@@ -64,18 +74,42 @@ print_title() {
     printf '\n'; po0_heading "$1" "${2:-}"; print_panel_divider
 }
 print_menu_item() {
-    local color="$C_CYAN"
-    [[ "$1" != 0 ]] || color="$C_DIM"
-    printf '    %b[%s]%b  %s\n' "$color" "$1" "$C_RESET" "$2"
+    if [[ "$1" == 0 ]]; then printf '    [%s]  %s\n' "$1" "$2"
+    else printf '    %b[%s]%b  %s\n' "$C_KEY" "$1" "$C_RESET" "$2"; fi
 }
-print_panel_section() { printf '\n  %b%s%b\n' "$C_DIM" "$1" "$C_RESET"; }
+print_panel_section() { printf '\n  %b%s%b\n' "$C_SECTION" "$1" "$C_RESET"; }
 print_panel_value_column() { printf '  '; }
-print_panel_row() {
-    local label="$1" size; shift
-    size=$(($(po0_cell_width "$label") + 2)); (( size >= 12 )) || size=12
-    printf '  %b%s%b%s\n' "$C_DIM" "$(po0_pad_cell "$label" "$size")" "$C_RESET" "$*"
+po0_panel_label() {
+    local size
+    size=$(($(po0_cell_width "$1") + 2)); (( size >= 12 )) || size=12
+    po0_pad_cell "$1" "$size"
 }
-print_panel_note() { printf '  %b%s%b\n' "$C_DIM" "$*" "$C_RESET"; }
+print_panel_row() {
+    local label="$1"; shift
+    printf '  %s%s\n' "$(po0_panel_label "$label")" "$*"
+}
+# Keyword tone for status values; priority error > warn > ok > plain.
+po0_status_tone() {
+    case "$1" in
+        *异常*|*失败*|*无法*|*错误*|*无效*) printf 'error' ;;
+        *已停用*|*已暂停*|*未安装*|*未配置*|*暂不使用*|*已关闭*|*待迁移*|*不一致*|*等待*|*未放行*|*暂无*|*状态未知*) printf 'warn' ;;
+        *已启用*|*运行中*|*已配置*|*已放行*|*就绪*|*已安装*) printf 'ok' ;;
+        *) printf 'plain' ;;
+    esac
+}
+# print_panel_status_row LABEL VALUE [ok|warn|error|plain]: print_panel_row layout with a
+# semantic value color. Without a valid TONE the value keywords decide.
+print_panel_status_row() {
+    local label="$1" value="${2:-}" tone="${3:-}" color=''
+    case "$tone" in ok|warn|error|plain) ;; *) tone="$(po0_status_tone "$value")" ;; esac
+    case "$tone" in ok) color="$C_GREEN" ;; warn) color="$C_YELLOW" ;; error) color="$C_RED" ;; esac
+    if [[ -n "$color" ]]; then
+        printf '  %s%b%s%b\n' "$(po0_panel_label "$label")" "$color" "$value" "$C_RESET"
+    else
+        printf '  %s%s\n' "$(po0_panel_label "$label")" "$value"
+    fi
+}
+print_panel_note() { printf '  %s\n' "$*"; }
 po0_duration() {
     local seconds="$1" result=''
     if (( seconds >= 3600 )); then result="$((seconds/3600)) 小时 "; seconds=$((seconds%3600)); fi

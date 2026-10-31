@@ -121,6 +121,84 @@ for platform in linux macos; do
     [[ ! -s "$tmp_dir/$platform-background" ]] || fail 'background rendered table'
     SCHEDULED_RUN=0 po0_display_live '重定向' "$records" 0 > "$tmp_dir/$platform-redirected"
     [[ ! -s "$tmp_dir/$platform-redirected" ]] || fail 'redirected live output rendered table'
+    # Forced-color palette: hierarchy uses bold, informative text keeps the default
+    # foreground, and bright black (90) never appears. NO_COLOR still yields plain text.
+    (
+        po0_color_enabled() { [[ -z "${NO_COLOR+x}" ]]; }
+        unset NO_COLOR SCHEDULED_RUN
+        setup_colors
+        exact() { grep -Fxq -- "$2" "$1" || fail "missing line $2"; }
+        out="$tmp_dir/$platform-palette"
+        {
+            print_title 'PO0 防火墙' 'v9.9.9'
+            print_panel_section '分组标题'
+            print_panel_row '行标签' '普通值'
+            print_panel_note '说明文字'
+            print_menu_item 1 '菜单项'
+            print_menu_item 0 '返回'
+        } > "$out"
+        absent "$out" $'\033[90m'
+        contains "$out" $'  \033[1;36mPO0 防火墙\033[0m'
+        line="$(grep -F 'v9.9.9' "$out")"; line="${line##*$'\033[0m'}"
+        [[ "${line// /}" == v9.9.9 ]] || fail 'version text is not default foreground'
+        contains "$out" $'  \033[2m'
+        exact "$out" $'  \033[1m分组标题\033[0m'
+        exact "$out" "  $(po0_pad_cell '行标签' 12)普通值"
+        exact "$out" '  说明文字'
+        exact "$out" $'    \033[36m[1]\033[0m  菜单项'
+        exact "$out" '    [0]  返回'
+        label="$(po0_pad_cell '状态' 12)"
+        while IFS='|' read -r value tone code; do
+            line="$(print_panel_status_row '状态' "$value" ${tone:+"$tone"})"
+            if [[ -z "$code" ]]; then [[ "$line" == "  $label$value" ]] || fail "status plain: $value/$tone"
+            else [[ "$line" == "  $label"$'\033['"${code}m$value"$'\033[0m' ]] || fail "status tone: $value/$tone"; fi
+        done <<'CASES'
+运行中||32
+已启用（每 10 分钟）||32
+已安装 · 就绪||32
+已暂停||33
+未配置||33
+已放行 · 等待下次检查||33
+上报失败||31
+已启用，但最近一次失败||31
+每 600 秒||
+已启用|warn|33
+失败|ok|32
+已启用|plain|
+未配置|bogus|33
+CASES
+        multi='1|hit|203.0.113.25/24|192.0.2.18/24@0,203.0.113.25/24@6|2|7|
+2|missing|198.51.100.25/24|192.0.2.2/24@1|1|7|
+3|error|||||9'
+        COLUMNS=100 po0_display_render '上报结果' "$multi" 1793341928 1 > "$out-table"
+        absent "$out-table" $'\033[90m'
+        for value in $'    \033[1m槽位' $'    \033[2m#2' $'\033[32m已放行' $'\033[33m未放行' $'\033[31m操作失败' $'  \033[1;36m第二账号'; do
+            contains "$out-table" "$value"
+        done
+        exact "$out-table" '  占用 2/7  ·  剩余 5 个  ·  自动分配'
+        exact "$out-table" "  $(po0_pad_cell '检查时间' 12)$(po0_display_time 1793341928)"
+        NO_COLOR=1 COLUMNS=100 po0_display_render '上报结果' "$multi" 1793341928 1 > "$out-plain"
+        absent "$out-plain" $'\033'
+        contains "$out-plain" '    槽位'
+        PO0_FIREWALL_TOKENS='pgnfw_fixture_a,pgnfw_fixture_b'
+        printf 'last_checked_at=1793341928\ndisplay_config_id=%s\nitem=%s\nitem=%s\n' "$(po0_display_config_id)" \
+            '1|hit|203.0.113.1/24|203.0.113.1/24@0|1|7|' '2|added|203.0.113.1/24|203.0.113.1/24@1|1|7|' > "$fixture_state_path"
+        po0_display_cached summary > "$out-cache"
+        contains "$out-cache" $'\033[32m'"$(po0_display_time 1793341928) · 2/2 已放行"$'\033[0m'
+        printf 'item=%s\n' '3|missing|203.0.113.1/24||0|7|' >> "$fixture_state_path"
+        po0_display_cached summary > "$out-cache"
+        contains "$out-cache" $'\033[33m'"$(po0_display_time 1793341928) · 2/3 已放行"
+        (export NO_COLOR=1; setup_colors; po0_display_cached summary; print_title 'PO0 防火墙' 'v9.9.9'
+            print_panel_section '分组标题'; print_panel_status_row '状态' '上报失败'; print_menu_item 1 '菜单项') > "$out-cache-plain"
+        absent "$out-cache-plain" $'\033'
+        contains "$out-cache-plain" '2/3 已放行'
+        PO0_FIREWALL_TOKENS='pgnfw_fixture_b'
+        po0_display_cached summary > "$out-cache"
+        contains "$out-cache" $'\033[33m账号配置已更新，等待下次检查'
+        printf 'last_checked_at=1793341928\n' > "$fixture_state_path"
+        po0_display_cached summary > "$out-cache"
+        contains "$out-cache" $'\033[33m暂无新版记录，检查后显示'
+    )
 )
 done
-printf 'PASS: terminal full-slot rendering, cache identity and output modes.\n'
+printf 'PASS: terminal full-slot rendering, cache identity, output modes and readable palette.\n'
