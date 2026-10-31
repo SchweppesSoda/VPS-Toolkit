@@ -826,7 +826,7 @@ function testEgernScriptCopiesStaySynchronized() {
   assert.equal(previousYaml, yamlSource);
   const urls = [...yamlSource.matchAll(/script_url: "([^"]+)"/g)].map(match => match[1]);
   assert.equal(urls.length, 12);
-  assert(urls.every(url => url === 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20261030-widget-redesign-v6'));
+  assert(urls.every(url => url === 'https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/egern/po0-firewall.js?v=20261031-widget-polish-v1'));
 }
 
 
@@ -1798,7 +1798,23 @@ async function testWidgetErrorsHiddenAccountsAndBounds() {
   }
 }
 
+async function testUnconfiguredWidgetsCenterTheSetupStep() {
+  for (const [widgetFamily, budget] of [['systemSmall', 148], ['systemMedium', MEDIUM_HEIGHT_BUDGET], ['systemLarge', LARGE_HEIGHT_BUDGET]]) {
+    const empty = createContext({ widgetFamily, env: { PO0_FIREWALL_TOKENS: '' } });
+    const widget = await runEgernReport(empty.ctx);
+    const text = visibleText(widget);
+    assert.match(text, /尚未配置账号/);
+    assert.match(text, /保存配置/);
+    assert.doesNotMatch(text, /未检查|每 \d+ 分钟/, 'no placeholder status, schedule or time before an account exists');
+    assert(widgetNodes(widget).some(node => node.src === 'sf-symbol:key.fill'));
+    assert(widget.children.some(node => node.type === 'stack' && node.flex > 0), 'the setup step takes the remaining height');
+    assert(widgetHeightBudget(widget) <= budget, 'the empty state fits the smallest widget of its size');
+    assert.equal(empty.calls.get.length + empty.calls.post.length, 0);
+  }
+}
+
 const tests = [
+  testUnconfiguredWidgetsCenterTheSetupStep,
   testQuotaGridAcrossAccountCounts,
   testWidgetMixedNumberingListsRealRecords,
   testWidgetRootsKeepOpaqueBackground,

@@ -830,9 +830,10 @@ function widgetPill(text, tone, size = 12) {
 
 function widgetLargeSingle(entry) {
   const model = widgetSlotModel(entry);
+  // The exit IP above stays the only large figure; the account row reads as a section title.
   const title = widgetRow([
-    { ...widgetText(entry.name || '账号', 17, WIDGET_COLORS.text, 'semibold'), flex: 1, minScale: 0.85 },
-    widgetText(widgetSlotMeta(entry), 13, WIDGET_COLORS.secondary, 'medium'),
+    { ...widgetText(entry.name || '账号', 15, WIDGET_COLORS.text, 'semibold'), flex: 1, minScale: 0.85 },
+    widgetText(widgetSlotMeta(entry), 12, WIDGET_COLORS.secondary, 'medium'),
   ], 8);
   let body;
   if (entry.status === 'error') {
@@ -896,12 +897,17 @@ function widgetSmallAccount(entry, count) {
   return widgetColumn([line, ...meter], 5);
 }
 
+// Empty state centered in the remaining space: symbol, title, then the one step that fixes it.
 function widgetEmptyAccounts(family) {
-  return widgetColumn([
+  const small = family === 'small';
+  const large = family === 'large';
+  return { ...widgetRow([spacerNode(), widgetColumn([
     spacerNode(),
-    widgetLine([widgetText('尚未配置账号', family === 'small' ? 14 : 16, WIDGET_COLORS.text, 'semibold')]),
-    widgetLine([{ ...widgetText('填写上报账号后，运行“PO0 防火墙 · 保存配置”', family === 'small' ? 11 : 13, WIDGET_COLORS.secondary), maxLines: 3 }]),
-  ], 4, { flex: 1 });
+    iconNode('key.fill', WIDGET_COLORS.tertiary, small ? 20 : large ? 28 : 22),
+    widgetText('尚未配置账号', small ? 14 : 16, WIDGET_COLORS.text, 'semibold'),
+    { ...widgetText('填写上报账号后，运行“PO0 防火墙 · 保存配置”', small ? 11 : 12, WIDGET_COLORS.secondary), maxLines: family === 'medium' ? 2 : 3, textAlign: 'center' },
+    spacerNode(),
+  ], large ? 6 : 4, { alignItems: 'center' }), spacerNode()], 0), flex: 1 };
 }
 
 function officialReadOnlyWidget(state, ctx, env) {
@@ -953,32 +959,40 @@ function widgetFromState(state, ctx, deviceId = '', env = ctx?.env || {}) {
     : state?.skipped ? '未到检查时间 · 显示上次结果' : '');
   const schedule = auto.text !== '自动上报已启用' ? auto.text : officialTimerEnabled(env) ? '每 ' + formatDurationSeconds(officialIntervalSeconds(env)) : '网络变化时检查';
   const timestamp = lastTime && Number.isFinite(Date.parse(lastTime)) ? formatTime(lastTime) : '未检查';
-  const footer = !entries.length ? { text: '未配置', color: WIDGET_COLORS.secondary } : hidden
+  const footer = hidden
     ? { text: '另 ' + hidden + ' 个账号未显示' + (hiddenFailures ? ' · 含 ' + hiddenFailures + ' 个异常' : '') + (notice ? ' · 上次结果' : ''), color: hiddenFailures ? WIDGET_COLORS.red : WIDGET_COLORS.secondary }
     : notice ? { text: family === 'small' ? (state?.skipType === 'wifi-ssid' ? 'Wi-Fi 已跳过' : '显示上次结果') : notice, color: state?.uiNotice === '操作未完成' ? WIDGET_COLORS.red : WIDGET_COLORS.secondary }
       : { text: schedule, color: auto.color };
   const footerRow = widgetRow([
     { ...widgetText(family === 'small' && hidden ? '另 ' + hidden + ' 个账号' : footer.text, family === 'large' ? 12 : 11, footer.color), flex: 1, maxLines: family === 'medium' ? 2 : 1 },
-    widgetText(timestamp, family === 'large' ? 12 : 11, WIDGET_COLORS.secondary, 'medium'),
+    // The clock marks the trailing time as the last check, not the next one.
+    widgetRow([iconNode('clock', WIDGET_COLORS.secondary, family === 'large' ? 11 : 10), widgetText(timestamp, family === 'large' ? 12 : 11, WIDGET_COLORS.secondary, 'medium')], 3),
   ], 6);
   const tone = WIDGET_TONES[summaryTone];
   const networkLine = (size, gap = 4) => widgetLine([iconNode(network.icon || 'network', WIDGET_COLORS.secondary, size), { ...widgetText(networkText, size, WIDGET_COLORS.secondary), minScale: 0.85 }], gap);
   const ipText = size => ({ ...widgetText(ip, size, WIDGET_COLORS.text, 'semibold'), minScale: 0.6 });
   const differentIps = new Set(shown.map(entry => entry.currentIp).filter(Boolean)).size > 1;
   let children;
-  if (family === 'small') {
+  if (!shown.length) {
+    // Nothing to report yet: the title and the setup step, without placeholder status or times.
+    const size = family === 'small' ? 13 : family === 'medium' ? 14 : 15;
+    children = [
+      widgetRow([iconNode(tone.shield, tone.color, size + (family === 'small' ? 0 : 1)), widgetText(family === 'small' ? 'PO0' : 'PO0 防火墙', size, WIDGET_COLORS.text, 'semibold'), spacerNode()], family === 'small' ? 4 : 6),
+      widgetEmptyAccounts(family),
+    ];
+  } else if (family === 'small') {
     children = [
       widgetRow([iconNode(tone.shield, tone.color, 13), widgetText('PO0', 13, WIDGET_COLORS.text, 'semibold'), spacerNode(), { ...widgetText(summary, 11, tone.color, 'semibold'), minScale: 0.8 }], 4),
-      ...(shown.length ? [widgetColumn([widgetLine([ipText(19)]), networkLine(11, 3)], 1)] : []),
-      shown.length ? widgetColumn([spacerNode(), widgetColumn(shown.map(entry => widgetSmallAccount(entry, shown.length)), 4)], 0, { flex: 1 }) : widgetEmptyAccounts(family),
+      widgetColumn([widgetLine([ipText(19)]), networkLine(11, 3)], 1),
+      widgetColumn([spacerNode(), widgetColumn(shown.map(entry => widgetSmallAccount(entry, shown.length)), 4)], 0, { flex: 1 }),
       footerRow,
     ];
   } else if (family === 'medium') {
     children = [
       widgetRow([iconNode(tone.shield, tone.color, 15), widgetText('PO0 防火墙', 14, WIDGET_COLORS.text, 'semibold'), spacerNode(), widgetPill(summary, summaryTone, 11)], 6),
       { ...widgetRow([
-        widgetColumn([...(shown.length ? [widgetLine([ipText(21)]), networkLine(12)] : [networkLine(12)]), spacerNode(), footerRow], 3, { flex: 1 }),
-        shown.length ? widgetColumn(shown.map(entry => widgetMediumCard(entry, shown.length)), shown.length === 3 ? 4 : 5, { flex: 1 }) : widgetEmptyAccounts(family),
+        widgetColumn([widgetLine([ipText(21)]), networkLine(12), spacerNode(), footerRow], 3, { flex: 1 }),
+        widgetColumn(shown.map(entry => widgetMediumCard(entry, shown.length)), shown.length === 3 ? 4 : 5, { flex: 1 }),
       ], 12), flex: 1, alignItems: 'start' },
     ];
   } else {
@@ -987,13 +1001,11 @@ function widgetFromState(state, ctx, deviceId = '', env = ctx?.env || {}) {
     children = [
       widgetColumn([
         widgetRow([iconNode(tone.shield, tone.color, 16), widgetText('PO0 防火墙', 15, WIDGET_COLORS.text, 'semibold'), spacerNode(), widgetPill(summary, summaryTone)], 6),
-        !shown.length ? networkLine(13)
-          : single ? widgetColumn([widgetLine([ipText(28)]), networkLine(13)], 1)
+        single ? widgetColumn([widgetLine([ipText(28)]), networkLine(13)], 1)
           : widgetRow([ipText(24), spacerNode(), iconNode(network.icon || 'network', WIDGET_COLORS.secondary, 12), { ...widgetText(networkText, 12, WIDGET_COLORS.secondary), minScale: 0.85 }], 4),
       ], 4),
-      !shown.length ? widgetEmptyAccounts(family)
-        : single ? widgetLargeSingle(shown[0])
-          : widgetColumn(shown.map((entry, index) => widgetLargeCard(entry, { differentIps, timestamp }, recordRows[index])), 8, { flex: 1 }),
+      single ? widgetLargeSingle(shown[0])
+        : widgetColumn(shown.map((entry, index) => widgetLargeCard(entry, { differentIps, timestamp }, recordRows[index])), 8, { flex: 1 }),
       footerRow,
     ];
   }
