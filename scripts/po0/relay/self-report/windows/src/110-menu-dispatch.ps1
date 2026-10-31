@@ -10,11 +10,9 @@ function Show-RecentReportResults {
 
 function Show-ClientOverview {
     Write-Title 'PO0 防火墙' $ScriptVersion
-    Write-PanelRow '自动上报' (Get-ChannelAutoLabel official)
-    Write-PanelRow '检查间隔' ((Format-Po0Duration (Get-ChannelIntervalSeconds official)) + $(if ($script:OfficialTimerEnabled) { '' } else { '（定期已关闭）' }))
-    $task = (Get-ScheduledReporterSummary official) -replace '；周期 .*$', ''
-    $task = $task -replace '^Ready$', '就绪' -replace '^Running$', '运行中' -replace '^Queued$', '等待执行' -replace '^Unknown$', '状态未知'
-    Write-PanelRow '自动任务' $task
+    Write-PanelStatusRow '自动上报' (Get-ChannelAutoLabel official)
+    Write-PanelStatusRow '定期上报' (Get-ChannelPeriodicLabel official)
+    Write-PanelStatusRow '计划任务' ((Get-ScheduledReporterSummary official) -replace '；周期 .*$', '')
     Show-OfficialTargetNames
     Show-Po0FirewallCached -Summary
 }
@@ -22,17 +20,17 @@ function Show-ClientOverview {
 function Set-ChannelNamesInteractive {
     param([ValidateSet('worker', 'official')][string]$Channel)
         $items = @(Get-Po0FirewallTokenItems)
-        if ($items.Count -eq 0) { throw "请先保存官方 Token，再设置目标名称。" }
+        if ($items.Count -eq 0) { throw "请先在「官方账号与槽位」中保存 Token，再设置账号名称。" }
         $names = @()
         for ($index = 1; $index -le $items.Count; $index++) {
-            $name = Read-Default "官方目标 $index 名称（仅本机显示；- 恢复默认）" (Get-OfficialAccountName $index)
+            $name = Read-Default "账号 $index 名称（仅本机显示；- 恢复默认）" (Get-OfficialAccountName $index)
             if ($name -match '[;；\r\n]') { throw "单个名称不能包含分号或换行。" }
             if ($name -eq '-') { $name = '' }
             $names += $name
         }
         $script:Po0FirewallNames = $names -join ';'
     Save-ClientConfig
-    Write-Host '目标名称已保存。'
+    Write-Host '账号名称已保存。'
 }
 
 function Invoke-ChannelInteractive {
@@ -47,11 +45,11 @@ function Invoke-ChannelInteractive {
         $script:Po0FirewallWorkerOnly = $Channel -eq 'worker'
         $script:Po0FirewallScheduledRun = $false
         if ($Channel -eq 'worker' -and -not $script:WorkerUrl) { throw '自建防火墙尚未配置，请先编辑并保存参数。' }
-        if ($Channel -eq 'official' -and -not (Test-Po0FirewallConfigured)) { throw '官方防火墙尚未配置，请先编辑并保存参数。' }
-        if (-not (Test-ClientConfigComplete)) { throw '尚未配置上报通道，请先进入通道设置。' }
+        if ($Channel -eq 'official' -and -not (Test-Po0FirewallConfigured)) { throw '尚未保存官方账号，请先在「官方账号与槽位」中保存 Token。' }
+        if (-not (Test-ClientConfigComplete)) { throw '本机配置不完整，请先检查「官方账号与槽位」。' }
         Invoke-SelfReport -PromptForForceOnSkip
     } catch {
-        Write-SelfReportLogLine 'ERROR' '本通道手动上报未完成。'
+        Write-SelfReportLogLine 'ERROR' '手动上报未完成。'
         throw
     } finally {
         $script:LogPath = $oldLogPath
@@ -61,81 +59,57 @@ function Invoke-ChannelInteractive {
     }
 }
 
-function Invoke-ChannelSettingsMenu {
-    param([ValidateSet('worker','official')][string]$Channel)
-    $Channel = 'official'
-    $title = '官方防火墙'
-    $maximum = 11
+# Account settings only; reporting and query actions live in the main menu.
+function Invoke-OfficialAccountMenu {
     while ($true) {
-        Write-Title "$title · 设置"
-        Write-PanelRow '配置状态' $(if (Test-ChannelConfigured $Channel) { '已配置' } else { '未配置' })
-        Write-PanelRow '自动上报' (Get-ChannelAutoLabel $Channel)
-        Write-PanelRow '自动任务' (Get-ScheduledReporterSummary $Channel)
-        if (Test-ChannelConfigured $Channel) {
-            $enabled = if ($Channel -eq 'official') { $script:OfficialTimerEnabled } else { $script:WorkerTimerEnabled }
-            Write-PanelRow '启用定期上报' $(if ($enabled) { '是' } else { '否' })
-            Write-PanelRow '上报间隔' (Get-ChannelIntervalLabel $Channel)
-            if ($Channel -eq 'official') { Show-OfficialTargetNames }
-        }
-        Write-MenuItem 1 '保存配置（编辑参数）'
-        Write-MenuItem 2 '设置目标名称'
-        Write-MenuItem 3 '启用 / 停用自动上报'
-        Write-MenuItem 4 '定期上报设置（开关与间隔）'
-        Write-MenuItem 5 '查看本机配置'
-        Write-MenuItem 6 '立即上报'
-        Write-MenuItem 7 '强制上报（绕过本机跳过条件）'
-        Write-MenuItem 8 '安装 / 更新本通道自动任务'
-        Write-MenuItem 9 '删除本通道自动任务'
-        Write-MenuItem 10 '清除本通道配置'
-        if ($Channel -eq 'official') { Write-MenuItem 11 '查询官方白名单' }
-        Write-MenuItem 0 '返回主菜单'
-        $choice = Read-Host "请选择 [0-$maximum]"
-        if ($null -eq $choice -or $choice -eq '0') { return }
+        Write-Title 'PO0 防火墙 · 官方账号与槽位'
+        Write-PanelStatusRow '配置状态' $(if (Test-ChannelConfigured official) { '已配置' } else { '未配置' })
+        Show-OfficialTargetNames
+        Write-Po0UiText ''
+        Write-MenuItem '1' '编辑 Token 与槽位'
+        Write-MenuItem '2' '设置账号名称'
+        Write-MenuItem '3' '清除官方账号'
+        Write-MenuItem '0' '返回主菜单'
+        $choice = Read-Host '请选择 [0-3]'
+        if ($null -eq $choice) { return }
         try {
-            switch ($choice) {
-                '1' { Set-OfficialConfigInteractive; Update-ChannelScheduleIfInstalled $Channel }
-                '2' { Set-ChannelNamesInteractive $Channel }
-                '3' { Toggle-ChannelAutoInteractive $Channel }
-                '4' { Set-ChannelPeriodicInteractive $Channel }
-                '5' { Show-ChannelConfig $Channel }
-                '6' { Invoke-ChannelInteractive $Channel }
-                '7' { Invoke-ChannelForceInteractive $Channel }
-                '8' { Install-ScheduledReporterInteractive -Channel $Channel }
-                '9' { if (Read-YesNoDefault '删除本通道自动任务（保留配置）' $false) { Remove-ScheduledReporter -Channel $Channel; Save-ClientConfig } }
-                '10' { Clear-OfficialConfigInteractive; Update-ChannelScheduleIfInstalled $Channel }
-                '11' { if ($Channel -eq 'official') { Show-OfficialStatusInteractive } else { throw '无效选择。' } }
-                default { throw "无效选择：请输入 0-$maximum。" }
+            switch ($choice.Trim()) {
+                '1' { Set-OfficialConfigInteractive; Update-ChannelScheduleIfInstalled official }
+                '2' { Set-ChannelNamesInteractive official }
+                '3' { Clear-OfficialConfigInteractive; Update-ChannelScheduleIfInstalled official }
+                '0' { return }
+                default { throw '无效选择：请输入 0-3。' }
             }
         } catch { Write-Po0UiText $_.Exception.Message -Color Red }
         Pause-Menu
     }
 }
 
+# One place for the switch, interval and scheduler task of automatic reports.
 function Invoke-AutomaticReportingMenu {
-    Invoke-ChannelScheduleMenu official
-}
-
-function Invoke-ChannelScheduleMenu {
-    param([ValidateSet('worker','official')][string]$Channel)
     while ($true) {
-        Write-Title $(if ($Channel -eq 'worker') { '自建防火墙 · 定时任务' } else { '官方防火墙 · 定时任务' })
-        Write-PanelRow '实际状态' (Get-ScheduledReporterSummary $Channel)
-        Write-PanelRow '上报间隔' (Get-ChannelIntervalLabel $Channel)
-        Write-MenuItem '1' '安装 / 更新本通道定时任务'
-        Write-MenuItem '2' '暂停 / 恢复本通道自动上报'
-        Write-MenuItem '3' '查看本通道任务状态和日志'
-        Write-MenuItem '4' '删除本通道自动任务'
-        Write-MenuItem '0' '返回'
-        $choice = Read-Host '请选择 [0-4]'
+        Write-Title 'PO0 防火墙 · 自动上报与计划任务'
+        Write-PanelStatusRow '自动上报' (Get-ChannelAutoLabel official)
+        Write-PanelStatusRow '定期上报' (Get-ChannelPeriodicLabel official)
+        Write-PanelStatusRow '计划任务' (Get-ScheduledReporterSummary official)
+        Write-Po0UiText ''
+        Write-MenuItem '1' '安装 / 更新计划任务'
+        Write-MenuItem '2' '暂停 / 恢复自动上报'
+        Write-MenuItem '3' '定期上报开关与间隔'
+        Write-MenuItem '4' '查看计划任务状态与日志'
+        Write-MenuItem '5' '删除计划任务'
+        Write-MenuItem '0' '返回主菜单'
+        $choice = Read-Host '请选择 [0-5]'
         if ($null -eq $choice) { return }
         try {
             switch ($choice.Trim()) {
-                '1' { Install-ScheduledReporterInteractive -Channel $Channel }
-                '2' { Toggle-ScheduledReporterPaused -Channel $Channel }
-                '3' { Show-ScheduledReporter -Channel $Channel }
-                '4' { if (Read-YesNoDefault '删除本通道自动任务（保留配置）' $false) { Remove-ScheduledReporter -Channel $Channel } }
+                '1' { Install-ScheduledReporterInteractive -Channel official }
+                '2' { Toggle-ScheduledReporterPaused -Channel official }
+                '3' { Set-ChannelPeriodicInteractive official }
+                '4' { Show-ScheduledReporter -Channel official }
+                '5' { if (Read-YesNoDefault '删除计划任务（账号与设置保留）' $false) { Remove-ScheduledReporter -Channel official; Save-ClientConfig } }
                 '0' { return }
-                default { Write-Host '无效选择：请输入 0-4。' }
+                default { Write-Host '无效选择：请输入 0-5。' }
             }
         } catch { Write-SelfReportIncomplete $_.Exception.Message }
         Pause-Menu
@@ -145,17 +119,21 @@ function Invoke-ChannelScheduleMenu {
 function Invoke-ClientMaintenanceMenu {
     while ($true) {
         Write-Title '维护与诊断'
+        Write-PanelRow '客户端版本' $ScriptVersion
         Write-PanelRow '脚本路径' $PSCommandPath
         Write-PanelRow '配置文件' $script:ConfigPath
         Write-PanelRow '运行日志' (Get-DefaultLogPath)
+        Write-Po0UiText ''
         Write-MenuItem '1' '更新客户端脚本'
-        Write-MenuItem '2' '卸载客户端'
+        Write-MenuItem '2' '迁移旧版自建配置与任务'
+        Write-MenuItem '3' '卸载客户端'
         Write-MenuItem '0' '返回主菜单'
-        $choice = Read-Host '请选择 [0-2]'
+        $choice = Read-Host '请选择 [0-3]'
         if ($null -eq $choice) { return }
         switch ($choice.Trim()) {
             '1' { Upgrade-SelfFromDownload -ReopenMenu }
-            '2' {
+            '2' { Invoke-RetiredStateMigration }
+            '3' {
                 if (Read-YesNoDefault '卸载客户端与自动上报计划' $false) {
                     $removeData = Read-YesNoDefault '同时删除本机配置和日志' $false
                     Uninstall-SelfReportClient -RemoveData:$removeData
@@ -165,7 +143,7 @@ function Invoke-ClientMaintenanceMenu {
                 }
             }
             '0' { return }
-            default { Write-Host '无效选择：请输入 0-2。' }
+            default { Write-Host '无效选择：请输入 0-3。' }
         }
         Pause-Menu
     }
@@ -175,31 +153,32 @@ function Invoke-InteractiveMenu {
     $script:ClientMenuUninstalled = $false
     while ($true) {
         Show-ClientOverview
-        Write-PanelSection '操作与设置'
-        Write-MenuItem '1' '官方防火墙设置'
-        Write-MenuItem '2' '网络探测 / SSID 跳过'
-        Write-MenuItem '3' '立即上报'
-        Write-MenuItem '4' '最近上报结果'
-        Write-MenuItem '5' '自动上报管理'
-        Write-MenuItem '6' '查看本机配置'
+        Write-PanelSection '上报与查询'
+        Write-MenuItem '1' '立即上报'
+        Write-MenuItem '2' '查询官方白名单（只读）'
+        Write-MenuItem '3' '最近上报结果'
+        Write-PanelSection '设置'
+        Write-MenuItem '4' '官方账号与槽位'
+        Write-MenuItem '5' '自动上报与计划任务'
+        Write-MenuItem '6' '网络探测与 Wi-Fi 跳过'
+        Write-MenuItem '7' '查看本机配置'
         Write-PanelSection '维护'
-        Write-MenuItem '7' '维护与诊断'
-        Write-MenuItem '8' '迁移旧版自建配置与任务'
+        Write-MenuItem '8' '维护与诊断'
         Write-MenuItem '0' '退出'
         $choice = Read-Host '请选择 [0-8]'
         if ($null -eq $choice) { return }
         try {
             switch ($choice.Trim()) {
-                '1' { Invoke-ChannelSettingsMenu official }
-                '2' { Set-CommonConfigInteractive; Pause-Menu }
-                '3' { Invoke-ChannelInteractive official; Pause-Menu }
-                '4' { Show-RecentReportResults; Pause-Menu }
+                '1' { Invoke-ChannelInteractive official; Pause-Menu }
+                '2' { Show-OfficialStatusInteractive; Pause-Menu }
+                '3' { Show-RecentReportResults; Pause-Menu }
+                '4' { Invoke-OfficialAccountMenu }
                 '5' { Invoke-AutomaticReportingMenu }
-                '6' { Show-ClientConfig; Pause-Menu }
-                '7' { Invoke-ClientMaintenanceMenu; if ($script:ClientMenuUninstalled) { return } }
-                '8' { Invoke-RetiredStateMigration; Pause-Menu }
+                '6' { Set-CommonConfigInteractive; Pause-Menu }
+                '7' { Show-ClientConfig; Pause-Menu }
+                '8' { Invoke-ClientMaintenanceMenu; if ($script:ClientMenuUninstalled) { return } }
                 '0' { return }
-                default { Write-Host '无效选择。'; Pause-Menu }
+                default { Write-Host '无效选择：请输入 0-8。'; Pause-Menu }
             }
         } catch { Write-SelfReportIncomplete $_.Exception.Message; Pause-Menu }
     }

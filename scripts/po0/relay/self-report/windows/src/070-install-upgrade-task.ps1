@@ -701,7 +701,7 @@ function Sync-ScheduledReporterTasks {
             if ($Mode -eq 'remove') { $remove = $true }
             elseif ($Mode -eq 'install' -or $record.Task -or $legacy.Task) {
                 if (Test-ChannelConfigured $lane) { $write = $true }
-                elseif ($Mode -eq 'install' -and $Channel -ne 'all') { throw '请先保存本通道参数。' }
+                elseif ($Mode -eq 'install' -and $Channel -ne 'all') { throw '请先在「官方账号与槽位」中保存 Token。' }
                 else { $remove = [bool]$record.Task }
             }
         } elseif ($legacy.Task -and -not $record.Task -and (Test-ChannelConfigured $lane)) { $write = $true }

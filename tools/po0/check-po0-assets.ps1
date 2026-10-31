@@ -10,9 +10,9 @@ if (-not $OutputDir) {
 }
 
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.10.30+build.5" }
-$ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-10-30" }
-$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.10.30.5" }
+$ExpectedPo0Version = if ($env:PO0_EXPECTED_ASSET_VERSION) { $env:PO0_EXPECTED_ASSET_VERSION } else { "2026.10.31+build.1" }
+$ExpectedPo0ReleaseDate = if ($env:PO0_EXPECTED_RELEASE_DATE) { $env:PO0_EXPECTED_RELEASE_DATE } else { "2026-10-31" }
+$ExpectedPo0ReleaseTag = if ($env:PO0_EXPECTED_RELEASE_TAG) { $env:PO0_EXPECTED_RELEASE_TAG } else { "po0-v2026.10.31.1" }
 
 function ConvertTo-RepoRelativePath {
     param([string]$Path)
@@ -372,7 +372,7 @@ function Test-MacOsWifiSsidDiagnostic {
     if ($raw -notmatch 'request_macos_location_permission\(\)' -or $raw -notmatch 'ensure_macos_location_permission_helper_app\(\)' -or $raw -notmatch 'macos_location_helper_wifi_ssid\(\)') {
         throw "macOS asset lacks Location Services authorization request helper."
     }
-    if ($raw -notmatch 'client_maintenance_menu\(\)' -or $raw -notmatch 'max_choice=4' -or $raw -notmatch '请选择 \[0-\$max_choice\]' -or $raw -notmatch '7\) client_maintenance_menu;' -or $raw -notmatch '3\).*then show_wifi_ssid_permission_help_interactive;' -or $raw -notmatch '4\).*then remove_macos_location_permission_helper_app_interactive;') {
+    if ($raw -notmatch 'client_maintenance_menu\(\)' -or $raw -notmatch 'max_choice=5' -or $raw -notmatch '请选择 \[0-\$max_choice\]' -or $raw -notmatch '8\) client_maintenance_menu;' -or $raw -notmatch '4\).*then show_wifi_ssid_permission_help_interactive;' -or $raw -notmatch '5\).*then remove_macos_location_permission_helper_app_interactive;') {
         throw "macOS asset lacks Wi-Fi SSID diagnostic menu/range/case wiring."
     }
     if ($raw -notmatch 'remove_macos_location_permission_helper_app\(\)' -or $raw -notmatch 'remove_macos_location_permission_helper_app_interactive\(\)') {

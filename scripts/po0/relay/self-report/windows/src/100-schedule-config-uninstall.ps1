@@ -4,7 +4,7 @@ function Get-ScheduledReporterSummary {
     try {
         $record = Get-ScheduledReporterTaskRecord -Channel $Channel
         if (-not $record.Task) { if ((Get-LegacyReporterRecord).Task) { return '旧共享任务，待迁移' }; return '未安装' }
-        $label = if ($record.Task.State -eq 'Disabled') { '已暂停' } else { [string]$record.Task.State }
+        $label = switch ([string]$record.Task.State) { 'Disabled' { '已暂停' }; 'Ready' { '就绪' }; 'Running' { '运行中' }; 'Queued' { '等待执行' }; default { '状态未知' } }
         return "$label；周期 $(Get-ChannelIntervalSeconds $Channel) 秒"
     } catch { return '无法读取' }
 }
@@ -43,14 +43,18 @@ function Write-NotifyStatusRows {
 }
 
 function Show-ClientConfig {
+    Write-Title 'PO0 防火墙 · 本机配置'
     Show-ChannelConfig official
-    Write-PanelRow 'SSID 跳过' ($script:SkipWifiSsids -join ';')
+    Write-PanelSection '网络探测与 Wi-Fi 跳过'
+    Write-PanelRow 'IPv4 探测' $(if ($script:IpCheckUrl) { $script:IpCheckUrl } else { '默认' })
+    Write-PanelRow 'SSID 跳过' $(if (@($script:SkipWifiSsids).Count) { $script:SkipWifiSsids -join ';' } else { '未设置' })
+    Write-PanelSection '文件位置'
     Write-PanelRow '配置文件' $script:ConfigPath
 }
 
 
 function Set-CommonConfigInteractive {
-    Write-PanelSection "通用设置 · 本机探测与 Wi-Fi 跳过"
+    Write-PanelSection "网络探测与 Wi-Fi 跳过"
     $script:IpCheckUrl = Read-Default "首选公网 IPv4 探测 URL" $script:IpCheckUrl
     $override = Read-Host "是否覆盖完整 IP 探测 URL 列表 [y/N]"
     if ($override -match "^(y|yes)$") {
@@ -96,7 +100,7 @@ function Show-OfficialStatusInteractive {
 function Install-ScheduledReporterInteractive {
     param([ValidateSet('all','worker','official')][string]$Channel='all')
     if ($Channel -eq 'all') { Install-ScheduledReporter -Channel all; return }
-    if (-not (Test-ChannelConfigured $Channel)) { throw '请先保存本通道参数。' }
+    if (-not (Test-ChannelConfigured $Channel)) { throw '请先在「官方账号与槽位」中保存 Token。' }
     Set-ChannelPeriodicInteractive $Channel
     Install-ScheduledReporter -Channel $Channel
 }
@@ -203,10 +207,10 @@ function Set-ScheduledReporterPaused {
         if (($failure.Exception.HResult -band 0xffff) -eq 5 -or $failure.Exception.Message -match '拒绝访问|access.*denied') {
             $reason = '权限不足；请使用安装任务时的 Windows 账号和权限，并继续指定当前配置文件重试。'
         }
-        $restore = if ($restoreFailed) { '部分原状态未能恢复，请查看所选通道的任务状态和配置。' } else { '已恢复原自动开关和任务启停状态。' }
+        $restore = if ($restoreFailed) { '部分原状态未能恢复，请查看计划任务状态和本机配置。' } else { '已恢复原自动开关和任务启停状态。' }
         throw "${operation}失败：$reason $restore"
     }
-    Write-SelfReportCompleted '所选通道自动状态已更新；手动上报仍可使用。'
+    Write-SelfReportCompleted ('已{0}自动上报；手动上报仍可使用。' -f $(if ($Paused) { '暂停' } else { '恢复' }))
 }
 
 function Toggle-ScheduledReporterPaused {
@@ -218,7 +222,7 @@ function Toggle-ScheduledReporterPaused {
 function Remove-ScheduledReporter {
     param([ValidateSet('all','worker','official')][string]$Channel=$ScheduleChannel)
     Sync-ScheduledReporterTasks -Mode remove -Channel $Channel | Out-Null
-    Write-SelfReportCompleted '已删除所选通道任务，保存配置保留。'
+    Write-SelfReportCompleted '已删除计划任务，账号与设置保留。'
 }
 
 function Remove-SelfReportPathIfExists {

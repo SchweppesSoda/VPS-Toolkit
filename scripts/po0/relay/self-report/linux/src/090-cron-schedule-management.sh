@@ -161,7 +161,7 @@ install_cron() {
 
 remove_cron() {
     apply_channel_cron remove "${1:-${SCHEDULE_CHANNEL:-all}}" || return 1
-    self_report_completed '已删除所选通道的定时任务，保存配置保留。'
+    self_report_completed '已删除计划任务，账号与设置保留。'
 }
 
 schedule_timer_enabled() {

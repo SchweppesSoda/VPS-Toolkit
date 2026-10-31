@@ -144,38 +144,59 @@ try {
     $NetworkChanged=$false; $TimerTrigger=$true
     Assert-Test (Test-Po0FirewallDue) 'independent system timer is not suppressed by a recent network report'
     $script:MenuInputs=[Collections.Generic.Queue[string]]::new()
-    $script:MenuInputs.Enqueue('3'); $script:MenuInputs.Enqueue('0')
+    $script:MenuInputs.Enqueue('2'); $script:MenuInputs.Enqueue('0')
     $script:MenuItems=[Collections.Generic.List[object]]::new()
     $script:MenuPrompts=[Collections.Generic.List[string]]::new()
     function Read-Host { param([string]$Prompt) $script:MenuPrompts.Add($Prompt); if (-not $script:MenuInputs.Count) { throw 'Unexpected menu input' }; return $script:MenuInputs.Dequeue() }
     function Pause-Menu {}
     function Write-Title {}
     function Write-PanelRow {}
+    function Write-PanelStatusRow {}
     function Write-MenuSection {}
     function Write-MenuDivider {}
     function Write-MenuItem { param([string]$Number,[string]$Label) $script:MenuItems.Add([pscustomobject]@{Number=$Number;Label=$Label}) }
     function Update-ChannelScheduleIfInstalled { throw 'FAIL: toggle menu must not refresh task registration' }
-    Invoke-ChannelSettingsMenu official
-    Assert-Test ($script:MenuPrompts.Count -eq 2 -and $script:MenuPrompts[0] -eq '请选择 [0-11]') 'channel menu input range'
-    Assert-Test ($script:MenuItems[11].Number -eq '0' -and $script:MenuItems[11].Label -eq '返回主菜单') 'channel menu return is displayed as zero'
-    Assert-Test (@($script:MenuItems | Where-Object { $_.Label -eq '查看最近结果' }).Count -eq 0) 'settings has no duplicate recent-results entry'
+    Invoke-AutomaticReportingMenu
+    Assert-Test ($script:MenuPrompts.Count -eq 2 -and $script:MenuPrompts[0] -eq '请选择 [0-5]') 'automatic-report menu input range'
+    Assert-Test ($script:MenuItems[5].Number -eq '0' -and $script:MenuItems[5].Label -eq '返回主菜单') 'automatic-report menu return is displayed as zero'
+    $script:MenuItems.Clear(); $script:MenuPrompts.Clear()
     $script:SettingsActions=[Collections.Generic.List[string]]::new()
+    function Set-OfficialConfigInteractive { $script:SettingsActions.Add('edit') }
+    function Set-ChannelNamesInteractive { param($Channel) $script:SettingsActions.Add('names') }
+    function Clear-OfficialConfigInteractive { $script:SettingsActions.Add('clear') }
+    function Update-ChannelScheduleIfInstalled { param($Channel) $script:SettingsActions.Add('refresh') }
+    foreach ($inputValue in @('1','2','3','0')) { $script:MenuInputs.Enqueue($inputValue) }
+    Invoke-OfficialAccountMenu
+    Assert-Test (($script:SettingsActions -join ',') -eq 'edit,refresh,names,clear,refresh') 'account menu actions route correctly'
+    Assert-Test ($script:MenuPrompts[0] -eq '请选择 [0-3]') 'account menu input range'
+    Assert-Test (@($script:MenuItems | Where-Object { $_.Label -match '上报|白名单|查看' }).Count -eq 0) 'account settings contain no report, query or view actions'
+    $script:MenuItems.Clear(); $script:SettingsActions.Clear()
     function Invoke-ChannelInteractive { param($Channel) $script:SettingsActions.Add('report') }
-    function Invoke-ChannelForceInteractive { param($Channel) $script:SettingsActions.Add('force') }
     function Show-OfficialStatusInteractive { $script:SettingsActions.Add('query') }
-    foreach ($inputValue in @('6','7','11','0')) { $script:MenuInputs.Enqueue($inputValue) }
-    Invoke-ChannelSettingsMenu official
-    Assert-Test (($script:SettingsActions -join ',') -eq 'report,force,query') 'renumbered settings actions route correctly'
+    function Set-CommonConfigInteractive { $script:SettingsActions.Add('network') }
+    function Show-ClientConfig { $script:SettingsActions.Add('config') }
+    foreach ($inputValue in @('1','2','6','7','0')) { $script:MenuInputs.Enqueue($inputValue) }
+    Invoke-InteractiveMenu
+    Assert-Test (($script:SettingsActions -join ',') -eq 'report,query,network,config') 'main menu actions route correctly'
+    Assert-Test (@($script:MenuItems | Where-Object { $_.Label -match '强制' }).Count -eq 0) 'main menu has no separate force entry'
     $script:RecentViews=0; $script:RecentLogs=0; $script:RecentPauses=0
     function Show-Po0FirewallCached { param([switch]$Summary) if (-not $Summary) { $script:RecentViews++ } }
     function Show-SelfReportLogTail { param($Path) Assert-Test ($Path -eq (Get-ChannelLogPath official)) 'recent log selects official channel'; $script:RecentLogs++ }
     function Pause-Menu { $script:RecentPauses++ }
     function Invoke-Po0OfficialHttpRequest { throw 'recent results must not request HTTP' }
-    $script:MenuInputs.Enqueue('4'); $script:MenuInputs.Enqueue('0')
+    $script:MenuInputs.Enqueue('3'); $script:MenuInputs.Enqueue('0')
     Invoke-InteractiveMenu
     Assert-Test ($script:RecentViews -eq 1 -and $script:RecentLogs -eq 1 -and $script:RecentPauses -eq 1) 'main recent-results entry shows cache and logs, then pauses'
     Assert-Test ($script:MenuPrompts[-1] -eq '请选择 [0-8]') 'main menu input range'
-    Assert-Test (@($script:MenuItems | Where-Object { $_.Number -eq '4' -and $_.Label -eq '最近上报结果' }).Count -gt 0) 'recent-results entry is visible next to report'
+    Assert-Test (@($script:MenuItems | Where-Object { $_.Number -eq '3' -and $_.Label -eq '最近上报结果' }).Count -gt 0) 'recent-results entry is visible next to report'
+    $script:SettingsActions.Clear(); $script:MenuPrompts.Clear()
+    function Upgrade-SelfFromDownload { param([switch]$ReopenMenu) $script:SettingsActions.Add('upgrade') }
+    function Invoke-RetiredStateMigration { $script:SettingsActions.Add('migrate') }
+    function Read-YesNoDefault { param($Prompt, $Default) $script:SettingsActions.Add('confirm-uninstall'); return $false }
+    foreach ($inputValue in @('1','2','3','0')) { $script:MenuInputs.Enqueue($inputValue) }
+    Invoke-ClientMaintenanceMenu
+    Assert-Test (($script:SettingsActions -join ',') -eq 'upgrade,migrate,confirm-uninstall' -and -not $script:ClientMenuUninstalled) 'maintenance menu routes update, migration and uninstall confirmation'
+    Assert-Test ($script:MenuPrompts[0] -eq '请选择 [0-3]') 'maintenance menu input range'
 
     Assert-Test ($script:MenuInputs.Count -eq 0) 'main menu exits on zero'
     Write-Host 'PASS: Windows independent timers, network watchers, pause/remove/migration, rollback and menus'

@@ -66,7 +66,7 @@ remove_launchd() { apply_launchd_schedules remove "${1:-all}"; }
 remove_cron() {
     local channel="${1:-${SCHEDULE_CHANNEL:-all}}"
     if launchd_supported; then apply_launchd_schedules remove "$channel"; else apply_channel_cron remove "$channel"; fi || return 1
-    self_report_completed '已删除所选通道任务，保存配置保留。'
+    self_report_completed '已删除计划任务，账号与设置保留。'
 }
 
 sync_macos_network_task() {

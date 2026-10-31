@@ -45,11 +45,13 @@ $ErrorActionPreference = "Stop"
 $ReleaseDownloadBaseUrl = $(if ($env:PO0_RELEASE_DOWNLOAD_BASE_URL) { $env:PO0_RELEASE_DOWNLOAD_BASE_URL } else { "https://github.com/SchweppesSoda/VPS-Toolkit/releases/latest/download" })
 $DownloadUrl = $(if ($env:PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL) { $env:PO0_OUTBOUND_IP_REPORT_PS_DOWNLOAD_URL } elseif ($env:PO0_SELF_REPORT_PS_DOWNLOAD_URL) { $env:PO0_SELF_REPORT_PS_DOWNLOAD_URL } else { "$ReleaseDownloadBaseUrl/po0-outbound-ip-report.ps1" })
 $ScriptName = "po0-outbound-ip-report"
-$ScriptVersion = "2026.10.30+build.5"
-$ScriptReleaseDate = "2026-10-30"
+$ScriptVersion = "2026.10.31+build.1"
+$ScriptReleaseDate = "2026-10-31"
 # CHANGELOG_BEGIN
-# - 删除设置页重复的最近结果入口，统一从主菜单 4 查看。
-# - 设置页编号连续调整为 1–11，保留查看后的返回暂停。
+# - 主菜单按“上报与查询 / 设置 / 维护”重排：立即上报、查询白名单、最近结果只在主菜单出现一次。
+# - 设置拆为“官方账号与槽位”“自动上报与计划任务”，不再混入上报、查询或重复的查看入口。
+# - 去掉菜单里的“强制上报”：立即上报命中 Wi-Fi 跳过时会询问是否强制；旧版迁移移入维护与诊断。
+# - 终端配色改为深浅背景都清晰的层级：标签和说明不再使用暗灰色，状态按含义着色。
 # CHANGELOG_END
 $PanelValueColumn = 24
 $MenuRightColumn = 46

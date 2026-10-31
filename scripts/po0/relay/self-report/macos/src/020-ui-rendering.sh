@@ -11,8 +11,9 @@ setup_colors() {
     if po0_color_enabled; then
         C_RESET=$'\033[0m' C_BOLD=$'\033[1m' C_DIM=$'\033[2m'
         C_GREEN=$'\033[32m' C_YELLOW=$'\033[33m' C_RED=$'\033[31m' C_CYAN=$'\033[36m'
-        C_TITLE=$'\033[1;36m' C_SECTION=$'\033[1m' C_KEY=$'\033[36m'
-        # Labels, notes and version text use the default foreground; C_PANEL stays empty.
+        C_TITLE=$'\033[1m' C_SECTION=$'\033[1m' C_KEY=$'\033[36m'
+        # Titles stay default-colored bold: bold cyan turns bright cyan on white themes that
+        # brighten bold text. Labels, notes and version text use the default foreground.
     fi
 }
 setup_colors

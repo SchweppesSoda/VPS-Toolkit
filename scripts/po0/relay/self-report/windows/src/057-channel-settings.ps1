@@ -30,12 +30,6 @@ function Show-OfficialTargetNames {
     }
 }
 
-function Toggle-ChannelAutoInteractive {
-    param([ValidateSet("worker", "official")][string]$Channel)
-    Set-ScheduledReporterPaused -Paused (-not (Test-ChannelAutoPaused $Channel)) -Channel $Channel
-    Write-Host "自动上报：$(Get-ChannelAutoLabel $Channel)。手动上报仍可使用。"
-}
-
 function Update-ChannelScheduleIfInstalled {
     param([ValidateSet('all','worker','official')][string]$Channel='all')
     Sync-ScheduledReporterTasks -Mode refresh -Channel $Channel | Out-Null
@@ -67,6 +61,13 @@ function Get-ChannelIntervalLabel {
     return "$(Get-ChannelIntervalSeconds $Channel) 秒" + $(if ($enabled) { '' } else { '（暂不使用）' })
 }
 
+function Get-ChannelPeriodicLabel {
+    param([string]$Channel = 'official')
+    $interval = Format-Po0Duration (Get-ChannelIntervalSeconds $Channel)
+    if ($script:OfficialTimerEnabled) { return "每 $interval" }
+    return "已关闭（保留间隔 $interval）"
+}
+
 function Set-ChannelPeriodicInteractive {
     param([ValidateSet('worker','official')][string]$Channel)
     $enabled = if ($Channel -eq 'official') { $script:OfficialTimerEnabled } else { $script:WorkerTimerEnabled }
@@ -83,17 +84,10 @@ function Set-ChannelPeriodicInteractive {
 
 function Show-ChannelConfig {
     param([string]$Channel = 'official')
-    Write-PanelSection '官方防火墙 · 本机配置'
-    Write-PanelRow '自动上报' (Get-ChannelAutoLabel official)
-    Write-PanelRow '上报间隔' (Get-ChannelIntervalLabel official)
+    Write-PanelSection '官方账号'
     Show-OfficialTargetNames
-    Write-PanelRow 'Token / 槽位' $script:Po0FirewallTokens
-}
-
-function Invoke-ChannelForceInteractive {
-    param([string]$Channel)
-    $oldForce = $script:ForceReport
-    $oldOfficialForce = $script:Po0FirewallForce
-    try { $script:ForceReport = $true; $script:Po0FirewallForce = $true; Invoke-ChannelInteractive $Channel }
-    finally { $script:ForceReport = $oldForce; $script:Po0FirewallForce = $oldOfficialForce }
+    Write-PanelRow 'Token / 槽位' $(if ($script:Po0FirewallTokens) { $script:Po0FirewallTokens } else { '未配置' })
+    Write-PanelSection '自动上报'
+    Write-PanelStatusRow '自动上报' (Get-ChannelAutoLabel official)
+    Write-PanelStatusRow '定期上报' (Get-ChannelPeriodicLabel official)
 }

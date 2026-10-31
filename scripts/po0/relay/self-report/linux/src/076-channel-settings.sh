@@ -51,15 +51,13 @@ print_official_target_names() {
     done
 }
 
-toggle_channel_auto_interactive() { toggle_schedule_interactive "$1"; }
-
 set_channel_names_interactive() {
     local channel="$1" name raw count=0 index=1 names=''
         if declare -F official_tokens_count >/dev/null; then count="$(official_tokens_count)"; else count="$(po0_firewall_token_count)"; fi
-        [[ "$count" -gt 0 ]] || { printf '请先保存官方 Token，再设置对应目标名称。\n'; return 1; }
-        printf '按当前 Token 的顺序逐个设置名称；名称只在本机显示。\n'
+        [[ "$count" -gt 0 ]] || { printf '请先在「官方账号与槽位」中保存 Token，再设置账号名称。\n'; return 1; }
+        printf '按当前 Token 的顺序逐个设置名称；名称只在本机显示，输入 - 恢复默认名称。\n'
         while (( index <= count )); do
-            name="$(prompt_default "官方目标 ${index} 名称" "$(official_account_name "$index")")" || return 1
+            name="$(prompt_default "账号 ${index} 名称" "$(official_account_name "$index")")" || return 1
             case "$name" in *';'*|*'；'*|*$'\n'*|*$'\r'*) printf '单个名称不能包含分号或换行。\n' >&2; return 1 ;; esac
             [[ "$index" == 1 ]] || names="$names;"
             [[ "$name" != - ]] || name=""
@@ -79,16 +77,16 @@ run_channel_interactive() {
     [[ "$channel" != official ]] || OFFICIAL_ONLY=1
     [[ "$channel" != worker ]] || WORKER_ONLY=1
     if [[ "$channel" == official && -z "${PO0_FIREWALL_TOKENS:-}" ]] || [[ "$channel" == worker && -z "${WORKER_URL:-}" ]]; then
-        printf "此通道尚未配置，请先编辑并保存参数。\n"
+        printf "尚未保存官方账号，请先在「官方账号与槽位」中保存 Token。\n"
         rc=1
     elif ! config_complete; then
-        printf "尚未配置上报通道，请先进入通道设置。\n"
+        printf "本机配置不完整，请先检查「官方账号与槽位」。\n"
         rc=1
     else
         local result_log
         result_log="$(schedule_channel_log_path "$channel")"
         if [[ -L "$result_log" ]]; then
-            printf '本通道日志路径无效。\n' >&2
+            printf '上报日志路径无效。\n' >&2
             rc=1
         else
             (umask 077; exec 3>&1 4>>"$result_log"; (setup_colors; PO0_DISPLAY_FD=3 PO0_DISPLAY_LOG_FD=4 run_once_interactive) 2>&1 | tee -a "$result_log"; exit "${PIPESTATUS[0]}")
@@ -117,6 +115,12 @@ channel_interval_label() {
     schedule_timer_enabled "$1" || printf '（暂不使用）'
 }
 
+channel_periodic_label() {
+    local interval
+    interval="$(po0_duration "$(( $(schedule_channel_minutes "$1") * 60 ))")"
+    if schedule_timer_enabled "$1"; then printf '每 %s' "$interval"; else printf '已关闭（保留间隔 %s）' "$interval"; fi
+}
+
 configure_channel_periodic_interactive() {
     local enabled=0 default=n seconds
     schedule_timer_enabled official && default=y
@@ -128,98 +132,72 @@ configure_channel_periodic_interactive() {
 }
 
 show_channel_config() {
-    print_panel_section '官方防火墙 · 本机配置'
-    print_panel_row '自动上报' "$(channel_auto_label official)"
-    print_panel_row '启用定期上报' "$(schedule_timer_enabled official && printf '是' || printf '否')"
-    print_panel_row '上报间隔' "$(channel_interval_label official)"
+    print_panel_section '官方账号'
     print_official_target_names
     print_panel_row 'Token / 槽位' "${PO0_FIREWALL_TOKENS:-未配置}"
+    print_panel_section '自动上报'
+    print_panel_status_row '自动上报' "$(channel_auto_label official)"
+    print_panel_status_row '定期上报' "$(channel_periodic_label official)"
 }
 
-force_channel_interactive() {
-    local FORCE_REPORT=1
-    run_channel_interactive "$1"
-}
-
-channel_settings_menu() {
-    local channel=official choice title='官方防火墙' max_choice=11
-    if [[ "$channel" == official ]]; then title='官方防火墙'; max_choice=11; fi
+# Account settings only; reporting and query actions live in the main menu.
+official_account_menu() {
+    local choice
     while true; do
         menu_clear_screen
-        print_title "$title · 设置"
-        print_panel_row '配置状态' "$(schedule_channel_configured "$channel" && printf '已配置' || printf '未配置')"
-        print_panel_row '自动上报' "$(channel_auto_label "$channel")"
-        print_panel_row '自动任务' "$(cron_status_summary "$channel")"
-        if schedule_channel_configured "$channel"; then
-            print_panel_row '启用定期上报' "$(schedule_timer_enabled "$channel" && printf '是' || printf '否')"
-            print_panel_row '上报间隔' "$(channel_interval_label "$channel")"
-            if [[ "$channel" == official ]]; then print_official_target_names
-            fi
-        fi
-        print_menu_item 1 '保存配置（编辑参数）'
-        print_menu_item 2 '设置目标名称'
-        print_menu_item 3 '启用 / 停用自动上报'
-        print_menu_item 4 '定期上报设置（开关与间隔）'
-        print_menu_item 5 '查看本机配置'
-        print_menu_item 6 '立即上报'
-        print_menu_item 7 '强制上报（绕过本机跳过条件）'
-        print_menu_item 8 '安装 / 更新本通道自动任务'
-        print_menu_item 9 '删除本通道自动任务'
-        print_menu_item 10 '清除本通道配置'
-        [[ "$channel" != official ]] || print_menu_item 11 '查询官方白名单'
+        print_title 'PO0 防火墙 · 官方账号与槽位'
+        print_panel_status_row '配置状态' "$(schedule_channel_configured official && printf '已配置' || printf '未配置')"
+        print_official_target_names
+        printf '\n'
+        print_menu_item 1 '编辑 Token 与槽位'
+        print_menu_item 2 '设置账号名称'
+        print_menu_item 3 '清除官方账号'
         print_menu_item 0 '返回主菜单'
-        choice="$(read_prompt "请选择 [0-$max_choice]: ")" || return 0
+        choice="$(read_prompt '请选择 [0-3]: ')" || return 0
         case "$(trim "$choice")" in
             1) configure_official_interactive && update_channel_schedule_if_installed official ;;
-            2) set_channel_names_interactive "$channel" ;;
-            3) toggle_channel_auto_interactive "$channel" && update_channel_schedule_if_installed "$channel" ;;
-            4) configure_channel_periodic_interactive "$channel" ;;
-            5) show_channel_config "$channel" ;;
-            6) run_channel_interactive "$channel" ;;
-            7) force_channel_interactive "$channel" ;;
-            8) install_cron_interactive "$channel" ;;
-            9) if prompt_yes_no '删除本通道自动任务（保留配置）' n; then remove_cron "$channel"; fi ;;
-            10) clear_official_tokens_interactive && update_channel_schedule_if_installed official ;;
-            11) if [[ "$channel" == official ]]; then show_channel_status official; else printf '无效选择。\n'; fi ;;
+            2) set_channel_names_interactive official ;;
+            3) clear_official_tokens_interactive && update_channel_schedule_if_installed official ;;
             0) return 0 ;;
-            *) printf '无效选择：请输入 0-%s。\n' "$max_choice" ;;
+            *) printf '无效选择：请输入 0-3。\n' ;;
         esac
         pause_before_return
     done
 }
 
+# One place for the switch, interval and scheduler task of automatic reports.
 automatic_reporting_menu() {
-    channel_schedule_menu official
-}
-
-channel_schedule_menu() {
-    local channel="$1" choice
+    local choice
     while true; do
         menu_clear_screen
-        print_title "$(schedule_channel_label "$channel") · 自动任务"
-        print_panel_row '实际状态' "$(cron_status_summary "$channel")"
-        print_panel_row '上报间隔' "$(channel_interval_label "$channel")"
-        print_menu_item 1 '安装 / 更新本通道自动任务'
-        print_menu_item 2 '暂停 / 恢复本通道自动上报'
-        print_menu_item 3 '查看本通道任务状态和日志'
-        print_menu_item 4 '删除本通道自动任务'
-        print_menu_item 0 '返回'
-        choice="$(read_prompt '请选择 [0-4]: ')" || return 0
+        print_title 'PO0 防火墙 · 自动上报与计划任务'
+        print_panel_status_row '自动上报' "$(channel_auto_label official)"
+        print_panel_status_row '定期上报' "$(channel_periodic_label official)"
+        print_panel_status_row '计划任务' "$(cron_status_summary official)"
+        printf '\n'
+        print_menu_item 1 '安装 / 更新计划任务'
+        print_menu_item 2 '暂停 / 恢复自动上报'
+        print_menu_item 3 '定期上报开关与间隔'
+        print_menu_item 4 '查看计划任务状态与日志'
+        print_menu_item 5 '删除计划任务'
+        print_menu_item 0 '返回主菜单'
+        choice="$(read_prompt '请选择 [0-5]: ')" || return 0
         case "$(trim "$choice")" in
-            1) install_cron_interactive "$channel" ;;
-            2) toggle_schedule_interactive "$channel" ;;
-            3) show_cron_status "$channel" ;;
-            4) if prompt_yes_no '删除本通道自动任务（保留配置）' n; then remove_cron "$channel"; fi ;;
+            1) install_cron_interactive official ;;
+            2) toggle_schedule_interactive official ;;
+            3) configure_channel_periodic_interactive official ;;
+            4) show_cron_status official ;;
+            5) if prompt_yes_no '删除计划任务（账号与设置保留）' n; then remove_cron official; fi ;;
             0) return 0 ;;
-            *) printf '无效选择：请输入 0-4。\n' ;;
+            *) printf '无效选择：请输入 0-5。\n' ;;
         esac
         pause_before_return
     done
 }
 
 client_maintenance_menu() {
-    local choice rc max_choice=2
-    declare -F show_wifi_ssid_permission_help_interactive >/dev/null && max_choice=4
+    local choice rc max_choice=3
+    declare -F show_wifi_ssid_permission_help_interactive >/dev/null && max_choice=5
     while true; do
         menu_clear_screen
         print_title '维护与诊断'
@@ -228,19 +206,24 @@ client_maintenance_menu() {
         print_panel_row '安装位置' "$(default_install_path)"
         print_panel_row '配置文件' "$CONFIG_FILE"
         print_panel_row '日志位置' "$(self_report_log_path)"
+        print_panel_section '客户端'
         print_menu_item 1 '更新客户端脚本'
-        print_menu_item 2 '卸载客户端'
+        print_menu_item 2 '迁移旧版自建配置与任务'
+        print_menu_item 3 '卸载客户端'
         if declare -F show_wifi_ssid_permission_help_interactive >/dev/null; then
-            print_menu_item 3 'Wi-Fi SSID 权限诊断'
-            print_menu_item 4 '删除定位权限 Helper'
+            print_panel_section 'Wi-Fi 定位权限'
+            print_menu_item 4 'Wi-Fi SSID 权限诊断'
+            print_menu_item 5 '删除定位权限 Helper'
         fi
+        printf '\n'
         print_menu_item 0 '返回主菜单'
         choice="$(read_prompt "请选择 [0-$max_choice]: ")" || return 0
         case "$(trim "$choice")" in
             1) upgrade_self_from_download --reopen-menu ;;
-            2) uninstall_self_report_interactive; rc=$?; [[ "$rc" != 0 ]] || { CLIENT_MENU_UNINSTALLED=1; return 0; } ;;
-            3) if declare -F show_wifi_ssid_permission_help_interactive >/dev/null; then show_wifi_ssid_permission_help_interactive; else printf '此选项仅适用于 macOS。\n'; fi ;;
-            4) if declare -F remove_macos_location_permission_helper_app_interactive >/dev/null; then remove_macos_location_permission_helper_app_interactive; else printf '此选项仅适用于 macOS。\n'; fi ;;
+            2) migrate_retired_state ;;
+            3) uninstall_self_report_interactive; rc=$?; [[ "$rc" != 0 ]] || { CLIENT_MENU_UNINSTALLED=1; return 0; } ;;
+            4) if declare -F show_wifi_ssid_permission_help_interactive >/dev/null; then show_wifi_ssid_permission_help_interactive; else printf '无效选择：请输入 0-%s。\n' "$max_choice"; fi ;;
+            5) if declare -F remove_macos_location_permission_helper_app_interactive >/dev/null; then remove_macos_location_permission_helper_app_interactive; else printf '无效选择：请输入 0-%s。\n' "$max_choice"; fi ;;
             0) return 0 ;;
             *) printf "无效选择：请输入 0-%s。\n" "$max_choice" ;;
         esac
@@ -250,9 +233,9 @@ client_maintenance_menu() {
 
 show_client_overview() {
     print_title 'PO0 防火墙' "$SCRIPT_VERSION"
-    print_panel_row '自动上报' "$(channel_auto_label official)"
-    print_panel_row '检查间隔' "$(po0_duration "$(( $(schedule_channel_minutes official) * 60 ))")$(schedule_timer_enabled official || printf '（定期已关闭）')"
-    print_panel_row '自动任务' "$(cron_status_summary official)"
+    print_panel_status_row '自动上报' "$(channel_auto_label official)"
+    print_panel_status_row '定期上报' "$(channel_periodic_label official)"
+    print_panel_status_row '计划任务' "$(cron_status_summary official)"
     print_official_target_names
     po0_display_cached summary
 }

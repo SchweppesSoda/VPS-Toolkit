@@ -138,7 +138,7 @@ for platform in linux macos; do
             print_menu_item 0 '返回'
         } > "$out"
         absent "$out" $'\033[90m'
-        contains "$out" $'  \033[1;36mPO0 防火墙\033[0m'
+        contains "$out" $'  \033[1mPO0 防火墙\033[0m'
         line="$(grep -F 'v9.9.9' "$out")"; line="${line##*$'\033[0m'}"
         [[ "${line// /}" == v9.9.9 ]] || fail 'version text is not default foreground'
         contains "$out" $'  \033[2m'
@@ -172,7 +172,7 @@ CASES
 3|error|||||9'
         COLUMNS=100 po0_display_render '上报结果' "$multi" 1793341928 1 > "$out-table"
         absent "$out-table" $'\033[90m'
-        for value in $'    \033[1m槽位' $'    \033[2m#2' $'\033[32m已放行' $'\033[33m未放行' $'\033[31m操作失败' $'  \033[1;36m第二账号'; do
+        for value in $'    \033[1m槽位' $'    \033[2m#2' $'\033[32m已放行' $'\033[33m未放行' $'\033[31m操作失败' $'  \033[1m第二账号'; do
             contains "$out-table" "$value"
         done
         exact "$out-table" '  占用 2/7  ·  剩余 5 个  ·  自动分配'

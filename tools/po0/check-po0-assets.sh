@@ -5,9 +5,9 @@ command -v rg >/dev/null 2>&1 || { printf 'ripgrep (rg) is required for PO0 refe
 
 repo_root="$(cd "$(git rev-parse --show-toplevel)" && pwd -P)"
 asset_dir="${1:-${repo_root}/.tmp/po0-check-assets-bash}"
-expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.10.30+build.5}"
-expected_po0_release_date="${PO0_EXPECTED_RELEASE_DATE:-2026-10-30}"
-expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.10.30.5}"
+expected_po0_version="${PO0_EXPECTED_ASSET_VERSION:-2026.10.31+build.1}"
+expected_po0_release_date="${PO0_EXPECTED_RELEASE_DATE:-2026-10-31}"
+expected_po0_release_tag="${PO0_EXPECTED_RELEASE_TAG:-po0-v2026.10.31.1}"
 
 manifest_entries() {
     local manifest="$1"
@@ -325,10 +325,10 @@ check_macos_wifi_ssid_diagnostic() {
         exit 1
     }
     grep -Fq 'Wi-Fi SSID 权限诊断' "${asset}" && grep -Fq 'client_maintenance_menu()' "${asset}" &&
-        grep -Fq 'max_choice=4' "${asset}" && grep -Fq '请选择 [0-$max_choice]' "${asset}" &&
-        grep -Eq '7\) client_maintenance_menu;' "${asset}" &&
-        grep -Eq '3\).*then show_wifi_ssid_permission_help_interactive;' "${asset}" &&
-        grep -Eq '4\).*then remove_macos_location_permission_helper_app_interactive;' "${asset}" || {
+        grep -Fq 'max_choice=5' "${asset}" && grep -Fq '请选择 [0-$max_choice]' "${asset}" &&
+        grep -Eq '8\) client_maintenance_menu;' "${asset}" &&
+        grep -Eq '4\).*then show_wifi_ssid_permission_help_interactive;' "${asset}" &&
+        grep -Eq '5\).*then remove_macos_location_permission_helper_app_interactive;' "${asset}" || {
         printf 'macOS asset lacks Wi-Fi SSID diagnostic menu/range/case wiring.\n' >&2
         exit 1
     }

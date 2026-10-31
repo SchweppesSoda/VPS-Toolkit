@@ -106,32 +106,82 @@ for platform in linux macos; do
         pause_before_return() { recent_pauses=$((recent_pauses+1)); }
         official_direct_request() { exit 99; }
         po0_firewall_direct_request() { exit 99; }
-        printf '1\n0\n7\n0\n4\n0\n' > "$test_dir/menu-input"
+        # Visit account, automatic-report and maintenance submenus, then recent results.
+        printf '4\n0\n5\n0\n8\n0\n3\n0\n' > "$test_dir/menu-input"
 
         exec 9< "$test_dir/menu-input"
-        read_prompt() { local line; IFS= read -r line <&9 || return 1; printf '%s' "$line"; }
+        read_prompt() { local line; printf '%s
+' "$1" >> "$test_dir/prompts-$platform"; IFS= read -r line <&9 || return 1; printf '%s' "$line"; }
         menu_clear_screen() { :; }
         cron_status_summary() { printf '未安装'; }
         menu_loop > "$test_dir/menu-$platform"
         exec 9<&-
         [[ "$recent_views" == 1 && "$recent_logs" == 1 && "$recent_pauses" == 1 ]]
-        grep -Fq '[4]  最近上报结果' "$test_dir/menu-$platform"
+        grep -Fq '[3]  最近上报结果' "$test_dir/menu-$platform"
+        grep -Fxq '请选择 [0-8]: ' "$test_dir/prompts-$platform"
+        grep -Fxq '请选择 [0-3]: ' "$test_dir/prompts-$platform"
+        grep -Fxq '请选择 [0-5]: ' "$test_dir/prompts-$platform"
         grep -Fq 'PO0 防火墙' "$test_dir/menu-$platform"
-        grep -Fq '保存配置（编辑参数）' "$test_dir/menu-$platform"
-        grep -Fq '清除本通道配置' "$test_dir/menu-$platform"
+        grep -Fq '编辑 Token 与槽位' "$test_dir/menu-$platform"
+        grep -Fq '清除官方账号' "$test_dir/menu-$platform"
+        grep -Fq '删除计划任务' "$test_dir/menu-$platform"
+        grep -Fq '迁移旧版自建配置与任务' "$test_dir/menu-$platform"
         grep -Fq '维护与诊断' "$test_dir/menu-$platform"
-        ! grep -Fq '查看最近结果' "$test_dir/menu-$platform"
-        settings_actions=''
-        run_channel_interactive() { settings_actions="$settings_actions report"; }
-        force_channel_interactive() { settings_actions="$settings_actions force"; }
-        show_channel_status() { settings_actions="$settings_actions query"; }
-        printf '6\n7\n11\n0\n' > "$test_dir/settings-input"
-        exec 9< "$test_dir/settings-input"
-        channel_settings_menu official > "$test_dir/settings-menu-$platform"
+        # Each action is reachable once: no report/query/force entries inside settings.
+        [[ "$(grep -c '立即上报' "$test_dir/menu-$platform")" == "$(grep -c '\[1\]  立即上报' "$test_dir/menu-$platform")" ]]
+        [[ "$(grep -c '查看本机配置' "$test_dir/menu-$platform")" == "$(grep -c '\[7\]  查看本机配置' "$test_dir/menu-$platform")" ]]
+        ! grep -Eq '强制上报|本通道|查看最近结果' "$test_dir/menu-$platform"
+        menu_actions=''
+        run_channel_interactive() { menu_actions="$menu_actions report"; }
+        show_channel_status() { menu_actions="$menu_actions query"; }
+        configure_common_interactive() { menu_actions="$menu_actions network"; }
+        show_current_config() { menu_actions="$menu_actions config"; }
+        printf '1\n2\n6\n7\n9\n0\n' > "$test_dir/actions-input"
+        exec 9< "$test_dir/actions-input"
+        menu_loop > "$test_dir/actions-menu-$platform"
         exec 9<&-
-        [[ "$settings_actions" == ' report force query' ]]
-        grep -Fq '[11]  查询官方白名单' "$test_dir/settings-menu-$platform"
-        ! grep -Fq '查看最近结果' "$test_dir/settings-menu-$platform"
+        [[ "$menu_actions" == ' report query network config' ]]
+        grep -Fq '无效选择：请输入 0-8。' "$test_dir/actions-menu-$platform"
+        schedule_actions=''
+        install_cron_interactive() { schedule_actions="$schedule_actions install"; }
+        toggle_schedule_interactive() { schedule_actions="$schedule_actions toggle"; }
+        configure_channel_periodic_interactive() { schedule_actions="$schedule_actions periodic"; }
+        show_cron_status() { schedule_actions="$schedule_actions status"; }
+        update_channel_schedule_if_installed() { schedule_actions="$schedule_actions refresh"; }
+        printf '1\n2\n3\n4\n6\n0\n' > "$test_dir/schedule-input"
+        exec 9< "$test_dir/schedule-input"
+        automatic_reporting_menu > "$test_dir/schedule-menu-$platform"
+        exec 9<&-
+        # Pausing refreshes tasks itself; the menu must not add a second refresh.
+        [[ "$schedule_actions" == ' install toggle periodic status' ]]
+        grep -Fq '无效选择：请输入 0-5。' "$test_dir/schedule-menu-$platform"
+        account_actions=''
+        configure_official_interactive() { account_actions="$account_actions edit"; }
+        set_channel_names_interactive() { account_actions="$account_actions names"; }
+        clear_official_tokens_interactive() { account_actions="$account_actions clear"; }
+        update_channel_schedule_if_installed() { account_actions="$account_actions refresh"; }
+        printf '1\n2\n3\n0\n' > "$test_dir/account-input"
+        exec 9< "$test_dir/account-input"
+        official_account_menu > "$test_dir/account-menu-$platform"
+        exec 9<&-
+        [[ "$account_actions" == ' edit refresh names clear refresh' ]]
+        maintenance_actions=''
+        upgrade_self_from_download() { maintenance_actions="$maintenance_actions upgrade"; }
+        migrate_retired_state() { maintenance_actions="$maintenance_actions migrate"; }
+        uninstall_self_report_interactive() { maintenance_actions="$maintenance_actions uninstall"; }
+        printf '1\n2\n3\n' > "$test_dir/maintenance-input"
+        exec 9< "$test_dir/maintenance-input"
+        client_maintenance_menu > "$test_dir/maintenance-menu-$platform"
+        exec 9<&-
+        # A completed uninstall leaves the maintenance menu and tells the main menu to exit.
+        [[ "$maintenance_actions" == ' upgrade migrate uninstall' && "$CLIENT_MENU_UNINSTALLED" == 1 ]]
+        if [[ "$platform" == macos ]]; then
+            grep -Fq '[5]  删除定位权限 Helper' "$test_dir/maintenance-menu-$platform"
+            [[ "$(tail -n 1 "$test_dir/prompts-$platform")" == '请选择 [0-5]: ' ]]
+        else
+            ! grep -Fq 'Wi-Fi SSID 权限诊断' "$test_dir/maintenance-menu-$platform"
+            [[ "$(tail -n 1 "$test_dir/prompts-$platform")" == '请选择 [0-3]: ' ]]
+        fi
 
         printf 'PASS: %s local settings visibility, multiline save, invalid input retention and clear\n' "$platform"
     )
