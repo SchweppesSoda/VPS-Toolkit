@@ -344,16 +344,16 @@ async function testOfficialNetworkTargets() {
   const snapshot = store.get(STORE_KEY + '.official-config');
   assert.equal(JSON.parse(snapshot).networkTargetsEnabled, true);
   const groupHeaders = result => result.requests.filter(x => x.request.url.includes('generate_204')).map(x => decodeURIComponent(x.request.headers['X-Stash-Selected-Proxy']));
-  result = await call({mode:'auto', channel:'official'}, 'cellular', {officialPosts:[{body:officialBody([{ip:'8.8.8.8/24',slot:1}])}]});
+  result = await call({mode:'auto', channel:'official', trigger:'network'}, 'cellular', {officialPosts:[{body:officialBody([{ip:'8.8.8.8/24',slot:1}])}]});
   assert.deepEqual(groupHeaders(result), ['📡 PO0 Wi-Fi 探测', '📡 PO0 蜂窝探测'], 'old configurations retain both original probe names');
   assert(posts(result)[0].request.url.endsWith('/add?slot=1'), 'cellular must use the original user slot');
-  result = await call({mode:'auto', channel:'official', PO0_FIREWALL_WIFI_TOKENS:'pgnfw_synced_other@4'});
+  result = await call({mode:'auto', channel:'official', trigger:'network', PO0_FIREWALL_WIFI_TOKENS:'pgnfw_synced_other@4'});
   assert(posts(result)[0].request.url.endsWith('/add'), 'Wi-Fi uses the saved unslotted target exactly');
   assert.equal(JSON.parse(store.get(STORE_KEY)).official.accounts[0].name, 'Wi-Fi 自填名称');
   assert.equal(store.get(STORE_KEY + '.official-config'), snapshot, 'sync cannot change saved network settings');
   result = await call({mode:'auto', channel:'official'});
-  assert.equal(officialRequests(result).length, 0, 'same network respects report interval');
-  result = await call({mode:'auto', channel:'official'}, 'cellular', {officialPosts:[{body:officialBody([{ip:'8.8.8.8/24',slot:1}])}]});
+  assert.deepEqual(result.requests, [], 'a cron tick before the deadline must stay offline even with network-specific targets');
+  result = await call({mode:'auto', channel:'official', trigger:'network'}, 'cellular', {officialPosts:[{body:officialBody([{ip:'8.8.8.8/24',slot:1}])}]});
   assert(posts(result)[0].request.url.endsWith('/add?slot=1'), 'switching back must not reuse Wi-Fi due cache');
   result = await call({mode:'status'});
   assert.equal(posts(result).length, 0, 'network-selected status stays read-only');
@@ -387,7 +387,7 @@ async function testOfficialNetworkTargets() {
   await call(save);
   const seconds = Math.floor(Date.now()/1000);
   store.set(STORE_KEY, JSON.stringify({ip:'8.8.8.8', detected_ip:'8.8.8.8', network:'wifi', context:'wifi:Cafe-WiFi', accepted_at:seconds, expires_at:seconds+43200, next_refresh_at:seconds+600, official:{network:'cellular',last_attempt_at:seconds}}));
-  result = await call({mode:'auto', worker_url:'https://report.example.com/stash-report/v1', secret:'worker-fixture', token:'worker-fixture', source_id:'phone'});
+  result = await call({mode:'auto', trigger:'network', worker_url:'https://report.example.com/stash-report/v1', secret:'worker-fixture', token:'worker-fixture', source_id:'phone'});
   assert(posts(result).length, 'official selection change checks its new target');
   assert.equal(result.requests.filter(x=>x.method==='post'&&!x.request.url.includes('/api/firewall/')).length,0,'official network selection must not force a cached self-report');
   await call(Object.assign({},save,{PO0_FIREWALL_WIFI_TOKENS:'pgnfw_second@2,'+token,PO0_FIREWALL_WIFI_NAMES:'第二个;第一个'}));
@@ -440,7 +440,7 @@ async function testStandardEntrypointsAndLegacyRoutes() {
   assert.equal(normalize(fs.readFileSync(path.join(clientDir, 'po0-stash-report.js'), 'utf8')), normalize(source));
   assert.equal(normalize(fs.readFileSync(path.join(clientDir, 'PO0.LAN-Report.stoverride'), 'utf8')), normalize(override));
   assert.match(override, /^name: PO0 防火墙$/m);
-  assert.match(override, /stash\/po0-firewall\.js\?rev=20261124-event-v1/);
+  assert.match(override, /stash\/po0-firewall\.js\?rev=20261124-event-v2/);
   assert.match(override, /^  po0-stash-report-worker-v2:$/m);
   for (const route of ['report', 'official-now', 'report-now', 'official-force']) {
     const token = 'pgnfw_legacy_route_fixture';
@@ -462,6 +462,13 @@ async function testNetworkEvent() {
   await execute({store, argument: reportArgument("save-official", {PO0_FIREWALL_TOKENS: "pgnfw_event_test"})});
   await execute({store, argument: JSON.stringify({mode: "toggle-official-timer"})});
   const body = officialBody([{ip: "8.8.8.8/24", slot: null}]);
+  const tick = () => execute({scriptType: "cron", argument: reportArgument("auto"), store, officialGets: [{body}]});
+  assert.deepEqual((await tick()).requests, [], "disabled timer stays offline");
+  await execute({store, argument: JSON.stringify({mode: "toggle-official-timer"})});
+  const due = await tick();
+  assert.deepEqual(due.requests.map(r => [r.method, r.request.url]), [["get", OFFICIAL_URL + "/pgnfw_event_test"]]);
+  assert.deepEqual((await tick()).requests, [], "cron checks the deadline locally");
+  await execute({store, argument: JSON.stringify({mode: "toggle-official-timer"})});
   const event = () => execute({scriptType: "event", argument, store, officialGets: [{body}]});
   const hit = await event();
   assert.deepEqual(hit.requests.map(r => [r.method, r.request.url]), [["get", OFFICIAL_URL + "/pgnfw_event_test"]]);

@@ -19,7 +19,6 @@ function migrateRetiredState() {
   saveChannelSettings(clean);
   const previous = readJSON(STORE_KEY, {});
   const state = previous.official ? { official: previous.official } : {};
-  if (previous.detected_ip) state.detected_ip = previous.detected_ip;
   if (!writeJSON(STORE_KEY, state) || !writeStore(STORE_KEY + '.worker-config', '') || !writeStore(key, '1')) throw new Error('无法完成本机配置迁移，原配置已备份');
 }
 
@@ -294,23 +293,6 @@ async function detectNetwork(split = false, args = {}) {
   } catch (_) {
     return "unknown";
   }
-}
-
-async function detectIPv4() {
-  const probes = [
-    ["https://api.ipify.org?format=json", (body) => JSON.parse(body).ip],
-    ["https://api.ip.sb/ip", (body) => String(body).trim()],
-  ];
-  let lastError = "IPv4 probe failed";
-  for (const [url, parse] of probes) {
-    try {
-      const result = await request("get", { url, headers: selectedHeaders("DIRECT"), node: "DIRECT", timeout: 5 });
-      const ip = parse(result.data);
-      if (validIPv4(ip)) return ip;
-      lastError = "invalid IPv4 from probe";
-    } catch (error) { lastError = String(error && error.message || error); }
-  }
-  throw new Error(lastError);
 }
 
 function validIPv4(value) {
@@ -595,9 +577,9 @@ function htmlResult(ok, message, state, mode) {
   const link = (path, label, danger) => '<a class="action' + (danger ? ' danger' : '') + '" href="http://po0-report.invalid/' + path + '"' + (danger ? ' onclick="return confirm(\'确认清除此通道的本机保存配置？\')"' : '') + '>' + label + '</a>';
   return '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PO0 防火墙 · ' + heading + '</title>' +
     '<style>body{margin:0;background:#f4f6f9;color:#172333;font:16px/1.65 -apple-system,sans-serif}main{max-width:680px;margin:auto;padding:28px 18px 48px}h1{font-size:28px;margin:4px 0}h2{font-size:18px;margin:0 0 12px}.eyebrow{font-size:12px;letter-spacing:2px;color:#59718c}.card{background:white;border:1px solid #e0e6ee;border-radius:16px;padding:20px;margin:16px 0}.detail{white-space:pre-wrap;overflow-wrap:anywhere}.actions{display:flex;gap:8px;flex-wrap:wrap}.action{display:block;background:#edf3fa;color:#245581;text-decoration:none;padding:10px 14px;border-radius:10px;font-size:14px}.danger{color:#a13535;background:#fceded}.muted{color:#637286;font-size:13px}</style>' +
-    '<main><div class="eyebrow">PO0 防火墙</div><h1>' + heading + '</h1><p class="muted">Stash 5 切网时核对官方白名单，每分钟轮询补查出口变化。</p>' +
+    '<main><div class="eyebrow">PO0 防火墙</div><h1>' + heading + '</h1><p class="muted">Stash 5 切网时核对官方白名单，默认每 10 分钟定期核对。</p>' +
     '<section class="card"><h2>' + (ok ? '✓ ' : '！ ') + heading + '</h2><div class="detail">' + escapeHtml(message === 'status' ? officialSummary(state && state.official) : message) + '</div></section>' +
-    '<section class="card"><h2>官方防火墙</h2><div class="actions">' + link('save-official','保存配置') + link('toggle-official-timer','启用 / 停用定期上报') + link('toggle-official','停用 / 恢复自动') + link('official-now','立即上报') + link('official-force','强制上报') + link('clear-official','清除本机配置',true) + '</div><p class="muted">Token、名称、定期开关和上报间隔在模块的 /save-official 参数中填写；上报间隔默认 600 秒；关闭定期上报保留原间隔；切网触发与每分钟轮询共用自动上报开关。</p></section>' +
+    '<section class="card"><h2>官方防火墙</h2><div class="actions">' + link('save-official','保存配置') + link('toggle-official-timer','启用 / 停用定期上报') + link('toggle-official','停用 / 恢复自动') + link('official-now','立即上报') + link('official-force','强制上报') + link('clear-official','清除本机配置',true) + '</div><p class="muted">Token、名称、定期开关和上报间隔在模块的 /save-official 参数中填写；上报间隔默认 600 秒；关闭定期上报保留原间隔；切网和定期检查共用自动上报开关。</p></section>' +
     '<div class="actions">' + link('settings','查看本机配置') + link('recent','查看最近结果') + link('status','查询官方白名单') + '<a class="action" href="stash://">返回 Stash</a></div><p class="muted">Stash 公开脚本接口不提供当前 SSID，因此此客户端没有 SSID 跳过名单。</p></main></html>';
 }
 
@@ -660,27 +642,20 @@ async function runUnlocked() {
   // duplicate-account input fails closed without touching the network.
   if (channelAllowed(args, mode, 'official')) parseFirewallTokens(firewallRawValue(args));
   if (!parseFirewallTokens(firewallRawValue(args)).length) { return finish(mode, true, '尚未配置官方上报目标', state, {}); }
+  if (!officialDue(mode, state.official || {}, nowSeconds, args)) {
+    return finish(mode, true, '尚未到定期检查时间', state, {});
+  }
   const detectedNetwork = officialNetworkEnabled(args) ? await detectNetwork(true, args) : 'default';
   const tokens = channelAllowed(args, mode, 'official') ? selectedFirewallTokens(args, detectedNetwork) : [];
   const unknownOfficialNetwork = channelAllowed(args, mode, 'official') && officialNetworkEnabled(args) && detectedNetwork === 'unknown';
-  const officialNetworkChanged = officialNetworkEnabled(args) && state.official?.network !== detectedNetwork;
   if (detectedNetwork === "unknown" && mode !== "force") {
     return finish(mode, false, "无法可靠识别网络，已按 fail-closed 跳过", state, {});
   }
-  const network = { network: detectedNetwork, context: detectedNetwork };
-  // The native event checks the official endpoint directly. Cron also detects missed changes.
-  if (mode === 'auto' && !isNetworkTrigger(args)) {
-    args.detected_ip = await detectIPv4();
-    if (!(state.detected_ip || state.ip) || (state.detected_ip || state.ip) !== args.detected_ip) args.trigger = 'network';
-    state.detected_ip = args.detected_ip;
-  }
-  const needsOfficial = tokens.length > 0 && officialDue(mode, state.official || {}, nowSeconds, officialNetworkChanged ? Object.assign({}, args, { trigger: 'network' }) : args);
-
   let officialResult = { ok: !unknownOfficialNetwork, added: 0, attempted: false, official: unknownOfficialNetwork ? { last_error: '无法识别当前网络，已跳过官方上报' } : undefined };
-  if (tokens.length && (needsOfficial || mode === "force")) {
+  if (tokens.length) {
     officialResult = await runOfficial(tokens, mode, state.official || {}, nowSeconds);
     state.official = officialResult.official;
-    state.official.network = network.network;
+    state.official.network = detectedNetwork;
   }
 
   const ok = officialResult.ok;

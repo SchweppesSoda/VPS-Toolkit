@@ -4,7 +4,7 @@ desc: |-
   【官方防火墙】只在 /save-official 参数填写 Token / 槽位和名称，然后访问 /save-official 保存。
   可以停用、恢复、清除或立即上报；停用保留参数，清除后同步参数不会自动恢复。
   多个官方 Token 支持逗号、分号、空格或换行（JSON 内用 \n）；名称按 Token 顺序，用分号或换行分隔。
-  Stash 5 切网时核对官方白名单；每分钟轮询直连出口 IPv4 兜底；官方定期上报，上报间隔默认 600 秒；关闭开关保留原间隔，旧值 0 继续表示关闭。
+  Stash 5 切网时核对官方白名单。定期检查默认每 600 秒执行一次；关闭开关保留原间隔，旧值 0 继续表示关闭。
   按网络选择默认关闭；将 /save-official 的 OFFICIAL_NETWORK_TARGETS_ENABLED 设为 true 并填写 PO0_FIREWALL_WIFI_TOKENS 后保存。
   开启后原目标用于蜂窝（5G/4G），Wi-Fi 使用另填的目标；沿用 Token 列表写法，槽位由你填写。
   /recent 查看最近结果，/status 查询官方白名单；/report 立即上报，/report-now 强制官方上报；官方始终先 GET，缺失时才加白。
@@ -29,7 +29,7 @@ proxy-groups:
 
 script-providers:
   po0-stash-report-worker-v2:
-    url: https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/stash/po0-firewall.js?rev=20261124-event-v1
+    url: https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/stash/po0-firewall.js?rev=20261124-event-v2
     interval: 86400
   po0-stash-status-tile-v3:
     interval: 86400
@@ -111,7 +111,7 @@ http:
 
     # ── 官方防火墙参数 · 仅在这里填写 Token / 槽位 ──
     # 上报间隔默认 600 秒，可改为 60..86400；独立定期开关关闭后保留间隔与出口检测；保存不发起上报。
-    # script-providers.interval 为脚本更新间隔；cron 每 60 秒检测出口变化。
+    # script-providers.interval 为脚本更新间隔；cron 每分钟在本机判断是否到期。
     - match: ^http://po0-report\.invalid/save-official$
       name: po0-stash-report-worker-v2
       type: request
