@@ -440,7 +440,7 @@ async function testStandardEntrypointsAndLegacyRoutes() {
   assert.equal(normalize(fs.readFileSync(path.join(clientDir, 'po0-stash-report.js'), 'utf8')), normalize(source));
   assert.equal(normalize(fs.readFileSync(path.join(clientDir, 'PO0.LAN-Report.stoverride'), 'utf8')), normalize(override));
   assert.match(override, /^name: PO0 防火墙$/m);
-  assert.match(override, /stash\/po0-firewall\.js\?rev=20261030-slots-v1/);
+  assert.match(override, /stash\/po0-firewall\.js\?rev=20261124-event-v1/);
   assert.match(override, /^  po0-stash-report-worker-v2:$/m);
   for (const route of ['report', 'official-now', 'report-now', 'official-force']) {
     const token = 'pgnfw_legacy_route_fixture';
@@ -452,6 +452,23 @@ async function testStandardEntrypointsAndLegacyRoutes() {
     assert.equal((result.value.response.body.match(/>立即上报<\/a>/g) || []).length, 1);
     assert.equal((result.value.response.body.match(/>强制上报<\/a>/g) || []).length, 1);
   }
+}
+
+async function testNetworkEvent() {
+  const match = /^event:\n  script:\n    - name: po0-stash-report-worker-v2\n      event: network-changed\n      timeout: \d+\n      argument: '(.*)'$/m.exec(override);
+  assert(match, "register the PO0 worker for Stash network changes");
+  const argument = match[1];
+  const store = new Map();
+  await execute({store, argument: reportArgument("save-official", {PO0_FIREWALL_TOKENS: "pgnfw_event_test"})});
+  await execute({store, argument: JSON.stringify({mode: "toggle-official-timer"})});
+  const body = officialBody([{ip: "8.8.8.8/24", slot: null}]);
+  const event = () => execute({scriptType: "event", argument, store, officialGets: [{body}]});
+  const hit = await event();
+  assert.deepEqual(hit.requests.map(r => [r.method, r.request.url]), [["get", OFFICIAL_URL + "/pgnfw_event_test"]]);
+  const repair = await execute({scriptType: "event", argument, store, officialGets: [{body: officialBody([])}], officialPosts: [{body}]});
+  assert.deepEqual(repair.requests.map(r => r.method), ["get", "post"]);
+  await execute({store, argument: JSON.stringify({mode: "toggle-official"})});
+  assert.deepEqual((await event()).requests, []);
 }
 
 async function testTileRemainsReadOnly() {
@@ -521,6 +538,7 @@ async function testExpandedOfficialSlots() {
 (async () => {
   await testExpandedOfficialSlots();
   await testStandardEntrypointsAndLegacyRoutes();
+  await testNetworkEvent();
   await testTileRemainsReadOnly();
   await testOfficialNetworkTargets();
   await testFlexibleOfficialSeparators();
