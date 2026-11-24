@@ -3,14 +3,14 @@ desc: |-
   访问 http://po0-report.invalid/settings 打开本机管理页。
   【官方防火墙】只在 /save-official 参数填写 Token / 槽位和名称，然后访问 /save-official 保存。
   可以停用、恢复、清除或立即上报；停用保留参数，清除后同步参数不会自动恢复。
-  多个官方 Token 支持逗号、分号、空格或换行（JSON 内用 \n）；名称按 Token 顺序，用分号或换行分隔。
+  账号可写为 Token@0|名称，多行用英文分号或换行分隔；旧版 Token 和独立名称列表仍可用。
   Stash 5 切网时核对官方白名单。定期检查默认每 600 秒执行一次；关闭开关保留原间隔，旧值 0 继续表示关闭。
   按网络选择默认关闭；将 /save-official 的 OFFICIAL_NETWORK_TARGETS_ENABLED 设为 true 并填写 PO0_FIREWALL_WIFI_TOKENS 后保存。
   开启后原目标用于蜂窝（5G/4G），Wi-Fi 使用另填的目标；沿用 Token 列表写法，槽位由你填写。
   /recent 查看最近结果，/status 查询官方白名单；/report 立即上报，/report-now 强制官方上报；官方始终先 GET，缺失时才加白。
-  Stash 公开 JS 接口不提供当前 SSID，没有可配置的 SSID 跳过名单。
+  Stash 5 本机读取网络。SKIP_WIFI_SSIDS 用英文分号分隔并区分大小写。命中时跳过普通上报，强制上报可绕过；/status 始终只读。
 
-# 内部网络探测，不承载正常流量。两条探测必须恰好一条成功。
+# 旧版分网探测，仅供缺少 Stash 5 控制接口的客户端选择账号。
 proxy-groups:
   - name: 📡 PO0 Wi-Fi 探测
     type: select
@@ -29,36 +29,37 @@ proxy-groups:
 
 script-providers:
   po0-stash-report-worker-v2:
-    url: https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/stash/po0-firewall.js?rev=20261124-event-v2
+    url: https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/stash/po0-firewall.js?rev=20261124-network-v3
     interval: 86400
-  po0-stash-status-tile-v3:
+  po0-stash-status-tile-v4:
     interval: 86400
     payload: |
       const key = "proxyconfig.po0.stash-report.v1";
       function read(key) {
-        try { return JSON.parse($persistentStore.read(key) || "{}") || {}; } catch (_) { return {}; }
+        try { return JSON.parse($persistentStore.read(key)) || {}; } catch { return {}; }
       }
       function clean(value, limit) {
-        return String(typeof value === "string" ? value : "").replace(/pgnfw_[A-Za-z0-9._~-]+/g, "[REDACTED]").replace(/Bearer\s+[^\s,;]+/gi, "Bearer [REDACTED]").replace(/\s+/g, " ").slice(0, limit);
+        return (typeof value === "string" ? value : "").replace(/pgnfw_[A-Za-z0-9._~-]+/g, "[REDACTED]").replace(/Bearer\s+[^\s,;]+/gi, "Bearer [REDACTED]").replace(/\s+/g, " ").slice(0, limit);
       }
-      const official = read(key).official || {};
+      const state = read(key), data = state.official || {};
       const settings = read(key + ".channel-settings");
-      const accounts = Array.isArray(official.accounts) ? official.accounts.filter(a => a && typeof a === "object") : [];
+      const accounts = Array.isArray(data.accounts) ? data.accounts.filter(a => a && typeof a === "object") : [];
       const hits = accounts.filter(a => a.status === "ok").length;
-      const warning = Boolean(official.last_error) || hits < accounts.length;
-      const summary = [accounts.length ? "已加白 " + hits + "/" + accounts.length : "尚无官方结果"];
-      if (official.network === "wifi") summary.push("Wi-Fi");
-      if (official.network === "cellular") summary.push("蜂窝");
-      if (settings.officialAutoEnabled === false) summary.push("自动停用");
-      if (Number.isFinite(official.last_checked_at) && official.last_checked_at > 0) {
-        const date = new Date(official.last_checked_at * 1000);
-        if (Number.isFinite(date.getTime())) summary.push("检查 " + date.toTimeString().slice(0, 5));
-      }
+      const warning = data.last_error || hits < accounts.length;
+      const line = [accounts.length ? "已加白 " + hits + "/" + accounts.length : "尚无官方结果"];
+      if (state.notice) line.unshift(clean(state.notice, 12) + (accounts.length ? " · 上次" : ""));
+      if (["wifi", "cellular"].includes(data.network)) line.push(data.network === "wifi" ? "Wi-Fi" : "蜂窝");
+      if (settings.officialAutoEnabled === false) line.push("自动停用");
+      const date = new Date(data.last_checked_at * 1000);
+      if (date > 0) line.push("检查 " + date.toTimeString().slice(0, 5));
       const names = String(settings.officialNames || "").split(/[;；\n]/);
-      const labels = {ok: "已加白", missing: "未加白", "slot-mismatch": "槽位不匹配", error: "检查失败"};
+      const labels = {__proto__: null, ok: "已加白", missing: "未加白", "slot-mismatch": "槽位不匹配", error: "检查失败"};
       const rows = accounts.slice(0, 2).map((a, i) => {
-        const parts = [clean(a.name || names[i], 14) || "账号 " + (i + 1), Object.hasOwn(labels, a.status) ? labels[a.status] : "待检查"];
-        if (Number.isInteger(a.fixed_slot) && a.fixed_slot >= 0 && a.fixed_slot < 10) parts.push("#" + (a.fixed_slot + 1));
+        const parts = [clean(a.name || names[i], 14) || "账号 " + (i + 1), labels[a.status] || "待检查"];
+        const slot = a.status === "ok" && "covered_slot" in a ? a.covered_slot : a.fixed_slot;
+        const shared = a.fixed_slot != null && a.fixed_slot !== slot ? "共用 " : "";
+        if (Number.isInteger(slot)) parts.push(shared + "#" + (slot + 1));
+        else if (a.status === "ok" && slot === null) parts.push(shared + "自动槽位");
         if (a.status !== "error") {
           if (Number.isInteger(a.used) && a.limit > 0 && a.limit <= 10) parts.push("占用 " + a.used + "/" + a.limit);
           const ip = clean(a.current || a.current_ip, 18);
@@ -66,8 +67,8 @@ script-providers:
         }
         return parts.join(" · ");
       });
-      if (!rows.length) rows.push(clean(official.last_error, 60) || "点击进入本机设置");
-      $done({title: "PO0 防火墙", content: [summary.join(" · "), ...rows].join("\n"), icon: warning ? "exclamationmark.triangle.fill" : "shield.fill", backgroundColor: warning ? "#b45309" : hits ? "#178f55" : "#6b7280", url: "http://po0-report.invalid/settings"});
+      if (!rows.length) rows.push(clean(data.last_error, 60) || "点击进入本机设置");
+      $done({title: "PO0 防火墙", content: [line.join(" · "), ...rows].join("\n"), icon: warning ? "exclamationmark.triangle.fill" : "shield.fill", backgroundColor: warning ? "#b45309" : hits ? "#178f55" : "#6b7280", url: "http://po0-report.invalid/settings"});
 
 
 # ── 公共自动触发 · 读取本机官方配置 ──
@@ -86,7 +87,7 @@ cron:
       argument: '{"mode":"auto"}'
 
 tiles:
-  - name: po0-stash-status-tile-v3
+  - name: po0-stash-status-tile-v4
     interval: 600
     title: PO0 防火墙
     content: 点击保存本机官方配置
@@ -110,13 +111,13 @@ http:
       argument: '{"mode":"status"}'
 
     # ── 官方防火墙参数 · 仅在这里填写 Token / 槽位 ──
-    # 上报间隔默认 600 秒，可改为 60..86400；独立定期开关关闭后保留间隔与出口检测；保存不发起上报。
+    # 上报间隔默认 600 秒，可改为 60..86400；独立定期开关关闭后保留间隔与切网触发；保存不发起上报。
     # script-providers.interval 为脚本更新间隔；cron 每分钟在本机判断是否到期。
     - match: ^http://po0-report\.invalid/save-official$
       name: po0-stash-report-worker-v2
       type: request
       timeout: 10
-      argument: '{"mode":"save-official","PO0_FIREWALL_TOKENS":"","PO0_FIREWALL_NAMES":"","official_report_interval_seconds":600,"official_timer_enabled":true,"OFFICIAL_NETWORK_TARGETS_ENABLED":false,"PO0_FIREWALL_WIFI_TOKENS":"","PO0_FIREWALL_WIFI_NAMES":""}'
+      argument: '{"mode":"save-official","SKIP_WIFI_SSIDS":"","NOTIFY_SUCCESS":false,"NOTIFY_FAILURE":true,"PO0_FIREWALL_TOKENS":"","PO0_FIREWALL_NAMES":"","official_report_interval_seconds":600,"official_timer_enabled":true,"OFFICIAL_NETWORK_TARGETS_ENABLED":false,"PO0_FIREWALL_WIFI_TOKENS":"","PO0_FIREWALL_WIFI_NAMES":""}'
     - match: ^http://po0-report\.invalid/clear-official$
       name: po0-stash-report-worker-v2
       type: request

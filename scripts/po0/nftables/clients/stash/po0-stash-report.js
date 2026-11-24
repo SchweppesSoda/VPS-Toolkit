@@ -24,7 +24,6 @@ function migrateRetiredState() {
 
 const STORE_KEY = "proxyconfig.po0.stash-report.v1";
 const RUN_LOCK_KEY = STORE_KEY + ".run-lock";
-const NETWORK_GROUP = "📡 PO0 网络识别（自动）";
 const FIREWALL_TOKENS_KEY = "PO0_FIREWALL_TOKENS";
 const OFFICIAL_API_URL = "https://124.221.69.228/api/firewall";
 const OFFICIAL_USER_AGENT = "ProxyConfig-PO0-Firewall/Stash";
@@ -104,13 +103,24 @@ function officialAccountName(index) {
 function saveOfficialNames(args, tokens, clear) {
   const settings = channelSettings();
   const previous = readJSON(STORE_KEY + '.official-config', {});
-  const oldTokens = String(previous.tokens || '').split(/[,;，；\s]+/).filter(Boolean);
+  const oldTokens = parseFirewallTokens(previous.tokens);
   const oldNames = String(settings.officialNames || '').replace(/\r/g, '').split(/[;；\n]/);
   const input = String(args.PO0_FIREWALL_NAMES || '').trim();
   settings.officialNames = clear || input === '-' ? '' : input || parseFirewallTokens(tokens).map(item => {
-    const index = oldTokens.findIndex(old => old.split('@')[0] === item.token);
+    if (item.name) return item.name;
+    const index = oldTokens.findIndex(old => old.token === item.token);
     return index < 0 ? '' : oldNames[index] || '';
   }).join(';');
+  if (!clear) {
+    if (args.SKIP_WIFI_SSIDS !== undefined) settings.officialSkipSsids = String(args.SKIP_WIFI_SSIDS).split(';').map(name => name.trim()).filter(Boolean);
+    for (const key of ['NOTIFY_SUCCESS', 'NOTIFY_FAILURE']) {
+      if (args[key] !== undefined) settings[key] = /^(true|1|on|yes)$/i.test(String(args[key]));
+    }
+  } else {
+    delete settings.officialSkipSsids;
+    delete settings.NOTIFY_SUCCESS;
+    delete settings.NOTIFY_FAILURE;
+  }
   if (!clear) settings.officialIntervalSeconds = saveTimerSettings(settings, 'official', args, settings.officialIntervalSeconds);
   if (clear) settings.officialAutoEnabled = false;
   saveChannelSettings(settings);
@@ -130,6 +140,7 @@ function localSettingsSummary(args) {
     '自动上报：' + (settings.officialAutoEnabled === false ? '已停用' : '已启用'),
     '启用定期上报：' + (timerEnabled('official', args) ? '是' : '否') + '；上报间隔：' + intervalLabel('official', args),
     networkSettingsSummary(args),
+    '跳过的 Wi-Fi：' + ((settings.officialSkipSsids || []).join('; ') || '未设置'),
     '停用保留配置，手动上报仍可用；清除后同步参数不会自动恢复。',
   ].join('\n');
 }
@@ -165,7 +176,7 @@ function selectedFirewallTokens(args, network) {
   const tokens = parseFirewallTokens(network === 'wifi' ? saved.wifiTokens : raw);
   if (network === 'wifi') {
     const names = String(saved.wifiNames || '').replace(/\r/g, '').split(/[;；\n]/);
-    tokens.forEach((item, index) => { item.networkName = names[index]?.trim() || '官方账号 ' + (index + 1); });
+    tokens.forEach((item, index) => { item.networkName = names[index]?.trim() || item.name || '官方账号 ' + (index + 1); });
   }
   return tokens;
 }
@@ -193,6 +204,7 @@ function saveLocalFirewall(args, clear) {
       const previousItems = parseFirewallTokens(previous.wifiTokens);
       const previousNames = String(previous.wifiNames || '').replace(/\r/g, '').split(/[;；\n]/);
       config.wifiNames = wifiNames === '-' ? '' : wifiNames || wifiItems.map(item => {
+        if (item.name) return item.name;
         const index = previousItems.findIndex(old => old.token === item.token);
         return index < 0 ? '' : previousNames[index] || '';
       }).join(';');
@@ -204,6 +216,7 @@ function saveLocalFirewall(args, clear) {
   if (clear || input === '-' || previous.tokens !== tokens || previous.wifiTokens !== config.wifiTokens || previous.networkTargetsEnabled !== config.networkTargetsEnabled) {
     const state = readJSON(STORE_KEY, {});
     delete state.official;
+    delete state.notice;
     if (!writeJSON(STORE_KEY, state)) throw new Error('配置已清除，但最近状态未能清除');
   }
   return tokens;
@@ -227,11 +240,12 @@ function firewallRawValue(args) {
 function parseFirewallTokens(raw) {
   const text = String(raw || "").trim();
   if (!text) return [];
-  const items = text.split(/[,;，；\s]+/).filter(Boolean);
+  const items = text.split(/[,;，；\r\n]+/).flatMap(row => row.includes('|') ? [row.trim()] : row.split(/\s+/)).filter(Boolean);
   const tokens = [];
   const seen = [];
   for (const rawItem of items) {
-    const item = String(rawItem).trim();
+    const [item, name = '', ...extra] = rawItem.split('|').map(value => value.trim());
+    if (extra.length) throw new Error('账号格式为 Token@槽位|名称，间隔由定期上报设置控制');
     const match = item.match(/^(pgnfw_[A-Za-z0-9._~-]{1,240})(?:@([0-9]))?$/);
     if (!match) {
       throw new Error("PO0 防火墙 token 配置无效：请使用 pgnfw_...，槽位可写为 @0 到 @9");
@@ -242,7 +256,7 @@ function parseFirewallTokens(raw) {
     const key = token;
     if (seen.indexOf(key) >= 0) throw new Error("PO0 防火墙 token 列表包含重复项");
     seen.push(key);
-    tokens.push({ token, fixedSlot });
+    tokens.push({ token, fixedSlot, name });
     if (tokens.length > MAX_FIREWALL_TOKENS) throw new Error("PO0 防火墙 token 数量超过上限");
   }
   return tokens;
@@ -270,29 +284,28 @@ function selectedHeaders(proxy) {
   };
 }
 
-async function detectNetwork(split = false, args = {}) {
-  if (split) {
-    // Complementary SSID policies: exactly one probe must succeed. An outage,
-    // missing groups, or a switch during the probes must not be guessed as cellular.
-    const probeGroups = [args.PO0_PROBE_WIFI_GROUP || '📡 PO0 Wi-Fi 探测', args.PO0_PROBE_CELLULAR_GROUP || '📡 PO0 蜂窝探测'];
-    const probes = await Promise.all(probeGroups.map(async group => {
-      try {
-        const result = await request('get', { url: 'https://www.gstatic.com/generate_204', headers: selectedHeaders(group), timeout: 5, 'auto-redirect': false });
-        return responseStatus(result) === 204;
-      } catch (_) { return false; }
-    }));
-    return probes[0] === probes[1] ? 'unknown' : probes[0] ? 'wifi' : 'cellular';
+async function reportNetwork(args, split) {
+  // Stash 5's authenticated local control API returns {interface, ssid}.
+  if (typeof $httpAPI === 'function') {
+    try {
+      const info = await $httpAPI('GET', '/diagnosis/network');
+      const type = String(info?.interface || '').trim().toLowerCase().replace('-', '');
+      const kind = ['wifi', 'cellular'].includes(type) ? type : 'unknown';
+      const ssid = kind === 'wifi' && typeof info.ssid === 'string' ? info.ssid.trim() : '';
+      return { kind, ssid: /^(?:<redacted>|redacted)$/i.test(ssid) ? '' : ssid };
+    } catch (_) { return { kind: 'unknown', ssid: '' }; }
   }
-  try {
-    await request("get", {
-      url: "https://www.gstatic.com/generate_204",
-      headers: selectedHeaders(NETWORK_GROUP),
-      timeout: 5,
-    });
-    return "wifi";
-  } catch (_) {
-    return "unknown";
-  }
+
+  // Older clients can still select saved network targets through their SSID policies.
+  if (!split) return { kind: 'unknown', ssid: '' };
+  const groups = [args.PO0_PROBE_WIFI_GROUP || '📡 PO0 Wi-Fi 探测', args.PO0_PROBE_CELLULAR_GROUP || '📡 PO0 蜂窝探测'];
+  const [wifi, cellular] = await Promise.all(groups.map(async group => {
+    try {
+      const result = await request('get', { url: 'https://www.gstatic.com/generate_204', headers: selectedHeaders(group), timeout: 5, 'auto-redirect': false });
+      return responseStatus(result) === 204;
+    } catch (_) { return false; }
+  }));
+  return { kind: wifi === cellular ? 'unknown' : wifi ? 'wifi' : 'cellular', ssid: '' };
 }
 
 function validIPv4(value) {
@@ -370,22 +383,25 @@ async function officialRequest(item, operation) {
     headers: {
       Accept: "application/json",
       "User-Agent": OFFICIAL_USER_AGENT,
+      "X-Stash-Selected-Proxy": "DIRECT",
     },
-    node: "DIRECT",
+    "auto-redirect": false,
     timeout: 20,
   });
 }
 
-function officialHit(response, item) {
-  return response.whitelist.some((entry) => entry.ip === response.currentIp &&
-    (item.fixedSlot === null || entry.slot === item.fixedSlot));
+function coveredRow(response, item) {
+  const subnet = response.currentIp.split('.').slice(0, 3).map(Number).join('.');
+  const rows = response.whitelist.filter(row => row.ip.split('.').slice(0, 3).map(Number).join('.') === subnet);
+  return rows.find(row => item.fixedSlot === null || row.slot === item.fixedSlot) || rows[0];
 }
 
-function officialAccountState(index, item, response, nowSeconds, status, added, error) {
+function officialAccountState(index, item, response, nowSeconds, status, added, error, covered) {
   return {
     name: item.networkName || officialAccountName(index - 1),
     account: index,
     fixed_slot: item.fixedSlot,
+    covered_slot: covered?.slot ?? null,
     enabled: response ? response.enabled : false,
     current: response ? response.currentIp : "",
     current_ip: response ? response.currentIp : "",
@@ -416,7 +432,7 @@ function redactedError(error, args, items) {
 }
 
 function officialSummary(official) {
-  if (!official || !Array.isArray(official.accounts) || !official.accounts.length) return "官方防火墙：未启用";
+  if (!official || !Array.isArray(official.accounts) || !official.accounts.length) return "尚无官方结果";
   const ok = official.accounts.filter((account) => account.status === "ok").length;
   const missing = official.accounts.filter((account) => account.status === "missing" || account.status === "slot-mismatch").length;
   const added = official.accounts.filter((account) => account.added).length;
@@ -424,7 +440,10 @@ function officialSummary(official) {
   const first = official.accounts.find((account) => account.status !== "error");
   if (first) {
     text += " · 当前 " + (first.current || "-") + " · " + first.used + "/" + first.limit;
-    if (first.fixed_slot !== null && first.fixed_slot !== undefined) text += " · 固定槽位 " + (first.fixed_slot + 1);
+    if (first.status === 'ok' && first.covered_slot !== undefined) {
+      const slot = first.covered_slot === null ? '自动槽位' : '#' + (first.covered_slot + 1);
+      text += ' · ' + (first.fixed_slot != null && first.fixed_slot !== first.covered_slot ? '共用 ' : '命中 ') + slot;
+    }
   }
   text += " · " + official.accounts.map(account => account.name || ("官方账号 " + account.account)).join(" / ");
   if (official.network) text += " · " + official.network;
@@ -494,30 +513,32 @@ function releaseRunLock(lock) {
 async function runOfficialAccount(item, index, tokens, mode, previous, nowSeconds) {
   try {
     // Each account remains GET-first; only independent accounts overlap.
-    const status = parseOfficialResponse(await officialRequest(item, "status"), "状态");
-    if (item.fixedSlot !== null && item.fixedSlot >= status.limit) throw new Error("指定槽位超出账号额度，请调整固定槽位");
-    if (officialHit(status, item)) {
-      return {
-        account: officialAccountState(index + 1, item, status, nowSeconds, "ok", false, ""),
-        added: false,
-      };
+    function checked(result, phase) {
+      const response = parseOfficialResponse(result, phase);
+      if (item.fixedSlot !== null && item.fixedSlot >= response.limit) throw new Error("指定槽位超出账号额度，请调整固定槽位");
+      return response;
     }
-    if (mode === "status") {
-      return {
-        account: officialAccountState(index + 1, item, status, nowSeconds, item.fixedSlot === null ? "missing" : "slot-mismatch", false, ""),
-        added: false,
-      };
+    function outcome(response, row, added = false) {
+      const written = added && (item.fixedSlot === null || item.fixedSlot === row.slot);
+      return { account: officialAccountState(index + 1, item, response, nowSeconds, row ? 'ok' : 'missing', written, '', row), added: written };
     }
+    const status = checked(await officialRequest(item, 'status'), '状态');
+    const hit = coveredRow(status, item);
+    if (hit || mode === 'status') return outcome(status, hit);
 
-    const response = parseOfficialResponse(await officialRequest(item, "add"), "加白");
-    if (item.fixedSlot !== null && item.fixedSlot >= response.limit) throw new Error("指定槽位超出账号额度，请调整固定槽位");
-    if (response.currentIp !== status.currentIp || !officialHit(response, item)) {
-      throw new Error("加白后未确认当前出口或固定槽位");
+    const write = await officialRequest(item, 'add');
+    if (responseStatus(write) === 403) {
+      // Another device may have covered this subnet between our GET and POST.
+      let confirmed;
+      try { confirmed = checked(await officialRequest(item, 'status'), '复查'); } catch (_) {}
+      const shared = confirmed && coveredRow(confirmed, item);
+      if (shared) return outcome(confirmed, shared);
+      throw new Error('官方防火墙加白被拒绝（HTTP 403），复查未确认放行');
     }
-    return {
-      account: officialAccountState(index + 1, item, response, nowSeconds, "ok", true, ""),
-      added: true,
-    };
+    const updated = checked(write, '加白');
+    const row = coveredRow(updated, item);
+    if (!row) throw new Error('加白后未确认当前出口网段');
+    return outcome(updated, row, true);
   } catch (error) {
     const oldAccount = previous && Array.isArray(previous.accounts) ? previous.accounts[index] : null;
     return {
@@ -559,11 +580,16 @@ async function runOfficial(tokens, mode, previous, nowSeconds) {
 }
 
 
+function recentSummary(state) {
+  const summary = officialSummary(state.official);
+  return state.notice ? state.notice + (state.official ? ' · 上次结果：' + summary : '') : summary;
+}
+
 function tile(state) {
   const official = state && state.official;
   const accounts = official && Array.isArray(official.accounts) ? official.accounts : [];
   const errors = Boolean(official && official.last_error) || accounts.some(account => account.status !== 'ok');
-  return { title: 'PO0 防火墙', content: officialSummary(official),
+  return { title: 'PO0 防火墙', content: recentSummary(state),
     icon: errors ? 'exclamationmark.triangle.fill' : 'checkmark.shield.fill',
     backgroundColor: errors ? '#b45309' : accounts.length ? '#178f55' : '#6b7280', url: 'http://po0-report.invalid/settings' };
 }
@@ -580,22 +606,20 @@ function htmlResult(ok, message, state, mode) {
     '<main><div class="eyebrow">PO0 防火墙</div><h1>' + heading + '</h1><p class="muted">Stash 5 切网时核对官方白名单，默认每 10 分钟定期核对。</p>' +
     '<section class="card"><h2>' + (ok ? '✓ ' : '！ ') + heading + '</h2><div class="detail">' + escapeHtml(message === 'status' ? officialSummary(state && state.official) : message) + '</div></section>' +
     '<section class="card"><h2>官方防火墙</h2><div class="actions">' + link('save-official','保存配置') + link('toggle-official-timer','启用 / 停用定期上报') + link('toggle-official','停用 / 恢复自动') + link('official-now','立即上报') + link('official-force','强制上报') + link('clear-official','清除本机配置',true) + '</div><p class="muted">Token、名称、定期开关和上报间隔在模块的 /save-official 参数中填写；上报间隔默认 600 秒；关闭定期上报保留原间隔；切网和定期检查共用自动上报开关。</p></section>' +
-    '<div class="actions">' + link('settings','查看本机配置') + link('recent','查看最近结果') + link('status','查询官方白名单') + '<a class="action" href="stash://">返回 Stash</a></div><p class="muted">Stash 公开脚本接口不提供当前 SSID，因此此客户端没有 SSID 跳过名单。</p></main></html>';
+    '<div class="actions">' + link('settings','查看本机配置') + link('recent','查看最近结果') + link('status','查询官方白名单') + '<a class="action" href="stash://">返回 Stash</a></div><p class="muted">在 /save-official 参数 SKIP_WIFI_SSIDS 中用英文分号分隔 Wi-Fi 名称。普通上报命中时跳过，强制上报可绕过。</p></main></html>';
 }
 
 function finish(mode, ok, message, state, meta) {
   const details = meta || {};
-  if (mode === "status") {
-    if ($script.type === "request") {
-      return { response: { status: ok ? 200 : 502, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" }, body: htmlResult(ok, message, state, mode) } };
+  if (['auto', 'report', 'force', 'status'].includes(mode)) {
+    const settings = readJSON(STORE_KEY + '.channel-settings', {});
+    const updated = Number(details.added || 0) > 0;
+    if ((!ok && settings.NOTIFY_FAILURE !== false) || (ok && (updated || (details.attempted && mode !== 'auto' && settings.NOTIFY_SUCCESS)))) {
+      $notification.post('PO0 防火墙', ok ? (updated ? '新增官方白名单' : '检查完成') : '检查失败', message);
     }
-    return tile(state);
   }
-  if (mode === "auto" && (!ok || Number(details.added || 0) > 0)) {
-    $notification.post("PO0 防火墙", ok ? "新增官方白名单" : "部分失败", message);
-  }
+  if (mode === "status" && $script.type !== "request") return tile(state);
   if ($script.type === "request" || mode === "force") {
-    if (mode === "force") $notification.post("PO0 防火墙", ok ? "成功" : "失败", message);
     return { response: { status: ok ? 200 : 502, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" }, body: htmlResult(ok, message, state, mode) } };
   }
 }
@@ -605,7 +629,10 @@ async function runUnlocked() {
   const mode = $script.type === "tile" ? "status" : String(args.mode || "auto").toLowerCase();
   if (retiredMode(args, mode)) { return finish('settings', true, '自建防火墙功能已退役；旧版可从归档恢复', {}, {}); }
   migrateRetiredState();
-  if (mode === 'recent') return finish(mode, true, officialSummary(readJSON(STORE_KEY, {}).official), readJSON(STORE_KEY, {}), {});
+  if (mode === 'recent') {
+    const cached = readJSON(STORE_KEY, {});
+    return finish(mode, true, recentSummary(cached), cached, {});
+  }
   if (isLocalSettingsMode(mode)) {
     const message = runLocalSettingsAction(args, mode);
     return finish("settings", true, message, readJSON(STORE_KEY, {}), {});
@@ -624,45 +651,47 @@ async function runUnlocked() {
     return finish(mode, true, "官方自动上报已停用，配置保留", state, {});
   }
 
-  if (mode === "status") {
-    firewallRawValue(args);
-    const kind = officialNetworkEnabled(args) ? await detectNetwork(true, args) : undefined;
-    const tokens = selectedFirewallTokens(args, kind);
-    if (officialNetworkEnabled(args) && kind === 'unknown') return finish(mode, false, '无法识别当前网络，已跳过官方查询', state, {});
-    if (!tokens.length) return finish(mode, true, "status", state, {});
-    const officialResult = await runOfficial(tokens, mode, kind && state.official?.network !== kind ? {} : state.official || {}, nowSeconds);
-    state.official = officialResult.official;
-    if (kind) state.official.network = kind;
-    if (!officialResult.ok) state.last_error = officialResult.official.last_error;
-    writeJSON(STORE_KEY, state);
-    return finish(mode, officialResult.ok, officialSummary(state.official), state, officialResult);
-  }
-
-  // Validate official credentials before any network probe so malformed or
-  // duplicate-account input fails closed without touching the network.
-  if (channelAllowed(args, mode, 'official')) parseFirewallTokens(firewallRawValue(args));
-  if (!parseFirewallTokens(firewallRawValue(args)).length) { return finish(mode, true, '尚未配置官方上报目标', state, {}); }
-  if (!officialDue(mode, state.official || {}, nowSeconds, args)) {
+  if (args.channel && args.channel !== 'official') return finish(mode, false, '未知的上报目标', state, {});
+  if (!parseFirewallTokens(firewallRawValue(args)).length) return finish(mode, true, '尚未配置官方上报目标', state, {});
+  const split = officialNetworkEnabled(args);
+  const scheduled = mode === 'auto' && !isNetworkTrigger(args);
+  if (scheduled && !timerEnabled('official', args)) return finish(mode, true, '定期检查已停用', state, {});
+  // Only legacy clients need external 204 probes. Keep idle legacy ticks offline.
+  if (scheduled && typeof $httpAPI !== 'function' && !officialDue(mode, state.official, nowSeconds, args)) {
     return finish(mode, true, '尚未到定期检查时间', state, {});
   }
-  const detectedNetwork = officialNetworkEnabled(args) ? await detectNetwork(true, args) : 'default';
-  const tokens = channelAllowed(args, mode, 'official') ? selectedFirewallTokens(args, detectedNetwork) : [];
-  const unknownOfficialNetwork = channelAllowed(args, mode, 'official') && officialNetworkEnabled(args) && detectedNetwork === 'unknown';
-  if (detectedNetwork === "unknown" && mode !== "force") {
-    return finish(mode, false, "无法可靠识别网络，已按 fail-closed 跳过", state, {});
+  const skip = channelSettings().officialSkipSsids || [];
+  const checkSsid = skip.length > 0 && (mode === 'auto' || mode === 'report');
+  const network = await reportNetwork(args, split);
+  if (checkSsid && network.ssid && skip.includes(network.ssid)) {
+    state.notice = 'Wi-Fi 已跳过';
+    writeJSON(STORE_KEY, state);
+    console.log('[PO0 防火墙] Wi-Fi 已跳过');
+    return finish(mode, true, 'Wi-Fi 已跳过，保留上次结果', state, {});
   }
-  let officialResult = { ok: !unknownOfficialNetwork, added: 0, attempted: false, official: unknownOfficialNetwork ? { last_error: '无法识别当前网络，已跳过官方上报' } : undefined };
-  if (tokens.length) {
-    officialResult = await runOfficial(tokens, mode, state.official || {}, nowSeconds);
-    state.official = officialResult.official;
-    state.official.network = detectedNetwork;
+  if (split && network.kind === 'unknown') {
+    state.notice = '网络类型未知';
+    writeJSON(STORE_KEY, state);
+    return finish(mode, false, '无法识别当前网络，已跳过官方请求', state, {});
   }
-
+  const previous = split && state.official?.network !== network.kind ? {} : state.official || {};
+  if (scheduled && !officialDue(mode, previous, nowSeconds, args)) {
+    if (state.notice) {
+      delete state.notice;
+      writeJSON(STORE_KEY, state);
+    }
+    return finish(mode, true, '尚未到定期检查时间', state, {});
+  }
+  const tokens = selectedFirewallTokens(args, network.kind);
+  const officialResult = await runOfficial(tokens, mode, previous, nowSeconds);
+  state.official = officialResult.official;
+  state.official.network = network.kind === 'unknown' ? 'default' : network.kind;
+  delete state.notice;
   const ok = officialResult.ok;
-  const message = unknownOfficialNetwork ? '无法识别当前网络，已跳过官方上报' : officialResult.attempted ? officialSummary(state.official) : '尚未到上报间隔，无需重复上报';
-  state.last_error = ok ? '' : officialResult.official && officialResult.official.last_error || '官方上报失败';
+  const message = officialSummary(state.official);
+  state.last_error = ok ? '' : state.official.last_error;
   writeJSON(STORE_KEY, state);
-  return finish(mode, ok, message, state, { added: officialResult.added });
+  return finish(mode, ok, message, state, officialResult);
 }
 
 async function run() {
@@ -677,10 +706,9 @@ async function run() {
 function handleError(error) {
   const args = parseArgument();
   const mode = $script.type === "tile" ? "status" : String(args.mode || "auto").toLowerCase();
-  if (mode === 'recent') return finish(mode, true, officialSummary(readJSON(STORE_KEY, {}).official), readJSON(STORE_KEY, {}), {});
   const state = readJSON(STORE_KEY, {});
   const message = redactedError(error, args, null);
-  if (mode !== "status") {
+  if (mode !== "status" && mode !== "recent") {
     state.last_error = message;
     state.last_error_at = Math.floor(Date.now() / 1000);
     writeJSON(STORE_KEY, state);

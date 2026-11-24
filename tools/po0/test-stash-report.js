@@ -49,6 +49,7 @@ function execute(options = {}) {
     const requests = [];
     const notifications = [];
     const logs = [];
+    const diagnostics = [];
     const officialGets = (options.officialGets || []).slice();
     const officialPosts = (options.officialPosts || []).slice();
     let doneCalls = 0;
@@ -154,10 +155,17 @@ function execute(options = {}) {
         }
         if (typeof options.onDone === "function") options.onDone(store, value);
         clearTimeout(timeout);
-        resolve({ store, requests, notifications, logs, doneCalls, value });
+        resolve({ store, requests, diagnostics, notifications, logs, doneCalls, value });
       },
     };
 
+    if (Object.hasOwn(options, "networkInfo")) {
+      context.$httpAPI = async (method, path) => {
+        diagnostics.push([method, path]);
+        if (options.networkInfo instanceof Error) throw options.networkInfo;
+        return options.networkInfo;
+      };
+    }
     try {
       vm.runInNewContext(source, context, { filename: "po0-firewall.js" });
     } catch (error) {
@@ -179,10 +187,9 @@ async function testOfficialGetFirstAndFixedSlot() {
   const officialGet = result.requests[0].request;
   const officialPost = result.requests[1].request;
   assert.strictEqual(officialGet.url, OFFICIAL_URL + "/" + token);
-  assert.strictEqual(officialGet.node, "DIRECT");
+  assert.strictEqual(officialGet.headers["X-Stash-Selected-Proxy"], "DIRECT");
   assert.ok(officialPost.url.endsWith("/add?slot=3"));
-  assert.strictEqual(officialPost.node, "DIRECT");
-  assert.strictEqual(officialGet.headers["X-Stash-Selected-Proxy"], undefined);
+  assert.strictEqual(officialPost.headers["X-Stash-Selected-Proxy"], "DIRECT");
   const state = JSON.parse(result.store.get(STORE_KEY));
   assert.strictEqual(state.official.accounts[0].fixed_slot, 3);
   assert.strictEqual(state.official.accounts[0].current, "8.8.8.8/24");
@@ -440,7 +447,7 @@ async function testStandardEntrypointsAndLegacyRoutes() {
   assert.equal(normalize(fs.readFileSync(path.join(clientDir, 'po0-stash-report.js'), 'utf8')), normalize(source));
   assert.equal(normalize(fs.readFileSync(path.join(clientDir, 'PO0.LAN-Report.stoverride'), 'utf8')), normalize(override));
   assert.match(override, /^name: PO0 防火墙$/m);
-  assert.match(override, /stash\/po0-firewall\.js\?rev=20261124-event-v2/);
+  assert.match(override, /stash\/po0-firewall\.js\?rev=20261124-network-v3/);
   assert.match(override, /^  po0-stash-report-worker-v2:$/m);
   for (const route of ['report', 'official-now', 'report-now', 'official-force']) {
     const token = 'pgnfw_legacy_route_fixture';
@@ -451,6 +458,117 @@ async function testStandardEntrypointsAndLegacyRoutes() {
     assert.match(result.value.response.body, /<title>PO0 防火墙 · /);
     assert.equal((result.value.response.body.match(/>立即上报<\/a>/g) || []).length, 1);
     assert.equal((result.value.response.body.match(/>强制上报<\/a>/g) || []).length, 1);
+  }
+}
+
+async function testNativeNetworkAndSsid() {
+  const store = new Map();
+  const cell = "pgnfw_test_cell", wifi = "pgnfw_test_wifi";
+  const hit = officialBody([{ip: "8.8.8.42/24", slot: 3}]);
+  const methods = result => result.requests.map(r => r.method);
+  const state = () => JSON.parse(store.get(STORE_KEY));
+  const save = values => execute({store, argument: reportArgument("save-official", values)});
+  const run = (mode, info, extra = {}) => execute({store, scriptType: mode === "auto" ? "event" : "request",
+    argument: reportArgument(mode, mode === "auto" ? {trigger: "network"} : {}), networkInfo: info,
+    officialGets: [{body: hit}], ...extra});
+  await save({PO0_FIREWALL_TOKENS: cell + "@1|Mobile SIM", PO0_FIREWALL_WIFI_TOKENS: wifi + "@3|Wi-Fi Line",
+    SKIP_WIFI_SSIDS: " Primary ; Private WiFi ", OFFICIAL_NETWORK_TARGETS_ENABLED: true});
+  const checkRead = (result, token, name, slot) => {
+    assert.deepEqual(result.diagnostics, [["GET", "/diagnosis/network"]]);
+    assert.deepEqual(result.requests.map(r => [r.method, r.request.url]), [["get", OFFICIAL_URL + "/" + token]]);
+    const account = state().official.accounts[0];
+    assert.deepEqual([account.name, account.fixed_slot], [name, slot]);
+  };
+
+  const cellular = await run("auto", {interface: "cellular", ssid: "Private WiFi"});
+  checkRead(cellular, cell, "Mobile SIM", 1);
+  const cached = state().official;
+  const protectedWifi = {interface: "wifi", ssid: "Private WiFi"};
+  for (const mode of ["auto", "report"]) {
+    const skip = await run(mode, protectedWifi);
+    assert.deepEqual(methods(skip), []);
+    assert.deepEqual(skip.notifications, []);
+    assert.deepEqual(state().official, cached);
+    assert.equal(state().notice, "Wi-Fi 已跳过");
+    assert(!JSON.stringify([state(), skip.logs, skip.notifications, skip.value]).includes(protectedWifi.ssid));
+  }
+  const recent = await run("recent", protectedWifi);
+  assert.match(recent.value.response.body, /Wi-Fi 已跳过 · 上次结果/);
+  assert.deepEqual(recent.diagnostics, []);
+  checkRead(await run("force", protectedWifi), wifi, "Wi-Fi Line", 3);
+  const readonly = await run("status", protectedWifi, {officialGets: [{body: officialBody([])}]});
+  checkRead(readonly, wifi, "Wi-Fi Line", 3);
+  assert.equal(state().official.accounts[0].status, "missing");
+  assert.equal(state().notice, undefined);
+
+  for (const ssid of ["PRIVATE WIFI", "Private WiFi guest", "", "<redacted>", null]) {
+    checkRead(await run("auto", {interface: "wifi", ssid}), wifi, "Wi-Fi Line", 3);
+  }
+  for (const info of [{interface: "wired"}, new Error("local API unavailable")]) {
+    const unknown = await run("force", info);
+    assert.deepEqual(methods(unknown), []);
+    assert.equal(state().notice, "网络类型未知");
+  }
+  // A missed network event cannot make a due Wi-Fi check wait on the cellular clock.
+  await run("auto", {interface: "cellular"});
+  const cron = info => run("auto", info, {scriptType: "cron", argument: reportArgument("auto")});
+  checkRead(await cron({interface: "wifi", ssid: "Other"}), wifi, "Wi-Fi Line", 3);
+  assert.deepEqual(methods(await cron({interface: "wifi", ssid: "Other"})), []);
+  await save({OFFICIAL_NETWORK_TARGETS_ENABLED: false});
+  assert.deepEqual(methods(await run("auto", protectedWifi)), []);
+  checkRead(await run("auto", new Error("unavailable")), cell, "Mobile SIM", 1);
+  assert.equal(state().official.network, "default");
+  checkRead(await run("report", {interface: "wifi", ssid: "Other"}), cell, "Mobile SIM", 1);
+  assert.equal(state().official.network, "wifi");
+}
+
+async function testSavedNotificationOptions() {
+  const store = new Map();
+  await execute({store, argument: reportArgument("save-official", {
+    PO0_FIREWALL_TOKENS: "pgnfw_notify", NOTIFY_SUCCESS: true, NOTIFY_FAILURE: false,
+  })});
+  const hit = officialBody([{ip: "8.8.8.0/24", slot: null}]);
+  for (const [mode, body, count] of [["report", hit, 1], ["auto", hit, 0], ["status", officialBody([]), 1]]) {
+    const result = await execute({store, argument: reportArgument(mode, {trigger: "network"}), officialGets: [{body}]});
+    assert.equal(result.notifications.length, count);
+    if (count) assert.equal(result.notifications[0].subtitle, "检查完成");
+  }
+  const failed = await execute({store, argument: reportArgument("report"), officialGets: [{status: 503}]});
+  assert.deepEqual(failed.notifications, []);
+}
+
+async function testSharedSubnetAndRejectedWrite() {
+  const token = "pgnfw_test_shared";
+  const row = slot => ({ip: "8.8.8.0/24", slot});
+  const simulate = (gets, posts = [], targets = token + "@2") => execute({
+    argument: reportArgument("report", {PO0_FIREWALL_TOKENS: targets}), officialGets: gets, officialPosts: posts,
+  });
+  const body = rows => ({body: officialBody(rows, "8.8.8.77/24")});
+  const account = result => JSON.parse(result.store.get(STORE_KEY)).official.accounts[0];
+  const methods = result => result.requests.map(r => r.method);
+  for (const [rows, actual, targets] of [
+    [[row(1)], 1], [[row(null)], null], [[row(1), row(2)], 2], [[row(1), row(null)], 1, token],
+  ]) {
+    const hit = await simulate([body(rows)], [], targets);
+    assert.deepEqual(methods(hit), ["get"]);
+    assert.deepEqual([account(hit).status, account(hit).covered_slot, account(hit).added], ["ok", actual, false]);
+    assert.deepEqual(hit.notifications, []);
+  }
+  const denied = {status: 403};
+  const race = await simulate([body([]), body([row(1)])], [denied]);
+  assert.deepEqual(methods(race), ["get", "post", "get"]);
+  assert.deepEqual([account(race).status, account(race).covered_slot, account(race).added], ["ok", 1, false]);
+  assert.deepEqual(race.notifications, []);
+  for (const [reads, writes, expected] of [
+    [[body([]), body([])], [denied], ["get", "post", "get"]],
+    [[body([]), {status: 500}], [denied], ["get", "post", "get"]],
+    [[body([])], [{status: 500}], ["get", "post"]],
+    [[denied], [], ["get"]],
+  ]) {
+    const failed = await simulate(reads, writes);
+    assert.deepEqual(methods(failed), expected);
+    assert.equal(account(failed).status, "error");
+    assert.equal(failed.notifications.length, 1);
   }
 }
 
@@ -543,6 +661,9 @@ async function testExpandedOfficialSlots() {
 }
 
 (async () => {
+  await testNativeNetworkAndSsid();
+  await testSavedNotificationOptions();
+  await testSharedSubnetAndRejectedWrite();
   await testExpandedOfficialSlots();
   await testStandardEntrypointsAndLegacyRoutes();
   await testNetworkEvent();
