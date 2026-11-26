@@ -1,6 +1,6 @@
 name: PO0 防火墙
 desc: |-
-  从「第三方服务」点开「PO0 防火墙 · 本机」，可查看各账号最近的检查结果。管理页也可从 http://po0-report.invalid/settings 打开。
+  「第三方服务」显示本机已放行的账号数。点开只读结果可查看官方出口和槽位。手动上报和账号管理见 http://po0-report.invalid/settings。
   【官方防火墙】只在 /save-official 参数填写 Token / 槽位和名称，然后访问 /save-official 保存。
   可以停用、恢复、清除或立即上报；停用保留参数，清除后同步参数不会自动恢复。
   账号可写为 Token@0|名称，多行用英文分号或换行分隔；旧版 Token 和独立名称列表仍可用。
@@ -29,51 +29,76 @@ proxy-groups:
 
 script-providers:
   po0-stash-report-worker-v2:
-    url: https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/stash/po0-firewall.js?rev=20261126-tiles
+    url: https://raw.githubusercontent.com/SchweppesSoda/VPS-Toolkit/main/scripts/po0/nftables/clients/stash/po0-firewall.js?rev=20261126-panel
     interval: 86400
-  po0-stash-status-tile-v5:
+  po0-stash-status-tile-v6:
     interval: 86400
     payload: |
       const key = "proxyconfig.po0.stash-report.v1";
       function read(key) {
         try { return JSON.parse($persistentStore.read(key)) || {}; } catch { return {}; }
       }
-      const state = read(key);
-      const data = state.official || {};
-      const paused = read(key + ".channel-settings").officialAutoEnabled === false;
-      const accounts = Array.isArray(data.accounts) ? data.accounts.filter(a => a && typeof a === "object" && !Array.isArray(a)) : [];
-      const hits = accounts.filter(a => a.status === "ok").length;
-      const failed = Boolean(data.last_error) || accounts.some(a => a.status === "error");
-      const notice = ["Wi-Fi 已跳过", "网络类型未知"].includes(state.notice) ? state.notice : "";
-      const parts = [];
-      if (paused) parts.push("自动已停用");
-      if (notice) parts.push(notice);
-      if (accounts.length) {
-        parts.push((notice || paused ? "上次已加白 " : "已加白 ") + hits + "/" + accounts.length);
+      // BEGIN GENERATED PO0 PANEL
+      function panelOverview(state, settings) {
+        const data = state.official || {};
+        const accounts = Array.isArray(data.accounts) ? data.accounts.map(a => a && typeof a === 'object' && !Array.isArray(a) ? a : {}) : [];
+        const total = accounts.length;
+        const count = status => accounts.filter(a => a.status === status).length;
+        const hits = count('ok'), failed = count('error'), missing = count('missing'), mismatch = count('slot-mismatch');
+        const pending = total - hits - failed - missing - mismatch;
+        const unconfigured = state.notice === '尚未配置账号';
+        let headline = '等待首次检查', tone = 'idle';
+        if (total && hits === total) { headline = data.last_error ? '检查有异常' : '全部放行'; tone = data.last_error ? 'warn' : 'good'; }
+        else if (hits) { headline = '部分放行'; tone = 'warn'; }
+        else if ((failed && failed === total) || (!total && data.last_error)) { headline = '检查失败'; tone = 'bad'; }
+        else if (missing && missing === total) { headline = '均未放行'; tone = 'warn'; }
+        else if (total) { headline = '尚未确认放行'; tone = 'warn'; }
+        else if (unconfigured) headline = '尚未配置账号';
+
+        const issues = [[failed, '检查失败'], [missing, '未放行'], [mismatch, '槽位不匹配'], [pending, '待确认']]
+          .filter(([n]) => n).map(([n, label]) => n + ' 个' + label);
+        if (data.last_error && !failed && total) issues.push('检查有异常');
+        const tally = hits + '/' + total + ' 个账号已放行';
+        let result = headline;
+        if (hits) result = tally;
+        else if (total && failed === total) result = total + ' 个账号检查失败';
+        else if (total && missing === total) result = total + ' 个账号未放行';
+        else if (total) result = total + ' 个账号尚未确认放行';
+        const network = data.network === 'wifi' ? 'Wi-Fi' : data.network === 'cellular' ? '蜂窝' : '';
+        function localTime(seconds) {
+          const date = new Date(Number(seconds) * 1000);
+          if (!(date.getTime() > 0)) return '';
+          const today = new Date(Date.now());
+          const day = date.getDate(), month = date.getMonth() + 1;
+          const year = date.getFullYear() === today.getFullYear() ? '' : date.getFullYear() + '/';
+          return (date.toDateString() === today.toDateString() ? '' : year + month + '/' + day + ' ') + date.toTimeString().slice(0, 5);
+        }
+        const context = [network, localTime(data.last_checked_at)].filter(Boolean).join(' ');
+        const hasResult = Boolean(total || data.last_error);
+        const runError = state.last_error && state.last_error !== data.last_error && state.last_error_at > 0
+          && !(Number(data.last_checked_at) > Number(state.last_error_at));
+        let notice = state.notice === 'Wi-Fi 已跳过' ? state.notice : state.notice === '网络类型未知' ? '网络未知，已跳过' : '';
+        const noticeTime = localTime(notice ? state.notice_at : runError ? state.last_error_at : 0);
+        if (runError && !notice) notice = '本次检查失败';
+        if (settings.officialAutoEnabled === false && !unconfigured) notice = [notice, '自动上报已停用'].filter(Boolean).join(' · ');
+        const style = {
+          good: ['checkmark.shield.fill', '#187548'], warn: ['exclamationmark.shield.fill', '#a25b13'],
+          bad: ['xmark.shield.fill', '#aa3a38'], idle: ['shield', '#6b7280'],
+        };
+        let [icon, backgroundColor] = style[tone];
+        if (notice) {
+          icon = notice.startsWith('本次检查失败') ? style.bad[0] : notice.startsWith('自动') ? 'pause.circle.fill' : 'clock.fill';
+          backgroundColor = notice.startsWith('本次检查失败') ? style.bad[1] : style.idle[1];
+        }
+        const detail = !notice && total && failed !== total && missing !== total ? issues[0] : '';
+        const summary = notice ? hasResult ? '上次 ' + result : '尚无上次结果' : result;
+        const breakdown = hits ? [tally, ...issues].join(' · ') : issues.join(' · ');
+        return { accounts, headline, tone, breakdown, context, notice, noticeTime, hasResult,
+          tile: { title: 'PO0 防火墙 · 本机', content: [notice, summary, detail, hasResult && context].filter(Boolean).join(' · '),
+            icon, backgroundColor, url: 'http://po0-report.invalid/recent' } };
       }
-      if (failed) parts.push("检查失败");
-      if (!parts.length) parts.push("等待首次检查");
-      if (data.network === "wifi" || data.network === "cellular") parts.push(data.network === "wifi" ? "Wi-Fi" : "蜂窝");
-      const checked = new Date(data.last_checked_at * 1000);
-      if (checked > 0) parts.push("检查 " + checked.toTimeString().slice(0, 5));
-      let icon = "shield";
-      let color = "#6b7280";
-      if (paused) icon = "pause.circle.fill";
-      else if (notice) icon = "clock.fill";
-      else if (failed || hits < accounts.length) {
-        icon = "exclamationmark.shield.fill";
-        color = "#b45309";
-      } else if (hits) {
-        icon = "checkmark.shield.fill";
-        color = "#187548";
-      }
-      $done({
-        title: "PO0 防火墙 · 本机",
-        content: parts.join(" · "),
-        icon,
-        backgroundColor: color,
-        url: "http://po0-report.invalid/settings",
-      });
+      // END GENERATED PO0 PANEL
+      $done(panelOverview(read(key), read(key + ".channel-settings")).tile);
 
 
 # ── 公共自动触发 · 读取本机官方配置 ──
@@ -92,14 +117,14 @@ cron:
       argument: '{"mode":"auto"}'
 
 tiles:
-  - name: po0-stash-status-tile-v5
+  - name: po0-stash-status-tile-v6
     collapsed: true
     interval: 600
     title: PO0 防火墙 · 本机
     content: 等待首次检查
     icon: shield
     backgroundColor: '#6b7280'
-    url: http://po0-report.invalid/settings
+    url: http://po0-report.invalid/recent
 
 http:
   force-http-engine:

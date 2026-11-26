@@ -127,7 +127,7 @@ function saveOfficialNames(args, tokens, clear) {
 }
 
 function isLocalSettingsMode(mode) {
-  return ['toggle-official', 'toggle-official-timer', 'settings'].includes(mode);
+  return ['toggle-official', 'toggle-official-timer'].includes(mode);
 }
 
 function localSettingsSummary(args) {
@@ -152,8 +152,8 @@ function runLocalSettingsAction(args, mode) {
     settings.officialTimerEnabled = !timerEnabled('official', args);
     if (settings.officialTimerEnabled && settings.officialIntervalSeconds === 0) settings.officialIntervalSeconds = 600;
   }
-  if (mode !== 'settings') saveChannelSettings(settings);
-  return (mode === 'settings' ? '' : '本机设置已更新。\n') + localSettingsSummary(args);
+  saveChannelSettings(settings);
+  return '本机设置已更新。\n' + localSettingsSummary(args);
 }
 
 function firewallInput(args) {
@@ -217,6 +217,10 @@ function saveLocalFirewall(args, clear) {
     const state = readJSON(STORE_KEY, {});
     delete state.official;
     delete state.notice;
+    delete state.notice_at;
+    delete state.last_error;
+    delete state.last_error_at;
+    if (!tokens) state.notice = '尚未配置账号';
     if (!writeJSON(STORE_KEY, state)) throw new Error('配置已清除，但最近状态未能清除');
   }
   return tokens;
@@ -584,68 +588,209 @@ async function runOfficial(tokens, mode, previous, nowSeconds) {
 }
 
 
-function recentSummary(state) {
-  const summary = officialSummary(state.official);
-  return state.notice ? state.notice + (state.official ? ' · 上次结果：' + summary : '') : summary;
+// Also embedded in the collapsed Tile so Stash can render it synchronously, offline.
+function panelOverview(state, settings) {
+  const data = state.official || {};
+  const accounts = Array.isArray(data.accounts) ? data.accounts.map(a => a && typeof a === 'object' && !Array.isArray(a) ? a : {}) : [];
+  const total = accounts.length;
+  const count = status => accounts.filter(a => a.status === status).length;
+  const hits = count('ok'), failed = count('error'), missing = count('missing'), mismatch = count('slot-mismatch');
+  const pending = total - hits - failed - missing - mismatch;
+  const unconfigured = state.notice === '尚未配置账号';
+  let headline = '等待首次检查', tone = 'idle';
+  if (total && hits === total) { headline = data.last_error ? '检查有异常' : '全部放行'; tone = data.last_error ? 'warn' : 'good'; }
+  else if (hits) { headline = '部分放行'; tone = 'warn'; }
+  else if ((failed && failed === total) || (!total && data.last_error)) { headline = '检查失败'; tone = 'bad'; }
+  else if (missing && missing === total) { headline = '均未放行'; tone = 'warn'; }
+  else if (total) { headline = '尚未确认放行'; tone = 'warn'; }
+  else if (unconfigured) headline = '尚未配置账号';
+
+  const issues = [[failed, '检查失败'], [missing, '未放行'], [mismatch, '槽位不匹配'], [pending, '待确认']]
+    .filter(([n]) => n).map(([n, label]) => n + ' 个' + label);
+  if (data.last_error && !failed && total) issues.push('检查有异常');
+  const tally = hits + '/' + total + ' 个账号已放行';
+  let result = headline;
+  if (hits) result = tally;
+  else if (total && failed === total) result = total + ' 个账号检查失败';
+  else if (total && missing === total) result = total + ' 个账号未放行';
+  else if (total) result = total + ' 个账号尚未确认放行';
+  const network = data.network === 'wifi' ? 'Wi-Fi' : data.network === 'cellular' ? '蜂窝' : '';
+  function localTime(seconds) {
+    const date = new Date(Number(seconds) * 1000);
+    if (!(date.getTime() > 0)) return '';
+    const today = new Date(Date.now());
+    const day = date.getDate(), month = date.getMonth() + 1;
+    const year = date.getFullYear() === today.getFullYear() ? '' : date.getFullYear() + '/';
+    return (date.toDateString() === today.toDateString() ? '' : year + month + '/' + day + ' ') + date.toTimeString().slice(0, 5);
+  }
+  const context = [network, localTime(data.last_checked_at)].filter(Boolean).join(' ');
+  const hasResult = Boolean(total || data.last_error);
+  const runError = state.last_error && state.last_error !== data.last_error && state.last_error_at > 0
+    && !(Number(data.last_checked_at) > Number(state.last_error_at));
+  let notice = state.notice === 'Wi-Fi 已跳过' ? state.notice : state.notice === '网络类型未知' ? '网络未知，已跳过' : '';
+  const noticeTime = localTime(notice ? state.notice_at : runError ? state.last_error_at : 0);
+  if (runError && !notice) notice = '本次检查失败';
+  if (settings.officialAutoEnabled === false && !unconfigured) notice = [notice, '自动上报已停用'].filter(Boolean).join(' · ');
+  const style = {
+    good: ['checkmark.shield.fill', '#187548'], warn: ['exclamationmark.shield.fill', '#a25b13'],
+    bad: ['xmark.shield.fill', '#aa3a38'], idle: ['shield', '#6b7280'],
+  };
+  let [icon, backgroundColor] = style[tone];
+  if (notice) {
+    icon = notice.startsWith('本次检查失败') ? style.bad[0] : notice.startsWith('自动') ? 'pause.circle.fill' : 'clock.fill';
+    backgroundColor = notice.startsWith('本次检查失败') ? style.bad[1] : style.idle[1];
+  }
+  const detail = !notice && total && failed !== total && missing !== total ? issues[0] : '';
+  const summary = notice ? hasResult ? '上次 ' + result : '尚无上次结果' : result;
+  const breakdown = hits ? [tally, ...issues].join(' · ') : issues.join(' · ');
+  return { accounts, headline, tone, breakdown, context, notice, noticeTime, hasResult,
+    tile: { title: 'PO0 防火墙 · 本机', content: [notice, summary, detail, hasResult && context].filter(Boolean).join(' · '),
+      icon, backgroundColor, url: 'http://po0-report.invalid/recent' } };
 }
 
-function tile(state) {
-  const official = state && state.official;
-  const accounts = official && Array.isArray(official.accounts) ? official.accounts : [];
-  const errors = Boolean(official && official.last_error) || accounts.some(account => account.status !== 'ok');
-  return { title: 'PO0 防火墙', content: recentSummary(state),
-    icon: errors ? 'exclamationmark.triangle.fill' : 'checkmark.shield.fill',
-    backgroundColor: errors ? '#b45309' : accounts.length ? '#178f55' : '#6b7280', url: 'http://po0-report.invalid/settings' };
+function localOverview(state) {
+  const settings = readJSON(STORE_KEY + '.channel-settings', {});
+  const view = panelOverview(state, settings);
+  view.names = String(settings.officialNames || '').split(/[;；\n]/);
+  return view;
 }
 
 function escapeHtml(value) {
   return String(value == null ? '' : value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 }
 
-function cachedAccountsHtml(state) {
-  const official = state && state.official;
-  if (!Array.isArray(official?.accounts)) return '';
-  const labels = { __proto__: null, ok: '已加白', missing: '未加白', 'slot-mismatch': '槽位不匹配', error: '检查失败' };
-  const rows = official.accounts.map((account, index) => {
-    if (!account || typeof account !== 'object' || Array.isArray(account)) return '';
-    const name = typeof account.name === 'string' && account.name.trim() || officialAccountName(index);
-    const details = [labels[account.status] || '待检查'];
-    const covered = account.status === 'ok' && 'covered_slot' in account;
-    const slot = covered ? account.covered_slot : account.fixed_slot;
-    const shared = covered && account.fixed_slot != null && account.fixed_slot !== slot;
-    if (Number.isInteger(slot) && slot >= 0 && slot < 10) details.push((shared ? '共用 #' : '槽位 #') + (slot + 1));
-    else if (covered && slot === null) details.push(shared ? '共用自动槽位' : '自动槽位');
-    if (account.status !== 'error') {
-      if (Number.isInteger(account.used) && Number.isInteger(account.limit) && account.limit > 0) {
-        details.push('占用 ' + account.used + '/' + account.limit);
-      }
-      const exit = account.current || account.current_ip;
-      if (typeof exit === 'string' && exit) details.push(exit);
+function panelText(value) {
+  return escapeHtml(redactDisplayText(String(value)));
+}
+
+function slotNumber(slot) {
+  return Number.isInteger(slot) && slot >= 0 && slot < 10 ? slot + 1 : null;
+}
+
+function slotMeter(account, covered) {
+  const { used, limit, whitelist } = account;
+  if (!Number.isInteger(limit) || limit < 1 || limit > 10 || !Number.isInteger(used) || used < 0 || used > limit) return '';
+  // Only put numbers on cells when the official response locates every occupied slot.
+  const placed = Array.isArray(whitelist) && whitelist.length === used &&
+    whitelist.every(row => row && slotNumber(row.slot) && row.slot < limit && validIPv4Cidr24(row.ip)) &&
+    new Set(whitelist.map(row => row.slot)).size === used;
+  const cells = [];
+  for (let slot = 0; slot < limit; slot++) {
+    const row = placed && whitelist.find(row => row.slot === slot);
+    const hit = account.status === 'ok' && (placed ? row && covered && row.slot === covered.slot : used > 0 && slot === 0);
+    const occupied = placed ? Boolean(row) : slot < used;
+    const label = hit ? '本机命中' : occupied ? '已占用' : '空闲';
+    cells.push('<span class="cell ' + (hit ? 'hit' : occupied ? 'used' : 'free') + '" title="' +
+      (placed ? '#' + (slot + 1) + ' ' : '') + label + '">' + (placed ? slot + 1 : '') + '</span>');
+  }
+  return '<div class="capacity"><div class="quota"><span>槽位占用</span><b>' + used + '/' + limit + '</b></div>' +
+    '<div class="meter' + (placed ? '' : ' unnumbered') + '" aria-label="占用 ' + used + '/' + limit + '">' + cells.join('') + '</div></div>';
+}
+
+function accountError(message) {
+  const http = /\bHTTP (\d{3})\b/.exec(message);
+  if (http) return '官方接口返回 HTTP ' + http[1];
+  if (String(message).includes('指定槽位超出账号额度')) return '指定槽位超出账号额度';
+  if (String(message).includes('未启用')) return '官方防火墙未启用';
+  return '本次未能确认官方白名单';
+}
+
+function accountCard(account, index, names) {
+  const name = typeof account.name === 'string' && account.name.trim() || names[index]?.trim() || '官方账号 ' + (index + 1);
+  const ok = account.status === 'ok', error = account.status === 'error';
+  const checked = ok || account.status === 'missing' || account.status === 'slot-mismatch';
+  const labels = { __proto__: null, missing: '未放行', 'slot-mismatch': '槽位不匹配' };
+  const status = ok ? account.added === true ? '新增放行' : '已放行' : error ? '检查失败' : labels[account.status] || '待确认';
+  const tone = ok ? 'good' : error ? 'bad' : checked ? 'warn' : 'idle';
+  const start = '<article class="account"><header><h3>' + panelText(name) + '</h3><span class="badge ' + tone + '">' + status + '</span></header>';
+  if (!checked) return start + '<p class="reason">' + (error ? accountError(account.last_error) : '尚无可确认的检查结果') + '</p></article>';
+  const exit = [account.current, account.current_ip, account.current_exit].find(value => typeof value === 'string' && validIPv4Cidr24(value));
+  const fixed = slotNumber(account.fixed_slot);
+  let covered;
+  if (ok) {
+    if (account.covered_slot === null || slotNumber(account.covered_slot)) covered = { slot: account.covered_slot };
+    else if (exit && Array.isArray(account.whitelist)) {
+      const whitelist = account.whitelist.filter(row => row && validIPv4Cidr24(row.ip) && (row.slot === null || slotNumber(row.slot)));
+      covered = coveredRow({ currentIp: exit, whitelist }, { fixedSlot: fixed ? account.fixed_slot : null });
     }
-    return '<div><dt>' + escapeHtml(redactDisplayText(name)) + '</dt><dd>' +
-      details.map(item => '<span>' + escapeHtml(redactDisplayText(item)) + '</span>').join('') + '</dd></div>';
-  }).join('');
-  if (!rows) return '';
-  const checked = new Date(official.last_checked_at * 1000);
-  const context = [state.notice, official.network === 'wifi' ? 'Wi-Fi' : official.network === 'cellular' ? '蜂窝' : '',
-    checked > 0 ? checked.toLocaleString() : ''].filter(Boolean).join(' · ');
-  return '<section class="card"><h2>最近一次账号检查</h2><p class="muted">' + escapeHtml(redactDisplayText(context)) +
-    '</p><dl class="accounts">' + rows + '</dl></section>';
+  }
+  let slot = fixed ? '指定 #' + fixed : '';
+  if (covered) {
+    const shared = fixed && account.fixed_slot !== covered.slot;
+    slot = (shared ? '共用' : '命中') + (covered.slot === null ? '自动槽位' : ' #' + slotNumber(covered.slot)) +
+      (shared ? '<small>指定 #' + fixed + '</small>' : '');
+  }
+  return start + (slot ? '<p class="slot">' + slot + '</p>' : '') + slotMeter(account, covered) +
+    (exit ? '<p class="exit"><span>官方出口</span><code>' + escapeHtml(exit) + '</code></p>' : '') + '</article>';
 }
 
-function htmlResult(ok, message, state, mode) {
-  const heading = mode === 'settings' ? '本机设置' : mode === 'status' ? '上报状态' : ok ? '操作完成' : '操作未完成';
-  const link = (path, label, danger) => '<a class="action' + (danger ? ' danger' : '') + '" href="http://po0-report.invalid/' + path + '"' + (danger ? ' onclick="return confirm(\'确认清除此通道的本机保存配置？\')"' : '') + '>' + label + '</a>';
-  return '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PO0 防火墙 · ' + heading + '</title>' +
-    '<style>body{margin:0;background:#f4f6f9;color:#172333;font:16px/1.65 -apple-system,sans-serif}main{max-width:680px;margin:auto;padding:28px 18px 48px}h1{font-size:28px;margin:4px 0}h2{font-size:18px;margin:0 0 12px}.eyebrow{font-size:12px;letter-spacing:2px;color:#59718c}.card{background:white;border:1px solid #e0e6ee;border-radius:16px;padding:20px;margin:16px 0}.detail{white-space:pre-wrap;overflow-wrap:anywhere}.actions{display:flex;gap:8px;flex-wrap:wrap}.action{display:block;background:#edf3fa;color:#245581;text-decoration:none;padding:10px 14px;border-radius:10px;font-size:14px}.danger{color:#a13535;background:#fceded}.muted{color:#637286;font-size:13px}</style>' +
-    '<style>.accounts{margin:0}.accounts div{padding:10px 0;border-top:1px solid #e0e6ee}.accounts dt{font-weight:600;overflow-wrap:anywhere}.accounts dd{display:flex;flex-wrap:wrap;gap:2px 12px;margin:2px 0 0;color:#465a70;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}</style>' +
-    '<main><div class="eyebrow">PO0 防火墙</div><h1>' + heading + '</h1><p class="muted">Stash 5 切网时核对官方白名单，默认每 10 分钟定期核对。</p>' +
-    (mode === 'settings' || mode === 'recent' ? cachedAccountsHtml(state) : '') +
-    '<section class="card"><h2>' + (ok ? '✓ ' : '！ ') + heading + '</h2><div class="detail">' + escapeHtml(message === 'status' ? officialSummary(state && state.official) : message) + '</div></section>' +
-    '<section class="card"><h2>官方防火墙</h2><div class="actions">' + link('save-official','保存配置') + link('toggle-official-timer','启用 / 停用定期上报') + link('toggle-official','停用 / 恢复自动') + link('official-now','立即上报') + link('official-force','强制上报') + link('clear-official','清除本机配置',true) + '</div><p class="muted">Token、名称、定期开关和上报间隔在模块的 /save-official 参数中填写；上报间隔默认 600 秒；关闭定期上报保留原间隔；切网和定期检查共用自动上报开关。</p></section>' +
-    '<div class="actions">' + link('settings','查看本机配置') + link('recent','查看最近结果') + link('status','查询官方白名单') + '<a class="action" href="stash://">返回 Stash</a></div><p class="muted">在 /save-official 参数 SKIP_WIFI_SSIDS 中用英文分号分隔 Wi-Fi 名称。普通上报命中时跳过，强制上报可绕过。</p></main></html>';
+function cachedPanelHtml(state, fresh) {
+  const view = localOverview(state);
+  const official = state.official || {};
+  const notice = fresh ? '' : view.notice;
+  const source = official.check_kind === 'query' ? '只读查询' : official.check_kind === 'report' ? '官方上报' : '';
+  const caption = notice ? '上次检查' : '本次检查';
+  const rows = view.accounts;
+  const when = [view.context, source].filter(Boolean).join(' · ');
+  const banner = notice ? '<aside class="notice"><strong>' + notice + '</strong><span>' + (view.noticeTime ? view.noticeTime + ' · ' : '') +
+    (view.hasResult ? '下方保留上次检查结果' : '尚无上次检查结果') + '</span></aside>' : '';
+  if (!view.hasResult && notice) return banner;
+  const overview = '<section class="summary ' + view.tone + '"><div class="summary-meta"><span>' +
+    (view.hasResult ? caption : '本机状态') + '</span><span>' + when + '</span></div><h2>' + view.headline + '</h2>' +
+    (view.breakdown ? '<p>' + view.breakdown + '</p>' : '') + '</section>';
+  if (!rows.length) return banner + overview;
+  const cards = rows.map((a, i) => accountCard(a, i, view.names)).join('');
+  const legend = cards.includes('class="meter') ? '<div class="legend"><span class="hit">本机命中</span>' +
+    '<span class="used">其他占用</span><span class="free">空闲</span></div>' : '';
+  return banner + overview + '<section class="accounts"><div class="section-head"><h2>账号详情</h2>' +
+    legend + '</div>' + cards + '</section>';
 }
 
+function htmlResult(ok, message, state, mode, attempted) {
+  const recent = mode === 'recent', settings = mode === 'settings';
+  const heading = recent ? '本机上报结果' : settings ? '本机设置' : mode === 'status' ? '官方白名单查询' : ok ? '操作完成' : '操作未完成';
+  const link = (path, label, danger) => '<a class="action' + (danger ? ' danger' : '') + '" href="http://po0-report.invalid/' + path + '"' +
+    (danger ? ' onclick="return confirm(\'确认清除本机保存的官方配置？\')"' : '') + '>' + label + '</a>';
+  const navigation = '<nav class="actions">' + (recent ? link('settings', '本机设置') : link('recent', '查看本机结果')) +
+    link('status', '查询官方白名单') + '<a class="action" href="stash://">返回 Stash</a></nav>';
+  const controls = '<section class="card"><h2>官方防火墙</h2><div class="actions">' + link('save-official','保存配置') +
+    link('toggle-official-timer','启用 / 停用定期上报') + link('toggle-official','停用 / 恢复自动') + link('official-now','立即上报') +
+    link('official-force','强制上报') + link('clear-official','清除本机配置',true) + '</div>' +
+    '<p class="hint">在 /save-official 参数中填写账号、名称和间隔。SKIP_WIFI_SSIDS 可用英文分号分隔多个 Wi-Fi 名称。强制上报可绕过跳过名单。</p></section>';
+  const response = !recent && !attempted ? '<section class="card"><h2>' + (settings ? '上报设置' : heading) +
+    '</h2><div class="detail">' + panelText(message) + '</div></section>' : '';
+  return '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+    '<title>PO0 防火墙 · ' + heading + '</title><style>' + PANEL_CSS + '</style></head><body><main>' +
+    '<header class="page-head"><p>Stash · 本机</p><h1>PO0 防火墙</h1></header>' +
+    (recent || settings || attempted ? cachedPanelHtml(state, attempted) : '') + response + (recent ? '' : controls) +
+    navigation + '</main></body></html>';
+}
+
+const PANEL_CSS = `
+:root{color-scheme:light dark;--bg:#f3f5f5;--paper:#fff;--ink:#172a2e;--sub:#4d6369;--line:#d4dfe0;--hit:#176a5a;--used:#68828a;--free:#eef2f2;--link:#226473}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif}
+main{max-width:580px;margin:auto;padding:20px 16px max(32px,env(safe-area-inset-bottom));overflow-wrap:anywhere}h1,h2,h3,p{margin:0}
+.page-head{margin-bottom:15px}.page-head p,.summary-meta,.legend,.quota,.exit,.hint,.reason,.notice span{color:var(--sub);font-size:13px}
+h1{font-size:27px;line-height:1.35;letter-spacing:-.03em}.page-head p{font-weight:600}
+.good{--tone:#146854;--tint:#e8f4ef}.warn{--tone:#874b0d;--tint:#fbefdd}.bad{--tone:#a13436;--tint:#faebeb}.idle{--tone:var(--sub);--tint:var(--free)}
+.summary,.notice,.account,.card{border:1px solid var(--line);border-radius:15px;background:var(--paper)}
+.summary{border:0;border-left:4px solid var(--tone);background:var(--tint);padding:13px 15px 15px;margin-bottom:17px}
+.summary-meta,.section-head,.account header,.quota,.exit,.notice{display:flex;align-items:baseline;justify-content:space-between;gap:4px 12px;flex-wrap:wrap}
+.summary-meta{color:var(--tone);font-weight:600;font-variant-numeric:tabular-nums}.summary h2{font-size:26px;line-height:1.35;margin:4px 0;color:var(--tone)}
+.summary p{font-size:14px}.notice{padding:10px 14px;margin-bottom:10px}.notice strong{font-size:15px}
+.section-head{margin:0 2px 8px}.section-head h2,.card h2{font-size:17px}.legend{display:flex;flex-wrap:wrap;gap:8px;font-size:11px}
+.legend span:before{content:"";display:inline-block;width:8px;height:8px;margin-right:3px;border-radius:2px}
+.legend .hit:before,.cell.hit{background:var(--hit)}.legend .used:before,.cell.used{background:var(--used)}.legend .free:before,.cell.free{background:var(--free);border:1px solid var(--line)}
+.account,.card{padding:13px 15px;margin-bottom:8px}.account header{align-items:flex-start;flex-wrap:nowrap}.account h3{min-width:0;font-size:16px}.badge{flex:none;color:var(--tone);background:var(--tint);font-size:12px;font-weight:650;border-radius:6px;padding:2px 7px}
+.slot,.reason{margin-top:4px}.slot{font-size:13px;color:var(--ink)}.slot small{margin-left:8px;color:var(--sub);font-size:12px}
+.capacity{margin-top:8px}.quota,.exit{gap:2px 8px}.quota b,.exit code{color:var(--ink);font-variant-numeric:tabular-nums}
+.meter{display:flex;gap:3px;margin-top:3px}.cell{flex:1;text-align:center;border-radius:3px;font:600 11px/16px -apple-system,sans-serif;color:white}.cell.free{color:var(--sub);line-height:14px}
+.unnumbered .cell{height:6px}.exit{margin-top:7px}.exit code{font:13px ui-monospace,Consolas,monospace}
+.card h2{margin-bottom:8px}.detail{white-space:pre-wrap}.actions{display:flex;flex-wrap:wrap;gap:6px}nav{margin-top:16px}
+.action{display:inline-block;border:1px solid var(--line);background:var(--paper);border-radius:8px;padding:9px 10px;color:var(--link);text-decoration:none;font-size:14px}.danger{color:#a13436}.hint{margin-top:10px}
+@media(prefers-color-scheme:dark){:root{--bg:#11191c;--paper:#192427;--ink:#eef3f3;--sub:#b1c0c4;--line:#3a4a4e;--hit:#278673;--used:#526c75;--free:#263338;--link:#89d5df}
+.good{--tone:#8cdbc0;--tint:#183b33}.warn{--tone:#f3c681;--tint:#382d1d}.bad{--tone:#ffb1ae;--tint:#422b2e}.danger{color:#ffb1ae}}
+`;
 function finish(mode, ok, message, state, meta) {
   const details = meta || {};
   if (['auto', 'report', 'force', 'status'].includes(mode)) {
@@ -655,9 +800,9 @@ function finish(mode, ok, message, state, meta) {
       $notification.post('PO0 防火墙', ok ? (updated ? '新增官方白名单' : '检查完成') : '检查失败', message);
     }
   }
-  if (mode === "status" && $script.type !== "request") return tile(state);
+  if (mode === "status" && $script.type !== "request") return localOverview(state).tile;
   if ($script.type === "request" || mode === "force") {
-    return { response: { status: ok ? 200 : 502, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" }, body: htmlResult(ok, message, state, mode) } };
+    return { response: { status: ok ? 200 : 502, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" }, body: htmlResult(ok, message, state, mode, details.attempted) } };
   }
 }
 
@@ -665,11 +810,10 @@ async function runUnlocked() {
   const args = parseArgument();
   const mode = $script.type === "tile" ? "status" : String(args.mode || "auto").toLowerCase();
   if (retiredMode(args, mode)) { return finish('settings', true, '自建防火墙功能已退役；旧版可从归档恢复', {}, {}); }
-  migrateRetiredState();
-  if (mode === 'recent') {
-    const cached = readJSON(STORE_KEY, {});
-    return finish(mode, true, recentSummary(cached), cached, {});
+  if (mode === 'recent' || mode === 'settings') {
+    return finish(mode, true, mode === 'settings' ? localSettingsSummary(args) : '', readJSON(STORE_KEY, {}));
   }
+  migrateRetiredState();
   if (isLocalSettingsMode(mode)) {
     const message = runLocalSettingsAction(args, mode);
     return finish("settings", true, message, readJSON(STORE_KEY, {}), {});
@@ -702,28 +846,28 @@ async function runUnlocked() {
   const network = await reportNetwork(args, split);
   if (checkSsid && network.ssid && skip.includes(network.ssid)) {
     state.notice = 'Wi-Fi 已跳过';
+    state.notice_at = nowSeconds;
     writeJSON(STORE_KEY, state);
     console.log('[PO0 防火墙] Wi-Fi 已跳过');
     return finish(mode, true, 'Wi-Fi 已跳过，保留上次结果', state, {});
   }
   if (split && network.kind === 'unknown') {
     state.notice = '网络类型未知';
+    state.notice_at = nowSeconds;
     writeJSON(STORE_KEY, state);
     return finish(mode, false, '无法识别当前网络，已跳过官方请求', state, {});
   }
   const previous = split && state.official?.network !== network.kind ? {} : state.official || {};
-  if (scheduled && !officialDue(mode, previous, nowSeconds, args)) {
-    if (state.notice) {
-      delete state.notice;
-      writeJSON(STORE_KEY, state);
-    }
-    return finish(mode, true, '尚未到定期检查时间', state, {});
-  }
+  // An idle timer tick has no new evidence about the last checked network.
+  if (scheduled && !officialDue(mode, previous, nowSeconds, args)) return finish(mode, true, '尚未到定期检查时间', state, {});
   const tokens = selectedFirewallTokens(args, network.kind);
   const officialResult = await runOfficial(tokens, mode, previous, nowSeconds);
   state.official = officialResult.official;
+  state.official.check_kind = mode === 'status' ? 'query' : 'report';
   state.official.network = network.kind === 'unknown' ? 'default' : network.kind;
   delete state.notice;
+  delete state.notice_at;
+  delete state.last_error_at;
   const ok = officialResult.ok;
   const message = officialSummary(state.official);
   state.last_error = ok ? '' : state.official.last_error;
@@ -745,7 +889,9 @@ function handleError(error) {
   const mode = $script.type === "tile" ? "status" : String(args.mode || "auto").toLowerCase();
   const state = readJSON(STORE_KEY, {});
   const message = redactedError(error, args, null);
-  if (mode !== "status" && mode !== "recent") {
+  if (['auto', 'report', 'force', 'status'].includes(mode)) {
+    delete state.notice;
+    delete state.notice_at;
     state.last_error = message;
     state.last_error_at = Math.floor(Date.now() / 1000);
     writeJSON(STORE_KEY, state);
@@ -755,7 +901,7 @@ function handleError(error) {
 }
 
 if ($script.type === "tile") {
-  $done(tile(readJSON(STORE_KEY, {})));
+  $done(localOverview(readJSON(STORE_KEY, {})).tile);
 } else {
   // Release the shared event/cron lock before Stash ends this script.
   run().catch(handleError).then(result => result === undefined ? $done() : $done(result));

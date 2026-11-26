@@ -42,6 +42,25 @@ try {
   fs.writeFileSync(manifest, source + '|' + copy + '\n');
   fs.appendFileSync(manifest, source + '|scripts/po0/relay/manager/other.js\n');
   assert.throws(() => syncClientCompatibility(directory, '--write'), /outside client scope/);
+  const panel = 'scripts/po0/nftables/clients/stash/PO0-Firewall.stoverride';
+  const oldPanel = 'scripts/po0/nftables/clients/stash/PO0.LAN-Report.stoverride';
+  const overview = 'function panelOverview(state, settings, saved) {\n  return state;\n}';
+  const begin = '      // BEGIN GENERATED PO0 PANEL', end = '      // END GENERATED PO0 PANEL';
+  write(source, overview + '\n');
+  write('tools/po0/manifests/client-compat.txt', source + '|' + copy + '\n' + panel + '|' + oldPanel + '\n');
+  for (const invalid of [begin, end + '\n' + begin, begin + '\n' + begin + '\n' + end]) {
+    write(panel, invalid);
+    assert.throws(() => syncClientCompatibility(directory, '--write'), /ordered marker pair/);
+    assert.equal(fs.readFileSync(target, 'utf8'), 'canonical destination fixture\n');
+  }
+  write(panel, 'prefix\n' + begin + '\nold\n' + end + '\nsuffix\n');
+  syncClientCompatibility(directory, '--write');
+  const rendered = 'prefix\n' + begin + '\n' + overview.split('\n').map(line => '      ' + line).join('\n') + '\n' + end + '\nsuffix\n';
+  assert.equal(fs.readFileSync(path.join(directory, panel), 'utf8'), rendered);
+  assert.equal(fs.readFileSync(path.join(directory, oldPanel), 'utf8'), rendered);
+  fs.utimesSync(path.join(directory, panel), 1000000, 1000000);
+  syncClientCompatibility(directory, '--write');
+  assert.equal(fs.statSync(path.join(directory, panel)).mtimeMs, 1000000000);
   syncClientCompatibility(root, '--check');
   console.log('PASS: client compatibility preflight, read-only checks and repeat-write no-op.');
 } finally {

@@ -52,7 +52,7 @@ function execute(options = {}) {
     const diagnostics = [];
     const officialGets = (options.officialGets || []).slice();
     const officialPosts = (options.officialPosts || []).slice();
-    let doneCalls = 0;
+    let doneCalls = 0, writes = 0;
     const timeout = setTimeout(() => reject(new Error("PO0 Stash script test timed out")), 2_000);
 
     function invokeSpec(spec, fallback) {
@@ -137,6 +137,7 @@ function execute(options = {}) {
       $persistentStore: {
         read: (key) => store.has(key) ? store.get(key) : null,
         write: (value, key) => {
+          writes += 1;
           if (options.writeError) throw new Error("persistent store unavailable");
           store.set(key, value);
           return true;
@@ -155,7 +156,7 @@ function execute(options = {}) {
         }
         if (typeof options.onDone === "function") options.onDone(store, value);
         clearTimeout(timeout);
-        resolve({ store, requests, diagnostics, notifications, logs, doneCalls, value });
+        resolve({ store, requests, diagnostics, notifications, logs, doneCalls, writes, value });
       },
     };
 
@@ -231,7 +232,8 @@ async function testStatusMissingIsSuccessAndReadOnly() {
   assert.strictEqual(state.official.accounts[0].status, "missing");
   assert.strictEqual(state.official.accounts[0].used, 1);
   assert.strictEqual(result.value.response.status, 200, "合法 missing status must be a successful read-only response");
-  assert.match(result.value.response.body, /未命中/);
+  assert.match(result.value.response.body, /均未放行/);
+  assert.match(result.value.response.body, /只读查询/);
 }
 
 async function testStrictDuplicateSlotsAndTokenPersistence() {
@@ -447,7 +449,7 @@ async function testStandardEntrypointsAndLegacyRoutes() {
   assert.equal(normalize(fs.readFileSync(path.join(clientDir, 'po0-stash-report.js'), 'utf8')), normalize(source));
   assert.equal(normalize(fs.readFileSync(path.join(clientDir, 'PO0.LAN-Report.stoverride'), 'utf8')), normalize(override));
   assert.match(override, /^name: PO0 防火墙$/m);
-  assert.match(override, /stash\/po0-firewall\.js\?rev=20261126-tiles/);
+  assert.match(override, /stash\/po0-firewall\.js\?rev=20261126-panel/);
   assert.match(override, /^  po0-stash-report-worker-v2:$/m);
   for (const route of ['report', 'official-now', 'report-now', 'official-force']) {
     const token = 'pgnfw_legacy_route_fixture';
@@ -493,8 +495,11 @@ async function testNativeNetworkAndSsid() {
     assert(!JSON.stringify([state(), skip.logs, skip.notifications, skip.value]).includes(protectedWifi.ssid));
   }
   const recent = await run("recent", protectedWifi);
-  assert.match(recent.value.response.body, /Wi-Fi 已跳过 · 上次结果/);
+  assert.match(recent.value.response.body, /Wi-Fi 已跳过.*上次检查.*蜂窝/);
   assert.deepEqual(recent.diagnostics, []);
+  const idle = await execute({store, scriptType: 'cron', argument: reportArgument('auto'), networkInfo: {interface: 'cellular'}});
+  assert.deepEqual(methods(idle), []);
+  assert.equal(state().notice, 'Wi-Fi 已跳过', 'an idle tick does not confirm the previous whitelist again');
   checkRead(await run("force", protectedWifi), wifi, "Wi-Fi Line", 3);
   const readonly = await run("status", protectedWifi, {officialGets: [{body: officialBody([])}]});
   checkRead(readonly, wifi, "Wi-Fi Line", 3);
@@ -596,59 +601,100 @@ async function testNetworkEvent() {
   assert.deepEqual((await event()).requests, []);
 }
 
-async function testTileRemainsReadOnly() {
-  const store = new Map([
-    [STORE_KEY, JSON.stringify({ official: { accounts: [{ name: '测试账号', status: 'ok', current: '8.8.8.8/24' }] } })],
-    [STORE_KEY + '.worker-config', 'retired fixture awaiting migration'],
-    [STORE_KEY + '.channel-settings', JSON.stringify({ version: 1, officialNames: '测试账号', officialAutoEnabled: false })],
-  ]);
-  const before = Array.from(store.entries());
-  const result = await execute({ scriptType: 'tile', store, writeError: true });
-  assert.deepEqual(result.requests, []);
-  assert.deepEqual(result.notifications, []);
-  assert.deepEqual(Array.from(store.entries()), before, 'tile cannot migrate or write any stored state');
-  assert.equal(result.value.title, 'PO0 防火墙');
-  assert.equal(result.value.url, 'http://po0-report.invalid/settings');
+function inlineTile(store) {
   const normalized = override.replace(/\r\n/g, '\n');
-  assert.match(normalized, /^  - name: po0-stash-status-tile-v5\n    collapsed: true$/m);
-  const payload = /    payload: \|\n([\s\S]*?)\n\n/.exec(normalized)[1].replace(/^      /gm, '');
-  let tile;
-  vm.runInNewContext(payload, {
-    $persistentStore: { read: key => store.get(key) || null, write: () => { throw new Error('tile wrote state'); } },
-    $httpClient: { get: () => { throw new Error('tile requested network'); }, post: () => { throw new Error('tile requested network'); } },
-    $done: value => { tile = value; },
+  assert.match(normalized, /^  - name: po0-stash-status-tile-v6\n    collapsed: true$/m);
+  const block = /  po0-stash-status-tile-v6:\n    interval: \d+\n    payload: \|\n([\s\S]*?)(?=^\S)/m.exec(normalized);
+  let tile, done = 0, sideEffects = 0;
+  const unexpected = () => { sideEffects++; throw new Error('Tile must only read local storage'); };
+  vm.runInNewContext(block[1].replace(/^      /gm, ''), {
+    $persistentStore: { read: key => store.get(key) || null, write: unexpected },
+    $httpAPI: unexpected, $httpClient: { get: unexpected, post: unexpected }, $notification: { post: unexpected },
+    $done: value => { done++; tile = value; },
   });
-  assert.equal(tile.title, 'PO0 防火墙 · 本机');
-  assert.equal(tile.content, '自动已停用 · 上次已加白 1/1');
-  assert.equal(tile.url, 'http://po0-report.invalid/settings');
-  assert.deepEqual(Array.from(store.entries()), before);
+  assert.equal(done, 1);
+  assert.equal(sideEffects, 0);
+  return tile;
+}
+
+async function testTileRemainsReadOnly() {
+  const cached = (...statuses) => ({official: {accounts: statuses.map(status => ({status})), network: 'cellular'}});
+  for (const [state, extra, expected, icon] of [
+    [{}, {}, /^等待首次检查$/, 'shield'],
+    [{notice: '尚未配置账号'}, {'.channel-settings': {version: 1, officialAutoEnabled: false}}, /^尚未配置账号$/, 'shield'],
+    [cached('ok', 'ok'), {}, /^2\/2 个账号已放行 · 蜂窝$/, 'checkmark.shield.fill'],
+    [cached('ok', 'error'), {}, /^1\/2 个账号已放行 · 1 个检查失败/, 'exclamationmark.shield.fill'],
+    [cached('ok', 'missing'), {}, /1\/2 个账号已放行 · 1 个未放行/, 'exclamationmark.shield.fill'],
+    [cached('error', 'error'), {}, /^2 个账号检查失败/, 'xmark.shield.fill'],
+    [cached('missing'), {}, /^1 个账号未放行/, 'exclamationmark.shield.fill'],
+    [cached('slot-mismatch'), {}, /尚未确认放行 · 1 个槽位不匹配/, 'exclamationmark.shield.fill'],
+    [cached('future-status'), {}, /尚未确认放行 · 1 个待确认/, 'exclamationmark.shield.fill'],
+    [{...cached('ok'), notice: 'Wi-Fi 已跳过'}, {}, /^Wi-Fi 已跳过 · 上次 1\/1 个账号已放行 · 蜂窝/, 'clock.fill'],
+    [{notice: '网络类型未知'}, {}, /网络未知，已跳过 · 尚无上次结果/, 'clock.fill'],
+    [cached('ok'), {'.channel-settings': {version: 1, officialAutoEnabled: false}}, /自动上报已停用 · 上次 1\/1/, 'pause.circle.fill'],
+    [{...cached('ok'), last_error: 'failed before official checks', last_error_at: 300}, {}, /本次检查失败 · 上次 1\/1/, 'xmark.shield.fill'],
+    [{official: {last_error: 'cached error'}}, {}, /^检查失败$/, 'xmark.shield.fill'],
+  ]) {
+    const store = new Map([[STORE_KEY, JSON.stringify(state)], [STORE_KEY + '.worker-config', 'legacy data awaiting migration']]);
+    for (const [suffix, value] of Object.entries(extra)) store.set(STORE_KEY + suffix, JSON.stringify(value));
+    const before = Array.from(store.entries());
+    const tile = inlineTile(store);
+    const old = await execute({scriptType: 'tile', store, networkInfo: {}, writeError: true, argument: reportArgument('force')});
+    assert.deepEqual(JSON.parse(JSON.stringify(old.value)), JSON.parse(JSON.stringify(tile)));
+    assert.equal(tile.title, 'PO0 防火墙 · 本机');
+    assert.equal(tile.url, 'http://po0-report.invalid/recent');
+    assert.equal(tile.icon, icon);
+    assert.match(tile.content, expected);
+    assert.equal(old.writes, 0);
+    assert.deepEqual([old.requests, old.diagnostics, old.notifications], [[], [], []]);
+    assert.deepEqual(Array.from(store.entries()), before);
+  }
 }
 
 async function testCollapsedTileAccountDetails() {
-  const official = { network: 'cellular', last_checked_at: 1800000000, accounts: [
-    { name: '<公司>', status: 'ok', fixed_slot: 2, covered_slot: 1, used: 2, limit: 5, current: '192.0.2.0/24' },
-    { name: '家里', status: 'ok', fixed_slot: 0, covered_slot: null, used: 3, limit: 10, current_ip: '198.51.100.0/24' },
+  const official = { network: 'cellular', last_checked_at: 1700000000, accounts: [
+    { name: '<公司>', status: 'ok', fixed_slot: 2, covered_slot: 1, used: 2, limit: 5, current: '192.0.2.3/24',
+      whitelist: [{slot: 1, ip: '192.0.2.0/24'}, {slot: 3, ip: '203.0.113.0/24'}] },
+    { name: '家里', status: 'ok', fixed_slot: 0, covered_slot: null, used: 1, limit: 10, current_ip: '198.51.100.0/24',
+      whitelist: [{slot: null, ip: '198.51.100.0/24'}] },
     { name: '第三个', status: 'missing', fixed_slot: 0, used: 1, limit: 5, current: '203.0.113.0/24' },
-    { name: '异常账号', status: 'error', used: 9, limit: 10, current: 'stale IP', last_error: 'pgnfw_private_sample' },
+    { name: '异常账号', status: 'error', used: 9, limit: 10, current: '192.0.2.250/24', last_error: 'HTTP 503 pgnfw_private_sample' },
     { status: 'slot-mismatch', fixed_slot: 1 },
+    { name: '旧缓存', status: 'ok', fixed_slot: 1, used: 3, limit: 5 },
+    { name: '本次添加', status: 'ok', fixed_slot: 0, added: true, current_exit: '203.0.113.1/24',
+      used: 1, limit: 5, whitelist: [{slot: 0, ip: '203.0.113.0/24'}] },
   ] };
   const store = new Map([[STORE_KEY, JSON.stringify({ official, notice: 'Wi-Fi 已跳过' })],
-    [STORE_KEY + '.official-only-v1', '1']]);
+    [STORE_KEY + '.worker-config', 'legacy data pending migration']]);
   const before = Array.from(store.entries());
   for (const mode of ['settings', 'recent']) {
-    const result = await execute({ store, scriptType: 'request', argument: JSON.stringify({ mode }) });
-    assert.deepEqual(result.requests, []);
+    const result = await execute({store, scriptType: 'request', argument: JSON.stringify({mode}), networkInfo: {}});
+    assert.deepEqual([result.requests, result.diagnostics, result.notifications], [[], [], []]);
+    assert.equal(result.writes, 0, 'opening or refreshing must not migrate the legacy store');
     assert.deepEqual(Array.from(store.entries()), before);
-    const html = result.value.response.body;
-    assert.match(html, /最近一次账号检查/);
-    assert.match(html, /Wi-Fi 已跳过 · 蜂窝/);
-    assert.match(html, /<dt>&lt;公司&gt;<\/dt>.*共用 #2.*占用 2\/5.*192\.0\.2\.0\/24/);
-    assert.match(html, /<dt>家里<\/dt>.*共用自动槽位.*占用 3\/10.*198\.51\.100\.0\/24/);
-    assert.match(html, /<dt>第三个<\/dt>.*未加白.*槽位 #1.*203\.0\.113\.0\/24/);
-    assert.match(html, /<dt>异常账号<\/dt><dd><span>检查失败<\/span><\/dd>/);
-    assert.match(html, /官方账号 5.*槽位不匹配.*槽位 #2/);
-    assert.doesNotMatch(html, /<公司>|stale IP|pgnfw_private_sample/);
+    const html = result.value.response.body.split('<body>')[1];
+    assert.match(html, /Wi-Fi 已跳过.*上次检查.*蜂窝 2023\/11\/\d+ \d\d:\d\d/);
+    assert.match(html, /部分放行.*4\/7 个账号已放行/);
+    const cards = html.match(/<article\b.*?<\/article>/g);
+    assert.equal(cards.length, official.accounts.length);
+    assert.match(cards[0], /&lt;公司&gt;.*共用 #2.*指定 #3.*2\/5.*官方出口.*192\.0\.2\.3\/24/);
+    assert.match(cards[0], /class="cell hit" title="#2 本机命中">2</);
+    assert.match(cards[0], /class="cell used" title="#4 已占用">4</);
+    assert.match(cards[1], /共用自动槽位.*1\/10.*meter unnumbered.*198\.51\.100\.0\/24/);
+    assert.doesNotMatch(cards[1], /class="cell [^"]+" title="#/);
+    assert.match(cards[2], /未放行.*指定 #1.*203\.0\.113\.0\/24/);
+    assert.match(cards[3], /检查失败.*HTTP 503/);
+    assert.doesNotMatch(cards[3], /槽位占用|官方出口|9\/10/);
+    assert.match(cards[4], /官方账号 5.*槽位不匹配.*指定 #2/);
+    assert.match(cards[5], /旧缓存.*指定 #2.*meter unnumbered/);
+    assert.doesNotMatch(cards[5], /命中 #2/);
+    assert.match(cards[6], /新增放行.*命中 #1.*203\.0\.113\.1\/24/);
+    assert.doesNotMatch(html, /<公司>|192\.0\.2\.250|pgnfw_private_sample/);
   }
+  store.set(STORE_KEY + '.channel-settings', 'broken JSON');
+  const invalidSettings = await execute({store, scriptType: 'request', argument: reportArgument('settings')});
+  assert.equal(invalidSettings.value.response.status, 502);
+  assert.equal(invalidSettings.writes, 0, 'an error in a read-only view cannot change cached results');
 }
 
 

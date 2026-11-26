@@ -3,6 +3,20 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const normalize = text => text.replace(/^\ufeff/, '').replace(/\r\n?/g, '\n');
+const stashClient = 'scripts/po0/nftables/clients/stash/';
+
+function renderStashTile(root, override) {
+  const worker = normalize(fs.readFileSync(path.join(root, stashClient, 'po0-firewall.js'), 'utf8'));
+  const functions = worker.match(/^function panelOverview\([^\n]*\) \{\n[\s\S]*?^}/gm);
+  const begin = '      // BEGIN GENERATED PO0 PANEL', end = '      // END GENERATED PO0 PANEL';
+  const lines = override.split('\n');
+  const start = lines.indexOf(begin), stop = lines.indexOf(end);
+  if (functions?.length !== 1 || start < 0 || stop <= start || start !== lines.lastIndexOf(begin) || stop !== lines.lastIndexOf(end)) {
+    throw new Error('Cannot synchronize Stash Tile: expected one panelOverview function and one ordered marker pair.');
+  }
+  const payload = functions[0].split('\n').map(line => line ? '      ' + line : '');
+  return [...lines.slice(0, start + 1), ...payload, ...lines.slice(stop)].join('\n');
+}
 
 export function syncClientCompatibility(root, mode = '--check') {
   if (!['--check', '--write'].includes(mode)) throw new Error('Unknown compatibility sync mode: ' + mode);
@@ -28,7 +42,10 @@ export function syncClientCompatibility(root, mode = '--check') {
     if (canonical === legacy || copies.has(legacy)) throw new Error('Duplicate compatibility destination: ' + legacy);
     copies.add(legacy);
     sources.add(canonical);
-    const text = normalize(fs.readFileSync(path.join(root, canonical), 'utf8'));
+    const sourceFile = path.join(root, canonical);
+    const original = normalize(fs.readFileSync(sourceFile, 'utf8'));
+    const text = canonical === stashClient + 'PO0-Firewall.stoverride' ? renderStashTile(root, original) : original;
+    if (text !== original) plan.push({ text, destination: sourceFile, legacy: canonical, matches: false });
     const destination = path.join(root, legacy);
     const matches = fs.existsSync(destination) && normalize(fs.readFileSync(destination, 'utf8')) === text;
     plan.push({ text, destination, legacy, matches });
