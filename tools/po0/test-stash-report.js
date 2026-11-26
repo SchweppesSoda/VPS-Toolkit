@@ -447,7 +447,7 @@ async function testStandardEntrypointsAndLegacyRoutes() {
   assert.equal(normalize(fs.readFileSync(path.join(clientDir, 'po0-stash-report.js'), 'utf8')), normalize(source));
   assert.equal(normalize(fs.readFileSync(path.join(clientDir, 'PO0.LAN-Report.stoverride'), 'utf8')), normalize(override));
   assert.match(override, /^name: PO0 防火墙$/m);
-  assert.match(override, /stash\/po0-firewall\.js\?rev=20261124-network-v3/);
+  assert.match(override, /stash\/po0-firewall\.js\?rev=20261126-tiles/);
   assert.match(override, /^  po0-stash-report-worker-v2:$/m);
   for (const route of ['report', 'official-now', 'report-now', 'official-force']) {
     const token = 'pgnfw_legacy_route_fixture';
@@ -609,16 +609,46 @@ async function testTileRemainsReadOnly() {
   assert.deepEqual(Array.from(store.entries()), before, 'tile cannot migrate or write any stored state');
   assert.equal(result.value.title, 'PO0 防火墙');
   assert.equal(result.value.url, 'http://po0-report.invalid/settings');
-  const payload = /    payload: \|\n([\s\S]*?)\n\n/.exec(override)[1].replace(/^      /gm, '');
+  const normalized = override.replace(/\r\n/g, '\n');
+  assert.match(normalized, /^  - name: po0-stash-status-tile-v5\n    collapsed: true$/m);
+  const payload = /    payload: \|\n([\s\S]*?)\n\n/.exec(normalized)[1].replace(/^      /gm, '');
   let tile;
   vm.runInNewContext(payload, {
     $persistentStore: { read: key => store.get(key) || null, write: () => { throw new Error('tile wrote state'); } },
     $httpClient: { get: () => { throw new Error('tile requested network'); }, post: () => { throw new Error('tile requested network'); } },
     $done: value => { tile = value; },
   });
-  assert.equal(tile.title, 'PO0 防火墙');
+  assert.equal(tile.title, 'PO0 防火墙 · 本机');
+  assert.equal(tile.content, '自动已停用 · 上次已加白 1/1');
   assert.equal(tile.url, 'http://po0-report.invalid/settings');
   assert.deepEqual(Array.from(store.entries()), before);
+}
+
+async function testCollapsedTileAccountDetails() {
+  const official = { network: 'cellular', last_checked_at: 1800000000, accounts: [
+    { name: '<公司>', status: 'ok', fixed_slot: 2, covered_slot: 1, used: 2, limit: 5, current: '192.0.2.0/24' },
+    { name: '家里', status: 'ok', fixed_slot: 0, covered_slot: null, used: 3, limit: 10, current_ip: '198.51.100.0/24' },
+    { name: '第三个', status: 'missing', fixed_slot: 0, used: 1, limit: 5, current: '203.0.113.0/24' },
+    { name: '异常账号', status: 'error', used: 9, limit: 10, current: 'stale IP', last_error: 'pgnfw_private_sample' },
+    { status: 'slot-mismatch', fixed_slot: 1 },
+  ] };
+  const store = new Map([[STORE_KEY, JSON.stringify({ official, notice: 'Wi-Fi 已跳过' })],
+    [STORE_KEY + '.official-only-v1', '1']]);
+  const before = Array.from(store.entries());
+  for (const mode of ['settings', 'recent']) {
+    const result = await execute({ store, scriptType: 'request', argument: JSON.stringify({ mode }) });
+    assert.deepEqual(result.requests, []);
+    assert.deepEqual(Array.from(store.entries()), before);
+    const html = result.value.response.body;
+    assert.match(html, /最近一次账号检查/);
+    assert.match(html, /Wi-Fi 已跳过 · 蜂窝/);
+    assert.match(html, /<dt>&lt;公司&gt;<\/dt>.*共用 #2.*占用 2\/5.*192\.0\.2\.0\/24/);
+    assert.match(html, /<dt>家里<\/dt>.*共用自动槽位.*占用 3\/10.*198\.51\.100\.0\/24/);
+    assert.match(html, /<dt>第三个<\/dt>.*未加白.*槽位 #1.*203\.0\.113\.0\/24/);
+    assert.match(html, /<dt>异常账号<\/dt><dd><span>检查失败<\/span><\/dd>/);
+    assert.match(html, /官方账号 5.*槽位不匹配.*槽位 #2/);
+    assert.doesNotMatch(html, /<公司>|stale IP|pgnfw_private_sample/);
+  }
 }
 
 
@@ -668,6 +698,7 @@ async function testExpandedOfficialSlots() {
   await testStandardEntrypointsAndLegacyRoutes();
   await testNetworkEvent();
   await testTileRemainsReadOnly();
+  await testCollapsedTileAccountDetails();
   await testOfficialNetworkTargets();
   await testFlexibleOfficialSeparators();
   await testLocalSlotSurvivesSync();

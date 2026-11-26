@@ -426,6 +426,10 @@ function redactedError(error, args, items) {
   for (const token of tokens) {
     if (token !== undefined && token !== null && String(token)) message = message.split(String(token)).join("[REDACTED]");
   }
+  return redactDisplayText(message);
+}
+
+function redactDisplayText(message) {
   return message
     .replace(/pgnfw_[A-Za-z0-9._~-]+/g, "[REDACTED]")
     .replace(/Bearer\s+[^\s,;]+/gi, "Bearer [REDACTED]");
@@ -598,12 +602,45 @@ function escapeHtml(value) {
   return String(value == null ? '' : value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 }
 
+function cachedAccountsHtml(state) {
+  const official = state && state.official;
+  if (!Array.isArray(official?.accounts)) return '';
+  const labels = { __proto__: null, ok: '已加白', missing: '未加白', 'slot-mismatch': '槽位不匹配', error: '检查失败' };
+  const rows = official.accounts.map((account, index) => {
+    if (!account || typeof account !== 'object' || Array.isArray(account)) return '';
+    const name = typeof account.name === 'string' && account.name.trim() || officialAccountName(index);
+    const details = [labels[account.status] || '待检查'];
+    const covered = account.status === 'ok' && 'covered_slot' in account;
+    const slot = covered ? account.covered_slot : account.fixed_slot;
+    const shared = covered && account.fixed_slot != null && account.fixed_slot !== slot;
+    if (Number.isInteger(slot) && slot >= 0 && slot < 10) details.push((shared ? '共用 #' : '槽位 #') + (slot + 1));
+    else if (covered && slot === null) details.push(shared ? '共用自动槽位' : '自动槽位');
+    if (account.status !== 'error') {
+      if (Number.isInteger(account.used) && Number.isInteger(account.limit) && account.limit > 0) {
+        details.push('占用 ' + account.used + '/' + account.limit);
+      }
+      const exit = account.current || account.current_ip;
+      if (typeof exit === 'string' && exit) details.push(exit);
+    }
+    return '<div><dt>' + escapeHtml(redactDisplayText(name)) + '</dt><dd>' +
+      details.map(item => '<span>' + escapeHtml(redactDisplayText(item)) + '</span>').join('') + '</dd></div>';
+  }).join('');
+  if (!rows) return '';
+  const checked = new Date(official.last_checked_at * 1000);
+  const context = [state.notice, official.network === 'wifi' ? 'Wi-Fi' : official.network === 'cellular' ? '蜂窝' : '',
+    checked > 0 ? checked.toLocaleString() : ''].filter(Boolean).join(' · ');
+  return '<section class="card"><h2>最近一次账号检查</h2><p class="muted">' + escapeHtml(redactDisplayText(context)) +
+    '</p><dl class="accounts">' + rows + '</dl></section>';
+}
+
 function htmlResult(ok, message, state, mode) {
   const heading = mode === 'settings' ? '本机设置' : mode === 'status' ? '上报状态' : ok ? '操作完成' : '操作未完成';
   const link = (path, label, danger) => '<a class="action' + (danger ? ' danger' : '') + '" href="http://po0-report.invalid/' + path + '"' + (danger ? ' onclick="return confirm(\'确认清除此通道的本机保存配置？\')"' : '') + '>' + label + '</a>';
   return '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PO0 防火墙 · ' + heading + '</title>' +
     '<style>body{margin:0;background:#f4f6f9;color:#172333;font:16px/1.65 -apple-system,sans-serif}main{max-width:680px;margin:auto;padding:28px 18px 48px}h1{font-size:28px;margin:4px 0}h2{font-size:18px;margin:0 0 12px}.eyebrow{font-size:12px;letter-spacing:2px;color:#59718c}.card{background:white;border:1px solid #e0e6ee;border-radius:16px;padding:20px;margin:16px 0}.detail{white-space:pre-wrap;overflow-wrap:anywhere}.actions{display:flex;gap:8px;flex-wrap:wrap}.action{display:block;background:#edf3fa;color:#245581;text-decoration:none;padding:10px 14px;border-radius:10px;font-size:14px}.danger{color:#a13535;background:#fceded}.muted{color:#637286;font-size:13px}</style>' +
+    '<style>.accounts{margin:0}.accounts div{padding:10px 0;border-top:1px solid #e0e6ee}.accounts dt{font-weight:600;overflow-wrap:anywhere}.accounts dd{display:flex;flex-wrap:wrap;gap:2px 12px;margin:2px 0 0;color:#465a70;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}</style>' +
     '<main><div class="eyebrow">PO0 防火墙</div><h1>' + heading + '</h1><p class="muted">Stash 5 切网时核对官方白名单，默认每 10 分钟定期核对。</p>' +
+    (mode === 'settings' || mode === 'recent' ? cachedAccountsHtml(state) : '') +
     '<section class="card"><h2>' + (ok ? '✓ ' : '！ ') + heading + '</h2><div class="detail">' + escapeHtml(message === 'status' ? officialSummary(state && state.official) : message) + '</div></section>' +
     '<section class="card"><h2>官方防火墙</h2><div class="actions">' + link('save-official','保存配置') + link('toggle-official-timer','启用 / 停用定期上报') + link('toggle-official','停用 / 恢复自动') + link('official-now','立即上报') + link('official-force','强制上报') + link('clear-official','清除本机配置',true) + '</div><p class="muted">Token、名称、定期开关和上报间隔在模块的 /save-official 参数中填写；上报间隔默认 600 秒；关闭定期上报保留原间隔；切网和定期检查共用自动上报开关。</p></section>' +
     '<div class="actions">' + link('settings','查看本机配置') + link('recent','查看最近结果') + link('status','查询官方白名单') + '<a class="action" href="stash://">返回 Stash</a></div><p class="muted">在 /save-official 参数 SKIP_WIFI_SSIDS 中用英文分号分隔 Wi-Fi 名称。普通上报命中时跳过，强制上报可绕过。</p></main></html>';
